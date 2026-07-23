@@ -9,6 +9,7 @@ import {
   SupportRecord,
   Template,
 } from '../types';
+import { normalizeTemplateFatigueScale } from '../utils/templateNormalizer';
 
 export interface WorkspaceData {
   children: ChildProfile[];
@@ -35,14 +36,14 @@ function mapChild(row: any): ChildProfile {
 }
 
 function mapTemplate(row: any): Template {
-  return {
+  return normalizeTemplateFatigueScale({
     id: row.id,
     name: row.name,
     type: row.template_type,
     isDefault: row.is_default,
     description: row.description || undefined,
     sections: row.sections || [],
-  };
+  });
 }
 
 function mapSupportPlan(row: any): SupportPlan {
@@ -168,15 +169,16 @@ export async function softDeleteChild(organizationId: string, childId: string) {
 }
 
 export async function saveTemplate(organizationId: string, template: Template) {
+  const normalizedTemplate = normalizeTemplateFatigueScale(template);
   const { error } = await assertSupabase().from('record_templates').upsert(
     {
       organization_id: organizationId,
-      id: template.id,
-      name: template.name,
-      template_type: template.type,
-      is_default: Boolean(template.isDefault),
-      description: template.description || null,
-      sections: template.sections,
+      id: normalizedTemplate.id,
+      name: normalizedTemplate.name,
+      template_type: normalizedTemplate.type,
+      is_default: Boolean(normalizedTemplate.isDefault),
+      description: normalizedTemplate.description || null,
+      sections: normalizedTemplate.sections,
       archived_at: null,
     },
     { onConflict: 'organization_id,id' }

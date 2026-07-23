@@ -1,4 +1,5 @@
 import { Template } from '../types';
+import { FATIGUE_SCALE_HELP, FATIGUE_SCALE_OPTIONS } from '../utils/templateNormalizer';
 
 export const defaultTemplates: Template[] = [
   {
@@ -16,10 +17,11 @@ export const defaultTemplates: Template[] = [
             id: 'fatigue',
             label: '【疲労感】',
             type: 'radio',
-            options: ['なし', 'あり'],
-            defaultValue: 'なし',
+            options: [...FATIGUE_SCALE_OPTIONS],
+            defaultValue: FATIGUE_SCALE_OPTIONS[0],
             hasNote: true,
-            notePlaceholder: '補足（例: 来所時に少し眠気あり）'
+            notePlaceholder: '補足（例: 来所時に少し眠気あり）',
+            helpText: FATIGUE_SCALE_HELP,
           },
           {
             id: 'mood',
@@ -162,10 +164,11 @@ export const defaultTemplates: Template[] = [
             id: 'fatigue',
             label: '【疲労感】',
             type: 'radio',
-            options: ['なし', 'あり'],
-            defaultValue: 'なし',
+            options: [...FATIGUE_SCALE_OPTIONS],
+            defaultValue: FATIGUE_SCALE_OPTIONS[0],
             hasNote: true,
-            notePlaceholder: '補足'
+            notePlaceholder: '補足',
+            helpText: FATIGUE_SCALE_HELP,
           },
           {
             id: 'mood',

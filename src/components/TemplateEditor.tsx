@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Template, TemplateSection, TemplateField } from '../types';
 import { Plus, Trash2, Edit, Copy, Save, MoveUp, MoveDown, Check, Settings, Sparkles } from 'lucide-react';
+import { FATIGUE_SCALE_HELP, FATIGUE_SCALE_OPTIONS, normalizeTemplateFatigueScale } from '../utils/templateNormalizer';
 
 interface TemplateEditorProps {
   templates: Template[];
@@ -39,9 +40,10 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
               id: `f-${Date.now()}-1`,
               label: '【疲労感】',
               type: 'radio',
-              options: ['なし', 'あり'],
-              defaultValue: 'なし',
+              options: [...FATIGUE_SCALE_OPTIONS],
+              defaultValue: FATIGUE_SCALE_OPTIONS[0],
               hasNote: true,
+              helpText: FATIGUE_SCALE_HELP,
             },
             {
               id: `f-${Date.now()}-2`,
@@ -73,8 +75,10 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
 
   // Save template
   const handleSave = () => {
-    onSaveTemplate(editingTemplate);
-    setSelectedTemplate(editingTemplate);
+    const normalizedTemplate = normalizeTemplateFatigueScale(editingTemplate);
+    onSaveTemplate(normalizedTemplate);
+    setEditingTemplate(normalizedTemplate);
+    setSelectedTemplate(normalizedTemplate);
     setIsSavedNotice(true);
     setTimeout(() => setIsSavedNotice(false), 2500);
   };

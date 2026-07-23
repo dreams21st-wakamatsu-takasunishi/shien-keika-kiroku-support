@@ -45,7 +45,7 @@ export const sampleRecords: SupportRecord[] = [
         sectionId: 'life',
         sectionTitle: '生活',
         answers: {
-          fatigue: { value: 'なし', note: '' },
+          fatigue: { value: '1：なし', note: '' },
           mood: { value: 'よい', note: '元気に「ただいま」と来所されました。' },
           preparation: { value: '自分で出来た', note: '連絡帳と水筒を定位置へスムーズに配置。' },
           trouble: { value: 'なかった', note: '' },

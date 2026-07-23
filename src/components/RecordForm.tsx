@@ -26,6 +26,8 @@ import {
 } from '../types';
 import { summarizeABCWithAI } from '../utils/aiHelper';
 import { deleteRecordDraft, loadRecordDraft, saveRecordDraft } from '../services/dataService';
+import { QuickMemoPad } from './QuickMemoPad';
+import { FATIGUE_SCALE_OPTIONS, isFatigueField, normalizeFatigueValue } from '../utils/templateNormalizer';
 
 interface RecordFormProps {
   templates: Template[];
@@ -107,10 +109,17 @@ function createSectionAnswers(template?: Template, existing?: Record<string, Sec
     const previous = existing?.[section.id];
     const answers: SectionAnswer['answers'] = {};
     section.fields.forEach((field) => {
+      const value = previous?.answers?.[field.id]?.value || field.defaultValue || '';
       answers[field.id] = previous?.answers?.[field.id] || {
-        value: field.defaultValue || '',
+        value,
         note: '',
       };
+      if (isFatigueField(field)) {
+        answers[field.id] = {
+          ...answers[field.id],
+          value: normalizeFatigueValue(value),
+        };
+      }
     });
     next[section.id] = {
       sectionId: section.id,
@@ -510,9 +519,35 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const renderField = (field: TemplateField, sectionId: string) => {
     const answer = activeChildDraft?.sectionAnswers[sectionId]?.answers[field.id] || { value: field.defaultValue || '', note: '' };
     const selectedValues = answer.value ? answer.value.split('、').filter(Boolean) : [];
+    const fatigueField = isFatigueField(field);
+    const fatigueOptions = fatigueField ? [...FATIGUE_SCALE_OPTIONS] : [];
     return (
       <div className="space-y-4">
-        {field.type === 'radio' && field.options && <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{field.options.map((option) => (
+        {field.type === 'radio' && fatigueField && <div>
+          <div className="grid grid-cols-5 gap-1.5 sm:gap-2">{fatigueOptions.map((option) => {
+            const [level, label] = option.split('：');
+            const selected = answer.value === option;
+            return (
+              <button
+                key={option}
+                type="button"
+                onClick={() => updateField(sectionId, field.id, option)}
+                aria-label={`疲労感 ${option}`}
+                aria-pressed={selected}
+                className={`min-h-16 rounded-xl border px-1 py-2 transition-all ${
+                  selected
+                    ? 'border-teal-600 bg-teal-600 text-white shadow-sm'
+                    : 'border-slate-300 bg-white text-slate-700'
+                }`}
+              >
+                <span className="block text-xl font-black leading-none">{level}</span>
+                <span className="mt-1 block text-[9px] font-bold leading-tight sm:text-[10px]">{label}</span>
+              </button>
+            );
+          })}</div>
+          <div className="mt-2 flex justify-between text-[10px] font-medium text-slate-500"><span>疲労なし</span><span>疲労が強い</span></div>
+        </div>}
+        {field.type === 'radio' && !fatigueField && field.options && <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{field.options.map((option) => (
           <button key={option} type="button" onClick={() => updateField(sectionId, field.id, option)} className={`${choiceClass} ${answer.value === option ? 'bg-teal-600 border-teal-600 text-white' : 'bg-white border-slate-300 text-slate-700'}`}>
             {answer.value === option && <Check className="inline w-4 h-4 mr-1" />}{option}
           </button>
@@ -697,6 +732,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           {currentStep?.kind === 'review' ? <button type="submit" disabled={isSaving} className="min-h-12 rounded-xl bg-emerald-600 disabled:bg-slate-400 px-6 text-sm font-bold text-white flex items-center justify-center gap-2"><Save className="w-4 h-4" />{isSaving ? '保存中...' : `${wizard.selectedChildIds.length}名分を保存`}</button> : <button type="button" onClick={goNext} className="min-h-12 rounded-xl bg-teal-600 px-6 text-sm font-bold text-white flex items-center justify-center gap-2">次の質問<ChevronRight className="w-4 h-4" /></button>}
         </div>
       </div>
+
+      <QuickMemoPad organizationId={organizationId} userId={userId} />
 
       {showQuickChildModal && <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4"><form onSubmit={handleSaveQuickChild} className="w-full max-w-md rounded-2xl bg-white p-6 space-y-4"><h3 className="font-bold">児童をクイック登録</h3><label className="block text-xs font-bold">児童氏名<input required value={newChildName} onChange={(event) => setNewChildName(event.target.value)} className={`${inputClass} mt-1`} /></label><label className="block text-xs font-bold">学年<input value={newChildGrade} onChange={(event) => setNewChildGrade(event.target.value)} className={`${inputClass} mt-1`} /></label><div className="flex gap-2 justify-end"><button type="button" onClick={() => setShowQuickChildModal(false)} className="min-h-11 px-4 rounded-lg border font-bold text-xs">キャンセル</button><button className="min-h-11 px-4 rounded-lg bg-teal-600 text-white font-bold text-xs">登録して選択</button></div></form></div>}
     </form>
