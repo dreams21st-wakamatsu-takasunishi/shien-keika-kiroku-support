@@ -1,0 +1,40 @@
+- generic [ref=f2e3]:
+  - banner [ref=f2e4]:
+    - generic [ref=f2e6]:
+      - heading "支援経過記録 サポート" [level=1] [ref=f2e13]
+      - button "新規記録を入力" [ref=f2e15]
+  - navigation [ref=f2e18]:
+    - generic [ref=f2e19]:
+      - button "記録" [ref=f2e20]
+      - button "一覧" [ref=f2e24]
+      - button "児童" [ref=f2e30]
+      - button "計画" [ref=f2e37]
+      - button "設定" [ref=f2e43]
+      - button "職員" [ref=f2e48]
+  - main [ref=f2e53]:
+    - generic [ref=f2e54]: ローカル試用モード：データはこのブラウザだけに保存されます。実運用にはSupabase設定が必要です。
+    - generic [ref=f2e57]:
+      - generic [ref=f2e59]:
+        - generic [ref=f2e60]:
+          - generic [ref=f2e61]: 1問ずつ入力
+          - heading "支援経過記録を作成" [level=2] [ref=f2e65]
+          - paragraph [ref=f2e66]: 迷わず順番に進めます。入力内容は画面を戻って修正できます。
+        - generic [ref=f2e67]:
+          - generic [ref=f2e68]: "22"
+          - generic [ref=f2e69]: 全30問
+      - generic [ref=f2e72]:
+        - generic [ref=f2e73]:
+          - generic [ref=f2e74]:
+            - paragraph [ref=f2e75]: 質問 22
+            - heading "学習：【離席】" [level=3] [ref=f2e209]
+          - generic [ref=f2e195]:
+            - generic [ref=f2e202]:
+              - button "なかった" [ref=f2e210]
+              - button "あった" [ref=f2e213]
+            - generic [ref=f2e214]:
+              - text: 補足（任意）
+              - textbox "補足（任意）" [ref=f2e215]:
+                - /placeholder: 回数・状況など
+        - generic [ref=f2e79]:
+          - button "戻る" [ref=f2e80]
+          - button "次へ" [active] [ref=f2e83]

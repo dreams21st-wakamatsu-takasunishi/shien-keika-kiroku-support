@@ -1,0 +1,38 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e6]:
+      - heading "支援経過記録 サポート" [level=1] [ref=e13]
+      - button "新規記録を入力" [ref=e78]
+  - navigation [ref=e81]:
+    - generic [ref=e82]:
+      - button "記録" [ref=e83]
+      - button "一覧" [ref=e87]
+      - button "児童" [ref=e93]
+      - button "計画" [ref=e100]
+      - button "設定" [ref=e106]
+      - button "職員" [ref=e111]
+  - main [ref=e43]:
+    - generic [ref=e44]: ローカル試用モード：データはこのブラウザだけに保存されます。実運用にはSupabase設定が必要です。
+    - generic [ref=e47]:
+      - generic [ref=e49]:
+        - generic [ref=e50]:
+          - generic [ref=e51]: 1問ずつ入力
+          - heading "支援経過記録を作成" [level=2] [ref=e55]
+          - paragraph [ref=e56]: 迷わず順番に進めます。入力内容は画面を戻って修正できます。
+        - generic [ref=e57]:
+          - generic [ref=e58]: "4"
+          - generic [ref=e59]: 全30問
+      - generic [ref=e62]:
+        - generic [ref=e63]:
+          - generic [ref=e64]:
+            - paragraph [ref=e65]: 質問 4
+            - heading "本日の出欠を教えてください。" [level=3] [ref=e125]
+          - generic [ref=e126]:
+            - button "出席" [ref=e127]
+            - button "欠席" [ref=e130]
+            - button "遅刻" [ref=e131]
+            - button "早退" [ref=e132]
+            - button "その他" [ref=e133]
+        - generic [ref=e69]:
+          - button "戻る" [ref=e70]
+          - button "次へ" [active] [ref=e74]

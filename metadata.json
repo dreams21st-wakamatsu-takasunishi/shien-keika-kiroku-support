@@ -1,0 +1,6 @@
+{
+  "name": "支援経過記録作成サポート",
+  "description": "放課後等デイサービス・児童発達支援向けの支援経過記録入力・テンプレートカスタマイズ・PDF出力アプリ",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

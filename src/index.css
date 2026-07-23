@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+html {
+  background: #0f172a;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  min-width: 320px;
+  overscroll-behavior-y: none;
+}
+
+button,
+select,
+input,
+textarea {
+  touch-action: manipulation;
+}

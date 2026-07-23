@@ -1,0 +1,16 @@
+- generic [ref=e4]:
+  - generic [ref=e5]:
+    - heading "支援経過記録 サポート" [level=1] [ref=e10]
+    - paragraph [ref=e11]: 児発・放課後等デイサービス向け共有記録システム
+  - generic [ref=e12]:
+    - generic [ref=e13]:
+      - button "ログイン" [ref=e14]
+      - button "事業所を新規登録" [ref=e15]
+    - generic [ref=e16]:
+      - generic [ref=e17]:
+        - text: メールアドレス
+        - textbox "メールアドレス" [ref=e22]
+      - generic [ref=e23]:
+        - text: パスワード
+        - textbox "パスワード" [ref=e29]
+      - button "ログイン" [ref=e30]

@@ -1,0 +1,144 @@
+- generic [ref=f2e3]:
+  - banner [ref=f2e4]:
+    - generic [ref=f2e6]:
+      - heading "支援経過記録 サポート" [level=1] [ref=f2e13]
+      - button "新規記録を入力" [ref=f2e15]
+  - navigation [ref=f2e18]:
+    - generic [ref=f2e19]:
+      - button "記録" [ref=f2e20]
+      - button "一覧 1" [ref=f2e259]:
+        - generic [ref=f2e29]: 一覧
+        - generic [ref=f2e260]: "1"
+      - button "児童" [ref=f2e30]
+      - button "計画" [ref=f2e37]
+      - button "設定" [ref=f2e43]
+      - button "職員" [ref=f2e48]
+  - main [ref=f2e53]:
+    - generic [ref=f2e54]: ローカル試用モード：データはこのブラウザだけに保存されます。実運用にはSupabase設定が必要です。
+    - generic [ref=f2e261]:
+      - generic [ref=f2e262]:
+        - button "一覧に戻る" [ref=f2e263]
+        - generic [ref=f2e266]:
+          - button "1面表示" [ref=f2e267]
+          - button "項目コピー" [ref=f2e273]
+          - button "文章コピー" [ref=f2e277]
+          - button "再編集" [ref=f2e281]
+          - button "印刷" [ref=f2e285]
+          - button "PDFダウンロード" [ref=f2e290]
+      - generic [ref=f2e294]:
+        - generic [ref=f2e299]:
+          - generic [ref=f2e300]:
+            - heading "支援経過記録 (平日)" [level=1] [ref=f2e301]:
+              - generic [ref=f2e302]: 支援経過記録
+              - generic [ref=f2e303]: (平日)
+            - generic [ref=f2e305]:
+              - text: "児童名:"
+              - strong [ref=f2e306]: 佐藤 健太
+          - table [ref=f2e307]:
+            - rowgroup [ref=f2e308]:
+              - row [ref=f2e309]:
+                - cell "日付" [ref=f2e310]
+                - cell "出欠" [ref=f2e311]
+                - cell "表情" [ref=f2e312]
+                - cell "笑顔 / 真顔 / 暗め" [ref=f2e313]
+                - cell "おやつ" [ref=f2e314]
+                - cell "記録者" [ref=f2e315]
+              - row [ref=f2e316]:
+                - cell "2026-07-22" [ref=f2e317]
+                - cell "出席" [ref=f2e318]
+                - cell "笑顔" [ref=f2e319]
+                - cell "笑顔 / 真顔 / 暗め" [ref=f2e320]
+                - cell "完食" [ref=f2e321]
+                - cell "指導員" [ref=f2e322]
+          - generic [ref=f2e324]:
+            - generic [ref=f2e325]:
+              - strong [ref=f2e326]: 支援時間：
+              - text: 09:00 ～ 17:00
+            - generic [ref=f2e327]:
+              - strong [ref=f2e328]: 送迎：
+              - text: 送迎なし
+            - generic [ref=f2e329]:
+              - strong [ref=f2e330]: 個別支援計画：
+              - text: 関連付けなし
+          - generic [ref=f2e332]:
+            - generic [ref=f2e333]: 生活
+            - generic [ref=f2e334]:
+              - generic [ref=f2e335]:
+                - generic [ref=f2e336]:
+                  - strong [ref=f2e337]: 【疲労感】
+                  - text: なし
+                - generic [ref=f2e338]:
+                  - strong [ref=f2e339]: 【機嫌】
+                  - text: よい
+                - generic [ref=f2e340]:
+                  - strong [ref=f2e341]: 【準備】
+                  - text: 自分で出来た
+                - generic [ref=f2e342]:
+                  - strong [ref=f2e343]: 【こまったこと】
+                  - text: なかった
+                - generic [ref=f2e344]:
+                  - strong [ref=f2e345]: 【声掛けへの反応】
+                  - text: 返事あり
+                - generic [ref=f2e346]:
+                  - strong [ref=f2e347]: ※【服薬】
+                  - text: 対象なし
+              - generic [ref=f2e348]:
+                - generic [ref=f2e349]: 【特記】
+                - generic [ref=f2e350]: 特記事項なし
+          - generic [ref=f2e352]:
+            - generic [ref=f2e353]: 学習
+            - generic [ref=f2e354]:
+              - generic [ref=f2e355]: 取組内容： 学校宿題・個別課題
+              - generic [ref=f2e356]:
+                - generic [ref=f2e357]:
+                  - strong [ref=f2e358]: 【宿題取り組み時間】
+                  - text: 20 分
+                - generic [ref=f2e359]:
+                  - strong [ref=f2e360]: 【取り組み】
+                  - text: 自力で済ませた
+                - generic [ref=f2e361]:
+                  - strong [ref=f2e362]: 【離席】
+                  - text: なかった
+                - generic [ref=f2e363]:
+                  - strong [ref=f2e364]: 【集中力】
+                  - text: 良かった
+              - generic [ref=f2e365]:
+                - generic [ref=f2e366]: 【様子】
+                - generic [ref=f2e367]: 問題なく取り組むことができました。
+          - generic [ref=f2e369]:
+            - generic [ref=f2e370]: PC
+            - generic [ref=f2e371]:
+              - generic [ref=f2e372]: 取組内容： タイピング練習
+              - generic [ref=f2e373]:
+                - generic [ref=f2e374]:
+                  - strong [ref=f2e375]: 【タイピング指使い】
+                  - text: "右手: 3本 / 左手: 2本"
+                - generic [ref=f2e376]:
+                  - strong [ref=f2e377]: 【取り組み時の姿勢】
+                  - text: まっすぐ
+                - generic [ref=f2e378]:
+                  - strong [ref=f2e379]: 【集中】
+                  - text: よい
+              - generic [ref=f2e380]:
+                - generic [ref=f2e381]: 【様子】
+                - generic [ref=f2e382]: 集中してタイピングに取り組みました。
+        - generic [ref=f2e383]:
+          - generic [ref=f2e384]:
+            - generic [ref=f2e385]:
+              - heading "児発管 経過確認・承認" [level=3] [ref=f2e386]
+              - generic [ref=f2e387]: 未確認
+            - generic [ref=f2e388]:
+              - generic [ref=f2e389]:
+                - generic [ref=f2e390]: 児発管コメント・助言
+                - textbox "指導員へのフィードバックや保護者対応時の補足指示を記入" [ref=f2e391]
+              - generic [ref=f2e392]:
+                - generic [ref=f2e393]: 確認者氏名
+                - textbox [ref=f2e394]: 児童発達支援管理責任者
+              - generic [ref=f2e395]:
+                - button "要修正にする" [ref=f2e396]
+                - button "確認完了・承認" [ref=f2e397]
+          - generic [ref=f2e398]:
+            - heading "文章合成プレビュー コピー" [level=4] [ref=f2e399]:
+              - generic [ref=f2e400]: 文章合成プレビュー
+              - button "コピー" [ref=f2e401]
+            - generic [ref=f2e402]: "【生活面】本日は疲労感「なし」、機嫌「よい」で過ごされました。準備については「自分で出来た」状態でした。困ったことは「なかった」。 【学習面】学習課題に取り組みました（約20分）。取り組み態度は「自力で済ませた」、離席は「なかった」、集中力は「良かった」でした。 【PC面】PC練習を実施。タイピング指使いは「右手: 3本 / 左手: 2本」、取り組み姿勢は「まっすぐ」、集中度は「よい」でした。"

@@ -1,0 +1,37 @@
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - generic [ref=e6]:
+      - generic [ref=e12]:
+        - heading "支援経過記録 サポート" [level=1] [ref=e13]
+        - paragraph [ref=e14]: チェック式入力 → 文章自動生成 → A4 PDF出力
+      - navigation [ref=e15]:
+        - button "記録作成" [ref=e16]
+        - button "記録一覧・確認" [ref=e19]
+        - button "児童名簿" [ref=e24]
+        - button "個別支援計画" [ref=e30]
+        - button "テンプレート設定" [ref=e35]
+        - button "職員" [ref=e39]
+  - main [ref=e43]:
+    - generic [ref=e44]: ローカル試用モード：データはこのブラウザだけに保存されます。実運用にはSupabase設定が必要です。
+    - generic [ref=e47]:
+      - generic [ref=e49]:
+        - generic [ref=e50]:
+          - generic [ref=e51]: 1問ずつ入力
+          - heading "支援経過記録を作成" [level=2] [ref=e55]
+          - paragraph [ref=e56]: 迷わず順番に進めます。入力内容は画面を戻って修正できます。
+        - generic [ref=e57]:
+          - generic [ref=e58]: "1"
+          - generic [ref=e59]: 全30問
+      - generic [ref=e62]:
+        - generic [ref=e63]:
+          - generic [ref=e64]:
+            - paragraph [ref=e65]: 質問 1
+            - heading "どの記録フォーマットを使いますか？" [level=3] [ref=e66]
+            - paragraph [ref=e67]: 利用日の種類に合うものを選択してください。
+          - combobox [ref=e68]:
+            - option "支援経過記録 (平日)（平日）" [selected]
+            - option "支援経過記録 (休日)（休日）"
+        - generic [ref=e69]:
+          - button "戻る" [disabled] [ref=e70]
+          - generic [ref=e73]: 3% 完了
+          - button "次へ" [ref=e74]
