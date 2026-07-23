@@ -25,20 +25,42 @@ export function normalizeFatigueValue(value?: string) {
   return raw || FATIGUE_SCALE_OPTIONS[0];
 }
 
+export function parseHandCount(value?: string) {
+  const raw = value || '';
+  const left = raw.match(/左手\s*[：:]\s*(\d*)/)?.[1] || '';
+  const right = raw.match(/右手\s*[：:]\s*(\d*)/)?.[1] || '';
+  return { left, right };
+}
+
+export function formatHandCount(left: string, right: string) {
+  return `左手：${left ? `${left}本` : '未入力'}／右手：${right ? `${right}本` : '未入力'}`;
+}
+
 export function normalizeTemplateFatigueScale(template: Template): Template {
   return {
     ...template,
     sections: template.sections.map((section) => ({
       ...section,
       fields: section.fields.map((field) => {
-        if (!isFatigueField(field)) return field;
-        return {
-          ...field,
-          type: 'radio',
-          options: [...FATIGUE_SCALE_OPTIONS],
-          defaultValue: normalizeFatigueValue(field.defaultValue),
-          helpText: field.helpText || FATIGUE_SCALE_HELP,
-        };
+        if (isFatigueField(field)) {
+          return {
+            ...field,
+            type: 'radio',
+            options: [...FATIGUE_SCALE_OPTIONS],
+            defaultValue: normalizeFatigueValue(field.defaultValue),
+            helpText: field.helpText || FATIGUE_SCALE_HELP,
+          };
+        }
+        if (field.id === 'finger_usage') {
+          const handCount = parseHandCount(field.defaultValue);
+          return {
+            ...field,
+            type: 'hand_count',
+            defaultValue: formatHandCount(handCount.left, handCount.right),
+            helpText: field.helpText || '左手・右手それぞれで使用した指の本数を入力してください。',
+          };
+        }
+        return field;
       }),
     })),
   };

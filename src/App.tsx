@@ -7,16 +7,17 @@ import { Header, ActiveTab } from './components/Header';
 import { RecordForm } from './components/RecordForm';
 import { RecordPreview } from './components/RecordPreview';
 import { RecordList } from './components/RecordList';
-import { TemplateEditor } from './components/TemplateEditor';
 import { ChildrenManager } from './components/ChildrenManager';
 import { SupportPlanManager } from './components/SupportPlanManager';
 import { TeamManager } from './components/TeamManager';
-import { AISettingsEditor } from './components/AISettingsEditor';
+import { SettingsHub } from './components/SettingsHub';
+import { HomeScreen } from './components/HomeScreen';
 import { AuthScreen } from './components/AuthScreen';
 import { SetPasswordScreen } from './components/SetPasswordScreen';
 import { useAuth } from './hooks/useAuth';
 import { supabase } from './lib/supabase';
 import { FEATURE_FLAGS } from './config/features';
+import { normalizeTemplateFatigueScale } from './utils/templateNormalizer';
 import {
   archiveTemplate,
   closeSupportPlan,
@@ -35,7 +36,7 @@ import {
 export default function App() {
   const auth = useAuth();
   const remoteMode = auth.configured;
-  const [activeTab, setActiveTab] = useState<ActiveTab | 'preview'>('form');
+  const [activeTab, setActiveTab] = useState<ActiveTab | 'preview'>('home');
   const [dataLoading, setDataLoading] = useState(remoteMode);
   const [dataError, setDataError] = useState<string | null>(null);
 
@@ -47,7 +48,8 @@ export default function App() {
   const [templates, setTemplates] = useState<Template[]>(() => {
     if (remoteMode) return [];
     const saved = localStorage.getItem('support_templates_data');
-    return saved ? JSON.parse(saved) : defaultTemplates;
+    const source = saved ? JSON.parse(saved) as Template[] : defaultTemplates;
+    return source.map(normalizeTemplateFatigueScale);
   });
   const [childrenList, setChildrenList] = useState<ChildProfile[]>(() => {
     if (remoteMode) return [];
@@ -265,10 +267,11 @@ export default function App() {
   const handleSaveTemplate = async (template: Template) => {
     if (!canManageSettings) return void alert('テンプレートを変更する権限がありません。');
     try {
-      if (organizationId) await saveTemplate(organizationId, template);
-      setTemplates((previous) => previous.some((item) => item.id === template.id)
-        ? previous.map((item) => item.id === template.id ? template : item)
-        : [...previous, template]);
+      const normalizedTemplate = normalizeTemplateFatigueScale(template);
+      if (organizationId) await saveTemplate(organizationId, normalizedTemplate);
+      setTemplates((previous) => previous.some((item) => item.id === normalizedTemplate.id)
+        ? previous.map((item) => item.id === normalizedTemplate.id ? normalizedTemplate : item)
+        : [...previous, normalizedTemplate]);
     } catch (error) { persistError(error); }
   };
 
@@ -353,6 +356,16 @@ export default function App() {
         </div>
         {dataError && <div className="mb-4 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-lg p-3">{dataError}</div>}
 
+        {activeTab === 'home' && (
+          <HomeScreen
+            records={records}
+            childrenList={childrenList}
+            currentUser={auth.profile}
+            canManageSettings={canManageSettings}
+            onNavigate={setActiveTab}
+            onNewRecord={handleNewRecordClick}
+          />
+        )}
         {activeTab === 'form' && (
           <RecordForm
             key={currentRecord?.id || `new-record-${formSessionId}`}
@@ -379,10 +392,13 @@ export default function App() {
           <SupportPlanManager childrenList={childrenList} supportPlans={supportPlans} canEdit={canManageSettings} onSavePlan={handleSavePlan} onClosePlan={handleClosePlan} />
         )}
         {activeTab === 'templates' && canManageSettings && (
-          <>
-            <AISettingsEditor settings={aiWritingSettings} onSave={handleSaveAiWritingSettings} />
-            <TemplateEditor templates={templates} onSaveTemplate={handleSaveTemplate} onDeleteTemplate={handleDeleteTemplate} />
-          </>
+          <SettingsHub
+            aiWritingSettings={aiWritingSettings}
+            templates={templates}
+            onSaveAiWritingSettings={handleSaveAiWritingSettings}
+            onSaveTemplate={handleSaveTemplate}
+            onDeleteTemplate={handleDeleteTemplate}
+          />
         )}
         {activeTab === 'team' && auth.profile && canReview && <TeamManager currentUser={auth.profile} />}
       </main>

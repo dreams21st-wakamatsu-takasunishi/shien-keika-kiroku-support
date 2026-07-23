@@ -7,10 +7,11 @@ import {
   PlusCircle,
   ShieldCheck,
   LogOut,
+  House,
 } from 'lucide-react';
 import { UserProfile } from '../types';
 
-export type ActiveTab = 'form' | 'records' | 'children' | 'plans' | 'templates' | 'team';
+export type ActiveTab = 'home' | 'form' | 'records' | 'children' | 'plans' | 'templates' | 'team';
 
 interface HeaderProps {
   activeTab: ActiveTab;
@@ -22,10 +23,11 @@ interface HeaderProps {
 }
 
 const navigationItems = [
+  { tab: 'home' as const, label: 'ホーム', desktopLabel: 'ホーム', icon: House },
   { tab: 'form' as const, label: '記録', desktopLabel: '記録作成', icon: PlusCircle },
   { tab: 'records' as const, label: '一覧', desktopLabel: '記録一覧・確認', icon: History },
   { tab: 'children' as const, label: '児童', desktopLabel: '児童名簿', icon: Users },
-  { tab: 'templates' as const, label: '設定', desktopLabel: 'テンプレート設定', icon: Settings, managerOnly: true },
+  { tab: 'templates' as const, label: '設定', desktopLabel: '設定', icon: Settings, managerOnly: true },
   { tab: 'team' as const, label: '職員', desktopLabel: '職員', icon: ShieldCheck, managerOnly: true },
 ];
 
@@ -51,7 +53,7 @@ export const Header: React.FC<HeaderProps> = ({
       <header className="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-30 shadow-md">
         <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-14 md:h-16 gap-3">
-            <div className="flex items-center gap-2.5 min-w-0">
+            <button type="button" onClick={() => openTab('home')} className="flex items-center gap-2.5 min-w-0 text-left" aria-label="ホームへ移動">
               <div className="w-9 h-9 md:w-10 md:h-10 shrink-0 rounded-lg bg-teal-600 flex items-center justify-center shadow-sm">
                 <FileText className="w-5 h-5" />
               </div>
@@ -68,7 +70,7 @@ export const Header: React.FC<HeaderProps> = ({
                   </p>
                 )}
               </div>
-            </div>
+            </button>
 
             <nav className="hidden md:flex items-center space-x-1">
               {visibleItems.map((item) => {

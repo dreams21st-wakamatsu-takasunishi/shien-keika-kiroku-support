@@ -122,8 +122,9 @@ export const defaultTemplates: Template[] = [
           {
             id: 'finger_usage',
             label: '【タイピング時の指使い】',
-            type: 'text',
-            defaultValue: '右手: 3本 / 左手: 2本',
+            type: 'hand_count',
+            defaultValue: '左手：2本／右手：3本',
+            helpText: '左手・右手それぞれで使用した指の本数を入力してください。',
             hasNote: true,
             notePlaceholder: '補足（例: ホームポジションを意識できている）'
           },
@@ -278,8 +279,9 @@ export const defaultTemplates: Template[] = [
           {
             id: 'finger_usage',
             label: '【タイピング時の指使い】',
-            type: 'text',
-            defaultValue: '右手: 4本 / 左手: 3本',
+            type: 'hand_count',
+            defaultValue: '左手：3本／右手：4本',
+            helpText: '左手・右手それぞれで使用した指の本数を入力してください。',
             hasNote: true,
             notePlaceholder: '補足'
           },

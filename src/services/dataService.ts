@@ -10,6 +10,7 @@ import {
   Template,
 } from '../types';
 import { normalizeTemplateFatigueScale } from '../utils/templateNormalizer';
+import { calculateSchoolGrade } from '../utils/schoolGrade';
 
 export interface WorkspaceData {
   children: ChildProfile[];
@@ -29,7 +30,8 @@ function mapChild(row: any): ChildProfile {
     id: row.id,
     name: row.name,
     kana: row.kana || undefined,
-    grade: row.grade || undefined,
+    birthDate: row.birth_date || undefined,
+    grade: calculateSchoolGrade(row.birth_date) || row.grade || undefined,
     careType: row.care_type || undefined,
     notes: row.notes || undefined,
   };
@@ -43,6 +45,7 @@ function mapTemplate(row: any): Template {
     isDefault: row.is_default,
     description: row.description || undefined,
     sections: row.sections || [],
+    wizardQuestions: row.wizard_questions || undefined,
   });
 }
 
@@ -106,7 +109,7 @@ function normalizeSnack(value: unknown): SnackType | '' {
   if (raw === '完食' || raw === '半量食べた') return '食べた';
   if (raw === '残した') return '持ち帰り';
   if (raw === '不食' || raw === 'なし') return '食べていない';
-  return '';
+  return raw;
 }
 
 function mapAiWritingSettings(row: any): AiWritingSettings {
@@ -149,6 +152,7 @@ export async function saveChild(organizationId: string, child: ChildProfile) {
       id: child.id,
       name: child.name,
       kana: child.kana || null,
+      birth_date: child.birthDate || null,
       grade: child.grade || null,
       care_type: child.careType || null,
       notes: child.notes || null,
@@ -179,6 +183,7 @@ export async function saveTemplate(organizationId: string, template: Template) {
       is_default: Boolean(normalizedTemplate.isDefault),
       description: normalizedTemplate.description || null,
       sections: normalizedTemplate.sections,
+      wizard_questions: normalizedTemplate.wizardQuestions || {},
       archived_at: null,
     },
     { onConflict: 'organization_id,id' }

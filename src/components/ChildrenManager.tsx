@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ChildProfile } from '../types';
-import { UserPlus, Search, Edit, Trash2, User, GraduationCap, HeartHandshake, Save } from 'lucide-react';
+import { UserPlus, Search, Edit, Trash2, GraduationCap, Save, CalendarDays } from 'lucide-react';
+import { calculateSchoolGrade, formatBirthDate } from '../utils/schoolGrade';
 
 interface ChildrenManagerProps {
   childrenList: ChildProfile[];
@@ -22,6 +23,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   // Form states
   const [name, setName] = useState('');
   const [kana, setKana] = useState('');
+  const [birthDate, setBirthDate] = useState('');
   const [grade, setGrade] = useState('小学3年生');
   const [careType, setCareType] = useState<'児童発達支援' | '放課後等デイサービス'>('放課後等デイサービス');
   const [notes, setNotes] = useState('');
@@ -30,7 +32,8 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setEditingChild(null);
     setName('');
     setKana('');
-    setGrade('小学3年生');
+    setBirthDate('');
+    setGrade('未就学');
     setCareType('放課後等デイサービス');
     setNotes('');
     setIsModalOpen(true);
@@ -40,6 +43,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setEditingChild(child);
     setName(child.name);
     setKana(child.kana || '');
+    setBirthDate(child.birthDate || '');
     setGrade(child.grade || '小学3年生');
     setCareType(child.careType || '放課後等デイサービス');
     setNotes(child.notes || '');
@@ -50,12 +54,14 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     e.preventDefault();
     if (!name.trim()) return;
 
+    const savedGrade = calculateSchoolGrade(birthDate) || grade;
     if (editingChild) {
       onUpdateChild({
         ...editingChild,
         name: name.trim(),
         kana: kana.trim(),
-        grade,
+        birthDate: birthDate || undefined,
+        grade: savedGrade,
         careType,
         notes: notes.trim(),
       });
@@ -64,7 +70,8 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         id: `child-${Date.now()}`,
         name: name.trim(),
         kana: kana.trim(),
-        grade,
+        birthDate: birthDate || undefined,
+        grade: savedGrade,
         careType,
         notes: notes.trim(),
       });
@@ -77,7 +84,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     (c) =>
       c.name.includes(searchTerm) ||
       (c.kana && c.kana.includes(searchTerm)) ||
-      (c.grade && c.grade.includes(searchTerm))
+      ((calculateSchoolGrade(c.birthDate) || c.grade) && (calculateSchoolGrade(c.birthDate) || c.grade || '').includes(searchTerm))
   );
 
   return (
@@ -135,8 +142,14 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
               <div className="mt-3 space-y-1.5 text-xs text-slate-600">
                 <div className="flex items-center gap-2">
                   <GraduationCap className="w-4 h-4 text-slate-400" />
-                  <span>{c.grade || '学年未登録'}</span>
+                  <span>{calculateSchoolGrade(c.birthDate) || c.grade || '学年未登録'}</span>
                 </div>
+                {c.birthDate && (
+                  <div className="flex items-center gap-2">
+                    <CalendarDays className="w-4 h-4 text-slate-400" />
+                    <span>{formatBirthDate(c.birthDate)} 生まれ</span>
+                  </div>
+                )}
                 {c.notes && (
                   <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-slate-700 leading-relaxed mt-2 text-[11px]">
                     <strong className="text-slate-900 block font-bold mb-0.5">指導上の留意点:</strong>
@@ -205,11 +218,23 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
               </div>
 
               <div>
+                <label className="font-bold text-slate-700 block mb-1">生年月日</label>
+                <input
+                  type="date"
+                  value={birthDate}
+                  onChange={(e) => setBirthDate(e.target.value)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-md p-2"
+                />
+                <p className="mt-1 text-[10px] text-slate-500">4月1日を年度境界として、現在の学年を自動計算します。</p>
+              </div>
+
+              <div>
                 <label className="font-bold text-slate-700 block mb-1">学年</label>
                 <select
-                  value={grade}
+                  value={calculateSchoolGrade(birthDate) || grade}
                   onChange={(e) => setGrade(e.target.value)}
-                  className="w-full bg-slate-50 border border-slate-300 rounded-md p-2"
+                  disabled={Boolean(birthDate)}
+                  className="w-full bg-slate-50 border border-slate-300 rounded-md p-2 disabled:text-slate-700 disabled:opacity-100"
                 >
                   <option value="未就学">未就学</option>
                   <option value="小学1年生">小学1年生</option>
@@ -218,9 +243,15 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                   <option value="小学4年生">小学4年生</option>
                   <option value="小学5年生">小学5年生</option>
                   <option value="小学6年生">小学6年生</option>
-                  <option value="中学生">中学生</option>
-                  <option value="高校生">高校生</option>
+                  <option value="中学1年生">中学1年生</option>
+                  <option value="中学2年生">中学2年生</option>
+                  <option value="中学3年生">中学3年生</option>
+                  <option value="高校1年生">高校1年生</option>
+                  <option value="高校2年生">高校2年生</option>
+                  <option value="高校3年生">高校3年生</option>
+                  <option value="高校卒業相当">高校卒業相当</option>
                 </select>
+                {!birthDate && <p className="mt-1 text-[10px] text-amber-700">生年月日未登録のため手動選択です。</p>}
               </div>
 
               <div>

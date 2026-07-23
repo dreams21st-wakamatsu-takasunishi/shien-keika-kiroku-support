@@ -1,6 +1,6 @@
-export type AttendanceType = '出席' | '欠席' | '遅刻' | '早退' | 'その他';
-export type ExpressionType = '笑顔' | '真顔' | '暗め' | '泣き顔' | '不機嫌' | 'その他';
-export type SnackType = '食べた' | '持ち帰り' | '食べていない' | '持ち込み';
+export type AttendanceType = string;
+export type ExpressionType = string;
+export type SnackType = string;
 export type ApprovalStatus = '未確認' | '確認済み' | '要修正';
 export type UserRole = 'staff' | 'manager' | 'admin';
 export type FiveDomain =
@@ -11,7 +11,7 @@ export type FiveDomain =
   | '人間関係・社会性';
 export type GoalProgressStatus = '未評価' | '達成' | '一部達成' | '継続支援';
 
-export type FieldType = 'radio' | 'checkbox' | 'text' | 'number' | 'textarea' | 'time_select';
+export type FieldType = 'radio' | 'checkbox' | 'text' | 'number' | 'textarea' | 'time_select' | 'hand_count';
 
 export interface FieldOption {
   id: string;
@@ -40,6 +40,29 @@ export interface TemplateSection {
   subTitleLabel?: string;
 }
 
+export type WizardQuestionId =
+  | 'template'
+  | 'children'
+  | 'date'
+  | 'recorder'
+  | 'attendance'
+  | 'expression'
+  | 'snack'
+  | 'abcBehavior'
+  | 'abcConsequence'
+  | 'abcAntecedent'
+  | 'abcSummary';
+
+export interface WizardQuestionConfig {
+  title: string;
+  help?: string;
+  options?: string[];
+  noteLabel?: string;
+  notePlaceholder?: string;
+}
+
+export type WizardQuestions = Record<WizardQuestionId, WizardQuestionConfig>;
+
 export interface Template {
   id: string;
   name: string; // e.g., '支援経過記録 (平日)', '支援経過記録 (休日)'
@@ -47,12 +70,14 @@ export interface Template {
   type: '平日' | '休日' | 'カスタム';
   description?: string;
   sections: TemplateSection[];
+  wizardQuestions?: Partial<WizardQuestions>;
 }
 
 export interface ChildProfile {
   id: string;
   name: string; // e.g. 田中 太郎
   kana?: string;
+  birthDate?: string; // YYYY-MM-DD
   grade?: string; // e.g. 小学校3年生
   careType?: '児童発達支援' | '放課後等デイサービス';
   notes?: string;

@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { Template, TemplateSection, TemplateField } from '../types';
+import { Template, TemplateSection, TemplateField, WizardQuestionId } from '../types';
 import { Plus, Trash2, Edit, Copy, Save, MoveUp, MoveDown, Check, Settings, Sparkles } from 'lucide-react';
 import { FATIGUE_SCALE_HELP, FATIGUE_SCALE_OPTIONS, normalizeTemplateFatigueScale } from '../utils/templateNormalizer';
+import { getWizardQuestions, WIZARD_QUESTION_LABELS, WIZARD_QUESTION_ORDER } from '../utils/wizardQuestions';
 
 interface TemplateEditorProps {
   templates: Template[];
@@ -172,6 +173,20 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
     });
   };
 
+  const handleUpdateWizardQuestion = (
+    questionId: WizardQuestionId,
+    updates: Partial<ReturnType<typeof getWizardQuestions>[WizardQuestionId]>,
+  ) => {
+    const current = getWizardQuestions(editingTemplate)[questionId];
+    setEditingTemplate({
+      ...editingTemplate,
+      wizardQuestions: {
+        ...editingTemplate.wizardQuestions,
+        [questionId]: { ...current, ...updates },
+      },
+    });
+  };
+
   return (
     <div className="max-w-6xl mx-auto space-y-6">
       {/* Header Banner */}
@@ -307,6 +322,50 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
             </div>
           </div>
 
+          <details className="rounded-xl border border-slate-200 bg-white shadow-xs" open>
+            <summary className="cursor-pointer p-5 text-sm font-bold text-slate-900">
+              共通質問・ABC質問の編集
+              <span className="ml-2 text-[10px] font-normal text-slate-500">これまで固定されていた質問です</span>
+            </summary>
+            <div className="border-t border-slate-200 p-4 space-y-3">
+              {WIZARD_QUESTION_ORDER.map((questionId) => {
+                const question = getWizardQuestions(editingTemplate)[questionId];
+                const hasOptions = ['attendance', 'expression', 'snack'].includes(questionId);
+                return (
+                  <details key={questionId} className="rounded-lg border border-slate-200 bg-slate-50">
+                    <summary className="cursor-pointer px-4 py-3 text-xs font-bold text-slate-800">
+                      {WIZARD_QUESTION_LABELS[questionId]}
+                    </summary>
+                    <div className="grid gap-3 border-t border-slate-200 p-4 text-xs">
+                      <label className="font-bold text-slate-700">質問文
+                        <input value={question.title} onChange={(event) => handleUpdateWizardQuestion(questionId, { title: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 bg-white p-2 font-normal" />
+                      </label>
+                      {questionId.startsWith('abc') && <p className="text-[10px] text-slate-500">「{'{section}'}」は、生活・学習・PCなどのセクション名に置き換わります。</p>}
+                      <label className="font-bold text-slate-700">質問の補足文
+                        <input value={question.help || ''} onChange={(event) => handleUpdateWizardQuestion(questionId, { help: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 bg-white p-2 font-normal" />
+                      </label>
+                      {hasOptions && (
+                        <>
+                          <label className="font-bold text-slate-700">選択肢（カンマ区切り）
+                            <input value={(question.options || []).join(', ')} onChange={(event) => handleUpdateWizardQuestion(questionId, { options: event.target.value.split(',').map((value) => value.trim()).filter(Boolean) })} className="mt-1 w-full rounded-md border border-slate-300 bg-white p-2 font-normal" />
+                          </label>
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            <label className="font-bold text-slate-700">備考欄の見出し
+                              <input value={question.noteLabel || ''} onChange={(event) => handleUpdateWizardQuestion(questionId, { noteLabel: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 bg-white p-2 font-normal" />
+                            </label>
+                            <label className="font-bold text-slate-700">備考欄の入力例
+                              <input value={question.notePlaceholder || ''} onChange={(event) => handleUpdateWizardQuestion(questionId, { notePlaceholder: event.target.value })} className="mt-1 w-full rounded-md border border-slate-300 bg-white p-2 font-normal" />
+                            </label>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </details>
+                );
+              })}
+            </div>
+          </details>
+
           {/* Sections & Fields List */}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
@@ -366,6 +425,31 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
 
                 {/* Section Fields list */}
                 <div className="p-4 space-y-3">
+                  <div className="grid gap-3 rounded-lg border border-slate-200 bg-indigo-50/40 p-3 sm:grid-cols-2">
+                    <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(sec.hasSubTitleField)}
+                        onChange={(event) => setEditingTemplate({
+                          ...editingTemplate,
+                          sections: editingTemplate.sections.map((item) => item.id === sec.id ? { ...item, hasSubTitleField: event.target.checked } : item),
+                        })}
+                      />
+                      取組内容・活動名の質問を表示
+                    </label>
+                    <label className="text-xs font-bold text-slate-700">質問内の項目名
+                      <input
+                        value={sec.subTitleLabel || ''}
+                        disabled={!sec.hasSubTitleField}
+                        onChange={(event) => setEditingTemplate({
+                          ...editingTemplate,
+                          sections: editingTemplate.sections.map((item) => item.id === sec.id ? { ...item, subTitleLabel: event.target.value } : item),
+                        })}
+                        placeholder="例：取組内容"
+                        className="mt-1 w-full rounded-md border border-slate-300 bg-white p-2 font-normal disabled:opacity-50"
+                      />
+                    </label>
+                  </div>
                   {sec.fields.map((field) => (
                     <div
                       key={field.id}
@@ -405,6 +489,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                             <option value="text">テキスト入力</option>
                             <option value="textarea">長文入力</option>
                             <option value="time_select">時刻入力</option>
+                            <option value="hand_count">左手・右手の指本数（固定ラベル）</option>
                           </select>
                         </div>
 
