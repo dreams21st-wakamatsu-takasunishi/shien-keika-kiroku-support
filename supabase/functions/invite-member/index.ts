@@ -20,20 +20,26 @@ Deno.serve(async (request) => {
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   const authorization = request.headers.get('Authorization');
-  if (!supabaseUrl || !anonKey || !serviceRoleKey || !authorization) {
+  if (!supabaseUrl || !anonKey || !serviceRoleKey) {
     return jsonResponse({ error: 'Server configuration is incomplete' }, 500);
   }
+  if (!authorization) return jsonResponse({ error: 'Unauthorized' }, 401);
 
   const userClient = createClient(supabaseUrl, anonKey, {
     global: { headers: { Authorization: authorization } },
   });
-  const { data: userData } = await userClient.auth.getUser();
-  if (!userData.user) return jsonResponse({ error: 'Unauthorized' }, 401);
+  const accessToken = authorization.replace(/^Bearer\s+/i, '').trim();
+  const { data: claimsData, error: claimsError } = await userClient.auth.getClaims(accessToken);
+  const userId = claimsData?.claims?.sub;
+  if (claimsError || typeof userId !== 'string') {
+    console.error('JWT verification failed', claimsError?.message);
+    return jsonResponse({ error: 'Unauthorized' }, 401);
+  }
 
   const { data: caller } = await userClient
     .from('profiles')
     .select('organization_id, role')
-    .eq('id', userData.user.id)
+    .eq('id', userId)
     .single();
   if (!caller || !['manager', 'admin'].includes(caller.role)) {
     return jsonResponse({ error: 'Manager permission is required' }, 403);
@@ -61,7 +67,7 @@ Deno.serve(async (request) => {
       organization_id: caller.organization_id,
       email,
       role,
-      invited_by: userData.user.id,
+      invited_by: userId,
     })
     .select('id')
     .single();

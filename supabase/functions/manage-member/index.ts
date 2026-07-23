@@ -20,20 +20,26 @@ Deno.serve(async (request) => {
   const anonKey = Deno.env.get('SUPABASE_ANON_KEY');
   const serviceRoleKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
   const authorization = request.headers.get('Authorization');
-  if (!supabaseUrl || !anonKey || !serviceRoleKey || !authorization) {
+  if (!supabaseUrl || !anonKey || !serviceRoleKey) {
     return jsonResponse({ error: 'Server configuration is incomplete' }, 500);
   }
+  if (!authorization) return jsonResponse({ error: 'Unauthorized' }, 401);
 
   const userClient = createClient(supabaseUrl, anonKey, {
     global: { headers: { Authorization: authorization } },
   });
-  const { data: userData } = await userClient.auth.getUser();
-  if (!userData.user) return jsonResponse({ error: 'Unauthorized' }, 401);
+  const accessToken = authorization.replace(/^Bearer\s+/i, '').trim();
+  const { data: claimsData, error: claimsError } = await userClient.auth.getClaims(accessToken);
+  const userId = claimsData?.claims?.sub;
+  if (claimsError || typeof userId !== 'string') {
+    console.error('JWT verification failed', claimsError?.message);
+    return jsonResponse({ error: 'Unauthorized' }, 401);
+  }
 
   const { data: caller } = await userClient
     .from('profiles')
     .select('organization_id, role')
-    .eq('id', userData.user.id)
+    .eq('id', userId)
     .single();
   if (!caller || caller.role !== 'admin') {
     return jsonResponse({ error: '管理者権限が必要です。' }, 403);
@@ -74,7 +80,7 @@ Deno.serve(async (request) => {
   };
 
   if (action === 'delete') {
-    if (targetUserId === userData.user.id) {
+    if (targetUserId === userId) {
       return jsonResponse({ error: '自分自身は削除できません。' }, 400);
     }
     if (target.role === 'admin' && !(await ensureAnotherAdmin())) {
@@ -91,7 +97,7 @@ Deno.serve(async (request) => {
   if (!displayName || !email.includes('@') || !role || !['staff', 'manager', 'admin'].includes(role)) {
     return jsonResponse({ error: '氏名、メールアドレス、権限を確認してください。' }, 400);
   }
-  if (targetUserId === userData.user.id && role !== 'admin') {
+  if (targetUserId === userId && role !== 'admin') {
     return jsonResponse({ error: '自分自身の管理者権限は変更できません。' }, 400);
   }
   if (target.role === 'admin' && role !== 'admin' && !(await ensureAnotherAdmin())) {

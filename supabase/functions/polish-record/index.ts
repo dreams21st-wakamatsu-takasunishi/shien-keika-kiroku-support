@@ -31,20 +31,26 @@ Deno.serve(async (request) => {
   const geminiApiKey = Deno.env.get('GEMINI_API_KEY');
   const authorization = request.headers.get('Authorization');
 
-  if (!supabaseUrl || !anonKey || !serviceRoleKey || !authorization) {
+  if (!supabaseUrl || !anonKey || !serviceRoleKey) {
     return jsonResponse({ error: 'Server configuration is incomplete' }, 500);
   }
+  if (!authorization) return jsonResponse({ error: 'Unauthorized' }, 401);
 
   const userClient = createClient(supabaseUrl, anonKey, {
     global: { headers: { Authorization: authorization } },
   });
-  const { data: userData, error: userError } = await userClient.auth.getUser();
-  if (userError || !userData.user) return jsonResponse({ error: 'Unauthorized' }, 401);
+  const accessToken = authorization.replace(/^Bearer\s+/i, '').trim();
+  const { data: claimsData, error: claimsError } = await userClient.auth.getClaims(accessToken);
+  const userId = claimsData?.claims?.sub;
+  if (claimsError || typeof userId !== 'string') {
+    console.error('JWT verification failed', claimsError?.message);
+    return jsonResponse({ error: 'Unauthorized' }, 401);
+  }
 
   const { data: profile, error: profileError } = await userClient
     .from('profiles')
     .select('organization_id')
-    .eq('id', userData.user.id)
+    .eq('id', userId)
     .single();
   if (profileError || !profile) return jsonResponse({ error: 'Profile not found' }, 403);
 
@@ -133,7 +139,7 @@ ${commonRules}`;
 
   const { error: logError } = await serviceClient.from('ai_generation_logs').insert({
     organization_id: profile.organization_id,
-    actor_id: userData.user.id,
+    actor_id: userId,
     record_id: body?.recordId || null,
     section_title: sectionTitle,
     input_snapshot: taskType === 'abc_summary' ? { taskType, abc } : { taskType, checkSummary, roughNotes },
