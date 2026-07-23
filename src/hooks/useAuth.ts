@@ -3,19 +3,44 @@ import type { Session } from '@supabase/supabase-js';
 import { isSupabaseConfigured, supabase } from '../lib/supabase';
 import { UserProfile } from '../types';
 
-function mapProfile(row: any, email?: string): UserProfile {
-  const organization = Array.isArray(row.organizations)
-    ? row.organizations[0]
-    : row.organizations;
-
+function mapProfile(row: any, email?: string, organizationName?: string): UserProfile {
   return {
     id: row.id,
     organizationId: row.organization_id,
-    organizationName: organization?.name,
+    organizationName,
     displayName: row.display_name,
     role: row.role,
     email,
   };
+}
+
+async function fetchProfile(activeSession: Session): Promise<UserProfile> {
+  if (!supabase) throw new Error('Supabaseが設定されていません。');
+
+  const { data: profileRow, error: profileError } = await supabase
+    .from('profiles')
+    .select('id, organization_id, display_name, role, active')
+    .eq('id', activeSession.user.id)
+    .maybeSingle();
+
+  if (profileError) {
+    throw new Error(`利用者プロフィールを取得できませんでした: ${profileError.message}`);
+  }
+  if (!profileRow) {
+    throw new Error('利用者プロフィールが見つかりません。管理者に職員登録状況をご確認ください。');
+  }
+  if (!profileRow.active) {
+    throw new Error('このアカウントは利用停止中です。管理者にお問い合わせください。');
+  }
+
+  // 事業所名の取得だけに失敗しても、記録画面へのログインは妨げない。
+  const { data: organization } = await supabase
+    .from('organizations')
+    .select('name')
+    .eq('id', profileRow.organization_id)
+    .maybeSingle();
+
+  return mapProfile(profileRow, activeSession.user.email, organization?.name);
 }
 
 export function useAuth() {
@@ -23,61 +48,94 @@ export function useAuth() {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(isSupabaseConfigured);
   const [error, setError] = useState<string | null>(null);
-
-  const loadProfile = useCallback(async (activeSession: Session | null) => {
-    if (!supabase || !activeSession?.user) {
-      setProfile(null);
-      return;
-    }
-
-    const { data, error: profileError } = await supabase
-      .from('profiles')
-      .select('id, organization_id, display_name, role, organizations(name)')
-      .eq('id', activeSession.user.id)
-      .single();
-
-    if (profileError) {
-      setError(`利用者プロフィールを取得できませんでした: ${profileError.message}`);
-      setProfile(null);
-      return;
-    }
-
-    setError(null);
-    setProfile(mapProfile(data, activeSession.user.email));
-  }, []);
+  const [initialized, setInitialized] = useState(!isSupabaseConfigured);
+  const [profileReloadKey, setProfileReloadKey] = useState(0);
 
   useEffect(() => {
     if (!supabase) {
+      setInitialized(true);
       setLoading(false);
       return;
     }
 
     let active = true;
-    supabase.auth.getSession().then(async ({ data }) => {
+    void supabase.auth.getSession().then(({ data, error: sessionError }) => {
       if (!active) return;
+      if (sessionError) setError(`認証状態を確認できませんでした: ${sessionError.message}`);
       setSession(data.session);
-      await loadProfile(data.session);
-      if (active) setLoading(false);
+      setInitialized(true);
     });
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      if (!active) return;
       setSession(nextSession);
-      void loadProfile(nextSession).finally(() => setLoading(false));
+      setInitialized(true);
     });
 
     return () => {
       active = false;
       listener.subscription.unsubscribe();
     };
-  }, [loadProfile]);
+  }, []);
+
+  useEffect(() => {
+    if (!initialized) return;
+    if (!session) {
+      setProfile(null);
+      setLoading(false);
+      return;
+    }
+
+    let active = true;
+    setLoading(true);
+    void fetchProfile(session)
+      .then((nextProfile) => {
+        if (!active) return;
+        setProfile(nextProfile);
+        setError(null);
+      })
+      .catch((profileError: unknown) => {
+        if (!active) return;
+        setProfile(null);
+        setError(profileError instanceof Error ? profileError.message : '利用者プロフィールを取得できませんでした。');
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [initialized, profileReloadKey, session]);
 
   const signIn = async (email: string, password: string) => {
     if (!supabase) return { error: new Error('Supabaseが設定されていません。') };
-    return supabase.auth.signInWithPassword({ email, password });
+    setError(null);
+    setLoading(true);
+    const { data, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+    if (signInError) {
+      setLoading(false);
+      return { error: signInError };
+    }
+
+    // Authイベントだけに依存せず、成功時のセッションを確実に画面へ反映する。
+    setSession(data.session);
+    setInitialized(true);
+    return { error: null };
   };
 
   const signOut = async () => {
-    if (supabase) await supabase.auth.signOut();
+    if (!supabase) return;
+    setLoading(true);
+    const { error: signOutError } = await supabase.auth.signOut();
+    if (signOutError) {
+      setError(`ログアウトできませんでした: ${signOutError.message}`);
+      setLoading(false);
+      return;
+    }
+    setSession(null);
+    setProfile(null);
+    setLoading(false);
   };
 
   const completePasswordSetup = async (password: string) => {
@@ -97,9 +155,12 @@ export function useAuth() {
     const { data, error: refreshError } = await supabase.auth.refreshSession();
     if (refreshError) return { error: refreshError };
     setSession(data.session);
-    await loadProfile(data.session);
     return { error: null };
   };
+
+  const reloadProfile = useCallback(() => {
+    setProfileReloadKey((current) => current + 1);
+  }, []);
 
   return {
     configured: isSupabaseConfigured,
@@ -111,6 +172,6 @@ export function useAuth() {
     signIn,
     completePasswordSetup,
     signOut,
-    reloadProfile: () => loadProfile(session),
+    reloadProfile,
   };
 }

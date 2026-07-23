@@ -143,7 +143,10 @@ export default function App() {
         <div className="max-w-lg bg-white border border-rose-200 rounded-xl p-6 text-sm text-rose-800">
           <AlertTriangle className="w-6 h-6 mb-2" />
           {auth.error || '利用者プロフィールが見つかりません。Supabaseの初期マイグレーションを確認してください。'}
-          <button onClick={() => auth.signOut()} className="block mt-4 text-xs font-bold underline">ログアウト</button>
+          <div className="mt-4 flex flex-wrap gap-4">
+            <button onClick={auth.reloadProfile} className="text-xs font-bold underline">もう一度読み込む</button>
+            <button onClick={() => auth.signOut()} className="text-xs font-bold underline">ログアウト</button>
+          </div>
         </div>
       </div>
     );
