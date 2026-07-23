@@ -396,8 +396,11 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                             className="w-full bg-white border border-slate-300 rounded-md p-1.5"
                           >
                             <option value="radio">単一選択 (ラジオボタン)</option>
+                            <option value="checkbox">複数選択 (チェックボックス)</option>
                             <option value="number">数値入力 (時間・回数)</option>
                             <option value="text">テキスト入力</option>
+                            <option value="textarea">長文入力</option>
+                            <option value="time_select">時刻入力</option>
                           </select>
                         </div>
 
@@ -417,26 +420,57 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                               })
                             }
                             placeholder="例: なし, あり"
-                            disabled={field.type !== 'radio'}
+                            disabled={!['radio', 'checkbox'].includes(field.type)}
                             className="w-full bg-white border border-slate-300 rounded-md p-1.5 disabled:opacity-50"
                           />
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between pt-1 border-t border-slate-200">
-                        <label className="flex items-center gap-2 cursor-pointer text-slate-700 font-medium">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                        <label className="text-[11px] font-bold text-slate-700">
+                          質問の補足文
                           <input
-                            type="checkbox"
-                            checked={field.hasNote || false}
-                            onChange={(e) =>
-                              handleUpdateField(sec.id, field.id, {
-                                hasNote: e.target.checked,
-                              })
-                            }
-                            className="rounded-xs text-indigo-600 focus:ring-indigo-500"
+                            type="text"
+                            value={field.helpText || ''}
+                            onChange={(e) => handleUpdateField(sec.id, field.id, { helpText: e.target.value })}
+                            placeholder="例：当てはまるものをすべて選択してください。"
+                            className="mt-1 w-full bg-white font-normal border border-slate-300 rounded-md p-1.5"
                           />
-                          <span>補足入力欄 ( ) を有効にする</span>
                         </label>
+                        <label className="text-[11px] font-bold text-slate-700">
+                          備考欄の案内文
+                          <input
+                            type="text"
+                            value={field.notePlaceholder || ''}
+                            onChange={(e) => handleUpdateField(sec.id, field.id, { notePlaceholder: e.target.value })}
+                            placeholder="例：気になった点を簡潔に入力"
+                            disabled={!field.hasNote}
+                            className="mt-1 w-full bg-white font-normal border border-slate-300 rounded-md p-1.5 disabled:opacity-50"
+                          />
+                        </label>
+                      </div>
+
+                      <div className="flex items-center justify-between pt-1 border-t border-slate-200">
+                        <div className="flex flex-wrap gap-4">
+                          <label className="flex items-center gap-2 cursor-pointer text-slate-700 font-medium">
+                            <input
+                              type="checkbox"
+                              checked={field.hasNote || false}
+                              onChange={(e) => handleUpdateField(sec.id, field.id, { hasNote: e.target.checked })}
+                              className="rounded-xs text-indigo-600 focus:ring-indigo-500"
+                            />
+                            <span>備考入力欄を表示</span>
+                          </label>
+                          <label className="flex items-center gap-2 cursor-pointer text-slate-700 font-medium">
+                            <input
+                              type="checkbox"
+                              checked={field.required || false}
+                              onChange={(e) => handleUpdateField(sec.id, field.id, { required: e.target.checked })}
+                              className="rounded-xs text-indigo-600 focus:ring-indigo-500"
+                            />
+                            <span>必須項目</span>
+                          </label>
+                        </div>
 
                         <button
                           type="button"

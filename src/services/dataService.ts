@@ -1,11 +1,21 @@
 import { supabase } from '../lib/supabase';
-import { ChildProfile, SupportPlan, SupportRecord, Template } from '../types';
+import {
+  AiWritingSettings,
+  ChildProfile,
+  DEFAULT_AI_WRITING_SETTINGS,
+  ExpressionType,
+  SnackType,
+  SupportPlan,
+  SupportRecord,
+  Template,
+} from '../types';
 
 export interface WorkspaceData {
   children: ChildProfile[];
   templates: Template[];
   records: SupportRecord[];
   supportPlans: SupportPlan[];
+  aiWritingSettings: AiWritingSettings;
 }
 
 function assertSupabase() {
@@ -52,6 +62,9 @@ function mapSupportPlan(row: any): SupportPlan {
 }
 
 function mapRecord(row: any): SupportRecord {
+  const rawExpressions = Array.isArray(row.expression)
+    ? row.expression
+    : String(row.expression || '').split(/[、,]/).map((value) => value.trim()).filter(Boolean);
   return {
     id: row.id,
     templateId: row.template_id,
@@ -61,9 +74,12 @@ function mapRecord(row: any): SupportRecord {
     childId: row.child_id,
     childName: row.child_name,
     date: row.record_date,
-    attendance: row.attendance,
-    expression: row.expression,
-    snack: row.snack,
+    attendance: row.attendance || '',
+    attendanceNote: row.attendance_note || undefined,
+    expressions: rawExpressions as ExpressionType[],
+    expressionNote: row.expression_note || undefined,
+    snack: normalizeSnack(row.snack),
+    snackNote: row.snack_note || undefined,
     recorderName: row.recorder_name,
     serviceStartTime: row.service_start_time || undefined,
     serviceEndTime: row.service_end_time || undefined,
@@ -72,6 +88,7 @@ function mapRecord(row: any): SupportRecord {
     fiveDomains: row.five_domains || [],
     goalProgress: row.goal_progress || [],
     sectionAnswers: row.section_answers || {},
+    skippedQuestionIds: row.skipped_question_ids || [],
     synthesizedSummary: row.synthesized_summary || undefined,
     approvalStatus: row.approval_status,
     jihatsukanComment: row.review_comment || undefined,
@@ -82,16 +99,36 @@ function mapRecord(row: any): SupportRecord {
   };
 }
 
+function normalizeSnack(value: unknown): SnackType | '' {
+  const raw = String(value || '');
+  if (raw === '食べた' || raw === '持ち帰り' || raw === '食べていない' || raw === '持ち込み') return raw;
+  if (raw === '完食' || raw === '半量食べた') return '食べた';
+  if (raw === '残した') return '持ち帰り';
+  if (raw === '不食' || raw === 'なし') return '食べていない';
+  return '';
+}
+
+function mapAiWritingSettings(row: any): AiWritingSettings {
+  if (!row) return DEFAULT_AI_WRITING_SETTINGS;
+  return {
+    tone: row.tone || DEFAULT_AI_WRITING_SETTINGS.tone,
+    customTone: row.custom_tone || '',
+    customInstructions: row.custom_instructions || '',
+    targetLength: row.target_length || DEFAULT_AI_WRITING_SETTINGS.targetLength,
+  };
+}
+
 export async function loadWorkspaceData(organizationId: string): Promise<WorkspaceData> {
   const client = assertSupabase();
-  const [childrenResult, templatesResult, recordsResult, plansResult] = await Promise.all([
+  const [childrenResult, templatesResult, recordsResult, plansResult, aiSettingsResult] = await Promise.all([
     client.from('children').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('name'),
     client.from('record_templates').select('*').eq('organization_id', organizationId).is('archived_at', null).order('created_at'),
     client.from('support_records').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('record_date', { ascending: false }),
     client.from('support_plans').select('*').eq('organization_id', organizationId).order('valid_from', { ascending: false }),
+    client.from('organization_ai_settings').select('*').eq('organization_id', organizationId).maybeSingle(),
   ]);
 
-  for (const result of [childrenResult, templatesResult, recordsResult, plansResult]) {
+  for (const result of [childrenResult, templatesResult, recordsResult, plansResult, aiSettingsResult]) {
     if (result.error) throw result.error;
   }
 
@@ -100,6 +137,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     templates: (templatesResult.data || []).map(mapTemplate),
     records: (recordsResult.data || []).map(mapRecord),
     supportPlans: (plansResult.data || []).map(mapSupportPlan),
+    aiWritingSettings: mapAiWritingSettings(aiSettingsResult.data),
   };
 }
 
@@ -183,9 +221,8 @@ export async function closeSupportPlan(organizationId: string, planId: string) {
   if (error) throw error;
 }
 
-export async function saveRecord(organizationId: string, record: SupportRecord) {
-  const { error } = await assertSupabase().from('support_records').upsert(
-    {
+function mapRecordForSave(organizationId: string, record: SupportRecord) {
+  return {
       organization_id: organizationId,
       id: record.id,
       template_id: record.templateId,
@@ -195,8 +232,11 @@ export async function saveRecord(organizationId: string, record: SupportRecord) 
       child_name: record.childName,
       record_date: record.date,
       attendance: record.attendance,
-      expression: record.expression,
+      attendance_note: record.attendanceNote || null,
+      expression: record.expressions.join('、'),
+      expression_note: record.expressionNote || null,
       snack: record.snack,
+      snack_note: record.snackNote || null,
       recorder_name: record.recorderName,
       service_start_time: record.serviceStartTime || null,
       service_end_time: record.serviceEndTime || null,
@@ -205,6 +245,7 @@ export async function saveRecord(organizationId: string, record: SupportRecord) 
       five_domains: record.fiveDomains || [],
       goal_progress: record.goalProgress || [],
       section_answers: record.sectionAnswers,
+      skipped_question_ids: record.skippedQuestionIds || [],
       template_snapshot: {
         id: record.templateId,
         name: record.templateName,
@@ -217,9 +258,66 @@ export async function saveRecord(organizationId: string, record: SupportRecord) 
       reviewer_name: record.reviewedBy || null,
       reviewed_at: record.reviewedAt || null,
       deleted_at: null,
-    },
+    };
+}
+
+export async function saveRecords(organizationId: string, records: SupportRecord[]) {
+  if (records.length === 0) return;
+  const { error } = await assertSupabase().from('support_records').upsert(
+    records.map((record) => mapRecordForSave(organizationId, record)),
     { onConflict: 'organization_id,id' }
   );
+  if (error) throw error;
+}
+
+export async function saveRecord(organizationId: string, record: SupportRecord) {
+  await saveRecords(organizationId, [record]);
+}
+
+export async function saveAiWritingSettings(organizationId: string, settings: AiWritingSettings) {
+  const { error } = await assertSupabase().from('organization_ai_settings').upsert(
+    {
+      organization_id: organizationId,
+      tone: settings.tone,
+      custom_tone: settings.customTone.trim(),
+      custom_instructions: settings.customInstructions.trim(),
+      target_length: Math.max(80, Math.min(800, settings.targetLength)),
+    },
+    { onConflict: 'organization_id' }
+  );
+  if (error) throw error;
+}
+
+export async function loadRecordDraft(organizationId: string, draftKey: string) {
+  const { data, error } = await assertSupabase()
+    .from('record_drafts')
+    .select('payload, updated_at')
+    .eq('organization_id', organizationId)
+    .eq('draft_key', draftKey)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? { payload: data.payload as unknown, updatedAt: data.updated_at as string } : null;
+}
+
+export async function saveRecordDraft(organizationId: string, userId: string, draftKey: string, payload: unknown) {
+  const { error } = await assertSupabase().from('record_drafts').upsert(
+    {
+      organization_id: organizationId,
+      user_id: userId,
+      draft_key: draftKey,
+      payload,
+    },
+    { onConflict: 'organization_id,user_id,draft_key' }
+  );
+  if (error) throw error;
+}
+
+export async function deleteRecordDraft(organizationId: string, draftKey: string) {
+  const { error } = await assertSupabase()
+    .from('record_drafts')
+    .delete()
+    .eq('organization_id', organizationId)
+    .eq('draft_key', draftKey);
   if (error) throw error;
 }
 

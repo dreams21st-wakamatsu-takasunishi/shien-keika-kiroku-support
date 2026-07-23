@@ -40,38 +40,27 @@ export const PDFDocument: React.FC<PDFDocumentProps> = ({
             <tr className="bg-slate-100 font-bold">
               <td className="border border-slate-800 p-1 w-20">日付</td>
               <td className="border border-slate-800 p-1 w-16">出欠</td>
-              <td className="border border-slate-800 p-1 w-16">表情</td>
-              <td className="border border-slate-800 p-1">笑顔 / 真顔 / 暗め</td>
+              <td className="border border-slate-800 p-1">表情（複数可）</td>
               <td className="border border-slate-800 p-1 w-20">おやつ</td>
               <td className="border border-slate-800 p-1 w-24">記録者</td>
             </tr>
             <tr>
               <td className="border border-slate-800 p-1 font-bold">{record.date}</td>
               <td className="border border-slate-800 p-1 font-medium">{record.attendance}</td>
-              <td className="border border-slate-800 p-1 font-medium">{record.expression}</td>
-              <td className="border border-slate-800 p-1 text-slate-700">
-                <span className={record.expression === '笑顔' ? 'font-bold underline text-slate-900' : 'opacity-60'}>笑顔</span> /{' '}
-                <span className={record.expression === '真顔' ? 'font-bold underline text-slate-900' : 'opacity-60'}>真顔</span> /{' '}
-                <span className={record.expression === '暗め' ? 'font-bold underline text-slate-900' : 'opacity-60'}>暗め</span>
-              </td>
+              <td className="border border-slate-800 p-1 font-medium">{record.expressions?.join('、') || '未回答'}</td>
               <td className="border border-slate-800 p-1 font-medium">{record.snack}</td>
               <td className="border border-slate-800 p-1 font-medium">{record.recorderName}</td>
             </tr>
+            {(record.attendanceNote || record.expressionNote || record.snackNote) && (
+              <tr className="text-left text-[10px]">
+                <td className="border border-slate-800 p-1 font-bold">備考</td>
+                <td colSpan={4} className="border border-slate-800 p-1">
+                  {[record.attendanceNote && `出欠：${record.attendanceNote}`, record.expressionNote && `表情：${record.expressionNote}`, record.snackNote && `おやつ：${record.snackNote}`].filter(Boolean).join(' ／ ')}
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
-
-        {(record.serviceStartTime || record.serviceEndTime || record.fiveDomains?.length) && (
-          <div className="border border-slate-800 mb-3 text-[10px]">
-            <div className="grid grid-cols-2 md:grid-cols-4 border-b border-slate-300">
-              <div className="p-1.5"><strong>支援時間：</strong>{record.serviceStartTime || '--:--'} ～ {record.serviceEndTime || '--:--'}</div>
-              <div className="p-1.5"><strong>送迎：</strong>{record.transportation || '未設定'}</div>
-              <div className="p-1.5 md:col-span-2"><strong>個別支援計画：</strong>{record.supportPlanId ? '関連付けあり' : '関連付けなし'}</div>
-            </div>
-            {record.fiveDomains && record.fiveDomains.length > 0 && (
-              <div className="p-1.5"><strong>関連する5領域：</strong>{record.fiveDomains.join('／')}</div>
-            )}
-          </div>
-        )}
 
         {record.templateType !== 'カスタム' && <>
         {/* Section 1: 生活 */}

@@ -159,7 +159,7 @@ export const RecordList: React.FC<RecordListProps> = ({
 
                       <td className="p-3">
                         <div className="font-semibold text-slate-800">{r.attendance}</div>
-                        <div className="text-[10px] text-slate-500">{r.expression}</div>
+                        <div className="text-[10px] text-slate-500">{r.expressions?.join('、') || '表情未回答'}</div>
                       </td>
 
                       <td className="p-3">

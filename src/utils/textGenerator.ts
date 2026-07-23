@@ -12,7 +12,7 @@ export function generateRecordSummary(
 
   // Basic Header Info summary
   parts.push(`【児童名】${record.childName || '未選択'}　【利用区分】${record.templateType || '一般'}`);
-  parts.push(`【来所様子】出欠: ${record.attendance || '出席'} / 表情: ${record.expression || '良好'} / おやつ: ${record.snack || '完食'}`);
+  parts.push(`【来所様子】出欠: ${record.attendance || '未回答'}${record.attendanceNote ? ` (${record.attendanceNote})` : ''} / 表情: ${record.expressions?.join('、') || '未回答'}${record.expressionNote ? ` (${record.expressionNote})` : ''} / おやつ: ${record.snack || '未回答'}${record.snackNote ? ` (${record.snackNote})` : ''}`);
 
   // Loop through sections
   Object.values(record.sectionAnswers).forEach((sec) => {

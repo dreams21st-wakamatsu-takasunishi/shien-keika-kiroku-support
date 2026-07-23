@@ -1,6 +1,6 @@
 export type AttendanceType = '出席' | '欠席' | '遅刻' | '早退' | 'その他';
 export type ExpressionType = '笑顔' | '真顔' | '暗め' | '泣き顔' | '不機嫌' | 'その他';
-export type SnackType = '完食' | '半量食べた' | '残した' | '不食' | 'なし';
+export type SnackType = '食べた' | '持ち帰り' | '食べていない' | '持ち込み';
 export type ApprovalStatus = '未確認' | '確認済み' | '要修正';
 export type UserRole = 'staff' | 'manager' | 'admin';
 export type FiveDomain =
@@ -28,6 +28,7 @@ export interface TemplateField {
   unit?: string; // e.g., '分', '本'
   hasNote?: boolean; // If true, adds a supplementary text input ( )
   notePlaceholder?: string;
+  helpText?: string;
   required?: boolean;
 }
 
@@ -99,7 +100,31 @@ export interface SectionAnswer {
   subTitleValue?: string; // e.g. 宿題の内容、PCの取組内容、活動名
   answers: Record<string, { value: string; note?: string }>;
   detailText?: string; // 【様子】/ 【特記】 free text
+  abcAnalysis?: ABCAnalysis;
 }
+
+export interface ABCAnalysis {
+  behavior: string;
+  consequence: string;
+  antecedent: string;
+  summary?: string;
+}
+
+export type AiTone = 'assertive' | 'polite' | 'custom';
+
+export interface AiWritingSettings {
+  tone: AiTone;
+  customTone: string;
+  customInstructions: string;
+  targetLength: number;
+}
+
+export const DEFAULT_AI_WRITING_SETTINGS: AiWritingSettings = {
+  tone: 'assertive',
+  customTone: '',
+  customInstructions: '客観的な事実を中心に、支援者の関わりと児童の反応が分かる文章にする。',
+  targetLength: 180,
+};
 
 export interface SupportRecord {
   id: string;
@@ -110,9 +135,12 @@ export interface SupportRecord {
   childId: string;
   childName: string;
   date: string; // YYYY-MM-DD
-  attendance: AttendanceType;
-  expression: ExpressionType;
-  snack: SnackType;
+  attendance: AttendanceType | '';
+  attendanceNote?: string;
+  expressions: ExpressionType[];
+  expressionNote?: string;
+  snack: SnackType | '';
+  snackNote?: string;
   recorderName: string; // 記録者
 
   // Service delivery details
@@ -127,6 +155,7 @@ export interface SupportRecord {
   
   // Section responses
   sectionAnswers: Record<string, SectionAnswer>;
+  skippedQuestionIds?: string[];
   
   // Synthesized AI / Rule-based summary for Jihatsukan
   synthesizedSummary?: string;

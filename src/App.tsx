@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, Cloud, HardDrive, LoaderCircle } from 'lucide-react';
-import { SupportRecord, Template, ChildProfile, SupportPlan } from './types';
+import { AiWritingSettings, ChildProfile, DEFAULT_AI_WRITING_SETTINGS, SupportPlan, SupportRecord, Template } from './types';
 import { defaultTemplates } from './data/defaultTemplates';
 import { sampleRecords, sampleChildren } from './data/sampleData';
 import { Header, ActiveTab } from './components/Header';
@@ -11,16 +11,20 @@ import { TemplateEditor } from './components/TemplateEditor';
 import { ChildrenManager } from './components/ChildrenManager';
 import { SupportPlanManager } from './components/SupportPlanManager';
 import { TeamManager } from './components/TeamManager';
+import { AISettingsEditor } from './components/AISettingsEditor';
 import { AuthScreen } from './components/AuthScreen';
 import { SetPasswordScreen } from './components/SetPasswordScreen';
 import { useAuth } from './hooks/useAuth';
 import { supabase } from './lib/supabase';
+import { FEATURE_FLAGS } from './config/features';
 import {
   archiveTemplate,
   closeSupportPlan,
   loadWorkspaceData,
   saveChild,
   saveRecord,
+  saveRecords,
+  saveAiWritingSettings,
   saveSupportPlan,
   saveTemplate,
   seedDefaultTemplates,
@@ -56,6 +60,12 @@ export default function App() {
     return saved ? JSON.parse(saved) : [];
   });
   const [currentRecord, setCurrentRecord] = useState<SupportRecord | null>(null);
+  const [formSessionId, setFormSessionId] = useState(0);
+  const [aiWritingSettings, setAiWritingSettings] = useState<AiWritingSettings>(() => {
+    if (remoteMode) return DEFAULT_AI_WRITING_SETTINGS;
+    const saved = localStorage.getItem('support_ai_writing_settings');
+    return saved ? JSON.parse(saved) : DEFAULT_AI_WRITING_SETTINGS;
+  });
 
   useEffect(() => {
     if (!remoteMode) localStorage.setItem('support_records_data', JSON.stringify(records));
@@ -69,6 +79,9 @@ export default function App() {
   useEffect(() => {
     if (!remoteMode) localStorage.setItem('support_plans_data', JSON.stringify(supportPlans));
   }, [supportPlans, remoteMode]);
+  useEffect(() => {
+    if (!remoteMode) localStorage.setItem('support_ai_writing_settings', JSON.stringify(aiWritingSettings));
+  }, [aiWritingSettings, remoteMode]);
 
   const refreshRemoteData = useCallback(async (showLoading = true) => {
     if (!auth.profile) return;
@@ -83,6 +96,7 @@ export default function App() {
       setTemplates(workspace.templates);
       setChildrenList(workspace.children);
       setSupportPlans(workspace.supportPlans);
+      setAiWritingSettings(workspace.aiWritingSettings);
       setDataError(null);
     } catch (error) {
       setDataError(error instanceof Error ? error.message : '共有データを取得できませんでした。');
@@ -112,7 +126,7 @@ export default function App() {
     return <LoadingScreen text="認証状態を確認しています..." />;
   }
   if (remoteMode && !auth.session) {
-    return <AuthScreen onSignIn={auth.signIn} onSignUp={auth.signUp} />;
+    return <AuthScreen onSignIn={auth.signIn} />;
   }
   if (remoteMode && auth.session && auth.needsPasswordSetup) {
     return (
@@ -159,6 +173,23 @@ export default function App() {
       });
       setCurrentRecord(savedRecord);
       setActiveTab('preview');
+    } catch (error) { persistError(error); }
+  };
+
+  const handleSaveRecords = async (savedRecords: SupportRecord[]) => {
+    try {
+      if (organizationId) await saveRecords(organizationId, savedRecords);
+      setRecords((previous) => {
+        const savedIds = new Set(savedRecords.map((record) => record.id));
+        return [...savedRecords, ...previous.filter((record) => !savedIds.has(record.id))];
+      });
+      if (savedRecords.length === 1 && currentRecord?.id === savedRecords[0].id) {
+        setCurrentRecord(savedRecords[0]);
+        setActiveTab('preview');
+      } else {
+        setCurrentRecord(null);
+        setActiveTab('records');
+      }
     } catch (error) { persistError(error); }
   };
 
@@ -246,6 +277,13 @@ export default function App() {
     } catch (error) { persistError(error); }
   };
 
+  const handleSaveAiWritingSettings = async (settings: AiWritingSettings) => {
+    try {
+      if (organizationId) await saveAiWritingSettings(organizationId, settings);
+      setAiWritingSettings(settings);
+    } catch (error) { persistError(error); }
+  };
+
   const handleAddChild = async (child: ChildProfile) => {
     try {
       if (organizationId) await saveChild(organizationId, child);
@@ -285,6 +323,7 @@ export default function App() {
 
   const handleNewRecordClick = () => {
     setCurrentRecord(null);
+    setFormSessionId((previous) => previous + 1);
     setActiveTab('form');
   };
 
@@ -313,13 +352,14 @@ export default function App() {
 
         {activeTab === 'form' && (
           <RecordForm
-            key={currentRecord?.id || 'new-record'}
+            key={currentRecord?.id || `new-record-${formSessionId}`}
             templates={templates}
             childrenList={childrenList}
-            supportPlans={supportPlans}
             initialRecord={currentRecord}
             defaultRecorderName={auth.profile?.displayName}
-            onSaveRecord={handleSaveRecord}
+            organizationId={organizationId}
+            userId={auth.profile?.id}
+            onSaveRecords={handleSaveRecords}
             onAddChild={handleAddChild}
           />
         )}
@@ -332,11 +372,14 @@ export default function App() {
         {activeTab === 'children' && (
           <ChildrenManager childrenList={childrenList} onAddChild={handleAddChild} onUpdateChild={handleUpdateChild} onDeleteChild={handleDeleteChild} />
         )}
-        {activeTab === 'plans' && (
+        {FEATURE_FLAGS.supportPlansAndFiveDomains && activeTab === 'plans' && (
           <SupportPlanManager childrenList={childrenList} supportPlans={supportPlans} canEdit={canManageSettings} onSavePlan={handleSavePlan} onClosePlan={handleClosePlan} />
         )}
         {activeTab === 'templates' && canManageSettings && (
-          <TemplateEditor templates={templates} onSaveTemplate={handleSaveTemplate} onDeleteTemplate={handleDeleteTemplate} />
+          <>
+            <AISettingsEditor settings={aiWritingSettings} onSave={handleSaveAiWritingSettings} />
+            <TemplateEditor templates={templates} onSaveTemplate={handleSaveTemplate} onDeleteTemplate={handleDeleteTemplate} />
+          </>
         )}
         {activeTab === 'team' && auth.profile && canReview && <TeamManager currentUser={auth.profile} />}
       </main>

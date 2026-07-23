@@ -5,7 +5,6 @@ import {
   Settings,
   History,
   PlusCircle,
-  Target,
   ShieldCheck,
   LogOut,
 } from 'lucide-react';
@@ -26,7 +25,6 @@ const navigationItems = [
   { tab: 'form' as const, label: '記録', desktopLabel: '記録作成', icon: PlusCircle },
   { tab: 'records' as const, label: '一覧', desktopLabel: '記録一覧・確認', icon: History },
   { tab: 'children' as const, label: '児童', desktopLabel: '児童名簿', icon: Users },
-  { tab: 'plans' as const, label: '計画', desktopLabel: '個別支援計画', icon: Target },
   { tab: 'templates' as const, label: '設定', desktopLabel: 'テンプレート設定', icon: Settings, managerOnly: true },
   { tab: 'team' as const, label: '職員', desktopLabel: '職員', icon: ShieldCheck, managerOnly: true },
 ];

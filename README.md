@@ -1,20 +1,26 @@
 # 支援経過記録作成サポート
 
-放課後等デイサービス・児童発達支援向けの、支援経過記録作成・児発管承認・個別支援計画・PDF出力アプリです。
+放課後等デイサービス・児童発達支援向けの、支援経過記録作成・児発管承認・PDF出力アプリです。
 
 ## 実装済みの運用機能
 
 - Supabase Authによるログイン
 - 事業所単位のデータ分離（RLS）
 - 職員・児発管・管理者の権限管理
-- 職員のメール招待
+- 招待制ログイン（無関係な新規登録はAuth設定・DBの両方で拒否）
+- 職員のメール招待、編集、利用停止、完全削除
 - 児童名簿、記録、テンプレートの共有DB保存
-- 個別支援計画と本人支援5領域の関連付け
+- 複数児童をタブで切り替える一括記録
+- 端末内とSupabaseの本人専用下書き自動保存
+- ABC分析入力とAI要約
+- AIの文体・文章量・追加指示の事業所設定
 - 承認済み記録のロックと差戻しフロー
 - 全変更の監査ログ
 - 論理削除、テンプレート版管理
 - Supabase Edge Function経由のGemini文章作成
 - A4 PDF、事業所保存用・保護者控えの2面出力
+
+個別支援計画・本人支援5領域は、将来再開できるようデータと実装を保持したまま運用画面では凍結しています。
 
 ## 1. ローカル依存関係
 
@@ -38,7 +44,7 @@ npx.cmd supabase db push
 
 ### Supabase管理画面を使う場合（SQL Editor）
 
-`supabase/migrations/202607220001_initial_schema.sql` の全内容をSupabase SQL Editorで実行します。
+`supabase/migrations` 内のSQLをファイル名順にSupabase SQL Editorで実行します。
 
 ## 3. フロントエンド環境変数
 
@@ -53,19 +59,20 @@ VITE_SUPABASE_ANON_KEY=YOUR_PUBLISHABLE_OR_ANON_KEY
 
 ## 4. Edge FunctionsとAI
 
-PowerShellでGeminiキーをEdge FunctionのSecretへ登録し、2つのFunctionをデプロイします。
+PowerShellでGeminiキーをEdge FunctionのSecretへ登録し、3つのFunctionをデプロイします。
 
 ```powershell
 npx.cmd supabase secrets set GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
 npx.cmd supabase functions deploy polish-record
 npx.cmd supabase functions deploy invite-member
+npx.cmd supabase functions deploy manage-member
 ```
 
 AIへ児童氏名は送信されません。選択項目と職員メモだけが送信され、生成前後の内容は事業所内の監査用ログへ保存されます。利用する生成AIサービスの契約・データ利用条件は、事業所の個人情報保護規程に照らして別途確認してください。
 
 ## 5. Auth設定
 
-Supabase AuthenticationでEmail認証を有効にします。本番URLをSite URLとRedirect URLsへ登録してください。最初に「事業所を新規登録」した利用者が管理者になります。以降の職員はアプリの「職員」画面から招待します。
+Supabase AuthenticationでEmail認証を有効にし、**Allow new users to sign up** は無効にします。本番URLをSite URLとRedirect URLsへ登録してください。職員登録はアプリの「職員」画面からの招待だけで行います。DBトリガーも有効な招待がないユーザー作成を拒否します。
 
 本番ではSupabase AuthのMFA設定も有効化してください。
 
@@ -99,8 +106,10 @@ Redirect URLs: https://YOUR_GITHUB_NAME.github.io/YOUR_REPOSITORY/**
 
 - 画面下部に固定ナビゲーションを表示します。
 - 記録作成は1画面1問の形式で、進捗と質問数を表示します。
-- 必須項目が未入力の場合は次の質問へ進まず、その場で案内します。
-- 最後の確認画面から記録を保存します。
+- 最初に複数児童を選択し、児童タブで入力対象を切り替えます。
+- 質問をスキップでき、質問一覧と児童タブに未回答数を表示します。
+- 画面ロック、アプリ切替、再読み込み後も下書きを復元します。
+- 最後の確認画面から選択した児童全員の記録を保存します。
 - 入力欄とボタンは、携帯で押しやすい大きさに調整されています。
 
 ## 8. 起動と検証

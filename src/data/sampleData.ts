@@ -37,8 +37,8 @@ export const sampleRecords: SupportRecord[] = [
     childName: '佐藤 健太',
     date: '2026-07-21',
     attendance: '出席',
-    expression: '笑顔',
-    snack: '完食',
+    expressions: ['笑顔'],
+    snack: '食べた',
     recorderName: '山田 指導員',
     sectionAnswers: {
       life: {

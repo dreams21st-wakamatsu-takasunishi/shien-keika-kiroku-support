@@ -76,25 +76,6 @@ export function useAuth() {
     return supabase.auth.signInWithPassword({ email, password });
   };
 
-  const signUp = async (
-    email: string,
-    password: string,
-    displayName: string,
-    organizationName: string
-  ) => {
-    if (!supabase) return { error: new Error('Supabaseが設定されていません。') };
-    return supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          display_name: displayName,
-          organization_name: organizationName,
-        },
-      },
-    });
-  };
-
   const signOut = async () => {
     if (supabase) await supabase.auth.signOut();
   };
@@ -128,7 +109,6 @@ export function useAuth() {
     loading,
     error,
     signIn,
-    signUp,
     completePasswordSetup,
     signOut,
     reloadProfile: () => loadProfile(session),

@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { MailPlus, RefreshCw, ShieldCheck, UserCheck } from 'lucide-react';
+import { Edit3, MailPlus, RefreshCw, Save, ShieldCheck, Trash2, UserCheck, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { UserProfile, UserRole } from '../types';
 
 interface TeamMemberRow {
   id: string;
   display_name: string;
+  email: string | null;
   role: UserRole;
   active: boolean;
   created_at: string;
@@ -29,11 +30,20 @@ interface AuditRow {
   occurred_at: string;
 }
 
-const roleLabels: Record<UserRole, string> = {
-  staff: '職員',
-  manager: '児発管',
-  admin: '管理者',
-};
+const roleLabels: Record<UserRole, string> = { staff: '職員', manager: '児発管', admin: '管理者' };
+
+async function functionErrorMessage(error: unknown) {
+  const typed = error as { message?: string; context?: Response };
+  if (typed.context) {
+    try {
+      const payload = await typed.context.clone().json() as { error?: string };
+      if (payload.error) return payload.error;
+    } catch {
+      // SDK message is used when the response does not contain JSON.
+    }
+  }
+  return typed.message || '処理に失敗しました。';
+}
 
 export const TeamManager: React.FC<{ currentUser: UserProfile }> = ({ currentUser }) => {
   const [members, setMembers] = useState<TeamMemberRow[]>([]);
@@ -42,14 +52,19 @@ export const TeamManager: React.FC<{ currentUser: UserProfile }> = ({ currentUse
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [role, setRole] = useState<UserRole>('staff');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+  const [editRole, setEditRole] = useState<UserRole>('staff');
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
   const refresh = async () => {
     if (!supabase) return;
     setLoading(true);
     const [membersResult, invitationsResult, auditResult] = await Promise.all([
-      supabase.from('profiles').select('id, display_name, role, active, created_at').order('created_at'),
+      supabase.from('profiles').select('id, display_name, email, role, active, created_at').order('created_at'),
       supabase.from('member_invitations').select('id, email, role, created_at, expires_at, accepted_at').order('created_at', { ascending: false }),
       supabase.from('audit_logs').select('id, actor_id, table_name, row_id, action, occurred_at').order('occurred_at', { ascending: false }).limit(30),
     ]);
@@ -65,43 +80,68 @@ export const TeamManager: React.FC<{ currentUser: UserProfile }> = ({ currentUse
   const invite = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!supabase) return;
+    setBusy(true);
     setMessage(null);
-    const { error } = await supabase.functions.invoke('invite-member', {
+    const { error: invokeError } = await supabase.functions.invoke('invite-member', {
       body: { email, displayName, role },
     });
-    if (error) {
-      let errorMessage = error.message;
-      const context = (error as { context?: Response }).context;
-      if (context) {
-        try {
-          const payload = await context.clone().json() as { error?: string };
-          if (payload.error) errorMessage = payload.error;
-        } catch {
-          // Keep the SDK message when the response body is not JSON.
-        }
-      }
-      setMessage(`招待できませんでした: ${errorMessage}`);
-      return;
+    if (invokeError) setMessage(`招待できませんでした: ${await functionErrorMessage(invokeError)}`);
+    else {
+      setEmail('');
+      setDisplayName('');
+      setRole('staff');
+      setMessage('招待メールを送信しました。');
+      await refresh();
     }
-    setEmail('');
-    setDisplayName('');
-    setRole('staff');
-    setMessage('招待メールを送信しました。');
-    await refresh();
+    setBusy(false);
   };
 
-  const changeRole = async (memberId: string, nextRole: UserRole) => {
-    if (!supabase || currentUser.role !== 'admin') return;
-    const { error } = await supabase.from('profiles').update({ role: nextRole }).eq('id', memberId);
-    if (error) setMessage(error.message);
-    await refresh();
+  const startEditing = (member: TeamMemberRow) => {
+    setEditingId(member.id);
+    setEditName(member.display_name);
+    setEditEmail(member.email || '');
+    setEditRole(member.role);
+    setMessage(null);
+  };
+
+  const saveMember = async () => {
+    if (!supabase || !editingId || currentUser.role !== 'admin') return;
+    setBusy(true);
+    const { error: invokeError } = await supabase.functions.invoke('manage-member', {
+      body: { action: 'update', userId: editingId, displayName: editName, email: editEmail, role: editRole },
+    });
+    if (invokeError) setMessage(`職員情報を更新できませんでした: ${await functionErrorMessage(invokeError)}`);
+    else {
+      setMessage('職員情報を更新しました。');
+      setEditingId(null);
+      await refresh();
+    }
+    setBusy(false);
+  };
+
+  const deleteMember = async (member: TeamMemberRow) => {
+    if (!supabase || currentUser.role !== 'admin' || member.id === currentUser.id) return;
+    const confirmed = window.confirm(`${member.display_name}さんを完全に削除します。ログインできなくなります。よろしいですか？`);
+    if (!confirmed) return;
+    setBusy(true);
+    const { error: invokeError } = await supabase.functions.invoke('manage-member', {
+      body: { action: 'delete', userId: member.id },
+    });
+    if (invokeError) setMessage(`職員を削除できませんでした: ${await functionErrorMessage(invokeError)}`);
+    else {
+      setMessage('職員を削除しました。過去の記録内容は保持されます。');
+      await refresh();
+    }
+    setBusy(false);
   };
 
   const setActive = async (memberId: string, active: boolean) => {
     if (!supabase || currentUser.role !== 'admin' || memberId === currentUser.id) return;
-    const { error } = await supabase.from('profiles').update({ active }).eq('id', memberId);
-    if (error) setMessage(error.message);
+    setBusy(true);
+    const { error: updateError } = await supabase.from('profiles').update({ active }).eq('id', memberId);
+    if (updateError) setMessage(updateError.message);
     await refresh();
+    setBusy(false);
   };
 
   return (
@@ -109,49 +149,64 @@ export const TeamManager: React.FC<{ currentUser: UserProfile }> = ({ currentUse
       <div className="bg-white rounded-xl border border-slate-200 p-5 flex items-center justify-between">
         <div>
           <h2 className="text-lg font-bold flex items-center gap-2"><ShieldCheck className="w-5 h-5 text-teal-600" />職員・権限管理</h2>
-          <p className="text-xs text-slate-500 mt-1">事業所の職員を招待し、職員・児発管・管理者の権限を管理します。</p>
+          <p className="text-xs text-slate-500 mt-1">招待制で職員を登録し、管理者は氏名・メール・権限の編集、利用停止、完全削除を行えます。</p>
         </div>
-        <button onClick={refresh} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg" title="再読み込み"><RefreshCw className="w-4 h-4" /></button>
+        <button type="button" onClick={refresh} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg" title="再読み込み"><RefreshCw className="w-4 h-4" /></button>
       </div>
 
       <form onSubmit={invite} className="bg-white rounded-xl border border-slate-200 p-5 space-y-3">
         <h3 className="text-xs font-bold flex items-center gap-2"><MailPlus className="w-4 h-4 text-teal-600" />職員をメールで招待</h3>
         <div className="grid md:grid-cols-[1fr_1fr_140px_auto] gap-3">
-          <input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="staff@example.jp" className="border rounded-lg p-2 text-xs" />
-          <input required value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="職員氏名" className="border rounded-lg p-2 text-xs" />
-          <select value={role} onChange={(e) => setRole(e.target.value as UserRole)} className="border rounded-lg p-2 text-xs">
-            <option value="staff">職員</option><option value="manager">児発管</option>{currentUser.role === 'admin' && <option value="admin">管理者</option>}
+          <input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="staff@example.jp" className="min-h-11 border rounded-lg p-2 text-xs" />
+          <input required value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="職員氏名" className="min-h-11 border rounded-lg p-2 text-xs" />
+          <select value={role} onChange={(event) => setRole(event.target.value as UserRole)} className="min-h-11 border rounded-lg p-2 text-xs">
+            <option value="staff">職員</option>
+            {currentUser.role === 'admin' && <><option value="manager">児発管</option><option value="admin">管理者</option></>}
           </select>
-          <button className="bg-teal-600 text-white text-xs font-bold px-4 py-2 rounded-lg">招待する</button>
+          <button disabled={busy} className="min-h-11 bg-teal-600 disabled:bg-slate-400 text-white text-xs font-bold px-4 py-2 rounded-lg">招待する</button>
         </div>
-        {message && <p className="text-xs bg-slate-50 border rounded-lg p-2 text-slate-700">{message}</p>}
+        {message && <p className="text-xs bg-slate-50 border rounded-lg p-3 text-slate-700">{message}</p>}
       </form>
 
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
         <div className="p-4 border-b"><h3 className="text-xs font-bold">登録済み職員</h3></div>
         {loading ? <p className="p-6 text-xs text-slate-500">読み込み中...</p> : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead className="bg-slate-50 text-slate-600"><tr><th className="p-3 text-left">氏名</th><th className="p-3 text-left">権限</th><th className="p-3">状態</th><th className="p-3 text-right">操作</th></tr></thead>
-              <tbody className="divide-y">
-                {members.map((member) => (
-                  <tr key={member.id}>
-                    <td className="p-3 font-bold">{member.display_name}{member.id === currentUser.id && <span className="ml-2 text-[10px] text-teal-700">自分</span>}</td>
-                    <td className="p-3">
-                      {currentUser.role === 'admin' && member.id !== currentUser.id ? (
-                        <select value={member.role} onChange={(e) => changeRole(member.id, e.target.value as UserRole)} className="border rounded p-1">
-                          <option value="staff">職員</option><option value="manager">児発管</option><option value="admin">管理者</option>
-                        </select>
-                      ) : roleLabels[member.role]}
-                    </td>
-                    <td className="p-3 text-center"><span className={`px-2 py-1 rounded-full text-[10px] font-bold ${member.active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'}`}>{member.active ? '有効' : '停止'}</span></td>
-                    <td className="p-3 text-right">
-                      {currentUser.role === 'admin' && member.id !== currentUser.id && <button onClick={() => setActive(member.id, !member.active)} className="font-bold text-slate-600 hover:text-slate-900">{member.active ? '利用停止' : '再有効化'}</button>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="divide-y divide-slate-200">
+            {members.map((member) => {
+              const editing = editingId === member.id;
+              return (
+                <div key={member.id} className="p-4 grid gap-3 md:grid-cols-[1.2fr_1.5fr_110px_90px_auto] md:items-center text-xs">
+                  {editing ? (
+                    <>
+                      <input value={editName} onChange={(event) => setEditName(event.target.value)} className="min-h-10 border rounded-lg px-2" aria-label="職員氏名" />
+                      <input type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} className="min-h-10 border rounded-lg px-2" aria-label="メールアドレス" />
+                      <select value={editRole} onChange={(event) => setEditRole(event.target.value as UserRole)} disabled={member.id === currentUser.id} className="min-h-10 border rounded-lg px-2 disabled:bg-slate-100">
+                        <option value="staff">職員</option><option value="manager">児発管</option><option value="admin">管理者</option>
+                      </select>
+                      <span className={`text-center px-2 py-1 rounded-full text-[10px] font-bold ${member.active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'}`}>{member.active ? '有効' : '停止'}</span>
+                      <div className="flex justify-end gap-2">
+                        <button type="button" disabled={busy} onClick={saveMember} className="min-h-10 px-3 rounded-lg bg-teal-600 text-white font-bold flex items-center gap-1"><Save className="w-3.5 h-3.5" />保存</button>
+                        <button type="button" onClick={() => setEditingId(null)} className="min-h-10 px-3 rounded-lg border font-bold flex items-center gap-1"><X className="w-3.5 h-3.5" />取消</button>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div><span className="font-bold">{member.display_name}</span>{member.id === currentUser.id && <span className="ml-2 text-[10px] text-teal-700">自分</span>}</div>
+                      <div className="text-slate-600 break-all">{member.email || 'メール未登録'}</div>
+                      <div>{roleLabels[member.role]}</div>
+                      <span className={`text-center px-2 py-1 rounded-full text-[10px] font-bold ${member.active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'}`}>{member.active ? '有効' : '停止'}</span>
+                      <div className="flex flex-wrap justify-end gap-2">
+                        {currentUser.role === 'admin' && <button type="button" onClick={() => startEditing(member)} className="min-h-10 px-2 text-teal-700 font-bold flex items-center gap-1"><Edit3 className="w-3.5 h-3.5" />編集</button>}
+                        {currentUser.role === 'admin' && member.id !== currentUser.id && <>
+                          <button type="button" disabled={busy} onClick={() => setActive(member.id, !member.active)} className="min-h-10 px-2 font-bold text-slate-600">{member.active ? '利用停止' : '再有効化'}</button>
+                          <button type="button" disabled={busy} onClick={() => deleteMember(member)} className="min-h-10 px-2 text-rose-700 font-bold flex items-center gap-1"><Trash2 className="w-3.5 h-3.5" />削除</button>
+                        </>}
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>
@@ -161,17 +216,14 @@ export const TeamManager: React.FC<{ currentUser: UserProfile }> = ({ currentUse
           <h3 className="text-xs font-bold mb-3 flex items-center gap-2"><UserCheck className="w-4 h-4" />招待中</h3>
           <div className="space-y-2">
             {invitations.filter((item) => !item.accepted_at).map((item) => (
-              <div key={item.id} className="flex justify-between text-xs bg-slate-50 rounded-lg p-3"><span>{item.email}</span><span>{roleLabels[item.role]}・期限 {new Date(item.expires_at).toLocaleDateString('ja-JP')}</span></div>
+              <div key={item.id} className="flex flex-col sm:flex-row sm:justify-between gap-1 text-xs bg-slate-50 rounded-lg p-3"><span>{item.email}</span><span>{roleLabels[item.role]}・期限 {new Date(item.expires_at).toLocaleDateString('ja-JP')}</span></div>
             ))}
           </div>
         </div>
       )}
 
       <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="p-4 border-b">
-          <h3 className="text-xs font-bold">直近の監査履歴</h3>
-          <p className="text-[10px] text-slate-500 mt-1">児童、記録、計画、テンプレート、職員情報の変更を記録しています。</p>
-        </div>
+        <div className="p-4 border-b"><h3 className="text-xs font-bold">直近の監査履歴</h3></div>
         {audits.length === 0 ? <p className="p-6 text-xs text-slate-500">表示できる履歴はありません。</p> : (
           <div className="overflow-x-auto max-h-80">
             <table className="w-full text-[11px]">
@@ -179,15 +231,7 @@ export const TeamManager: React.FC<{ currentUser: UserProfile }> = ({ currentUse
               <tbody className="divide-y">
                 {audits.map((audit) => {
                   const actor = members.find((member) => member.id === audit.actor_id);
-                  return (
-                    <tr key={audit.id}>
-                      <td className="p-2 whitespace-nowrap">{new Date(audit.occurred_at).toLocaleString('ja-JP')}</td>
-                      <td className="p-2">{actor?.display_name || 'システム'}</td>
-                      <td className="p-2 font-mono">{audit.table_name}</td>
-                      <td className="p-2"><span className="font-bold">{audit.action === 'INSERT' ? '作成' : audit.action === 'UPDATE' ? '更新' : '削除'}</span></td>
-                      <td className="p-2 font-mono max-w-44 truncate">{audit.row_id}</td>
-                    </tr>
-                  );
+                  return <tr key={audit.id}><td className="p-2 whitespace-nowrap">{new Date(audit.occurred_at).toLocaleString('ja-JP')}</td><td className="p-2">{actor?.display_name || 'システム'}</td><td className="p-2 font-mono">{audit.table_name}</td><td className="p-2 font-bold">{audit.action === 'INSERT' ? '作成' : audit.action === 'UPDATE' ? '更新' : '削除'}</td><td className="p-2 font-mono max-w-44 truncate">{audit.row_id}</td></tr>;
                 })}
               </tbody>
             </table>
