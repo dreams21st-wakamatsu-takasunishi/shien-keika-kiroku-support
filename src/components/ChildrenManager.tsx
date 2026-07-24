@@ -28,6 +28,7 @@ interface ChildrenManagerProps {
 }
 
 type ViewMode = 'grid' | 'list';
+type ControlPanel = 'search' | 'sort' | null;
 type SortField = 'kana' | 'schoolAge' | 'regularDays' | 'careType';
 type SortDirection = 'asc' | 'desc';
 type WeekdayFilter = Weekday | '未設定';
@@ -147,8 +148,14 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   const [gradeFilter, setGradeFilter] = useState('all');
   const [careTypeFilter, setCareTypeFilter] = useState('all');
   const [weekdayFilters, setWeekdayFilters] = useState<WeekdayFilter[]>([]);
+  const [draftSearchTerm, setDraftSearchTerm] = useState('');
+  const [draftGradeFilter, setDraftGradeFilter] = useState('all');
+  const [draftCareTypeFilter, setDraftCareTypeFilter] = useState('all');
+  const [draftWeekdayFilters, setDraftWeekdayFilters] = useState<WeekdayFilter[]>([]);
+  const [activePanel, setActivePanel] = useState<ControlPanel>(null);
   const [viewMode, setViewMode] = useState<ViewMode>(savedPreferences.viewMode);
   const [sortRules, setSortRules] = useState<SortRule[]>(savedPreferences.sortRules);
+  const [draftSortRules, setDraftSortRules] = useState<SortRule[]>(savedPreferences.sortRules);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingChild, setEditingChild] = useState<ChildProfile | null>(null);
 
@@ -290,10 +297,14 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setGradeFilter('all');
     setCareTypeFilter('all');
     setWeekdayFilters([]);
+    setDraftSearchTerm('');
+    setDraftGradeFilter('all');
+    setDraftCareTypeFilter('all');
+    setDraftWeekdayFilters([]);
   };
 
   const applySortPreset = (rules: Array<Omit<SortRule, 'id'>>) => {
-    setSortRules(
+    setDraftSortRules(
       rules.map((rule, index) => ({
         ...rule,
         id: `sort-${rule.field}-${index}`,
@@ -302,11 +313,11 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   };
 
   const updateSortRule = (id: string, changes: Partial<Omit<SortRule, 'id'>>) => {
-    setSortRules((current) => current.map((rule) => (rule.id === id ? { ...rule, ...changes } : rule)));
+    setDraftSortRules((current) => current.map((rule) => (rule.id === id ? { ...rule, ...changes } : rule)));
   };
 
   const moveSortRule = (index: number, movement: -1 | 1) => {
-    setSortRules((current) => {
+    setDraftSortRules((current) => {
       const destination = index + movement;
       if (destination < 0 || destination >= current.length) return current;
       const next = [...current];
@@ -316,18 +327,62 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   };
 
   const addSortRule = () => {
-    const unusedField = SORT_FIELD_OPTIONS.find((option) => !sortRules.some((rule) => rule.field === option.value));
+    const unusedField = SORT_FIELD_OPTIONS.find(
+      (option) => !draftSortRules.some((rule) => rule.field === option.value)
+    );
     if (!unusedField) return;
-    setSortRules((current) => [
+    setDraftSortRules((current) => [
       ...current,
       { id: `sort-${unusedField.value}-${Date.now()}`, field: unusedField.value, direction: 'asc' },
     ]);
   };
 
   const toggleWeekdayFilter = (day: WeekdayFilter) => {
-    setWeekdayFilters((current) =>
+    setDraftWeekdayFilters((current) =>
       current.includes(day) ? current.filter((item) => item !== day) : [...current, day]
     );
+  };
+
+  const openSearchPanel = () => {
+    if (activePanel === 'search') {
+      setActivePanel(null);
+      return;
+    }
+    setDraftSearchTerm(searchTerm);
+    setDraftGradeFilter(gradeFilter);
+    setDraftCareTypeFilter(careTypeFilter);
+    setDraftWeekdayFilters(weekdayFilters);
+    setActivePanel('search');
+  };
+
+  const openSortPanel = () => {
+    if (activePanel === 'sort') {
+      setActivePanel(null);
+      return;
+    }
+    setDraftSortRules(sortRules.map((rule) => ({ ...rule })));
+    setActivePanel('sort');
+  };
+
+  const applySearchFilters = (event: React.FormEvent) => {
+    event.preventDefault();
+    setSearchTerm(draftSearchTerm);
+    setGradeFilter(draftGradeFilter);
+    setCareTypeFilter(draftCareTypeFilter);
+    setWeekdayFilters(draftWeekdayFilters);
+    setActivePanel(null);
+  };
+
+  const applySorting = () => {
+    setSortRules(draftSortRules.map((rule) => ({ ...rule })));
+    setActivePanel(null);
+  };
+
+  const clearDraftFilters = () => {
+    setDraftSearchTerm('');
+    setDraftGradeFilter('all');
+    setDraftCareTypeFilter('all');
+    setDraftWeekdayFilters([]);
   };
 
   const handleDeleteRequest = (child: ChildProfile) => {
@@ -337,11 +392,33 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   };
 
   const isPresetActive = (presetRules: Array<Omit<SortRule, 'id'>>) =>
-    presetRules.length === sortRules.length &&
+    presetRules.length === draftSortRules.length &&
     presetRules.every(
       (presetRule, index) =>
-        presetRule.field === sortRules[index]?.field && presetRule.direction === sortRules[index]?.direction
+        presetRule.field === draftSortRules[index]?.field &&
+        presetRule.direction === draftSortRules[index]?.direction
     );
+
+  const activeFilterCount =
+    Number(Boolean(searchTerm.trim())) +
+    Number(gradeFilter !== 'all') +
+    Number(careTypeFilter !== 'all') +
+    Number(weekdayFilters.length > 0);
+
+  const filterSummary = [
+    searchTerm.trim() ? `名前「${searchTerm.trim()}」` : '',
+    gradeFilter !== 'all' ? gradeFilter : '',
+    careTypeFilter !== 'all' ? careTypeFilter : '',
+    weekdayFilters.length ? `曜日 ${weekdayFilters.join('・')}` : '',
+  ].filter(Boolean).join('／');
+
+  const sortSummary = sortRules
+    .map((rule) => {
+      const fieldLabel = SORT_FIELD_OPTIONS.find((option) => option.value === rule.field)?.label || '';
+      const directionLabel = getDirectionLabels(rule.field)[rule.direction === 'asc' ? 0 : 1];
+      return `${fieldLabel} ${directionLabel}`;
+    })
+    .join(' → ');
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -363,212 +440,302 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         </button>
       </div>
 
-      {/* Search, filters and sorting */}
-      <section className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden">
-        <div className="p-4 sm:p-5 space-y-4">
-          <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
-            <label className="block flex-1">
-              <span className="mb-1.5 block text-[11px] font-bold text-slate-600">名前・フリガナ</span>
-              <span className="relative block">
-                <input
-                  type="search"
-                  value={searchTerm}
-                  onChange={(event) => setSearchTerm(event.target.value)}
-                  placeholder="児童名またはフリガナを入力"
-                  className="w-full rounded-lg border border-slate-300 bg-slate-50 py-2.5 pl-9 pr-9 text-xs font-medium focus:bg-white focus:ring-2 focus:ring-teal-500"
-                />
-                <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-                {searchTerm && (
-                  <button
-                    type="button"
-                    aria-label="検索語を消去"
-                    onClick={() => setSearchTerm('')}
-                    className="absolute right-2 top-1.5 rounded-md p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                )}
-              </span>
-            </label>
-
-            <label className="block lg:w-48">
-              <span className="mb-1.5 block text-[11px] font-bold text-slate-600">学年</span>
-              <select
-                value={gradeFilter}
-                onChange={(event) => setGradeFilter(event.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-slate-50 p-2.5 text-xs font-medium focus:bg-white focus:ring-2 focus:ring-teal-500"
-              >
-                <option value="all">すべての学年</option>
-                {gradeOptions.map((gradeOption) => (
-                  <option key={gradeOption} value={gradeOption}>{gradeOption}</option>
-                ))}
-              </select>
-            </label>
-
-            <label className="block lg:w-56">
-              <span className="mb-1.5 block text-[11px] font-bold text-slate-600">サービス種別</span>
-              <select
-                value={careTypeFilter}
-                onChange={(event) => setCareTypeFilter(event.target.value)}
-                className="w-full rounded-lg border border-slate-300 bg-slate-50 p-2.5 text-xs font-medium focus:bg-white focus:ring-2 focus:ring-teal-500"
-              >
-                <option value="all">すべてのサービス</option>
-                <option value="放課後等デイサービス">放課後等デイサービス</option>
-                <option value="児童発達支援">児童発達支援</option>
-              </select>
-            </label>
+      {/* Compact search and sorting controls */}
+      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
+        <div className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center">
+          <div className="grid grid-cols-2 gap-2 sm:flex">
+            <button
+              type="button"
+              aria-expanded={activePanel === 'search'}
+              aria-controls="children-search-panel"
+              onClick={openSearchPanel}
+              className={`flex min-h-10 items-center justify-center gap-2 rounded-lg border px-3 text-xs font-bold transition-colors ${
+                activePanel === 'search'
+                  ? 'border-teal-600 bg-teal-50 text-teal-800'
+                  : 'border-slate-300 bg-white text-slate-700 hover:border-teal-400'
+              }`}
+            >
+              <Search className="h-4 w-4" />
+              検索・絞り込み
+              {activeFilterCount > 0 && (
+                <span className="rounded-full bg-teal-600 px-1.5 py-0.5 text-[9px] text-white">{activeFilterCount}</span>
+              )}
+              {activePanel === 'search' ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </button>
+            <button
+              type="button"
+              aria-expanded={activePanel === 'sort'}
+              aria-controls="children-sort-panel"
+              onClick={openSortPanel}
+              className={`flex min-h-10 items-center justify-center gap-2 rounded-lg border px-3 text-xs font-bold transition-colors ${
+                activePanel === 'sort'
+                  ? 'border-teal-600 bg-teal-50 text-teal-800'
+                  : 'border-slate-300 bg-white text-slate-700 hover:border-teal-400'
+              }`}
+            >
+              <SlidersHorizontal className="h-4 w-4" />
+              並び替え
+              {activePanel === 'sort' ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+            </button>
           </div>
+          <p className="min-w-0 flex-1 truncate px-1 text-[10px] text-slate-500 sm:text-right">
+            {filterSummary || '絞り込みなし'}／{sortSummary}
+          </p>
+        </div>
 
-          <fieldset>
-            <legend className="mb-1.5 text-[11px] font-bold text-slate-600">
-              利用曜日 <span className="font-normal text-slate-400">（複数選択時はいずれかに該当）</span>
-            </legend>
-            <div className="flex flex-wrap gap-1.5">
-              {[...WEEKDAYS, '未設定' as const].map((day) => {
-                const selected = weekdayFilters.includes(day);
+        {activePanel === 'search' && (
+          <form
+            id="children-search-panel"
+            onSubmit={applySearchFilters}
+            className="space-y-4 border-t border-slate-200 bg-slate-50/70 p-4 sm:p-5"
+          >
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-xs font-bold text-slate-800">検索・絞り込み条件</h3>
+                <p className="mt-0.5 text-[10px] text-slate-500">条件を入力し、決定すると名簿へ反映されます。</p>
+              </div>
+              <button
+                type="button"
+                onClick={clearDraftFilters}
+                className="flex items-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-bold text-slate-500 hover:bg-white hover:text-slate-800"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                条件をクリア
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+              <label className="block flex-1">
+                <span className="mb-1.5 block text-[11px] font-bold text-slate-600">名前・フリガナ</span>
+                <span className="relative block">
+                  <input
+                    type="search"
+                    value={draftSearchTerm}
+                    onChange={(event) => setDraftSearchTerm(event.target.value)}
+                    placeholder="児童名またはフリガナを入力"
+                    className="w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-9 pr-9 text-xs font-medium focus:ring-2 focus:ring-teal-500"
+                  />
+                  <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+                  {draftSearchTerm && (
+                    <button
+                      type="button"
+                      aria-label="検索語を消去"
+                      onClick={() => setDraftSearchTerm('')}
+                      className="absolute right-2 top-1.5 rounded-md p-1 text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  )}
+                </span>
+              </label>
+
+              <label className="block lg:w-48">
+                <span className="mb-1.5 block text-[11px] font-bold text-slate-600">学年</span>
+                <select
+                  value={draftGradeFilter}
+                  onChange={(event) => setDraftGradeFilter(event.target.value)}
+                  className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-xs font-medium focus:ring-2 focus:ring-teal-500"
+                >
+                  <option value="all">すべての学年</option>
+                  {gradeOptions.map((gradeOption) => (
+                    <option key={gradeOption} value={gradeOption}>{gradeOption}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="block lg:w-56">
+                <span className="mb-1.5 block text-[11px] font-bold text-slate-600">サービス種別</span>
+                <select
+                  value={draftCareTypeFilter}
+                  onChange={(event) => setDraftCareTypeFilter(event.target.value)}
+                  className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-xs font-medium focus:ring-2 focus:ring-teal-500"
+                >
+                  <option value="all">すべてのサービス</option>
+                  <option value="放課後等デイサービス">放課後等デイサービス</option>
+                  <option value="児童発達支援">児童発達支援</option>
+                </select>
+              </label>
+            </div>
+
+            <fieldset>
+              <legend className="mb-1.5 text-[11px] font-bold text-slate-600">
+                利用曜日 <span className="font-normal text-slate-400">（複数選択時はいずれかに該当）</span>
+              </legend>
+              <div className="flex flex-wrap gap-1.5">
+                {[...WEEKDAYS, '未設定' as const].map((day) => {
+                  const selected = draftWeekdayFilters.includes(day);
+                  return (
+                    <button
+                      key={day}
+                      type="button"
+                      aria-pressed={selected}
+                      onClick={() => toggleWeekdayFilter(day)}
+                      className={`min-w-10 rounded-lg border px-3 py-2 text-xs font-bold transition-colors ${
+                        selected
+                          ? 'border-teal-600 bg-teal-600 text-white'
+                          : 'border-slate-300 bg-white text-slate-600 hover:border-teal-400 hover:text-teal-700'
+                      }`}
+                    >
+                      {day}
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+
+            <div className="flex justify-end gap-2 border-t border-slate-200 pt-3">
+              <button
+                type="button"
+                onClick={() => setActivePanel(null)}
+                className="rounded-lg px-4 py-2 text-xs font-bold text-slate-600 hover:bg-white"
+              >
+                キャンセル
+              </button>
+              <button
+                type="submit"
+                className="rounded-lg bg-teal-600 px-5 py-2 text-xs font-bold text-white hover:bg-teal-500"
+              >
+                検索条件を決定
+              </button>
+            </div>
+          </form>
+        )}
+
+        {activePanel === 'sort' && (
+          <div id="children-sort-panel" className="border-t border-slate-200 bg-slate-50/70 p-4 sm:p-5">
+            <div className="mb-3">
+              <h3 className="text-xs font-bold text-slate-800">並び替え条件</h3>
+              <p className="mt-0.5 text-[10px] text-slate-500">上の条件から順に優先され、決定時に名簿へ反映されます。</p>
+            </div>
+
+            <div className="mb-3 flex flex-wrap gap-1.5">
+              {SORT_PRESETS.map((preset) => {
+                const active = isPresetActive(preset.rules);
                 return (
                   <button
-                    key={day}
+                    key={preset.label}
                     type="button"
-                    aria-pressed={selected}
-                    onClick={() => toggleWeekdayFilter(day)}
-                    className={`min-w-10 rounded-lg border px-3 py-2 text-xs font-bold transition-colors ${
-                      selected
+                    aria-pressed={active}
+                    onClick={() => applySortPreset(preset.rules)}
+                    className={`rounded-full border px-3 py-1.5 text-[11px] font-bold transition-colors ${
+                      active
                         ? 'border-teal-600 bg-teal-600 text-white'
                         : 'border-slate-300 bg-white text-slate-600 hover:border-teal-400 hover:text-teal-700'
                     }`}
                   >
-                    {day}
+                    {preset.label}
                   </button>
                 );
               })}
-              {hasActiveFilters && (
-                <button
-                  type="button"
-                  onClick={resetFilters}
-                  className="ml-auto flex items-center gap-1 rounded-lg px-3 py-2 text-xs font-bold text-slate-500 hover:bg-slate-100 hover:text-slate-800"
-                >
-                  <RotateCcw className="h-3.5 w-3.5" />
-                  絞り込みを解除
-                </button>
-              )}
             </div>
-          </fieldset>
-        </div>
 
-        <div className="border-t border-slate-200 bg-slate-50/70 p-4 sm:p-5">
-          <div className="mb-3 flex items-center gap-2">
-            <SlidersHorizontal className="h-4 w-4 text-teal-700" />
-            <h3 className="text-xs font-bold text-slate-800">並び替え</h3>
-            <span className="text-[10px] text-slate-500">上の条件から順に優先されます</span>
-          </div>
-
-          <div className="mb-3 flex flex-wrap gap-1.5">
-            {SORT_PRESETS.map((preset) => {
-              const active = isPresetActive(preset.rules);
-              return (
-                <button
-                  key={preset.label}
-                  type="button"
-                  aria-pressed={active}
-                  onClick={() => applySortPreset(preset.rules)}
-                  className={`rounded-full border px-3 py-1.5 text-[11px] font-bold transition-colors ${
-                    active
-                      ? 'border-teal-600 bg-teal-600 text-white'
-                      : 'border-slate-300 bg-white text-slate-600 hover:border-teal-400 hover:text-teal-700'
-                  }`}
-                >
-                  {preset.label}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="space-y-2">
-            {sortRules.map((rule, index) => {
-              const [ascendingLabel, descendingLabel] = getDirectionLabels(rule.field);
-              return (
-                <div
-                  key={rule.id}
-                  className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-2"
-                >
-                  <span className="w-12 shrink-0 text-center text-[10px] font-bold text-teal-700">
-                    優先 {index + 1}
-                  </span>
-                  <select
-                    aria-label={`優先 ${index + 1} の並び替え項目`}
-                    value={rule.field}
-                    onChange={(event) =>
-                      updateSortRule(rule.id, { field: event.target.value as SortField, direction: 'asc' })
-                    }
-                    className="min-w-32 flex-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs font-bold text-slate-700"
+            <div className="space-y-2">
+              {draftSortRules.map((rule, index) => {
+                const [ascendingLabel, descendingLabel] = getDirectionLabels(rule.field);
+                return (
+                  <div
+                    key={rule.id}
+                    className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-2"
                   >
-                    {SORT_FIELD_OPTIONS.map((option) => (
-                      <option
-                        key={option.value}
-                        value={option.value}
-                        disabled={sortRules.some((otherRule) => otherRule.id !== rule.id && otherRule.field === option.value)}
+                    <span className="w-12 shrink-0 text-center text-[10px] font-bold text-teal-700">
+                      優先 {index + 1}
+                    </span>
+                    <select
+                      aria-label={`優先 ${index + 1} の並び替え項目`}
+                      value={rule.field}
+                      onChange={(event) =>
+                        updateSortRule(rule.id, { field: event.target.value as SortField, direction: 'asc' })
+                      }
+                      className="min-w-32 flex-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs font-bold text-slate-700"
+                    >
+                      {SORT_FIELD_OPTIONS.map((option) => (
+                        <option
+                          key={option.value}
+                          value={option.value}
+                          disabled={draftSortRules.some(
+                            (otherRule) => otherRule.id !== rule.id && otherRule.field === option.value
+                          )}
+                        >
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <select
+                      aria-label={`優先 ${index + 1} の並び順`}
+                      value={rule.direction}
+                      onChange={(event) => updateSortRule(rule.id, { direction: event.target.value as SortDirection })}
+                      className="min-w-28 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700"
+                    >
+                      <option value="asc">{ascendingLabel}</option>
+                      <option value="desc">{descendingLabel}</option>
+                    </select>
+                    <div className="flex items-center">
+                      <button
+                        type="button"
+                        title="優先順位を上げる"
+                        aria-label={`優先 ${index + 1} を上へ移動`}
+                        disabled={index === 0}
+                        onClick={() => moveSortRule(index, -1)}
+                        className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30"
                       >
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    aria-label={`優先 ${index + 1} の並び順`}
-                    value={rule.direction}
-                    onChange={(event) => updateSortRule(rule.id, { direction: event.target.value as SortDirection })}
-                    className="min-w-28 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700"
-                  >
-                    <option value="asc">{ascendingLabel}</option>
-                    <option value="desc">{descendingLabel}</option>
-                  </select>
-                  <div className="flex items-center">
-                    <button
-                      type="button"
-                      title="優先順位を上げる"
-                      aria-label={`優先 ${index + 1} を上へ移動`}
-                      disabled={index === 0}
-                      onClick={() => moveSortRule(index, -1)}
-                      className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30"
-                    >
-                      <ChevronUp className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      title="優先順位を下げる"
-                      aria-label={`優先 ${index + 1} を下へ移動`}
-                      disabled={index === sortRules.length - 1}
-                      onClick={() => moveSortRule(index, 1)}
-                      className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30"
-                    >
-                      <ChevronDown className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      title="条件を削除"
-                      aria-label={`優先 ${index + 1} を削除`}
-                      disabled={sortRules.length === 1}
-                      onClick={() => setSortRules((current) => current.filter((item) => item.id !== rule.id))}
-                      className="rounded-md p-1.5 text-rose-500 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-30"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
+                        <ChevronUp className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        title="優先順位を下げる"
+                        aria-label={`優先 ${index + 1} を下へ移動`}
+                        disabled={index === draftSortRules.length - 1}
+                        onClick={() => moveSortRule(index, 1)}
+                        className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30"
+                      >
+                        <ChevronDown className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        title="条件を削除"
+                        aria-label={`優先 ${index + 1} を削除`}
+                        disabled={draftSortRules.length === 1}
+                        onClick={() =>
+                          setDraftSortRules((current) => current.filter((item) => item.id !== rule.id))
+                        }
+                        className="rounded-md p-1.5 text-rose-500 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-30"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
 
-          <button
-            type="button"
-            onClick={addSortRule}
-            disabled={sortRules.length >= SORT_FIELD_OPTIONS.length}
-            className="mt-2 flex items-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-bold text-teal-700 hover:bg-teal-50 disabled:cursor-not-allowed disabled:text-slate-400"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            並び替え条件を追加
-          </button>
-        </div>
+            <button
+              type="button"
+              onClick={addSortRule}
+              disabled={draftSortRules.length >= SORT_FIELD_OPTIONS.length}
+              className="mt-2 flex items-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-bold text-teal-700 hover:bg-teal-50 disabled:cursor-not-allowed disabled:text-slate-400"
+            >
+              <Plus className="h-3.5 w-3.5" />
+              並び替え条件を追加
+            </button>
+
+            <div className="mt-3 flex justify-end gap-2 border-t border-slate-200 pt-3">
+              <button
+                type="button"
+                onClick={() => setActivePanel(null)}
+                className="rounded-lg px-4 py-2 text-xs font-bold text-slate-600 hover:bg-white"
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                onClick={applySorting}
+                className="rounded-lg bg-teal-600 px-5 py-2 text-xs font-bold text-white hover:bg-teal-500"
+              >
+                並び替えを決定
+              </button>
+            </div>
+          </div>
+        )}
       </section>
 
       {/* Results and view switcher */}
@@ -862,37 +1029,58 @@ const ChildGridCard: React.FC<ChildDisplayProps> = ({ child, today, onEdit, onDe
 
 const ChildListRow: React.FC<ChildDisplayProps> = ({ child, today, onEdit, onDelete }) => {
   const nextSchedule = getNextRegularDaySchedule(child, today);
+  const regularDaysLabel = formatRegularDays(getRegularDaysForDate(child, today));
   return (
-    <article className="grid gap-3 px-4 py-4 transition-colors hover:bg-slate-50 md:grid-cols-[minmax(190px,1.4fr)_110px_150px_minmax(150px,1fr)_116px] md:items-center">
-      <div className="min-w-0">
-        <span className="text-[10px] font-bold text-slate-400 md:hidden">児童名</span>
-        {child.kana && <span className="block truncate text-[10px] text-slate-400">{child.kana}</span>}
-        <h3 className="truncate text-sm font-bold text-slate-900">{child.name}</h3>
-        {child.notes && <p className="mt-1 line-clamp-2 text-[10px] leading-relaxed text-slate-500">{child.notes}</p>}
+    <article className="transition-colors hover:bg-slate-50">
+      <div className="flex items-center gap-2.5 px-3 py-3 md:hidden">
+        <div className="min-w-0 flex-1">
+          {child.kana && <span className="block truncate text-[9px] text-slate-400">{child.kana}</span>}
+          <h3 className="truncate text-sm font-bold text-slate-900">{child.name}</h3>
+          <div className="mt-1.5 flex flex-wrap gap-1">
+            <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-700">
+              {getChildGrade(child)}
+            </span>
+            <span className="rounded-md bg-teal-50 px-2 py-0.5 text-[10px] font-bold text-teal-800">
+              {regularDaysLabel}
+            </span>
+            <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-[10px] font-bold text-indigo-700">
+              {child.careType === '児童発達支援' ? '児発' : '放デイ'}
+            </span>
+          </div>
+          {nextSchedule && (
+            <p className="mt-1 truncate text-[9px] font-bold text-indigo-600">
+              予約 {formatJapaneseDate(nextSchedule.effectiveFrom)}〜 {formatRegularDays(nextSchedule.regularDays)}
+            </p>
+          )}
+        </div>
+        <ChildActionButtons child={child} onEdit={onEdit} onDelete={onDelete} compact iconOnly />
       </div>
 
-      <div>
-        <span className="text-[10px] font-bold text-slate-400 md:hidden">学年</span>
-        <p className="text-xs font-semibold text-slate-700">{getChildGrade(child)}</p>
-        {child.birthDate && <p className="mt-0.5 text-[10px] text-slate-400">{formatBirthDate(child.birthDate)}</p>}
-      </div>
+      <div className="hidden gap-3 px-4 py-4 md:grid md:grid-cols-[minmax(190px,1.4fr)_110px_150px_minmax(150px,1fr)_116px] md:items-center">
+        <div className="min-w-0">
+          {child.kana && <span className="block truncate text-[10px] text-slate-400">{child.kana}</span>}
+          <h3 className="truncate text-sm font-bold text-slate-900">{child.name}</h3>
+          {child.notes && <p className="mt-1 line-clamp-2 text-[10px] leading-relaxed text-slate-500">{child.notes}</p>}
+        </div>
 
-      <div>
-        <span className="text-[10px] font-bold text-slate-400 md:hidden">定期利用曜日</span>
-        <p className="text-xs font-semibold text-slate-700">{formatRegularDays(getRegularDaysForDate(child, today))}</p>
-      </div>
+        <div>
+          <p className="text-xs font-semibold text-slate-700">{getChildGrade(child)}</p>
+          {child.birthDate && <p className="mt-0.5 text-[10px] text-slate-400">{formatBirthDate(child.birthDate)}</p>}
+        </div>
 
-      <div>
-        <span className="text-[10px] font-bold text-slate-400 md:hidden">サービス・予約</span>
-        <p className="text-xs text-slate-700">{child.careType || '放課後等デイサービス'}</p>
-        {nextSchedule && (
-          <p className="mt-1 text-[10px] font-bold text-indigo-700">
-            {formatJapaneseDate(nextSchedule.effectiveFrom)}から {formatRegularDays(nextSchedule.regularDays)}
-          </p>
-        )}
-      </div>
+        <p className="text-xs font-semibold text-slate-700">{regularDaysLabel}</p>
 
-      <ChildActionButtons child={child} onEdit={onEdit} onDelete={onDelete} compact />
+        <div>
+          <p className="text-xs text-slate-700">{child.careType || '放課後等デイサービス'}</p>
+          {nextSchedule && (
+            <p className="mt-1 text-[10px] font-bold text-indigo-700">
+              {formatJapaneseDate(nextSchedule.effectiveFrom)}から {formatRegularDays(nextSchedule.regularDays)}
+            </p>
+          )}
+        </div>
+
+        <ChildActionButtons child={child} onEdit={onEdit} onDelete={onDelete} compact />
+      </div>
     </article>
   );
 };
@@ -902,25 +1090,40 @@ interface ChildActionButtonsProps {
   onEdit: (child: ChildProfile) => void;
   onDelete: (child: ChildProfile) => void;
   compact?: boolean;
+  iconOnly?: boolean;
 }
 
-const ChildActionButtons: React.FC<ChildActionButtonsProps> = ({ child, onEdit, onDelete, compact = false }) => (
-  <div className={`flex items-center gap-1.5 ${compact ? 'justify-start md:justify-end' : 'justify-end border-t border-slate-100 pt-2'}`}>
+const ChildActionButtons: React.FC<ChildActionButtonsProps> = ({
+  child,
+  onEdit,
+  onDelete,
+  compact = false,
+  iconOnly = false,
+}) => (
+  <div className={`flex items-center gap-1.5 ${compact ? 'justify-end' : 'justify-end border-t border-slate-100 pt-2'}`}>
     <button
       type="button"
+      aria-label={`${child.name}さんを編集`}
+      title="編集"
       onClick={() => onEdit(child)}
-      className="flex items-center gap-1 rounded-md bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-200 hover:text-slate-900"
+      className={`flex items-center justify-center gap-1 rounded-md bg-slate-100 text-xs font-semibold text-slate-700 hover:bg-slate-200 hover:text-slate-900 ${
+        iconOnly ? 'h-9 w-9 shrink-0 p-0' : 'px-2.5 py-1'
+      }`}
     >
       <Edit className="h-3.5 w-3.5" />
-      編集
+      {!iconOnly && '編集'}
     </button>
     <button
       type="button"
+      aria-label={`${child.name}さんを削除`}
+      title="削除"
       onClick={() => onDelete(child)}
-      className="flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 hover:text-rose-800"
+      className={`flex items-center justify-center gap-1 rounded-md text-xs font-semibold text-rose-600 hover:bg-rose-50 hover:text-rose-800 ${
+        iconOnly ? 'h-9 w-9 shrink-0 p-0' : 'px-2.5 py-1'
+      }`}
     >
       <Trash2 className="h-3.5 w-3.5" />
-      削除
+      {!iconOnly && '削除'}
     </button>
   </div>
 );
