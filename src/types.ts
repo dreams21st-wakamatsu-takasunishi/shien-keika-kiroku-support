@@ -12,6 +12,29 @@ export type FiveDomain =
 export type GoalProgressStatus = '未評価' | '達成' | '一部達成' | '継続支援';
 export type Weekday = '月' | '火' | '水' | '木' | '金' | '土' | '日';
 
+export interface RegularDaySchedule {
+  id?: string;
+  effectiveFrom: string;
+  regularDays: Weekday[];
+  createdAt?: string;
+}
+
+export interface HomeAssistantProposal {
+  actionId: string;
+  actionType: 'schedule_regular_days';
+  childId: string;
+  childName: string;
+  instruction: string;
+  effectiveDate: string;
+  regularDays: Weekday[];
+  summary: string;
+}
+
+export interface HomeAssistantExecutionResult {
+  message: string;
+  schedule: RegularDaySchedule;
+}
+
 export type FieldType = 'radio' | 'checkbox' | 'text' | 'number' | 'textarea' | 'time_select' | 'hand_count';
 
 export interface FieldOption {
@@ -81,6 +104,8 @@ export interface ChildProfile {
   birthDate?: string; // YYYY-MM-DD
   grade?: string; // e.g. 小学校3年生
   regularDays?: Weekday[];
+  regularDaysEffectiveFrom?: string;
+  regularDaySchedules?: RegularDaySchedule[];
   careType?: '児童発達支援' | '放課後等デイサービス';
   notes?: string;
 }

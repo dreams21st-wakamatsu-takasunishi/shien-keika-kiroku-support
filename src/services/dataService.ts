@@ -4,6 +4,7 @@ import {
   ChildProfile,
   DEFAULT_AI_WRITING_SETTINGS,
   ExpressionType,
+  RegularDaySchedule,
   SnackType,
   SupportPlan,
   SupportRecord,
@@ -12,6 +13,7 @@ import {
 } from '../types';
 import { normalizeTemplateFatigueScale } from '../utils/templateNormalizer';
 import { calculateSchoolGrade } from '../utils/schoolGrade';
+import { getLocalDateString } from '../utils/weekdays';
 
 export interface WorkspaceData {
   children: ChildProfile[];
@@ -34,8 +36,18 @@ function mapChild(row: any): ChildProfile {
     birthDate: row.birth_date || undefined,
     grade: calculateSchoolGrade(row.birth_date) || row.grade || undefined,
     regularDays: Array.isArray(row.regular_days) ? row.regular_days as Weekday[] : [],
+    regularDaysEffectiveFrom: row.regular_days_effective_from || undefined,
     careType: row.care_type || undefined,
     notes: row.notes || undefined,
+  };
+}
+
+function mapRegularDaySchedule(row: any): RegularDaySchedule {
+  return {
+    id: row.id,
+    effectiveFrom: row.effective_from,
+    regularDays: Array.isArray(row.regular_days) ? row.regular_days as Weekday[] : [],
+    createdAt: row.created_at || undefined,
   };
 }
 
@@ -126,20 +138,31 @@ function mapAiWritingSettings(row: any): AiWritingSettings {
 
 export async function loadWorkspaceData(organizationId: string): Promise<WorkspaceData> {
   const client = assertSupabase();
-  const [childrenResult, templatesResult, recordsResult, plansResult, aiSettingsResult] = await Promise.all([
+  const [childrenResult, schedulesResult, templatesResult, recordsResult, plansResult, aiSettingsResult] = await Promise.all([
     client.from('children').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('name'),
+    client.from('child_regular_day_schedules').select('*').eq('organization_id', organizationId).order('effective_from'),
     client.from('record_templates').select('*').eq('organization_id', organizationId).is('archived_at', null).order('created_at'),
     client.from('support_records').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('record_date', { ascending: false }),
     client.from('support_plans').select('*').eq('organization_id', organizationId).order('valid_from', { ascending: false }),
     client.from('organization_ai_settings').select('*').eq('organization_id', organizationId).maybeSingle(),
   ]);
 
-  for (const result of [childrenResult, templatesResult, recordsResult, plansResult, aiSettingsResult]) {
+  for (const result of [childrenResult, schedulesResult, templatesResult, recordsResult, plansResult, aiSettingsResult]) {
     if (result.error) throw result.error;
   }
 
+  const schedulesByChild = new Map<string, RegularDaySchedule[]>();
+  for (const row of schedulesResult.data || []) {
+    const schedules = schedulesByChild.get(row.child_id) || [];
+    schedules.push(mapRegularDaySchedule(row));
+    schedulesByChild.set(row.child_id, schedules);
+  }
+
   return {
-    children: (childrenResult.data || []).map(mapChild),
+    children: (childrenResult.data || []).map((row) => ({
+      ...mapChild(row),
+      regularDaySchedules: schedulesByChild.get(row.id) || [],
+    })),
     templates: (templatesResult.data || []).map(mapTemplate),
     records: (recordsResult.data || []).map(mapRecord),
     supportPlans: (plansResult.data || []).map(mapSupportPlan),
@@ -157,6 +180,7 @@ export async function saveChild(organizationId: string, child: ChildProfile) {
       birth_date: child.birthDate || null,
       grade: child.grade || null,
       regular_days: child.regularDays || [],
+      regular_days_effective_from: getLocalDateString(),
       care_type: child.careType || null,
       notes: child.notes || null,
       deleted_at: null,

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, Cloud, HardDrive, LoaderCircle } from 'lucide-react';
-import { AiWritingSettings, ChildProfile, DEFAULT_AI_WRITING_SETTINGS, SupportPlan, SupportRecord, Template } from './types';
+import { AiWritingSettings, ChildProfile, DEFAULT_AI_WRITING_SETTINGS, HomeAssistantExecutionResult, SupportPlan, SupportRecord, Template } from './types';
 import { defaultTemplates } from './data/defaultTemplates';
 import { sampleRecords, sampleChildren } from './data/sampleData';
 import { Header, ActiveTab } from './components/Header';
@@ -118,6 +118,7 @@ export default function App() {
       .channel(`workspace-${organizationId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'support_records', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'children', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'child_regular_day_schedules', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'record_templates', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'support_plans', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .subscribe();
@@ -311,6 +312,21 @@ export default function App() {
     } catch (error) { persistError(error); }
   };
 
+  const handleAssistantExecuted = async (childId: string, result: HomeAssistantExecutionResult) => {
+    setChildrenList((previous) => previous.map((child) => {
+      if (child.id !== childId) return child;
+      const schedules = child.regularDaySchedules || [];
+      return {
+        ...child,
+        regularDaySchedules: [
+          ...schedules.filter((schedule) => schedule.effectiveFrom !== result.schedule.effectiveFrom),
+          result.schedule,
+        ].sort((left, right) => left.effectiveFrom.localeCompare(right.effectiveFrom)),
+      };
+    }));
+    if (remoteMode && auth.profile) await refreshRemoteData(false);
+  };
+
   const handleSavePlan = async (plan: SupportPlan) => {
     try {
       if (organizationId) await saveSupportPlan(organizationId, plan);
@@ -364,6 +380,7 @@ export default function App() {
             canManageSettings={canManageSettings}
             onNavigate={setActiveTab}
             onNewRecord={handleNewRecordClick}
+            onAssistantExecuted={handleAssistantExecuted}
           />
         )}
         {activeTab === 'form' && (

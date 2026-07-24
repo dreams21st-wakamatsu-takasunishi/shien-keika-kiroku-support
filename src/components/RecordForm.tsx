@@ -38,7 +38,7 @@ import {
 } from '../utils/templateNormalizer';
 import { calculateSchoolGrade } from '../utils/schoolGrade';
 import { getWizardQuestions, renderQuestionText } from '../utils/wizardQuestions';
-import { formatRegularDays, getWeekdayFromDate } from '../utils/weekdays';
+import { formatRegularDays, getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
 
 interface RecordFormProps {
   templates: Template[];
@@ -599,7 +599,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       case 'children':
         {
           const targetWeekday = getWeekdayFromDate(wizard.date);
-          const regularChildren = childrenList.filter((child) => !child.regularDays?.length || child.regularDays.includes(targetWeekday));
+          const regularChildren = childrenList.filter((child) => {
+            const regularDays = getRegularDaysForDate(child, wizard.date);
+            return !regularDays.length || regularDays.includes(targetWeekday);
+          });
           const additionalSelected = childrenList.filter((child) => wizard.selectedChildIds.includes(child.id) && !regularChildren.some((item) => item.id === child.id));
           const displayedChildren = [...regularChildren, ...additionalSelected];
           const searchValue = childSearch.trim().toLocaleLowerCase('ja');
@@ -618,7 +621,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
               {displayedChildren.map((child) => {
                 const selected = wizard.selectedChildIds.includes(child.id);
                 const isAdditional = additionalSelected.some((item) => item.id === child.id);
-                return <button key={child.id} type="button" disabled={Boolean(initialRecord)} onClick={() => toggleChild(child.id)} className={`${choiceClass} flex items-center justify-between text-left ${selected ? 'bg-teal-600 border-teal-600 text-white' : 'bg-white border-slate-300 text-slate-700'} disabled:opacity-80`}><span>{child.name}<span className="block text-[11px] font-normal opacity-75">{calculateSchoolGrade(child.birthDate) || child.grade || '学年未設定'}・{isAdditional ? '追加利用' : formatRegularDays(child.regularDays)}</span></span>{selected && <Check className="w-5 h-5" />}</button>;
+                return <button key={child.id} type="button" disabled={Boolean(initialRecord)} onClick={() => toggleChild(child.id)} className={`${choiceClass} flex items-center justify-between text-left ${selected ? 'bg-teal-600 border-teal-600 text-white' : 'bg-white border-slate-300 text-slate-700'} disabled:opacity-80`}><span>{child.name}<span className="block text-[11px] font-normal opacity-75">{calculateSchoolGrade(child.birthDate) || child.grade || '学年未設定'}・{isAdditional ? '追加利用' : formatRegularDays(getRegularDaysForDate(child, wizard.date))}</span></span>{selected && <Check className="w-5 h-5" />}</button>;
               })}
             </div>
             {displayedChildren.length === 0 && <p className="rounded-xl border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">この曜日の定期利用児童は登録されていません。</p>}
@@ -639,7 +642,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                     <div className="mt-3 max-h-[55vh] space-y-2 overflow-y-auto">
                       {pickerChildren.map((child) => {
                         const selected = wizard.selectedChildIds.includes(child.id);
-                        return <button key={child.id} type="button" onClick={() => toggleChild(child.id)} className={`w-full min-h-14 rounded-xl border p-3 text-left flex items-center gap-3 ${selected ? 'border-teal-500 bg-teal-50 text-teal-900' : 'border-slate-200 bg-white text-slate-700'}`}><span className={`h-6 w-6 shrink-0 rounded-md border flex items-center justify-center ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300'}`}>{selected && <Check className="w-4 h-4" />}</span><span><strong className="block text-sm">{child.name}</strong><span className="text-[11px] text-slate-500">{calculateSchoolGrade(child.birthDate) || child.grade || '学年未設定'}・定期利用 {formatRegularDays(child.regularDays)}</span></span></button>;
+                        return <button key={child.id} type="button" onClick={() => toggleChild(child.id)} className={`w-full min-h-14 rounded-xl border p-3 text-left flex items-center gap-3 ${selected ? 'border-teal-500 bg-teal-50 text-teal-900' : 'border-slate-200 bg-white text-slate-700'}`}><span className={`h-6 w-6 shrink-0 rounded-md border flex items-center justify-center ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300'}`}>{selected && <Check className="w-4 h-4" />}</span><span><strong className="block text-sm">{child.name}</strong><span className="text-[11px] text-slate-500">{calculateSchoolGrade(child.birthDate) || child.grade || '学年未設定'}・{wizard.date}時点の定期利用 {formatRegularDays(getRegularDaysForDate(child, wizard.date))}</span></span></button>;
                       })}
                       {pickerChildren.length === 0 && <p className="py-8 text-center text-sm text-slate-400">一致する児童がいません。</p>}
                     </div>

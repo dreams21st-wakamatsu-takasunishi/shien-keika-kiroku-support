@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { ChildProfile, Weekday } from '../types';
 import { UserPlus, Search, Edit, Trash2, GraduationCap, Save, CalendarDays } from 'lucide-react';
 import { calculateSchoolGrade, formatBirthDate } from '../utils/schoolGrade';
-import { formatRegularDays, WEEKDAYS } from '../utils/weekdays';
+import { formatJapaneseDate, formatRegularDays, getLocalDateString, getRegularDaysForDate, WEEKDAYS } from '../utils/weekdays';
 
 interface ChildrenManagerProps {
   childrenList: ChildProfile[];
@@ -29,6 +29,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   const [regularDays, setRegularDays] = useState<Weekday[]>([]);
   const [careType, setCareType] = useState<'児童発達支援' | '放課後等デイサービス'>('放課後等デイサービス');
   const [notes, setNotes] = useState('');
+  const today = getLocalDateString();
 
   const handleOpenAddModal = () => {
     setEditingChild(null);
@@ -48,7 +49,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setKana(child.kana || '');
     setBirthDate(child.birthDate || '');
     setGrade(child.grade || '小学3年生');
-    setRegularDays(child.regularDays || []);
+    setRegularDays(getRegularDaysForDate(child, today));
     setCareType(child.careType || '放課後等デイサービス');
     setNotes(child.notes || '');
     setIsModalOpen(true);
@@ -67,6 +68,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         birthDate: birthDate || undefined,
         grade: savedGrade,
         regularDays,
+        regularDaysEffectiveFrom: today,
         careType,
         notes: notes.trim(),
       });
@@ -78,6 +80,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         birthDate: birthDate || undefined,
         grade: savedGrade,
         regularDays,
+        regularDaysEffectiveFrom: today,
         careType,
         notes: notes.trim(),
       });
@@ -158,8 +161,17 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                 )}
                 <div className="flex items-start gap-2">
                   <CalendarDays className="mt-0.5 w-4 h-4 text-slate-400" />
-                  <span>定期利用：{formatRegularDays(c.regularDays)}</span>
+                  <span>現在の定期利用：{formatRegularDays(getRegularDaysForDate(c, today))}</span>
                 </div>
+                {c.regularDaySchedules
+                  ?.filter((schedule) => schedule.effectiveFrom > today)
+                  .sort((left, right) => left.effectiveFrom.localeCompare(right.effectiveFrom))
+                  .slice(0, 1)
+                  .map((schedule) => (
+                    <div key={schedule.effectiveFrom} className="ml-6 rounded-md bg-indigo-50 px-2 py-1 text-[10px] font-bold text-indigo-700">
+                      予約：{formatJapaneseDate(schedule.effectiveFrom)}から {formatRegularDays(schedule.regularDays)}
+                    </div>
+                  ))}
                 {c.notes && (
                   <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-slate-700 leading-relaxed mt-2 text-[11px]">
                     <strong className="text-slate-900 block font-bold mb-0.5">指導上の留意点:</strong>
