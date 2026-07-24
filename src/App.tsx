@@ -376,7 +376,6 @@ export default function App() {
             organizationId={organizationId}
             userId={auth.profile?.id}
             onSaveRecords={handleSaveRecords}
-            onAddChild={handleAddChild}
           />
         )}
         {activeTab === 'preview' && currentRecord && (

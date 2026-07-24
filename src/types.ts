@@ -10,6 +10,7 @@ export type FiveDomain =
   | '言語・コミュニケーション'
   | '人間関係・社会性';
 export type GoalProgressStatus = '未評価' | '達成' | '一部達成' | '継続支援';
+export type Weekday = '月' | '火' | '水' | '木' | '金' | '土' | '日';
 
 export type FieldType = 'radio' | 'checkbox' | 'text' | 'number' | 'textarea' | 'time_select' | 'hand_count';
 
@@ -79,6 +80,7 @@ export interface ChildProfile {
   kana?: string;
   birthDate?: string; // YYYY-MM-DD
   grade?: string; // e.g. 小学校3年生
+  regularDays?: Weekday[];
   careType?: '児童発達支援' | '放課後等デイサービス';
   notes?: string;
 }

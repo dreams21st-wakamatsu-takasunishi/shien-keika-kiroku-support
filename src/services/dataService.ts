@@ -8,6 +8,7 @@ import {
   SupportPlan,
   SupportRecord,
   Template,
+  Weekday,
 } from '../types';
 import { normalizeTemplateFatigueScale } from '../utils/templateNormalizer';
 import { calculateSchoolGrade } from '../utils/schoolGrade';
@@ -32,6 +33,7 @@ function mapChild(row: any): ChildProfile {
     kana: row.kana || undefined,
     birthDate: row.birth_date || undefined,
     grade: calculateSchoolGrade(row.birth_date) || row.grade || undefined,
+    regularDays: Array.isArray(row.regular_days) ? row.regular_days as Weekday[] : [],
     careType: row.care_type || undefined,
     notes: row.notes || undefined,
   };
@@ -154,6 +156,7 @@ export async function saveChild(organizationId: string, child: ChildProfile) {
       kana: child.kana || null,
       birth_date: child.birthDate || null,
       grade: child.grade || null,
+      regular_days: child.regularDays || [],
       care_type: child.careType || null,
       notes: child.notes || null,
       deleted_at: null,

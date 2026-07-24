@@ -52,8 +52,8 @@ export const DEFAULT_WIZARD_QUESTIONS: WizardQuestions = {
 
 export const WIZARD_QUESTION_ORDER: WizardQuestionId[] = [
   'template',
-  'children',
   'date',
+  'children',
   'recorder',
   'attendance',
   'expression',

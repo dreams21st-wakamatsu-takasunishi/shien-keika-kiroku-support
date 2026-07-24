@@ -1,8 +1,25 @@
 import React, { useState } from 'react';
 import { Template, TemplateSection, TemplateField, WizardQuestionId } from '../types';
-import { Plus, Trash2, Edit, Copy, Save, MoveUp, MoveDown, Check, Settings, Sparkles } from 'lucide-react';
+import { Plus, Trash2, Copy, Save, Check, CheckCircle2, GripVertical } from 'lucide-react';
 import { FATIGUE_SCALE_HELP, FATIGUE_SCALE_OPTIONS, normalizeTemplateFatigueScale } from '../utils/templateNormalizer';
 import { getWizardQuestions, WIZARD_QUESTION_LABELS, WIZARD_QUESTION_ORDER } from '../utils/wizardQuestions';
+import {
+  closestCenter,
+  DndContext,
+  DragEndEvent,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 
 interface TemplateEditorProps {
   templates: Template[];
@@ -18,11 +35,32 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
   const [selectedTemplate, setSelectedTemplate] = useState<Template>(templates[0]);
   const [editingTemplate, setEditingTemplate] = useState<Template>({ ...templates[0] });
   const [isSavedNotice, setIsSavedNotice] = useState(false);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const announceChange = (message: string, targetId?: string, focusSelector?: string) => {
+    setFeedback(message);
+    setHighlightedId(targetId || null);
+    window.setTimeout(() => setFeedback(null), 2800);
+    window.setTimeout(() => setHighlightedId(null), 2200);
+    window.setTimeout(() => {
+      const target = targetId
+        ? document.querySelector(`[data-sortable-id="${targetId}"]`)
+        : focusSelector ? document.querySelector(focusSelector) : null;
+      target?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (focusSelector) (document.querySelector(focusSelector) as HTMLElement | null)?.focus();
+    }, 60);
+  };
 
   // Switch active template
   const handleSelectTemplate = (template: Template) => {
     setSelectedTemplate(template);
     setEditingTemplate(JSON.parse(JSON.stringify(template)));
+    setFeedback(null);
   };
 
   // Create new blank template
@@ -60,6 +98,8 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
     };
 
     setEditingTemplate(newTemp);
+    setSelectedTemplate(newTemp);
+    announceChange('新しいテンプレートを作成しました。名称を編集して保存してください。', undefined, '#template-name-input');
   };
 
   // Duplicate active template
@@ -72,6 +112,8 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
       isDefault: false,
     };
     setEditingTemplate(dup);
+    setSelectedTemplate(dup);
+    announceChange('テンプレートを複製しました。名称を確認して保存してください。', undefined, '#template-name-input');
   };
 
   // Save template
@@ -81,6 +123,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
     setEditingTemplate(normalizedTemplate);
     setSelectedTemplate(normalizedTemplate);
     setIsSavedNotice(true);
+    announceChange('テンプレートの変更を保存しました。');
     setTimeout(() => setIsSavedNotice(false), 2500);
   };
 
@@ -88,11 +131,11 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
   const handleAddSection = () => {
     const newSec: TemplateSection = {
       id: `sec-${Date.now()}`,
-      title: '新しい項目',
+      title: '新しいセクション',
       fields: [
         {
           id: `f-${Date.now()}`,
-          label: '【新チェック項目】',
+          label: '【新しい質問】',
           type: 'radio',
           options: ['良い', '普通', '気になる'],
           defaultValue: '良い',
@@ -104,6 +147,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
       ...editingTemplate,
       sections: [...editingTemplate.sections, newSec],
     });
+    announceChange('新しいセクションを追加しました。', newSec.id);
   };
 
   const handleRemoveSection = (secId: string) => {
@@ -111,6 +155,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
       ...editingTemplate,
       sections: editingTemplate.sections.filter((s) => s.id !== secId),
     });
+    announceChange('セクションを削除しました。');
   };
 
   const handleUpdateSectionTitle = (secId: string, title: string) => {
@@ -140,6 +185,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
         s.id === secId ? { ...s, fields: [...s.fields, newField] } : s
       ),
     });
+    announceChange('新しい質問項目を追加しました。', newField.id);
   };
 
   const handleRemoveField = (secId: string, fieldId: string) => {
@@ -151,6 +197,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
           : s
       ),
     });
+    announceChange('質問項目を削除しました。');
   };
 
   const handleUpdateField = (
@@ -187,8 +234,38 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
     });
   };
 
+  const handleSectionDragEnd = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return;
+    const oldIndex = editingTemplate.sections.findIndex((section) => section.id === active.id);
+    const newIndex = editingTemplate.sections.findIndex((section) => section.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    setEditingTemplate({ ...editingTemplate, sections: arrayMove(editingTemplate.sections, oldIndex, newIndex) });
+    announceChange('セクションの順番を変更しました。保存すると記録画面に反映されます。', String(active.id));
+  };
+
+  const handleFieldDragEnd = (sectionId: string, { active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return;
+    const section = editingTemplate.sections.find((item) => item.id === sectionId);
+    if (!section) return;
+    const oldIndex = section.fields.findIndex((field) => field.id === active.id);
+    const newIndex = section.fields.findIndex((field) => field.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    setEditingTemplate({
+      ...editingTemplate,
+      sections: editingTemplate.sections.map((item) =>
+        item.id === sectionId ? { ...item, fields: arrayMove(item.fields, oldIndex, newIndex) } : item
+      ),
+    });
+    announceChange('質問の順番を変更しました。保存すると記録画面に反映されます。', String(active.id));
+  };
+
   return (
     <div className="max-w-6xl mx-auto space-y-6">
+      {feedback && (
+        <div role="status" aria-live="polite" className="fixed right-4 top-20 z-50 max-w-sm rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-900 shadow-xl flex items-center gap-2">
+          <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />{feedback}
+        </div>
+      )}
       {/* Header Banner */}
       <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-5 rounded-xl border border-indigo-900 shadow-sm flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
@@ -260,7 +337,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
         {/* Template Editor Form Area */}
         <div className="lg:col-span-3 space-y-6">
           {/* General Template Settings */}
-          <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-5 space-y-4">
+          <div data-editor-target="basic" className="bg-white rounded-xl shadow-xs border border-slate-200 p-5 space-y-4">
             <h3 className="text-xs font-bold text-slate-900 uppercase tracking-wider border-b pb-2 flex items-center justify-between">
               <span>基本設定</span>
               {isSavedNotice && (
@@ -276,6 +353,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                   テンプレート名称
                 </label>
                 <input
+                  id="template-name-input"
                   type="text"
                   value={editingTemplate.name}
                   onChange={(e) =>
@@ -381,11 +459,16 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
               </button>
             </div>
 
-            {editingTemplate.sections.map((sec, secIdx) => (
-              <div
+            <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleSectionDragEnd}>
+              <SortableContext items={editingTemplate.sections.map((section) => section.id)} strategy={verticalListSortingStrategy}>
+              {editingTemplate.sections.map((sec, secIdx) => (
+              <SortableBlock
                 key={sec.id}
+                id={sec.id}
+                highlighted={highlightedId === sec.id}
                 className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden"
               >
+                {(sectionDragHandleProps) => (<>
                 {/* Section Title Bar */}
                 <div className="bg-slate-100 border-b border-slate-200 p-3.5 flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -402,6 +485,15 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                   </div>
 
                   <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      {...sectionDragHandleProps}
+                      className="min-h-9 min-w-9 touch-none cursor-grab rounded-md border border-slate-300 bg-white text-slate-500 flex items-center justify-center active:cursor-grabbing"
+                      aria-label={`${sec.title}セクションをドラッグして並べ替え`}
+                      title="ドラッグして並べ替え"
+                    >
+                      <GripVertical className="w-4 h-4" />
+                    </button>
                     <button
                       type="button"
                       onClick={() => handleAddField(sec.id)}
@@ -425,36 +517,31 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
 
                 {/* Section Fields list */}
                 <div className="p-4 space-y-3">
-                  <div className="grid gap-3 rounded-lg border border-slate-200 bg-indigo-50/40 p-3 sm:grid-cols-2">
-                    <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(sec.hasSubTitleField)}
-                        onChange={(event) => setEditingTemplate({
-                          ...editingTemplate,
-                          sections: editingTemplate.sections.map((item) => item.id === sec.id ? { ...item, hasSubTitleField: event.target.checked } : item),
-                        })}
-                      />
-                      取組内容・活動名の質問を表示
-                    </label>
-                    <label className="text-xs font-bold text-slate-700">質問内の項目名
-                      <input
-                        value={sec.subTitleLabel || ''}
-                        disabled={!sec.hasSubTitleField}
-                        onChange={(event) => setEditingTemplate({
-                          ...editingTemplate,
-                          sections: editingTemplate.sections.map((item) => item.id === sec.id ? { ...item, subTitleLabel: event.target.value } : item),
-                        })}
-                        placeholder="例：取組内容"
-                        className="mt-1 w-full rounded-md border border-slate-300 bg-white p-2 font-normal disabled:opacity-50"
-                      />
-                    </label>
-                  </div>
+                  <p className="text-[11px] font-medium text-slate-500 flex items-center gap-1.5">
+                    <GripVertical className="w-3.5 h-3.5" />質問左上のハンドルをドラッグして順番を変更できます。
+                  </p>
+                  <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={(event) => handleFieldDragEnd(sec.id, event)}>
+                    <SortableContext items={sec.fields.map((field) => field.id)} strategy={verticalListSortingStrategy}>
                   {sec.fields.map((field) => (
-                    <div
+                    <SortableBlock
                       key={field.id}
+                      id={field.id}
+                      highlighted={highlightedId === field.id}
                       className="bg-slate-50 p-3 rounded-lg border border-slate-200 space-y-2 text-xs"
                     >
+                      {(fieldDragHandleProps) => (<>
+                      <div className="flex items-center justify-between border-b border-slate-200 pb-2">
+                        <button
+                          type="button"
+                          {...fieldDragHandleProps}
+                          className="min-h-9 touch-none cursor-grab rounded-md border border-slate-300 bg-white px-2 text-[11px] font-bold text-slate-600 flex items-center gap-1 active:cursor-grabbing"
+                          aria-label={`${field.label}をドラッグして並べ替え`}
+                          title="ドラッグして並べ替え"
+                        >
+                          <GripVertical className="w-4 h-4" />並べ替え
+                        </button>
+                        <span className="rounded-full bg-white px-2 py-1 text-[10px] text-slate-500">質問 {sec.fields.findIndex((item) => item.id === field.id) + 1}</span>
+                      </div>
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                         <div>
                           <label className="text-[11px] font-bold text-slate-700 block mb-0.5">
@@ -569,11 +656,17 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                           <Trash2 className="w-3.5 h-3.5" /> 削除
                         </button>
                       </div>
-                    </div>
+                      </>)}
+                    </SortableBlock>
                   ))}
+                    </SortableContext>
+                  </DndContext>
                 </div>
-              </div>
+                </>)}
+              </SortableBlock>
             ))}
+              </SortableContext>
+            </DndContext>
           </div>
 
           {/* Bottom Save Bar */}
@@ -594,3 +687,37 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
     </div>
   );
 };
+
+function SortableBlock({
+  id,
+  className,
+  highlighted,
+  children,
+}: {
+  key?: React.Key;
+  id: string;
+  className: string;
+  highlighted?: boolean;
+  children: (dragHandleProps: Record<string, unknown>) => React.ReactNode;
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.55 : 1,
+    zIndex: isDragging ? 20 : undefined,
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      data-sortable-id={id}
+      className={`${className} transition-[border-color,box-shadow,background-color] duration-500 ${
+        highlighted ? 'border-emerald-500 ring-4 ring-emerald-200 shadow-lg' : ''
+      }`}
+    >
+      {children({ ...attributes, ...listeners })}
+    </div>
+  );
+}

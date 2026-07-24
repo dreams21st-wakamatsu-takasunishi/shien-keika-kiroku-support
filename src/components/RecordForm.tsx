@@ -9,10 +9,12 @@ import {
   ListChecks,
   LoaderCircle,
   Save,
+  Search,
   SkipForward,
   Sparkles,
   UserPlus,
   Users,
+  X,
 } from 'lucide-react';
 import {
   AttendanceType,
@@ -36,6 +38,7 @@ import {
 } from '../utils/templateNormalizer';
 import { calculateSchoolGrade } from '../utils/schoolGrade';
 import { getWizardQuestions, renderQuestionText } from '../utils/wizardQuestions';
+import { formatRegularDays, getWeekdayFromDate } from '../utils/weekdays';
 
 interface RecordFormProps {
   templates: Template[];
@@ -45,7 +48,6 @@ interface RecordFormProps {
   organizationId?: string;
   userId?: string;
   onSaveRecords: (records: SupportRecord[]) => Promise<void> | void;
-  onAddChild: (child: ChildProfile) => Promise<void> | void;
 }
 
 type StepKind =
@@ -86,7 +88,7 @@ interface ChildDraft {
 }
 
 interface WizardDraft {
-  version: 3;
+  version: 4;
   selectedTemplateId: string;
   selectedChildIds: string[];
   activeChildId: string;
@@ -155,10 +157,15 @@ function createChildDraft(template?: Template, record?: SupportRecord): ChildDra
 function normalizeWizardDraft(value: unknown): WizardDraft | null {
   if (!value || typeof value !== 'object') return null;
   const draft = value as Partial<WizardDraft> & { version?: number };
-  if (![2, 3].includes(draft.version || 0) || !Array.isArray(draft.selectedChildIds) || !draft.childDrafts) return null;
+  if (![2, 3, 4].includes(draft.version || 0) || !Array.isArray(draft.selectedChildIds) || !draft.childDrafts) return null;
+  const previousStepIndex = draft.currentStepIndex || 0;
+  const currentStepIndex = (draft.version || 0) < 4
+    ? previousStepIndex === 1 ? 2 : previousStepIndex === 2 ? 1 : previousStepIndex
+    : previousStepIndex;
   return {
     ...draft,
-    version: 3,
+    version: 4,
+    currentStepIndex,
     childStepIds: draft.childStepIds || {},
   } as WizardDraft;
 }
@@ -171,7 +178,6 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   organizationId,
   userId,
   onSaveRecords,
-  onAddChild,
 }) => {
   const initialTemplate = templates.find((template) => template.id === initialRecord?.templateId) || templates[0];
   const draftKey = initialRecord ? `edit-${initialRecord.id}` : 'new-record-batch';
@@ -179,7 +185,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
   const createInitialDraft = (): WizardDraft => {
     const base: WizardDraft = {
-      version: 3,
+      version: 4,
       selectedTemplateId: initialTemplate?.id || '',
       selectedChildIds: initialRecord ? [initialRecord.childId] : [],
       activeChildId: initialRecord?.childId || '',
@@ -209,9 +215,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [summarizingSectionId, setSummarizingSectionId] = useState<string | null>(null);
-  const [showQuickChildModal, setShowQuickChildModal] = useState(false);
-  const [newChildName, setNewChildName] = useState('');
-  const [newChildBirthDate, setNewChildBirthDate] = useState('');
+  const [showChildPicker, setShowChildPicker] = useState(false);
+  const [childSearch, setChildSearch] = useState('');
   const draftCleared = useRef(false);
 
   const activeTemplate = templates.find((template) => template.id === wizard.selectedTemplateId) || templates[0];
@@ -272,8 +277,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     const questions = getWizardQuestions(activeTemplate);
     const next: WizardStep[] = [
       { id: 'template', kind: 'template', ...questions.template },
-      { id: 'children', kind: 'children', ...questions.children },
       { id: 'date', kind: 'date', ...questions.date },
+      { id: 'children', kind: 'children', ...questions.children },
       { id: 'recorder', kind: 'recorder', ...questions.recorder },
       { id: 'attendance', kind: 'attendance', ...questions.attendance },
       { id: 'expression', kind: 'expression', ...questions.expression },
@@ -526,29 +531,6 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     setSummarizingSectionId(null);
   };
 
-  const handleSaveQuickChild = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!newChildName.trim()) return;
-    const child: ChildProfile = {
-      id: `child-${Date.now()}`,
-      name: newChildName.trim(),
-      birthDate: newChildBirthDate || undefined,
-      grade: calculateSchoolGrade(newChildBirthDate) || '未就学',
-      careType: '放課後等デイサービス',
-    };
-    await onAddChild(child);
-    setWizard((previous) => ({
-      ...previous,
-      selectedChildIds: [...previous.selectedChildIds, child.id],
-      activeChildId: child.id,
-      childStepIds: { ...previous.childStepIds },
-      childDrafts: { ...previous.childDrafts, [child.id]: createChildDraft(activeTemplate) },
-    }));
-    setNewChildName('');
-    setNewChildBirthDate('');
-    setShowQuickChildModal(false);
-  };
-
   const renderField = (field: TemplateField, sectionId: string) => {
     const answer = activeChildDraft?.sectionAnswers[sectionId]?.answers[field.id] || { value: field.defaultValue || '', note: '' };
     const selectedValues = answer.value ? answer.value.split('、').filter(Boolean) : [];
@@ -615,17 +597,60 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       case 'template':
         return <select value={wizard.selectedTemplateId} onChange={(event) => selectTemplate(event.target.value)} className={inputClass}>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select>;
       case 'children':
-        return (
-          <div className="space-y-3">
+        {
+          const targetWeekday = getWeekdayFromDate(wizard.date);
+          const regularChildren = childrenList.filter((child) => !child.regularDays?.length || child.regularDays.includes(targetWeekday));
+          const additionalSelected = childrenList.filter((child) => wizard.selectedChildIds.includes(child.id) && !regularChildren.some((item) => item.id === child.id));
+          const displayedChildren = [...regularChildren, ...additionalSelected];
+          const searchValue = childSearch.trim().toLocaleLowerCase('ja');
+          const pickerChildren = childrenList.filter((child) =>
+            !searchValue ||
+            child.name.toLocaleLowerCase('ja').includes(searchValue) ||
+            child.kana?.toLocaleLowerCase('ja').includes(searchValue)
+          );
+          return (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-teal-200 bg-teal-50 p-3 text-sm text-teal-900">
+              <strong>{wizard.date}（{targetWeekday}）の定期利用児童</strong>
+              <p className="mt-1 text-xs text-teal-700">曜日未設定の児童も候補に表示しています。</p>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[50vh] overflow-y-auto pr-1">
-              {childrenList.map((child) => {
+              {displayedChildren.map((child) => {
                 const selected = wizard.selectedChildIds.includes(child.id);
-                return <button key={child.id} type="button" disabled={Boolean(initialRecord)} onClick={() => toggleChild(child.id)} className={`${choiceClass} flex items-center justify-between text-left ${selected ? 'bg-teal-600 border-teal-600 text-white' : 'bg-white border-slate-300 text-slate-700'} disabled:opacity-80`}><span>{child.name}<span className="block text-[11px] font-normal opacity-75">{calculateSchoolGrade(child.birthDate) || child.grade || '学年未設定'}</span></span>{selected && <Check className="w-5 h-5" />}</button>;
+                const isAdditional = additionalSelected.some((item) => item.id === child.id);
+                return <button key={child.id} type="button" disabled={Boolean(initialRecord)} onClick={() => toggleChild(child.id)} className={`${choiceClass} flex items-center justify-between text-left ${selected ? 'bg-teal-600 border-teal-600 text-white' : 'bg-white border-slate-300 text-slate-700'} disabled:opacity-80`}><span>{child.name}<span className="block text-[11px] font-normal opacity-75">{calculateSchoolGrade(child.birthDate) || child.grade || '学年未設定'}・{isAdditional ? '追加利用' : formatRegularDays(child.regularDays)}</span></span>{selected && <Check className="w-5 h-5" />}</button>;
               })}
             </div>
-            {!initialRecord && <button type="button" onClick={() => setShowQuickChildModal(true)} className="min-h-11 px-3 rounded-lg border border-dashed border-teal-400 text-teal-700 text-xs font-bold flex items-center gap-2"><UserPlus className="w-4 h-4" />児童をクイック登録</button>}
+            {displayedChildren.length === 0 && <p className="rounded-xl border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">この曜日の定期利用児童は登録されていません。</p>}
+            {!initialRecord && <button type="button" onClick={() => { setChildSearch(''); setShowChildPicker(true); }} className="min-h-12 w-full px-4 rounded-xl border border-dashed border-teal-500 bg-white text-teal-700 text-sm font-bold flex items-center justify-center gap-2"><UserPlus className="w-5 h-5" />児童を追加</button>}
+
+            {showChildPicker && (
+              <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center bg-slate-950/60 p-0 sm:p-4">
+                <div className="max-h-[88vh] w-full max-w-lg overflow-hidden rounded-t-2xl sm:rounded-2xl bg-white shadow-2xl">
+                  <div className="flex items-center justify-between border-b border-slate-200 p-4">
+                    <div><h3 className="font-bold text-slate-900">児童を追加</h3><p className="text-xs text-slate-500">追加利用の児童を一覧または名前検索から選択</p></div>
+                    <button type="button" onClick={() => setShowChildPicker(false)} aria-label="閉じる" className="min-h-10 min-w-10 rounded-lg text-slate-500 hover:bg-slate-100 flex items-center justify-center"><X className="w-5 h-5" /></button>
+                  </div>
+                  <div className="p-4">
+                    <label className="relative block">
+                      <Search className="pointer-events-none absolute left-3 top-3.5 h-5 w-5 text-slate-400" />
+                      <input autoFocus value={childSearch} onChange={(event) => setChildSearch(event.target.value)} placeholder="児童名・フリガナで検索" className={`${inputClass} pl-10`} />
+                    </label>
+                    <div className="mt-3 max-h-[55vh] space-y-2 overflow-y-auto">
+                      {pickerChildren.map((child) => {
+                        const selected = wizard.selectedChildIds.includes(child.id);
+                        return <button key={child.id} type="button" onClick={() => toggleChild(child.id)} className={`w-full min-h-14 rounded-xl border p-3 text-left flex items-center gap-3 ${selected ? 'border-teal-500 bg-teal-50 text-teal-900' : 'border-slate-200 bg-white text-slate-700'}`}><span className={`h-6 w-6 shrink-0 rounded-md border flex items-center justify-center ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300'}`}>{selected && <Check className="w-4 h-4" />}</span><span><strong className="block text-sm">{child.name}</strong><span className="text-[11px] text-slate-500">{calculateSchoolGrade(child.birthDate) || child.grade || '学年未設定'}・定期利用 {formatRegularDays(child.regularDays)}</span></span></button>;
+                      })}
+                      {pickerChildren.length === 0 && <p className="py-8 text-center text-sm text-slate-400">一致する児童がいません。</p>}
+                    </div>
+                    <button type="button" onClick={() => setShowChildPicker(false)} className="mt-4 min-h-12 w-full rounded-xl bg-teal-600 text-sm font-bold text-white">選択を完了</button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
-        );
+          );
+        }
       case 'date': return <input type="date" value={wizard.date} onChange={(event) => updateWizard({ date: event.target.value })} className={inputClass} />;
       case 'recorder': return <input value={wizard.recorderName} onChange={(event) => updateWizard({ recorderName: event.target.value })} className={inputClass} />;
       case 'attendance':
@@ -779,7 +804,6 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
       <QuickMemoPad organizationId={organizationId} userId={userId} />
 
-      {showQuickChildModal && <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4"><form onSubmit={handleSaveQuickChild} className="w-full max-w-md rounded-2xl bg-white p-6 space-y-4"><h3 className="font-bold">児童をクイック登録</h3><label className="block text-xs font-bold">児童氏名<input required value={newChildName} onChange={(event) => setNewChildName(event.target.value)} className={`${inputClass} mt-1`} /></label><label className="block text-xs font-bold">生年月日<input required type="date" value={newChildBirthDate} onChange={(event) => setNewChildBirthDate(event.target.value)} className={`${inputClass} mt-1`} /></label>{newChildBirthDate && <p className="rounded-lg bg-teal-50 p-3 text-xs font-bold text-teal-800">自動計算された学年：{calculateSchoolGrade(newChildBirthDate)}</p>}<div className="flex gap-2 justify-end"><button type="button" onClick={() => setShowQuickChildModal(false)} className="min-h-11 px-4 rounded-lg border font-bold text-xs">キャンセル</button><button className="min-h-11 px-4 rounded-lg bg-teal-600 text-white font-bold text-xs">登録して選択</button></div></form></div>}
     </form>
   );
 };

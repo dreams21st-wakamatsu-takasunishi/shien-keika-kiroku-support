@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { ChildProfile } from '../types';
+import { ChildProfile, Weekday } from '../types';
 import { UserPlus, Search, Edit, Trash2, GraduationCap, Save, CalendarDays } from 'lucide-react';
 import { calculateSchoolGrade, formatBirthDate } from '../utils/schoolGrade';
+import { formatRegularDays, WEEKDAYS } from '../utils/weekdays';
 
 interface ChildrenManagerProps {
   childrenList: ChildProfile[];
@@ -25,6 +26,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   const [kana, setKana] = useState('');
   const [birthDate, setBirthDate] = useState('');
   const [grade, setGrade] = useState('小学3年生');
+  const [regularDays, setRegularDays] = useState<Weekday[]>([]);
   const [careType, setCareType] = useState<'児童発達支援' | '放課後等デイサービス'>('放課後等デイサービス');
   const [notes, setNotes] = useState('');
 
@@ -34,6 +36,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setKana('');
     setBirthDate('');
     setGrade('未就学');
+    setRegularDays([]);
     setCareType('放課後等デイサービス');
     setNotes('');
     setIsModalOpen(true);
@@ -45,6 +48,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setKana(child.kana || '');
     setBirthDate(child.birthDate || '');
     setGrade(child.grade || '小学3年生');
+    setRegularDays(child.regularDays || []);
     setCareType(child.careType || '放課後等デイサービス');
     setNotes(child.notes || '');
     setIsModalOpen(true);
@@ -62,6 +66,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         kana: kana.trim(),
         birthDate: birthDate || undefined,
         grade: savedGrade,
+        regularDays,
         careType,
         notes: notes.trim(),
       });
@@ -72,6 +77,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         kana: kana.trim(),
         birthDate: birthDate || undefined,
         grade: savedGrade,
+        regularDays,
         careType,
         notes: notes.trim(),
       });
@@ -150,6 +156,10 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                     <span>{formatBirthDate(c.birthDate)} 生まれ</span>
                   </div>
                 )}
+                <div className="flex items-start gap-2">
+                  <CalendarDays className="mt-0.5 w-4 h-4 text-slate-400" />
+                  <span>定期利用：{formatRegularDays(c.regularDays)}</span>
+                </div>
                 {c.notes && (
                   <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-slate-700 leading-relaxed mt-2 text-[11px]">
                     <strong className="text-slate-900 block font-bold mb-0.5">指導上の留意点:</strong>
@@ -269,6 +279,27 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                   <option value="児童発達支援">児童発達支援</option>
                 </select>
               </div>
+
+              <fieldset>
+                <legend className="font-bold text-slate-700 mb-2">定期利用曜日</legend>
+                <div className="grid grid-cols-7 gap-1.5">
+                  {WEEKDAYS.map((day) => {
+                    const selected = regularDays.includes(day);
+                    return (
+                      <button
+                        key={day}
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => setRegularDays((previous) => selected ? previous.filter((item) => item !== day) : [...previous, day])}
+                        className={`min-h-10 rounded-lg border text-xs font-bold ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300 bg-white text-slate-600'}`}
+                      >
+                        {day}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-1.5 text-[10px] text-slate-500">複数曜日を選択できます。未設定の児童は全曜日の候補に表示されます。</p>
+              </fieldset>
 
               <div>
                 <label className="font-bold text-slate-700 block mb-1">
