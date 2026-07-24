@@ -47,6 +47,7 @@ interface RecordFormProps {
   defaultRecorderName?: string;
   organizationId?: string;
   userId?: string;
+  assistantPrefill?: { childId: string; date: string; requestId: string } | null;
   onSaveRecords: (records: SupportRecord[]) => Promise<void> | void;
 }
 
@@ -177,23 +178,32 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   defaultRecorderName,
   organizationId,
   userId,
+  assistantPrefill,
   onSaveRecords,
 }) => {
   const initialTemplate = templates.find((template) => template.id === initialRecord?.templateId) || templates[0];
-  const draftKey = initialRecord ? `edit-${initialRecord.id}` : 'new-record-batch';
+  const draftKey = initialRecord
+    ? `edit-${initialRecord.id}`
+    : assistantPrefill
+      ? `assistant-${assistantPrefill.requestId}`
+      : 'new-record-batch';
   const storageKey = `support-record-draft-v2:${organizationId || 'local'}:${userId || 'local'}:${draftKey}`;
 
   const createInitialDraft = (): WizardDraft => {
     const base: WizardDraft = {
       version: 4,
       selectedTemplateId: initialTemplate?.id || '',
-      selectedChildIds: initialRecord ? [initialRecord.childId] : [],
-      activeChildId: initialRecord?.childId || '',
-      date: initialRecord?.date || new Date().toISOString().split('T')[0],
+      selectedChildIds: initialRecord ? [initialRecord.childId] : assistantPrefill ? [assistantPrefill.childId] : [],
+      activeChildId: initialRecord?.childId || assistantPrefill?.childId || '',
+      date: initialRecord?.date || assistantPrefill?.date || new Date().toISOString().split('T')[0],
       recorderName: initialRecord?.recorderName || defaultRecorderName || '指導員',
       currentStepIndex: 0,
       childStepIds: {},
-      childDrafts: initialRecord ? { [initialRecord.childId]: createChildDraft(initialTemplate, initialRecord) } : {},
+      childDrafts: initialRecord
+        ? { [initialRecord.childId]: createChildDraft(initialTemplate, initialRecord) }
+        : assistantPrefill
+          ? { [assistantPrefill.childId]: createChildDraft(initialTemplate) }
+          : {},
     };
     try {
       const local = localStorage.getItem(storageKey);

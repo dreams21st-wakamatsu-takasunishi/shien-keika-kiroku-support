@@ -17,7 +17,6 @@ import {
 import type { ChildProfile, HomeAssistantExecutionResult, HomeAssistantProposal, SupportRecord, UserProfile } from '../types';
 import type { ActiveTab } from './Header';
 import { executeHomeAssistantProposal, requestHomeAssistantProposal } from '../services/homeAssistantService';
-import { formatJapaneseDate } from '../utils/weekdays';
 
 interface HomeScreenProps {
   records: SupportRecord[];
@@ -26,7 +25,7 @@ interface HomeScreenProps {
   canManageSettings: boolean;
   onNavigate: (tab: ActiveTab) => void;
   onNewRecord: () => void;
-  onAssistantExecuted: (childId: string, result: HomeAssistantExecutionResult) => Promise<void> | void;
+  onAssistantExecuted: (proposal: HomeAssistantProposal, result: HomeAssistantExecutionResult) => Promise<void> | void;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
@@ -101,12 +100,13 @@ function HomeAssistantPanel({
   onExecuted,
 }: {
   childrenList: ChildProfile[];
-  onExecuted: (childId: string, result: HomeAssistantExecutionResult) => Promise<void> | void;
+  onExecuted: (proposal: HomeAssistantProposal, result: HomeAssistantExecutionResult) => Promise<void> | void;
 }) {
   const [selectedChildId, setSelectedChildId] = useState('');
   const [instruction, setInstruction] = useState('');
   const [proposal, setProposal] = useState<HomeAssistantProposal | null>(null);
   const [resultMessage, setResultMessage] = useState('');
+  const [resultOutput, setResultOutput] = useState('');
   const [error, setError] = useState('');
   const [phase, setPhase] = useState<'idle' | 'proposing' | 'executing'>('idle');
   const selectedChild = childrenList.find((child) => child.id === selectedChildId);
@@ -115,6 +115,7 @@ function HomeAssistantPanel({
   const resetResult = () => {
     setProposal(null);
     setResultMessage('');
+    setResultOutput('');
     setError('');
   };
 
@@ -124,6 +125,7 @@ function HomeAssistantPanel({
     setPhase('proposing');
     setError('');
     setResultMessage('');
+    setResultOutput('');
     try {
       setProposal(await requestHomeAssistantProposal(selectedChild, instruction.trim()));
     } catch (requestError) {
@@ -139,9 +141,10 @@ function HomeAssistantPanel({
     setPhase('executing');
     setError('');
     try {
-      const result = await executeHomeAssistantProposal(proposal);
-      await onExecuted(proposal.childId, result);
+      const result = await executeHomeAssistantProposal(proposal, selectedChild);
+      await onExecuted(proposal, result);
       setResultMessage(result.message);
+      setResultOutput(result.output || '');
       setProposal(null);
       setInstruction('');
     } catch (executeError) {
@@ -196,10 +199,35 @@ function HomeAssistantPanel({
               className="w-full rounded-xl border border-slate-300 bg-white p-3 text-sm leading-relaxed focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 disabled:opacity-60"
             />
           </label>
+          <div>
+            <p className="text-[10px] font-bold text-slate-500">入力例</p>
+            <div className="mt-1.5 flex gap-2 overflow-x-auto pb-1">
+              {[
+                '8月26日から水曜日と金曜日の利用に変更',
+                '留意点に「水分補給の声掛けを行う」を追記',
+                '明日の記録作成を開始',
+                '過去の記録を一覧表示',
+                '最近30日間の記録を要約',
+              ].map((example) => (
+                <button
+                  key={example}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    setInstruction(example);
+                    resetResult();
+                  }}
+                  className="shrink-0 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-[10px] font-bold text-indigo-700 disabled:opacity-50"
+                >
+                  {example}
+                </button>
+              ))}
+            </div>
+          </div>
 
           <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-600">
             <p className="flex items-center gap-1.5 font-bold text-slate-700"><ShieldCheck className="h-4 w-4 text-teal-600" />現在実行できる内容</p>
-            <p className="mt-1">指定日からの定期利用曜日変更に対応しています。児童名は指示文に書かず、上の欄で選択してください。</p>
+            <p className="mt-1">曜日変更、児童情報・留意点の更新、記録開始、記録一覧、最近の記録要約に対応しています。削除・権限・承認・テンプレート操作は管理画面から行います。</p>
           </div>
 
           <button
@@ -224,24 +252,18 @@ function HomeAssistantPanel({
           {proposal && (
             <div className="space-y-4">
               <div>
-                <p className="text-[11px] font-bold text-indigo-600">AIアシスタント案</p>
+                <p className="text-[11px] font-bold text-indigo-600">AIアシスタント案・{getAssistantActionLabel(proposal.actionType)}</p>
                 <h4 className="mt-1 text-base font-black text-slate-900">{proposal.summary}</h4>
               </div>
               <dl className="grid gap-2 text-xs sm:grid-cols-2">
-                <div className="rounded-xl border border-slate-200 bg-white p-3">
-                  <dt className="text-slate-500">対象児童</dt>
-                  <dd className="mt-1 font-bold text-slate-900">{proposal.childName}</dd>
-                </div>
-                <div className="rounded-xl border border-slate-200 bg-white p-3">
-                  <dt className="text-slate-500">適用日</dt>
-                  <dd className="mt-1 font-bold text-slate-900">{formatJapaneseDate(proposal.effectiveDate)}</dd>
-                </div>
-                <div className="rounded-xl border border-slate-200 bg-white p-3 sm:col-span-2">
-                  <dt className="text-slate-500">変更後の定期利用曜日</dt>
-                  <dd className="mt-1 font-bold text-slate-900">{proposal.regularDays.map((day) => `${day}曜日`).join('・')}</dd>
-                </div>
+                {proposal.details.map((detail, index) => (
+                  <div key={`${detail.label}-${index}`} className={`rounded-xl border border-slate-200 bg-white p-3 ${proposal.details.length % 2 === 1 && index === proposal.details.length - 1 ? 'sm:col-span-2' : ''}`}>
+                    <dt className="text-slate-500">{detail.label}</dt>
+                    <dd className="mt-1 whitespace-pre-wrap font-bold leading-relaxed text-slate-900">{detail.value}</dd>
+                  </div>
+                ))}
               </dl>
-              <p className="rounded-xl bg-amber-50 p-3 text-[11px] leading-relaxed text-amber-800">承認すると予約が登録されます。適用日より前の記録候補には影響しません。</p>
+              <p className="rounded-xl bg-amber-50 p-3 text-[11px] leading-relaxed text-amber-800">承認後にだけ実行されます。{proposal.confirmationNote}</p>
               <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
                 <button type="button" disabled={busy} onClick={handleExecute} className="min-h-12 rounded-xl bg-teal-600 px-4 text-sm font-black text-white flex items-center justify-center gap-2 hover:bg-teal-500 disabled:opacity-60">
                   {phase === 'executing' ? <><LoaderCircle className="h-5 w-5 animate-spin" />アシスタント実行中...</> : <><CheckCircle2 className="h-5 w-5" />この内容を承認して実行</>}
@@ -256,6 +278,7 @@ function HomeAssistantPanel({
               <CheckCircle2 className="h-10 w-10 text-emerald-600" />
               <p className="mt-3 text-[11px] font-bold text-emerald-700">アシスタントの実行が完了しました</p>
               <p className="mt-1 text-sm font-black leading-relaxed text-emerald-950">{resultMessage}</p>
+              {resultOutput && <div className="mt-4 w-full whitespace-pre-wrap rounded-xl border border-emerald-200 bg-white p-4 text-left text-xs leading-relaxed text-slate-700">{resultOutput}</div>}
               <button type="button" onClick={resetResult} className="mt-4 min-h-10 rounded-lg border border-emerald-300 bg-white px-4 text-xs font-bold text-emerald-800 flex items-center gap-2"><RotateCcw className="h-4 w-4" />別の指示を入力</button>
             </div>
           )}
@@ -270,6 +293,18 @@ function HomeAssistantPanel({
       </div>
     </section>
   );
+}
+
+function getAssistantActionLabel(actionType: HomeAssistantProposal['actionType']) {
+  const labels: Record<HomeAssistantProposal['actionType'], string> = {
+    schedule_regular_days: '定期利用曜日',
+    update_child_profile: '児童基本情報',
+    update_child_notes: '指導上の留意点',
+    start_support_record: '記録作成',
+    open_child_records: '記録一覧',
+    summarize_recent_records: '最近の記録要約',
+  };
+  return labels[actionType];
 }
 
 function StatusCard({ icon: Icon, label, value, tone }: { icon: React.ElementType; label: string; value: string; tone: 'teal' | 'blue' | 'amber' | 'emerald' }) {

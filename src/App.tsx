@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, Cloud, HardDrive, LoaderCircle } from 'lucide-react';
-import { AiWritingSettings, ChildProfile, DEFAULT_AI_WRITING_SETTINGS, HomeAssistantExecutionResult, SupportPlan, SupportRecord, Template } from './types';
+import { AiWritingSettings, ChildProfile, DEFAULT_AI_WRITING_SETTINGS, HomeAssistantExecutionResult, HomeAssistantProposal, SupportPlan, SupportRecord, Template } from './types';
 import { defaultTemplates } from './data/defaultTemplates';
 import { sampleRecords, sampleChildren } from './data/sampleData';
 import { Header, ActiveTab } from './components/Header';
@@ -63,6 +63,8 @@ export default function App() {
   });
   const [currentRecord, setCurrentRecord] = useState<SupportRecord | null>(null);
   const [formSessionId, setFormSessionId] = useState(0);
+  const [assistantRecordPrefill, setAssistantRecordPrefill] = useState<{ childId: string; date: string; requestId: string } | null>(null);
+  const [recordFilterChildId, setRecordFilterChildId] = useState<string | null>(null);
   const [aiWritingSettings, setAiWritingSettings] = useState<AiWritingSettings>(() => {
     if (remoteMode) return DEFAULT_AI_WRITING_SETTINGS;
     const saved = localStorage.getItem('support_ai_writing_settings');
@@ -312,19 +314,36 @@ export default function App() {
     } catch (error) { persistError(error); }
   };
 
-  const handleAssistantExecuted = async (childId: string, result: HomeAssistantExecutionResult) => {
+  const handleAssistantExecuted = async (proposal: HomeAssistantProposal, result: HomeAssistantExecutionResult) => {
     setChildrenList((previous) => previous.map((child) => {
-      if (child.id !== childId) return child;
+      if (child.id !== proposal.childId) return child;
       const schedules = child.regularDaySchedules || [];
       return {
         ...child,
-        regularDaySchedules: [
-          ...schedules.filter((schedule) => schedule.effectiveFrom !== result.schedule.effectiveFrom),
-          result.schedule,
-        ].sort((left, right) => left.effectiveFrom.localeCompare(right.effectiveFrom)),
+        ...(result.updatedChild || {}),
+        regularDaySchedules: result.schedule
+          ? [
+              ...schedules.filter((schedule) => schedule.effectiveFrom !== result.schedule?.effectiveFrom),
+              result.schedule,
+            ].sort((left, right) => left.effectiveFrom.localeCompare(right.effectiveFrom))
+          : schedules,
       };
     }));
     if (remoteMode && auth.profile) await refreshRemoteData(false);
+
+    if (result.clientAction?.type === 'start_support_record') {
+      setCurrentRecord(null);
+      setAssistantRecordPrefill({
+        childId: result.clientAction.childId,
+        date: result.clientAction.date || new Date().toISOString().slice(0, 10),
+        requestId: proposal.actionId,
+      });
+      setFormSessionId((previous) => previous + 1);
+      setActiveTab('form');
+    } else if (result.clientAction?.type === 'open_child_records') {
+      setRecordFilterChildId(result.clientAction.childId);
+      setActiveTab('records');
+    }
   };
 
   const handleSavePlan = async (plan: SupportPlan) => {
@@ -345,6 +364,7 @@ export default function App() {
 
   const handleNewRecordClick = () => {
     setCurrentRecord(null);
+    setAssistantRecordPrefill(null);
     setFormSessionId((previous) => previous + 1);
     setActiveTab('form');
   };
@@ -354,7 +374,11 @@ export default function App() {
       <Header
         activeTab={activeTab === 'preview' ? 'records' : activeTab}
         setActiveTab={(tab) => {
-          if (tab === 'form') setCurrentRecord(null);
+          if (tab === 'form') {
+            setCurrentRecord(null);
+            setAssistantRecordPrefill(null);
+          }
+          if (tab === 'records') setRecordFilterChildId(null);
           setActiveTab(tab);
         }}
         unapprovedCount={unapprovedCount}
@@ -378,7 +402,10 @@ export default function App() {
             childrenList={childrenList}
             currentUser={auth.profile}
             canManageSettings={canManageSettings}
-            onNavigate={setActiveTab}
+            onNavigate={(tab) => {
+              if (tab === 'records') setRecordFilterChildId(null);
+              setActiveTab(tab);
+            }}
             onNewRecord={handleNewRecordClick}
             onAssistantExecuted={handleAssistantExecuted}
           />
@@ -392,6 +419,7 @@ export default function App() {
             defaultRecorderName={auth.profile?.displayName}
             organizationId={organizationId}
             userId={auth.profile?.id}
+            assistantPrefill={assistantRecordPrefill}
             onSaveRecords={handleSaveRecords}
           />
         )}
@@ -399,7 +427,16 @@ export default function App() {
           <RecordPreview record={currentRecord} canReview={canReview} defaultReviewerName={auth.profile?.displayName} lockReviewerName={remoteMode} onEditRecord={handleEditRecord} onBackToList={() => setActiveTab('records')} onUpdateApproval={handleUpdateApproval} />
         )}
         {activeTab === 'records' && (
-          <RecordList records={records} onSelectRecord={(record) => { setCurrentRecord(record); setActiveTab('preview'); }} onEditRecord={handleEditRecord} onDuplicateRecord={handleDuplicateRecord} onDeleteRecord={handleDeleteRecord} onNewRecord={handleNewRecordClick} />
+          <RecordList
+            key={recordFilterChildId || 'all-records'}
+            records={records}
+            initialSearchTerm={childrenList.find((child) => child.id === recordFilterChildId)?.name}
+            onSelectRecord={(record) => { setCurrentRecord(record); setActiveTab('preview'); }}
+            onEditRecord={handleEditRecord}
+            onDuplicateRecord={handleDuplicateRecord}
+            onDeleteRecord={handleDeleteRecord}
+            onNewRecord={handleNewRecordClick}
+          />
         )}
         {activeTab === 'children' && (
           <ChildrenManager childrenList={childrenList} onAddChild={handleAddChild} onUpdateChild={handleUpdateChild} onDeleteChild={handleDeleteChild} />

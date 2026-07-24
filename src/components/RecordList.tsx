@@ -4,6 +4,7 @@ import { Search, Filter, Calendar, FileText, CheckCircle2, AlertCircle, Clock, E
 
 interface RecordListProps {
   records: SupportRecord[];
+  initialSearchTerm?: string;
   onSelectRecord: (record: SupportRecord) => void;
   onEditRecord: (record: SupportRecord) => void;
   onDuplicateRecord: (record: SupportRecord) => void;
@@ -13,13 +14,14 @@ interface RecordListProps {
 
 export const RecordList: React.FC<RecordListProps> = ({
   records,
+  initialSearchTerm,
   onSelectRecord,
   onEditRecord,
   onDuplicateRecord,
   onDeleteRecord,
   onNewRecord,
 }) => {
-  const [searchTerm, setSearchTerm] = useState('');
+  const [searchTerm, setSearchTerm] = useState(initialSearchTerm || '');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [templateFilter, setTemplateFilter] = useState<string>('all');
 

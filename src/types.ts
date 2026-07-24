@@ -19,20 +19,47 @@ export interface RegularDaySchedule {
   createdAt?: string;
 }
 
+export type HomeAssistantActionType =
+  | 'schedule_regular_days'
+  | 'update_child_profile'
+  | 'update_child_notes'
+  | 'start_support_record'
+  | 'open_child_records'
+  | 'summarize_recent_records';
+
+export interface HomeAssistantProposalDetail {
+  label: string;
+  value: string;
+}
+
 export interface HomeAssistantProposal {
   actionId: string;
-  actionType: 'schedule_regular_days';
+  actionType: HomeAssistantActionType;
   childId: string;
   childName: string;
   instruction: string;
-  effectiveDate: string;
-  regularDays: Weekday[];
   summary: string;
+  details: HomeAssistantProposalDetail[];
+  confirmationNote: string;
+  effectiveDate?: string;
+  regularDays?: Weekday[];
+  profileChanges?: Partial<Pick<ChildProfile, 'name' | 'kana' | 'birthDate' | 'careType'>>;
+  notesMode?: 'append' | 'replace';
+  notesText?: string;
+  recordDate?: string;
+  periodDays?: number;
 }
 
 export interface HomeAssistantExecutionResult {
   message: string;
-  schedule: RegularDaySchedule;
+  schedule?: RegularDaySchedule;
+  updatedChild?: Partial<ChildProfile>;
+  output?: string;
+  clientAction?: {
+    type: 'start_support_record' | 'open_child_records';
+    childId: string;
+    date?: string;
+  };
 }
 
 export type FieldType = 'radio' | 'checkbox' | 'text' | 'number' | 'textarea' | 'time_select' | 'hand_count';
