@@ -4,6 +4,7 @@ import {
   ChildProfile,
   DEFAULT_AI_WRITING_SETTINGS,
   ExpressionType,
+  RecorderProfile,
   RegularDaySchedule,
   SnackType,
   SupportPlan,
@@ -17,6 +18,7 @@ import { getLocalDateString } from '../utils/weekdays';
 
 export interface WorkspaceData {
   children: ChildProfile[];
+  recorderProfiles: RecorderProfile[];
   templates: Template[];
   records: SupportRecord[];
   supportPlans: SupportPlan[];
@@ -47,6 +49,15 @@ function mapRegularDaySchedule(row: any): RegularDaySchedule {
     id: row.id,
     effectiveFrom: row.effective_from,
     regularDays: Array.isArray(row.regular_days) ? row.regular_days as Weekday[] : [],
+    createdAt: row.created_at || undefined,
+  };
+}
+
+function mapRecorderProfile(row: any): RecorderProfile {
+  return {
+    id: row.id,
+    displayName: row.display_name,
+    active: row.active !== false,
     createdAt: row.created_at || undefined,
   };
 }
@@ -98,6 +109,7 @@ function mapRecord(row: any): SupportRecord {
     expressionNote: row.expression_note || undefined,
     snack: normalizeSnack(row.snack),
     snackNote: row.snack_note || undefined,
+    recorderId: row.recorder_profile_id || undefined,
     recorderName: row.recorder_name,
     serviceStartTime: row.service_start_time || undefined,
     serviceEndTime: row.service_end_time || undefined,
@@ -138,16 +150,17 @@ function mapAiWritingSettings(row: any): AiWritingSettings {
 
 export async function loadWorkspaceData(organizationId: string): Promise<WorkspaceData> {
   const client = assertSupabase();
-  const [childrenResult, schedulesResult, templatesResult, recordsResult, plansResult, aiSettingsResult] = await Promise.all([
+  const [childrenResult, schedulesResult, recorderProfilesResult, templatesResult, recordsResult, plansResult, aiSettingsResult] = await Promise.all([
     client.from('children').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('name'),
     client.from('child_regular_day_schedules').select('*').eq('organization_id', organizationId).order('effective_from'),
+    client.from('recorder_profiles').select('*').eq('organization_id', organizationId).eq('active', true).order('display_name'),
     client.from('record_templates').select('*').eq('organization_id', organizationId).is('archived_at', null).order('created_at'),
     client.from('support_records').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('record_date', { ascending: false }),
     client.from('support_plans').select('*').eq('organization_id', organizationId).order('valid_from', { ascending: false }),
     client.from('organization_ai_settings').select('*').eq('organization_id', organizationId).maybeSingle(),
   ]);
 
-  for (const result of [childrenResult, schedulesResult, templatesResult, recordsResult, plansResult, aiSettingsResult]) {
+  for (const result of [childrenResult, schedulesResult, recorderProfilesResult, templatesResult, recordsResult, plansResult, aiSettingsResult]) {
     if (result.error) throw result.error;
   }
 
@@ -163,6 +176,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
       ...mapChild(row),
       regularDaySchedules: schedulesByChild.get(row.id) || [],
     })),
+    recorderProfiles: (recorderProfilesResult.data || []).map(mapRecorderProfile),
     templates: (templatesResult.data || []).map(mapTemplate),
     records: (recordsResult.data || []).map(mapRecord),
     supportPlans: (plansResult.data || []).map(mapSupportPlan),
@@ -271,6 +285,7 @@ function mapRecordForSave(organizationId: string, record: SupportRecord) {
       expression_note: record.expressionNote || null,
       snack: record.snack,
       snack_note: record.snackNote || null,
+      recorder_profile_id: record.recorderId || null,
       recorder_name: record.recorderName,
       service_start_time: record.serviceStartTime || null,
       service_end_time: record.serviceEndTime || null,

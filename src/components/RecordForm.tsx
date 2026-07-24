@@ -20,6 +20,7 @@ import {
   AttendanceType,
   ChildProfile,
   ExpressionType,
+  RecorderProfile,
   SectionAnswer,
   SnackType,
   SupportRecord,
@@ -43,8 +44,8 @@ import { formatRegularDays, getRegularDaysForDate, getWeekdayFromDate } from '..
 interface RecordFormProps {
   templates: Template[];
   childrenList: ChildProfile[];
+  recorderProfiles: RecorderProfile[];
   initialRecord?: SupportRecord | null;
-  defaultRecorderName?: string;
   organizationId?: string;
   userId?: string;
   assistantPrefill?: { childId: string; date: string; requestId: string } | null;
@@ -89,11 +90,12 @@ interface ChildDraft {
 }
 
 interface WizardDraft {
-  version: 4;
+  version: 5;
   selectedTemplateId: string;
   selectedChildIds: string[];
   activeChildId: string;
   date: string;
+  recorderId: string;
   recorderName: string;
   currentStepIndex: number;
   childStepIds: Record<string, string>;
@@ -158,14 +160,15 @@ function createChildDraft(template?: Template, record?: SupportRecord): ChildDra
 function normalizeWizardDraft(value: unknown): WizardDraft | null {
   if (!value || typeof value !== 'object') return null;
   const draft = value as Partial<WizardDraft> & { version?: number };
-  if (![2, 3, 4].includes(draft.version || 0) || !Array.isArray(draft.selectedChildIds) || !draft.childDrafts) return null;
+  if (![2, 3, 4, 5].includes(draft.version || 0) || !Array.isArray(draft.selectedChildIds) || !draft.childDrafts) return null;
   const previousStepIndex = draft.currentStepIndex || 0;
   const currentStepIndex = (draft.version || 0) < 4
     ? previousStepIndex === 1 ? 2 : previousStepIndex === 2 ? 1 : previousStepIndex
     : previousStepIndex;
   return {
     ...draft,
-    version: 4,
+    version: 5,
+    recorderId: draft.recorderId || '',
     currentStepIndex,
     childStepIds: draft.childStepIds || {},
   } as WizardDraft;
@@ -174,8 +177,8 @@ function normalizeWizardDraft(value: unknown): WizardDraft | null {
 export const RecordForm: React.FC<RecordFormProps> = ({
   templates,
   childrenList,
+  recorderProfiles,
   initialRecord,
-  defaultRecorderName,
   organizationId,
   userId,
   assistantPrefill,
@@ -190,13 +193,23 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const storageKey = `support-record-draft-v2:${organizationId || 'local'}:${userId || 'local'}:${draftKey}`;
 
   const createInitialDraft = (): WizardDraft => {
+    const initialRecorder = initialRecord
+      ? recorderProfiles.find(
+          (profile) =>
+            profile.id === initialRecord.recorderId ||
+            profile.displayName === initialRecord.recorderName
+        )
+      : recorderProfiles.length === 1
+        ? recorderProfiles[0]
+        : undefined;
     const base: WizardDraft = {
-      version: 4,
+      version: 5,
       selectedTemplateId: initialTemplate?.id || '',
       selectedChildIds: initialRecord ? [initialRecord.childId] : assistantPrefill ? [assistantPrefill.childId] : [],
       activeChildId: initialRecord?.childId || assistantPrefill?.childId || '',
       date: initialRecord?.date || assistantPrefill?.date || new Date().toISOString().split('T')[0],
-      recorderName: initialRecord?.recorderName || defaultRecorderName || '指導員',
+      recorderId: initialRecorder?.id || '',
+      recorderName: initialRecord?.recorderName || initialRecorder?.displayName || '',
       currentStepIndex: 0,
       childStepIds: {},
       childDrafts: initialRecord
@@ -496,7 +509,16 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     if (currentStep?.kind === 'template' && !activeTemplate) return '記録フォーマットを選択してください。';
     if (currentStep?.kind === 'children' && wizard.selectedChildIds.length === 0) return '対象児童を1名以上選択してください。';
     if (currentStep?.kind === 'date' && !wizard.date) return '記録日付を入力してください。';
-    if (currentStep?.kind === 'recorder' && !wizard.recorderName.trim()) return '記録者名を入力してください。';
+    if (currentStep?.kind === 'recorder' && recorderProfiles.length === 0) {
+      return '記録者名簿が未登録です。管理者または児発管に登録を依頼してください。';
+    }
+    if (
+      currentStep?.kind === 'recorder' &&
+      !wizard.recorderId &&
+      !(initialRecord && wizard.recorderName.trim())
+    ) {
+      return '記録者を選択してください。';
+    }
     return null;
   };
 
@@ -665,7 +687,43 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           );
         }
       case 'date': return <input type="date" value={wizard.date} onChange={(event) => updateWizard({ date: event.target.value })} className={inputClass} />;
-      case 'recorder': return <input value={wizard.recorderName} onChange={(event) => updateWizard({ recorderName: event.target.value })} className={inputClass} />;
+      case 'recorder': {
+        const selectedIsLegacy =
+          Boolean(initialRecord?.recorderName) &&
+          !recorderProfiles.some((profile) => profile.id === wizard.recorderId);
+        return (
+          <div className="space-y-3">
+            <select
+              value={wizard.recorderId}
+              onChange={(event) => {
+                const selected = recorderProfiles.find((profile) => profile.id === event.target.value);
+                updateWizard({
+                  recorderId: selected?.id || '',
+                  recorderName: selected?.displayName || '',
+                });
+              }}
+              disabled={recorderProfiles.length === 0}
+              className={`${inputClass} disabled:bg-slate-100 disabled:text-slate-500`}
+            >
+              <option value="">
+                {selectedIsLegacy ? `過去の記録者：${wizard.recorderName}` : '記録者を選択してください'}
+              </option>
+              {recorderProfiles.map((profile) => (
+                <option key={profile.id} value={profile.id}>{profile.displayName}</option>
+              ))}
+            </select>
+            {recorderProfiles.length === 0 ? (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">
+                記録者名簿がまだ登録されていません。「職員」画面から管理者または児発管が登録してください。
+              </div>
+            ) : (
+              <p className="text-xs text-slate-500">
+                共有アカウントでログインしている場合も、実際に記録を入力する指導員を選択してください。
+              </p>
+            )}
+          </div>
+        );
+      }
       case 'attendance':
         return <div className="space-y-4"><div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{(wizardQuestions.attendance.options || []).map((item) => <button key={item} type="button" onClick={() => updateChildDraft(wizard.activeChildId, (draft) => ({ ...unskip(draft, currentStep.id), attendance: item }))} className={`${choiceClass} ${activeChildDraft?.attendance === item ? 'bg-teal-600 border-teal-600 text-white' : 'bg-white border-slate-300 text-slate-700'}`}>{activeChildDraft?.attendance === item && <Check className="inline w-4 h-4 mr-1" />}{item}</button>)}</div><label className="block text-sm font-bold text-slate-700">{wizardQuestions.attendance.noteLabel}<textarea rows={3} value={activeChildDraft?.attendanceNote || ''} onChange={(event) => updateChildDraft(wizard.activeChildId, (draft) => ({ ...unskip(draft, currentStep.id), attendanceNote: event.target.value }))} placeholder={wizardQuestions.attendance.notePlaceholder} className={`${inputClass} mt-2`} /></label></div>;
       case 'expression':
@@ -705,7 +763,13 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setSaveError(null);
-    if (!activeTemplate || wizard.selectedChildIds.length === 0 || !wizard.date || !wizard.recorderName.trim()) {
+    if (
+      !activeTemplate ||
+      wizard.selectedChildIds.length === 0 ||
+      !wizard.date ||
+      !wizard.recorderName.trim() ||
+      (!initialRecord && !wizard.recorderId)
+    ) {
       setSaveError('テンプレート、児童、日付、記録者を確認してください。');
       return;
     }
@@ -732,6 +796,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         expressionNote: childDraft.expressionNote || undefined,
         snack: childDraft.snack,
         snackNote: childDraft.snackNote || undefined,
+        recorderId: wizard.recorderId || undefined,
         recorderName: wizard.recorderName.trim(),
         serviceStartTime: previous?.serviceStartTime,
         serviceEndTime: previous?.serviceEndTime,

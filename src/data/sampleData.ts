@@ -1,4 +1,10 @@
-import { ChildProfile, SupportRecord } from '../types';
+import { ChildProfile, RecorderProfile, SupportRecord } from '../types';
+
+export const sampleRecorderProfiles: RecorderProfile[] = [
+  { id: 'recorder-1', displayName: '山田 指導員', active: true },
+  { id: 'recorder-2', displayName: '吉永 拓臣', active: true },
+  { id: 'recorder-3', displayName: '鈴木 児発管', active: true },
+];
 
 export const sampleChildren: ChildProfile[] = [
   {
@@ -39,6 +45,7 @@ export const sampleRecords: SupportRecord[] = [
     attendance: '出席',
     expressions: ['笑顔'],
     snack: '食べた',
+    recorderId: 'recorder-1',
     recorderName: '山田 指導員',
     sectionAnswers: {
       life: {

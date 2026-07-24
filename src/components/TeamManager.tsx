@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Edit3, MailPlus, RefreshCw, Save, ShieldCheck, Trash2, UserCheck, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { UserProfile, UserRole } from '../types';
+import { RecorderProfileManager } from './RecorderProfileManager';
 
 interface TeamMemberRow {
   id: string;
@@ -153,6 +154,8 @@ export const TeamManager: React.FC<{ currentUser: UserProfile }> = ({ currentUse
         </div>
         <button type="button" onClick={refresh} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg" title="再読み込み"><RefreshCw className="w-4 h-4" /></button>
       </div>
+
+      <RecorderProfileManager currentUser={currentUser} />
 
       <form onSubmit={invite} className="bg-white rounded-xl border border-slate-200 p-5 space-y-3">
         <h3 className="text-xs font-bold flex items-center gap-2"><MailPlus className="w-4 h-4 text-teal-600" />職員をメールで招待</h3>

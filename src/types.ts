@@ -146,6 +146,13 @@ export interface UserProfile {
   email?: string;
 }
 
+export interface RecorderProfile {
+  id: string;
+  displayName: string;
+  active: boolean;
+  createdAt?: string;
+}
+
 export interface SupportPlan {
   id: string;
   childId: string;
@@ -220,6 +227,7 @@ export interface SupportRecord {
   expressionNote?: string;
   snack: SnackType | '';
   snackNote?: string;
+  recorderId?: string;
   recorderName: string; // 記録者
 
   // Service delivery details

@@ -1,8 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, Cloud, HardDrive, LoaderCircle } from 'lucide-react';
-import { AiWritingSettings, ChildProfile, DEFAULT_AI_WRITING_SETTINGS, HomeAssistantExecutionResult, HomeAssistantProposal, SupportPlan, SupportRecord, Template } from './types';
+import { AiWritingSettings, ChildProfile, DEFAULT_AI_WRITING_SETTINGS, HomeAssistantExecutionResult, HomeAssistantProposal, RecorderProfile, SupportPlan, SupportRecord, Template } from './types';
 import { defaultTemplates } from './data/defaultTemplates';
-import { sampleRecords, sampleChildren } from './data/sampleData';
+import { sampleRecords, sampleChildren, sampleRecorderProfiles } from './data/sampleData';
 import { Header, ActiveTab } from './components/Header';
 import { RecordForm } from './components/RecordForm';
 import { RecordPreview } from './components/RecordPreview';
@@ -56,6 +56,11 @@ export default function App() {
     const saved = localStorage.getItem('support_children_data');
     return saved ? JSON.parse(saved) : sampleChildren;
   });
+  const [recorderProfiles, setRecorderProfiles] = useState<RecorderProfile[]>(() => {
+    if (remoteMode) return [];
+    const saved = localStorage.getItem('support_recorder_profiles_data');
+    return saved ? JSON.parse(saved) : sampleRecorderProfiles;
+  });
   const [supportPlans, setSupportPlans] = useState<SupportPlan[]>(() => {
     if (remoteMode) return [];
     const saved = localStorage.getItem('support_plans_data');
@@ -81,6 +86,9 @@ export default function App() {
     if (!remoteMode) localStorage.setItem('support_children_data', JSON.stringify(childrenList));
   }, [childrenList, remoteMode]);
   useEffect(() => {
+    if (!remoteMode) localStorage.setItem('support_recorder_profiles_data', JSON.stringify(recorderProfiles));
+  }, [recorderProfiles, remoteMode]);
+  useEffect(() => {
     if (!remoteMode) localStorage.setItem('support_plans_data', JSON.stringify(supportPlans));
   }, [supportPlans, remoteMode]);
   useEffect(() => {
@@ -99,6 +107,7 @@ export default function App() {
       setRecords(workspace.records);
       setTemplates(workspace.templates);
       setChildrenList(workspace.children);
+      setRecorderProfiles(workspace.recorderProfiles);
       setSupportPlans(workspace.supportPlans);
       setAiWritingSettings(workspace.aiWritingSettings);
       setDataError(null);
@@ -121,6 +130,7 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'support_records', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'children', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'child_regular_day_schedules', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'recorder_profiles', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'record_templates', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'support_plans', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .subscribe();
@@ -415,8 +425,8 @@ export default function App() {
             key={currentRecord?.id || `new-record-${formSessionId}`}
             templates={templates}
             childrenList={childrenList}
+            recorderProfiles={recorderProfiles}
             initialRecord={currentRecord}
-            defaultRecorderName={auth.profile?.displayName}
             organizationId={organizationId}
             userId={auth.profile?.id}
             assistantPrefill={assistantRecordPrefill}

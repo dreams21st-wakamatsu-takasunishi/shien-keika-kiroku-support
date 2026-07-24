@@ -10,7 +10,10 @@ export const DEFAULT_WIZARD_QUESTIONS: WizardQuestions = {
     help: '複数選択できます。入力中は児童タブですぐに切り替えられます。',
   },
   date: { title: 'いつの支援記録ですか？' },
-  recorder: { title: 'この記録を入力する職員は誰ですか？' },
+  recorder: {
+    title: 'この記録を入力する職員は誰ですか？',
+    help: '共有アカウントの場合も、実際に記録を入力する指導員を選択してください。',
+  },
   attendance: {
     title: '本日の出欠を教えてください。',
     help: '必要に応じて遅刻・早退の状況などを備考に入力できます。',
