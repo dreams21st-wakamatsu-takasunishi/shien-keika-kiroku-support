@@ -1,6 +1,20 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, Cloud, HardDrive, LoaderCircle } from 'lucide-react';
-import { AiWritingSettings, ChildProfile, DEFAULT_AI_WRITING_SETTINGS, HomeAssistantExecutionResult, HomeAssistantProposal, RecorderProfile, SupportPlan, SupportRecord, Template } from './types';
+import { AlertTriangle, Cloud, HardDrive, LoaderCircle, RefreshCw, UserRoundCog, WifiOff } from 'lucide-react';
+import {
+  AiWritingSettings,
+  ChildProfile,
+  DEFAULT_AI_WRITING_SETTINGS,
+  HandoverItem,
+  HandoverStatus,
+  HomeAssistantExecutionResult,
+  HomeAssistantProposal,
+  RecordDraftSummary,
+  RecorderProfile,
+  ReviewIssue,
+  SupportPlan,
+  SupportRecord,
+  Template,
+} from './types';
 import { defaultTemplates } from './data/defaultTemplates';
 import { sampleRecords, sampleChildren, sampleRecorderProfiles } from './data/sampleData';
 import { Header, ActiveTab } from './components/Header';
@@ -14,6 +28,7 @@ import { SettingsHub } from './components/SettingsHub';
 import { HomeScreen } from './components/HomeScreen';
 import { AuthScreen } from './components/AuthScreen';
 import { SetPasswordScreen } from './components/SetPasswordScreen';
+import { RecorderSessionGate } from './components/RecorderSessionGate';
 import { useAuth } from './hooks/useAuth';
 import { supabase } from './lib/supabase';
 import { FEATURE_FLAGS } from './config/features';
@@ -21,8 +36,11 @@ import { normalizeTemplateFatigueScale } from './utils/templateNormalizer';
 import {
   archiveTemplate,
   closeSupportPlan,
+  deleteRecordDraft,
+  listRecordDrafts,
   loadWorkspaceData,
   saveChild,
+  saveHandoverItem,
   saveRecord,
   saveRecords,
   saveAiWritingSettings,
@@ -31,11 +49,23 @@ import {
   seedDefaultTemplates,
   softDeleteChild,
   softDeleteRecord,
+  updateHandoverStatus,
 } from './services/dataService';
+import { createRecordDraftKey } from './utils/deviceId';
+import { isDraftCurrent } from './utils/draftExpiry';
+import {
+  enqueueRecordSync,
+  loadPendingRecordSyncs,
+  markPendingRecordSyncError,
+  mergePendingRecords,
+  PendingRecordSync,
+  removePendingRecordSync,
+} from './utils/offlineQueue';
 
 export default function App() {
   const auth = useAuth();
   const remoteMode = auth.configured;
+  const organizationId = auth.profile?.organizationId;
   const [activeTab, setActiveTab] = useState<ActiveTab | 'preview'>('home');
   const [dataLoading, setDataLoading] = useState(remoteMode);
   const [dataError, setDataError] = useState<string | null>(null);
@@ -61,6 +91,17 @@ export default function App() {
     const saved = localStorage.getItem('support_recorder_profiles_data');
     return saved ? JSON.parse(saved) : sampleRecorderProfiles;
   });
+  const [handoverItems, setHandoverItems] = useState<HandoverItem[]>(() => {
+    if (remoteMode) return [];
+    const saved = localStorage.getItem('support_handover_items_data');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [recordDrafts, setRecordDrafts] = useState<RecordDraftSummary[]>([]);
+  const [activeRecorder, setActiveRecorder] = useState<RecorderProfile | null>(null);
+  const [activeDraftKey, setActiveDraftKey] = useState(createRecordDraftKey);
+  const [online, setOnline] = useState(() => navigator.onLine);
+  const [pendingSyncs, setPendingSyncs] = useState<PendingRecordSync[]>([]);
+  const [syncing, setSyncing] = useState(false);
   const [supportPlans, setSupportPlans] = useState<SupportPlan[]>(() => {
     if (remoteMode) return [];
     const saved = localStorage.getItem('support_plans_data');
@@ -89,6 +130,9 @@ export default function App() {
     if (!remoteMode) localStorage.setItem('support_recorder_profiles_data', JSON.stringify(recorderProfiles));
   }, [recorderProfiles, remoteMode]);
   useEffect(() => {
+    if (!remoteMode) localStorage.setItem('support_handover_items_data', JSON.stringify(handoverItems));
+  }, [handoverItems, remoteMode]);
+  useEffect(() => {
     if (!remoteMode) localStorage.setItem('support_plans_data', JSON.stringify(supportPlans));
   }, [supportPlans, remoteMode]);
   useEffect(() => {
@@ -104,10 +148,13 @@ export default function App() {
         await seedDefaultTemplates(auth.profile.organizationId, defaultTemplates);
         workspace = { ...workspace, templates: defaultTemplates };
       }
-      setRecords(workspace.records);
+      const queued = loadPendingRecordSyncs(auth.profile.organizationId, auth.profile.id);
+      setPendingSyncs(queued);
+      setRecords(mergePendingRecords(workspace.records, queued));
       setTemplates(workspace.templates);
       setChildrenList(workspace.children);
       setRecorderProfiles(workspace.recorderProfiles);
+      setHandoverItems(workspace.handoverItems);
       setSupportPlans(workspace.supportPlans);
       setAiWritingSettings(workspace.aiWritingSettings);
       setDataError(null);
@@ -118,9 +165,60 @@ export default function App() {
     }
   }, [auth.profile]);
 
+  const refreshRecordDrafts = useCallback(async () => {
+    if (!organizationId) {
+      const prefix = 'support-record-draft-v2:local:local:record-';
+      const localDrafts = Object.keys(localStorage).flatMap((key): RecordDraftSummary[] => {
+        if (!key.startsWith(prefix)) return [];
+        try {
+          const payload = JSON.parse(localStorage.getItem(key) || '{}') as Record<string, unknown>;
+          const updatedAt = typeof payload.updatedAt === 'string' ? payload.updatedAt : '';
+          if (!isDraftCurrent(typeof payload.draftCycleKey === 'string' ? payload.draftCycleKey : undefined, updatedAt)) {
+            localStorage.removeItem(key);
+            return [];
+          }
+          return [{
+            draftKey: key.split(':').at(-1) || key.slice(prefix.length - 'record-'.length),
+            revision: 0,
+            recorderId: typeof payload.recorderId === 'string' ? payload.recorderId : undefined,
+            recorderName: typeof payload.recorderName === 'string' ? payload.recorderName : undefined,
+            selectedChildIds: Array.isArray(payload.selectedChildIds)
+              ? payload.selectedChildIds.filter((value): value is string => typeof value === 'string')
+              : [],
+            date: typeof payload.date === 'string' ? payload.date : undefined,
+            currentStepIndex: typeof payload.currentStepIndex === 'number' ? payload.currentStepIndex : 0,
+            updatedAt,
+          }];
+        } catch {
+          return [];
+        }
+      }).sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+      setRecordDrafts(localDrafts);
+      return;
+    }
+    try {
+      const drafts = await listRecordDrafts(organizationId);
+      const current = drafts.filter((draft) => isDraftCurrent(undefined, draft.updatedAt));
+      const expired = drafts.filter((draft) => !isDraftCurrent(undefined, draft.updatedAt));
+      setRecordDrafts(current);
+      if (expired.length > 0) {
+        await Promise.allSettled(expired.map((draft) => deleteRecordDraft(organizationId, draft.draftKey)));
+      }
+    } catch {
+      // Draft list failure does not block the main workspace.
+    }
+  }, [organizationId]);
+
   useEffect(() => {
-    if (remoteMode && auth.profile) void refreshRemoteData();
-  }, [remoteMode, auth.profile, refreshRemoteData]);
+    if (activeTab === 'home') void refreshRecordDrafts();
+  }, [activeTab, refreshRecordDrafts]);
+
+  useEffect(() => {
+    if (remoteMode && auth.profile) {
+      void refreshRemoteData();
+      void refreshRecordDrafts();
+    }
+  }, [remoteMode, auth.profile, refreshRemoteData, refreshRecordDrafts]);
 
   useEffect(() => {
     if (!supabase || !auth.profile) return;
@@ -133,9 +231,78 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'recorder_profiles', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'record_templates', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'support_plans', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'handover_items', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'record_drafts', filter: `organization_id=eq.${organizationId}` }, () => void refreshRecordDrafts())
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
-  }, [auth.profile, refreshRemoteData]);
+  }, [auth.profile, refreshRemoteData, refreshRecordDrafts]);
+
+  const syncPendingRecords = useCallback(async () => {
+    if (!organizationId || !auth.profile || !navigator.onLine || syncing) return;
+    const queued = loadPendingRecordSyncs(organizationId, auth.profile.id);
+    if (queued.length === 0) {
+      setPendingSyncs([]);
+      return;
+    }
+    setSyncing(true);
+    let remaining = queued;
+    for (const item of queued) {
+      try {
+        await saveRecords(organizationId, item.records);
+        remaining = removePendingRecordSync(organizationId, auth.profile.id, item.id);
+        setPendingSyncs(remaining);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '再送に失敗しました。';
+        remaining = markPendingRecordSyncError(organizationId, auth.profile.id, item.id, message);
+        setPendingSyncs(remaining);
+        break;
+      }
+    }
+    setSyncing(false);
+    if (remaining.length === 0) await refreshRemoteData(false);
+  }, [auth.profile, organizationId, refreshRemoteData, syncing]);
+
+  useEffect(() => {
+    if (!auth.profile) return;
+    setPendingSyncs(loadPendingRecordSyncs(auth.profile.organizationId, auth.profile.id));
+  }, [auth.profile]);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setOnline(true);
+      void syncPendingRecords();
+    };
+    const handleOffline = () => setOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    if (navigator.onLine) void syncPendingRecords();
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [syncPendingRecords]);
+
+  useEffect(() => {
+    if (!activeRecorder || auth.profile?.role !== 'staff') return;
+    let timer: number;
+    const lockAfterInactivity = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setActiveRecorder(null), 15 * 60 * 1000);
+    };
+    const events: Array<keyof WindowEventMap> = ['pointerdown', 'keydown', 'touchstart'];
+    events.forEach((eventName) => window.addEventListener(eventName, lockAfterInactivity, { passive: true }));
+    lockAfterInactivity();
+    return () => {
+      window.clearTimeout(timer);
+      events.forEach((eventName) => window.removeEventListener(eventName, lockAfterInactivity));
+    };
+  }, [activeRecorder, auth.profile?.role]);
+
+  useEffect(() => {
+    if (activeRecorder && !recorderProfiles.some((profile) => profile.id === activeRecorder.id)) {
+      setActiveRecorder(null);
+    }
+  }, [activeRecorder, recorderProfiles]);
 
   if (auth.loading) {
     return <LoadingScreen text="認証状態を確認しています..." />;
@@ -167,8 +334,17 @@ export default function App() {
     );
   }
   if (dataLoading) return <LoadingScreen text="事業所データを読み込んでいます..." />;
+  if (remoteMode && auth.profile?.role === 'staff' && !activeRecorder) {
+    return (
+      <RecorderSessionGate
+        organizationId={auth.profile.organizationId}
+        organizationName={auth.profile.organizationName}
+        recorderProfiles={recorderProfiles}
+        onUnlock={setActiveRecorder}
+      />
+    );
+  }
 
-  const organizationId = auth.profile?.organizationId;
   const canReview = !remoteMode || auth.profile?.role === 'manager' || auth.profile?.role === 'admin';
   const canManageSettings = !remoteMode || auth.profile?.role === 'manager' || auth.profile?.role === 'admin';
   const unapprovedCount = records.filter((record) => record.approvalStatus === '未確認').length;
@@ -178,6 +354,20 @@ export default function App() {
     setDataError(message);
     alert(message);
     throw error;
+  };
+
+  const saveRecordsOrQueue = async (items: SupportRecord[]) => {
+    if (!organizationId || !auth.profile) return;
+    try {
+      await saveRecords(organizationId, items);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const networkFailure = !navigator.onLine || /network|fetch|connection|offline/i.test(message);
+      if (!networkFailure) throw error;
+      const queued = enqueueRecordSync(organizationId, auth.profile.id, items);
+      setPendingSyncs(queued);
+      setDataError('通信できないため端末に保存しました。通信復旧後に自動送信します。');
+    }
   };
 
   const handleSaveRecord = async (savedRecord: SupportRecord) => {
@@ -196,7 +386,7 @@ export default function App() {
 
   const handleSaveRecords = async (savedRecords: SupportRecord[]) => {
     try {
-      if (organizationId) await saveRecords(organizationId, savedRecords);
+      await saveRecordsOrQueue(savedRecords);
       setRecords((previous) => {
         const savedIds = new Set(savedRecords.map((record) => record.id));
         return [...savedRecords, ...previous.filter((record) => !savedIds.has(record.id))];
@@ -208,6 +398,7 @@ export default function App() {
         setCurrentRecord(null);
         setActiveTab('records');
       }
+      void refreshRecordDrafts();
     } catch (error) { persistError(error); }
   };
 
@@ -217,6 +408,8 @@ export default function App() {
       return;
     }
     setCurrentRecord(record);
+    setActiveDraftKey(`record-edit-${record.id}`);
+    setFormSessionId((previous) => previous + 1);
     setActiveTab('form');
   };
 
@@ -228,12 +421,15 @@ export default function App() {
       date: now.toISOString().split('T')[0],
       approvalStatus: '未確認',
       jihatsukanComment: undefined,
+      reviewIssues: [],
       reviewedBy: undefined,
       reviewedAt: undefined,
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
     };
     setCurrentRecord(duplicated);
+    setActiveDraftKey(createRecordDraftKey());
+    setFormSessionId((previous) => previous + 1);
     setActiveTab('form');
   };
 
@@ -253,7 +449,8 @@ export default function App() {
     recordId: string,
     comment: string,
     status: '確認済み' | '要修正',
-    reviewerName: string
+    reviewerName: string,
+    reviewIssues: ReviewIssue[]
   ) => {
     if (!canReview) {
       alert('確認・承認は児発管または管理者のみ実行できます。');
@@ -266,6 +463,7 @@ export default function App() {
       ...target,
       approvalStatus: status,
       jihatsukanComment: comment,
+      reviewIssues,
       reviewedBy: auth.profile?.displayName || reviewerName || '児童発達支援管理責任者',
       reviewedAt: now,
       updatedAt: now,
@@ -343,6 +541,7 @@ export default function App() {
 
     if (result.clientAction?.type === 'start_support_record') {
       setCurrentRecord(null);
+      setActiveDraftKey(createRecordDraftKey());
       setAssistantRecordPrefill({
         childId: result.clientAction.childId,
         date: result.clientAction.date || new Date().toISOString().slice(0, 10),
@@ -375,8 +574,83 @@ export default function App() {
   const handleNewRecordClick = () => {
     setCurrentRecord(null);
     setAssistantRecordPrefill(null);
+    setActiveDraftKey(createRecordDraftKey());
     setFormSessionId((previous) => previous + 1);
     setActiveTab('form');
+  };
+
+  const handleStartRecord = (childId: string, date: string) => {
+    const requestId = createRecordDraftKey();
+    setCurrentRecord(null);
+    setActiveDraftKey(requestId);
+    setAssistantRecordPrefill({ childId, date, requestId });
+    setFormSessionId((previous) => previous + 1);
+    setActiveTab('form');
+  };
+
+  const handleResumeDraft = (draftKey: string) => {
+    setCurrentRecord(null);
+    setAssistantRecordPrefill(null);
+    setActiveDraftKey(draftKey);
+    setFormSessionId((previous) => previous + 1);
+    setActiveTab('form');
+  };
+
+  const handleDeleteDraft = async (draftKey: string) => {
+    if (!window.confirm('この入力中の記録を削除しますか？保存済み記録は削除されません。')) return;
+    try {
+      if (organizationId) {
+        await deleteRecordDraft(organizationId, draftKey);
+      } else {
+        Object.keys(localStorage)
+          .filter((key) => key.startsWith('support-record-draft-v2:local:local:') && key.endsWith(`:${draftKey}`))
+          .forEach((key) => localStorage.removeItem(key));
+      }
+      setRecordDrafts((previous) => previous.filter((draft) => draft.draftKey !== draftKey));
+    } catch (error) {
+      persistError(error);
+    }
+  };
+
+  const handleSaveHandover = async (item: HandoverItem) => {
+    try {
+      if (organizationId) await saveHandoverItem(organizationId, item);
+      setHandoverItems((previous) => [
+        item,
+        ...previous.filter((candidate) => candidate.id !== item.id),
+      ]);
+    } catch (error) {
+      persistError(error);
+    }
+  };
+
+  const handleHandoverStatusChange = async (itemId: string, status: HandoverStatus) => {
+    try {
+      if (organizationId) await updateHandoverStatus(organizationId, itemId, status);
+      const now = new Date().toISOString();
+      setHandoverItems((previous) => previous.map((item) =>
+        item.id === itemId ? { ...item, status, updatedAt: now } : item
+      ));
+    } catch (error) {
+      persistError(error);
+    }
+  };
+
+  const handleQuickMemoHandover = async (content: string) => {
+    const now = new Date().toISOString();
+    await handleSaveHandover({
+      id: typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `handover-${Date.now()}`,
+      category: '申し送り',
+      content,
+      priority: '通常',
+      status: '未対応',
+      createdByRecorderId: activeRecorder?.id,
+      createdByRecorderName: activeRecorder?.displayName,
+      createdAt: now,
+      updatedAt: now,
+    });
   };
 
   return (
@@ -387,6 +661,8 @@ export default function App() {
           if (tab === 'form') {
             setCurrentRecord(null);
             setAssistantRecordPrefill(null);
+            setActiveDraftKey(createRecordDraftKey());
+            setFormSessionId((previous) => previous + 1);
           }
           if (tab === 'records') setRecordFilterChildId(null);
           setActiveTab(tab);
@@ -398,11 +674,44 @@ export default function App() {
       />
 
       <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-3 sm:pt-6">
-        <div className={`mb-3 sm:mb-4 rounded-xl border px-3 sm:px-4 py-2 text-[11px] sm:text-xs flex items-center gap-2 ${remoteMode ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-amber-50 border-amber-200 text-amber-900'}`}>
-          {remoteMode ? <Cloud className="w-4 h-4" /> : <HardDrive className="w-4 h-4" />}
-          {remoteMode
-            ? `${auth.profile?.organizationName || '事業所'}の共有データベースに接続中`
-            : 'ローカル試用モード：データはこのブラウザだけに保存されます。実運用にはSupabase設定が必要です。'}
+        <div className={`mb-3 rounded-xl border px-3 py-2 text-[11px] sm:mb-4 sm:px-4 sm:text-xs ${
+          !online
+            ? 'border-amber-300 bg-amber-50 text-amber-900'
+            : remoteMode
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+              : 'border-amber-200 bg-amber-50 text-amber-900'
+        }`}>
+          <div className="flex flex-wrap items-center gap-2">
+            {!online ? <WifiOff className="h-4 w-4" /> : remoteMode ? <Cloud className="h-4 w-4" /> : <HardDrive className="h-4 w-4" />}
+            <span className="min-w-0 flex-1">
+              {!online
+                ? 'オフラインです。入力は端末に保持され、通信復旧後に送信されます。'
+                : remoteMode
+                  ? `${auth.profile?.organizationName || '事業所'}の共有データベースに接続中`
+                  : 'ローカル試用モード：データはこのブラウザだけに保存されます。実運用にはSupabase設定が必要です。'}
+            </span>
+            {pendingSyncs.length > 0 && (
+              <button
+                type="button"
+                disabled={!online || syncing}
+                onClick={() => void syncPendingRecords()}
+                className="flex min-h-9 items-center gap-1 rounded-lg border border-amber-300 bg-white px-2 font-bold text-amber-900 disabled:opacity-50"
+              >
+                <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
+                未送信 {pendingSyncs.reduce((sum, item) => sum + item.records.length, 0)}件
+              </button>
+            )}
+            {activeRecorder && (
+              <button
+                type="button"
+                onClick={() => setActiveRecorder(null)}
+                className="flex min-h-9 items-center gap-1 rounded-lg border border-teal-300 bg-white px-2 font-bold text-teal-800"
+              >
+                <UserRoundCog className="h-3.5 w-3.5" />
+                {activeRecorder.displayName}・切替
+              </button>
+            )}
+          </div>
         </div>
         {dataError && <div className="mb-4 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-lg p-3">{dataError}</div>}
 
@@ -410,6 +719,9 @@ export default function App() {
           <HomeScreen
             records={records}
             childrenList={childrenList}
+            drafts={recordDrafts}
+            handoverItems={handoverItems}
+            activeRecorder={activeRecorder || undefined}
             currentUser={auth.profile}
             canManageSettings={canManageSettings}
             onNavigate={(tab) => {
@@ -417,24 +729,45 @@ export default function App() {
               setActiveTab(tab);
             }}
             onNewRecord={handleNewRecordClick}
+            onStartRecord={handleStartRecord}
+            onResumeDraft={handleResumeDraft}
+            onDeleteDraft={(draftKey) => void handleDeleteDraft(draftKey)}
+            onOpenRecord={(record) => {
+              setCurrentRecord(record);
+              setActiveTab('preview');
+            }}
+            onSaveHandover={handleSaveHandover}
+            onHandoverStatusChange={handleHandoverStatusChange}
             onAssistantExecuted={handleAssistantExecuted}
           />
         )}
         {activeTab === 'form' && (
           <RecordForm
-            key={currentRecord?.id || `new-record-${formSessionId}`}
+            key={`${currentRecord?.id || activeDraftKey}-${formSessionId}`}
             templates={templates}
             childrenList={childrenList}
             recorderProfiles={recorderProfiles}
             initialRecord={currentRecord}
             organizationId={organizationId}
             userId={auth.profile?.id}
+            draftKey={activeDraftKey}
+            activeRecorder={activeRecorder || undefined}
             assistantPrefill={assistantRecordPrefill}
             onSaveRecords={handleSaveRecords}
+            onCreateHandover={handleQuickMemoHandover}
           />
         )}
         {activeTab === 'preview' && currentRecord && (
-          <RecordPreview record={currentRecord} canReview={canReview} defaultReviewerName={auth.profile?.displayName} lockReviewerName={remoteMode} onEditRecord={handleEditRecord} onBackToList={() => setActiveTab('records')} onUpdateApproval={handleUpdateApproval} />
+          <RecordPreview
+            record={currentRecord}
+            canReview={canReview}
+            defaultReviewerName={auth.profile?.displayName}
+            lockReviewerName={remoteMode}
+            organizationId={organizationId}
+            onEditRecord={handleEditRecord}
+            onBackToList={() => setActiveTab('records')}
+            onUpdateApproval={handleUpdateApproval}
+          />
         )}
         {activeTab === 'records' && (
           <RecordList

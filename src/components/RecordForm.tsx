@@ -50,6 +50,7 @@ import {
   normalizeHomeworkDetails,
 } from '../utils/homeworkField';
 import { getCurrentDraftCycleKey, getNextDraftResetAt, isDraftCurrent } from '../utils/draftExpiry';
+import { createRecordDraftKey, getDeviceId } from '../utils/deviceId';
 
 interface RecordFormProps {
   templates: Template[];
@@ -58,8 +59,12 @@ interface RecordFormProps {
   initialRecord?: SupportRecord | null;
   organizationId?: string;
   userId?: string;
+  draftKey?: string;
+  activeRecorder?: RecorderProfile;
   assistantPrefill?: { childId: string; date: string; requestId: string } | null;
   onSaveRecords: (records: SupportRecord[]) => Promise<void> | void;
+  onDraftChanged?: () => void;
+  onCreateHandover?: (content: string) => Promise<void> | void;
 }
 
 type StepKind =
@@ -100,7 +105,7 @@ interface ChildDraft {
 }
 
 interface WizardDraft {
-  version: 6;
+  version: 7;
   draftCycleKey: string;
   selectedTemplateId: string;
   selectedChildIds: string[];
@@ -115,6 +120,15 @@ interface WizardDraft {
 }
 
 type AnswerStatus = 'answered' | 'skipped' | 'unanswered';
+
+interface PreSaveCheck {
+  id: string;
+  childId: string;
+  childName: string;
+  level: 'error' | 'warning' | 'info';
+  title: string;
+  detail: string;
+}
 
 const inputClass = 'w-full min-h-12 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-base sm:text-sm text-slate-900 focus:border-teal-500 focus:ring-2 focus:ring-teal-200 outline-none';
 const choiceClass = 'min-h-12 rounded-xl border px-3 py-2.5 text-sm font-bold transition-colors text-center';
@@ -354,7 +368,7 @@ function createChildDraft(template?: Template, record?: SupportRecord): ChildDra
 function normalizeWizardDraft(value: unknown): WizardDraft | null {
   if (!value || typeof value !== 'object') return null;
   const draft = value as Partial<WizardDraft> & { version?: number };
-  if (![2, 3, 4, 5, 6].includes(draft.version || 0) || !Array.isArray(draft.selectedChildIds) || !draft.childDrafts) return null;
+  if (![2, 3, 4, 5, 6, 7].includes(draft.version || 0) || !Array.isArray(draft.selectedChildIds) || !draft.childDrafts) return null;
   if (!isDraftCurrent(draft.draftCycleKey, draft.updatedAt)) return null;
   const previousStepIndex = draft.currentStepIndex || 0;
   const currentStepIndex = (draft.version || 0) < 4
@@ -362,7 +376,7 @@ function normalizeWizardDraft(value: unknown): WizardDraft | null {
     : previousStepIndex;
   return {
     ...draft,
-    version: 6,
+    version: 7,
     draftCycleKey: getCurrentDraftCycleKey(),
     recorderId: draft.recorderId || '',
     currentStepIndex,
@@ -377,19 +391,22 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   initialRecord,
   organizationId,
   userId,
+  draftKey: requestedDraftKey,
+  activeRecorder,
   assistantPrefill,
   onSaveRecords,
+  onDraftChanged,
+  onCreateHandover,
 }) => {
   const initialTemplate = templates.find((template) => template.id === initialRecord?.templateId) || templates[0];
-  const draftKey = initialRecord
-    ? `edit-${initialRecord.id}`
-    : assistantPrefill
-      ? `assistant-${assistantPrefill.requestId}`
-      : 'new-record-batch';
+  const draftKey = useRef(
+    requestedDraftKey
+      || (initialRecord ? `record-edit-${initialRecord.id}` : createRecordDraftKey())
+  ).current;
   const storageKey = `support-record-draft-v2:${organizationId || 'local'}:${userId || 'local'}:${draftKey}`;
 
   const createBaseDraft = (): WizardDraft => {
-    const initialRecorder = initialRecord
+    const initialRecorder = activeRecorder || (initialRecord
       ? recorderProfiles.find(
           (profile) =>
             profile.id === initialRecord.recorderId ||
@@ -397,16 +414,16 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         )
       : recorderProfiles.length === 1
         ? recorderProfiles[0]
-        : undefined;
+        : undefined);
     const base: WizardDraft = {
-      version: 6,
+      version: 7,
       draftCycleKey: getCurrentDraftCycleKey(),
       selectedTemplateId: initialTemplate?.id || '',
       selectedChildIds: initialRecord ? [initialRecord.childId] : assistantPrefill ? [assistantPrefill.childId] : [],
       activeChildId: initialRecord?.childId || assistantPrefill?.childId || '',
       date: initialRecord?.date || assistantPrefill?.date || new Date().toISOString().split('T')[0],
       recorderId: initialRecorder?.id || '',
-      recorderName: initialRecord?.recorderName || initialRecorder?.displayName || '',
+      recorderName: activeRecorder?.displayName || initialRecord?.recorderName || initialRecorder?.displayName || '',
       currentStepIndex: 0,
       childStepIds: {},
       childDrafts: initialRecord
@@ -436,15 +453,18 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
   const [wizard, setWizard] = useState<WizardDraft>(createInitialDraft);
   const [draftReady, setDraftReady] = useState(!organizationId || !userId);
-  const [draftStatus, setDraftStatus] = useState<'restored' | 'saving' | 'saved' | 'deleted' | 'reset' | 'error' | null>(null);
+  const [draftStatus, setDraftStatus] = useState<'restored' | 'saving' | 'saved' | 'deleted' | 'reset' | 'conflict' | 'error' | null>(null);
   const [stepError, setStepError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [summarizingSectionId, setSummarizingSectionId] = useState<string | null>(null);
   const [showChildPicker, setShowChildPicker] = useState(false);
   const [childSearch, setChildSearch] = useState('');
+  const [checksAcknowledged, setChecksAcknowledged] = useState(false);
   const draftCleared = useRef(false);
   const skipNextDraftSave = useRef(false);
+  const deviceId = useRef(getDeviceId()).current;
+  const remoteRevision = useRef<number | null>(null);
 
   const activeTemplate = templates.find((template) => template.id === wizard.selectedTemplateId) || templates[0];
   const wizardQuestions = getWizardQuestions(activeTemplate);
@@ -457,6 +477,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     void loadRecordDraft(organizationId, draftKey)
       .then((remote) => {
         if (!alive || !remote) return;
+        remoteRevision.current = remote.revision;
         const restored = normalizeWizardDraft(remote.payload);
         if (!restored) {
           localStorage.removeItem(storageKey);
@@ -488,7 +509,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     const timer = window.setTimeout(() => {
       const payload: WizardDraft = {
         ...wizard,
-        version: 6,
+        version: 7,
         draftCycleKey: getCurrentDraftCycleKey(),
         updatedAt: new Date().toISOString(),
       };
@@ -498,15 +519,26 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         setDraftStatus('error');
       }
       if (organizationId && userId) {
-        void saveRecordDraft(organizationId, userId, draftKey, payload)
-          .then(() => setDraftStatus('saved'))
-          .catch(() => setDraftStatus('error'));
+        void saveRecordDraft(organizationId, userId, draftKey, payload, {
+          deviceId,
+          expectedRevision: remoteRevision.current,
+          recorderId: wizard.recorderId || null,
+        })
+          .then((saved) => {
+            remoteRevision.current = saved.revision;
+            setDraftStatus('saved');
+            onDraftChanged?.();
+          })
+          .catch((error) => {
+            const message = error instanceof Error ? error.message : String(error);
+            setDraftStatus(message.includes('DRAFT_CONFLICT') ? 'conflict' : 'error');
+          });
       } else {
         setDraftStatus('saved');
       }
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [wizard, draftReady, storageKey, organizationId, userId, draftKey]);
+  }, [wizard, draftReady, storageKey, organizationId, userId, draftKey, deviceId, onDraftChanged]);
 
   useEffect(() => {
     let timer: number;
@@ -515,12 +547,14 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       const resetAt = getNextDraftResetAt(now);
       timer = window.setTimeout(() => {
         skipNextDraftSave.current = true;
+        remoteRevision.current = null;
         localStorage.removeItem(storageKey);
         if (organizationId) void deleteRecordDraft(organizationId, draftKey);
         setWizard(createBaseDraft());
         setStepError(null);
         setSaveError(null);
         setDraftStatus('reset');
+        onDraftChanged?.();
         scheduleNextReset();
       }, resetAt.getTime() - now.getTime());
     };
@@ -528,7 +562,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     return () => window.clearTimeout(timer);
     // The form session keeps scheduling its next local 03:00 reset.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draftKey, organizationId, storageKey]);
+  }, [draftKey, organizationId, storageKey, onDraftChanged]);
 
   useEffect(() => {
     if (activeTemplate || templates.length === 0) return;
@@ -728,6 +762,113 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const perChildSteps = steps.filter((step) => !['template', 'children', 'date', 'recorder', 'review'].includes(step.kind));
   const unansweredForChild = (childId: string) => perChildSteps.filter((step) => answerStatus(step, wizard.childDrafts[childId]) === 'unanswered');
   const skippedForChild = (childId: string) => perChildSteps.filter((step) => answerStatus(step, wizard.childDrafts[childId]) === 'skipped');
+
+  const getPreSaveChecks = (): PreSaveCheck[] => {
+    const checks: PreSaveCheck[] = [];
+    wizard.selectedChildIds.forEach((childId) => {
+      const childName = childrenList.find((child) => child.id === childId)?.name || '児童';
+      const draft = wizard.childDrafts[childId] || createChildDraft(activeTemplate);
+      const unanswered = unansweredForChild(childId);
+      const skipped = skippedForChild(childId);
+
+      if (unanswered.length > 0) {
+        checks.push({
+          id: `${childId}-unanswered`,
+          childId,
+          childName,
+          level: 'warning',
+          title: `未回答が${unanswered.length}件あります`,
+          detail: '回答漏れでないか、質問一覧から確認してください。',
+        });
+      }
+      if (skipped.length > 0) {
+        checks.push({
+          id: `${childId}-skipped`,
+          childId,
+          childName,
+          level: 'info',
+          title: `スキップが${skipped.length}件あります`,
+          detail: '意図してスキップした項目か確認してください。',
+        });
+      }
+
+      activeTemplate?.sections.forEach((section) => {
+        const sectionAnswer = draft.sectionAnswers[section.id];
+        section.fields.forEach((field) => {
+          const answer = sectionAnswer?.answers?.[field.id];
+          const stepId = `field-${section.id}-${field.id}`;
+          if (field.required && !answer?.value?.trim() && !draft.skippedQuestionIds.includes(stepId)) {
+            checks.push({
+              id: `${childId}-${stepId}-required`,
+              childId,
+              childName,
+              level: 'error',
+              title: `${section.title}：${field.label}は必須です`,
+              detail: '入力してから保存してください。',
+            });
+          }
+          if (field.type === 'homework_subjects' && answer?.homeworkDetails) {
+            const homework = normalizeHomeworkDetails(answer.homeworkDetails, answer.value);
+            const incomplete = homework.subjects.filter((subject) =>
+              HOMEWORK_ACADEMIC_SUBJECTS.includes(subject as (typeof HOMEWORK_ACADEMIC_SUBJECTS)[number])
+                ? !(homework.materials[subject] || []).length
+                : !homework.notes[subject]?.trim()
+            );
+            if (incomplete.length > 0) {
+              checks.push({
+                id: `${childId}-${stepId}-homework`,
+                childId,
+                childName,
+                level: 'warning',
+                title: `${incomplete.join('・')}の詳しい内容が未入力です`,
+                detail: '教科を選択した直下の教材または自由記入欄を確認してください。',
+              });
+            }
+          }
+        });
+
+        const abc = sectionAnswer?.abcAnalysis;
+        const abcCount = [abc?.antecedent, abc?.behavior, abc?.consequence]
+          .filter((value) => value?.trim()).length;
+        if (abcCount > 0 && abcCount < 3) {
+          checks.push({
+            id: `${childId}-${section.id}-abc`,
+            childId,
+            childName,
+            level: 'warning',
+            title: `${section.title}のABC記録が一部のみ入力されています`,
+            detail: 'A（きっかけ）・B（行動）・C（結果）の3要素を確認してください。',
+          });
+        }
+      });
+
+      if (draft.attendance.includes('欠席')) {
+        const hasObservation = draft.expressions.length > 0
+          || Boolean(draft.snack)
+          || (Object.values(draft.sectionAnswers) as SectionAnswer[]).some((section) =>
+            Boolean(section.subTitleValue?.trim())
+            || (Object.values(section.answers || {}) as SectionFieldAnswer[]).some((answer) => Boolean(answer.value?.trim() || answer.note?.trim()))
+            || Boolean(
+              section.abcAnalysis?.antecedent?.trim()
+              || section.abcAnalysis?.behavior?.trim()
+              || section.abcAnalysis?.consequence?.trim()
+              || section.abcAnalysis?.summary?.trim()
+            )
+          );
+        if (hasObservation) {
+          checks.push({
+            id: `${childId}-absence-content`,
+            childId,
+            childName,
+            level: 'warning',
+            title: '欠席ですが支援中の内容が入力されています',
+            detail: '出欠選択または活動・おやつ等の入力が正しいか確認してください。',
+          });
+        }
+      }
+    });
+    return checks;
+  };
 
   const moveToStep = (index: number, childId = wizard.activeChildId) => {
     setStepError(null);
@@ -946,6 +1087,17 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         const selectedIsLegacy =
           Boolean(initialRecord?.recorderName) &&
           !recorderProfiles.some((profile) => profile.id === wizard.recorderId);
+        if (activeRecorder) {
+          return (
+            <div className="rounded-2xl border-2 border-teal-300 bg-teal-50 p-5">
+              <p className="text-xs font-bold text-teal-700">本人確認済みの指導員</p>
+              <p className="mt-1 text-xl font-black text-teal-950">{activeRecorder.displayName}</p>
+              <p className="mt-2 text-xs leading-relaxed text-teal-800">
+                記録者の取り違え防止のため、現在の指導員として固定されています。変更する場合は画面上部の「指導員を切替」を押してください。
+              </p>
+            </div>
+          );
+        }
         return (
           <div className="space-y-3">
             <select
@@ -1010,7 +1162,19 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         return <div className="space-y-4"><div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs space-y-2"><p><strong>A：</strong>{abc?.antecedent || '未入力'}</p><p><strong>B：</strong>{abc?.behavior || '未入力'}</p><p><strong>C：</strong>{abc?.consequence || '未入力'}</p></div><button type="button" disabled={summarizingSectionId === currentStep.sectionId} onClick={() => summarizeABC(currentStep.sectionId!)} className="w-full min-h-12 rounded-xl bg-violet-600 disabled:bg-slate-400 text-white font-bold text-sm flex items-center justify-center gap-2">{summarizingSectionId === currentStep.sectionId ? <LoaderCircle className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}ABC分析を要約する</button><label className="block text-sm font-bold text-slate-700">要約文（修正できます）<textarea rows={7} value={abc?.summary || ''} onChange={(event) => updateABC(currentStep.sectionId!, 'summary', event.target.value)} className={`${inputClass} mt-2`} /></label></div>;
       }
       case 'review':
-        return <ReviewAllChildren wizard={wizard} childrenList={childrenList} template={activeTemplate} steps={perChildSteps} answerStatus={answerStatus} onJump={(childId, stepId) => moveToStep(steps.findIndex((step) => step.id === stepId), childId)} />;
+        return (
+          <ReviewAllChildren
+            wizard={wizard}
+            childrenList={childrenList}
+            template={activeTemplate}
+            steps={perChildSteps}
+            answerStatus={answerStatus}
+            checks={getPreSaveChecks()}
+            checksAcknowledged={checksAcknowledged}
+            onChecksAcknowledged={setChecksAcknowledged}
+            onJump={(childId, stepId) => moveToStep(steps.findIndex((step) => step.id === stepId), childId)}
+          />
+        );
       default: return null;
     }
   };
@@ -1028,8 +1192,17 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       setSaveError('テンプレート、児童、日付、記録者を確認してください。');
       return;
     }
-    const totalUnanswered = wizard.selectedChildIds.reduce((sum, childId) => sum + unansweredForChild(childId).length, 0);
-    if (totalUnanswered > 0 && !window.confirm(`未回答の質問が${totalUnanswered}件あります。このまま保存しますか？`)) return;
+    const checks = getPreSaveChecks();
+    const errors = checks.filter((check) => check.level === 'error');
+    const notices = checks.filter((check) => check.level !== 'error');
+    if (errors.length > 0) {
+      setSaveError(`保存できない項目が${errors.length}件あります。赤色の点検結果を修正してください。`);
+      return;
+    }
+    if (notices.length > 0 && !checksAcknowledged) {
+      setSaveError('注意事項を確認し、「点検結果を確認しました」にチェックしてください。');
+      return;
+    }
 
     const now = new Date().toISOString();
     const records = wizard.selectedChildIds.map((childId) => {
@@ -1061,8 +1234,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         goalProgress: previous?.goalProgress,
         sectionAnswers: childDraft.sectionAnswers,
         skippedQuestionIds: childDraft.skippedQuestionIds,
-        approvalStatus: previous?.approvalStatus || '未確認',
+        approvalStatus: previous?.approvalStatus === '要修正' ? '未確認' : previous?.approvalStatus || '未確認',
         jihatsukanComment: previous?.jihatsukanComment,
+        reviewIssues: previous?.reviewIssues?.map((issue) => ({ ...issue, resolved: true })),
         reviewedBy: previous?.reviewedBy,
         reviewedAt: previous?.reviewedAt,
         createdAt: previous?.createdAt || now,
@@ -1074,8 +1248,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     try {
       await onSaveRecords(records);
       draftCleared.current = true;
+      remoteRevision.current = null;
       localStorage.removeItem(storageKey);
       if (organizationId) await deleteRecordDraft(organizationId, draftKey);
+      onDraftChanged?.();
     } catch (error) {
       setSaveError(error instanceof Error ? error.message : '保存できませんでした。');
       draftCleared.current = false;
@@ -1092,6 +1268,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     if (!confirmed) return;
 
     skipNextDraftSave.current = true;
+    remoteRevision.current = null;
     localStorage.removeItem(storageKey);
     setWizard(createBaseDraft());
     setStepError(null);
@@ -1102,9 +1279,52 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     if (organizationId) {
       try {
         await deleteRecordDraft(organizationId, draftKey);
+        onDraftChanged?.();
       } catch {
         setDraftStatus('error');
       }
+    }
+  };
+
+  const resolveDraftConflict = async (preferLocal: boolean) => {
+    if (!organizationId || !userId) return;
+    try {
+      const remote = await loadRecordDraft(organizationId, draftKey);
+      if (!remote) {
+        remoteRevision.current = null;
+        setDraftStatus(null);
+        return;
+      }
+      if (preferLocal) {
+        if (!window.confirm('別端末の更新内容を、この端末の入力内容で置き換えますか？')) return;
+        remoteRevision.current = remote.revision;
+        const payload: WizardDraft = {
+          ...wizard,
+          version: 7,
+          draftCycleKey: getCurrentDraftCycleKey(),
+          updatedAt: new Date().toISOString(),
+        };
+        const saved = await saveRecordDraft(organizationId, userId, draftKey, payload, {
+          deviceId,
+          expectedRevision: remote.revision,
+          recorderId: wizard.recorderId || null,
+        });
+        remoteRevision.current = saved.revision;
+        localStorage.setItem(storageKey, JSON.stringify(payload));
+        setDraftStatus('saved');
+      } else {
+        if (!window.confirm('この端末の未保存変更を破棄して、別端末の最新内容を読み込みますか？')) return;
+        const restored = normalizeWizardDraft(remote.payload);
+        if (!restored) throw new Error('別端末の下書きは期限切れ、または読み込めない形式です。');
+        remoteRevision.current = remote.revision;
+        skipNextDraftSave.current = true;
+        setWizard({ ...restored, updatedAt: remote.updatedAt });
+        localStorage.setItem(storageKey, JSON.stringify({ ...restored, updatedAt: remote.updatedAt }));
+        setDraftStatus('restored');
+      }
+      onDraftChanged?.();
+    } catch {
+      setDraftStatus('error');
     }
   };
 
@@ -1117,6 +1337,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         ? '入力中の記録を削除しました'
         : draftStatus === 'reset'
           ? '午前3時に下書きをリセットしました'
+          : draftStatus === 'conflict'
+            ? '別端末の更新を検出しました'
           : draftStatus === 'error'
             ? '下書きの共有保存に失敗'
             : '下書き自動保存';
@@ -1129,7 +1351,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           <span
             aria-live="polite"
             className={`flex items-center gap-1 ${
-              draftStatus === 'error'
+              draftStatus === 'error' || draftStatus === 'conflict'
                 ? 'text-rose-600'
                 : draftStatus === 'deleted' || draftStatus === 'reset'
                   ? 'font-bold text-amber-700'
@@ -1153,6 +1375,30 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             入力中の記録を削除
           </button>
         </div>
+        {draftStatus === 'conflict' && (
+          <div className="mt-3 rounded-xl border-2 border-rose-300 bg-rose-50 p-4">
+            <p className="text-sm font-black text-rose-900">同じ下書きが別端末で更新されています</p>
+            <p className="mt-1 text-xs leading-relaxed text-rose-800">
+              自動上書きを停止しました。残したい内容を選択してください。
+            </p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <button
+                type="button"
+                onClick={() => void resolveDraftConflict(false)}
+                className="min-h-12 rounded-xl border border-rose-300 bg-white px-4 text-sm font-bold text-rose-800"
+              >
+                別端末の最新内容を読み込む
+              </button>
+              <button
+                type="button"
+                onClick={() => void resolveDraftConflict(true)}
+                className="min-h-12 rounded-xl bg-rose-700 px-4 text-sm font-bold text-white"
+              >
+                この端末の内容を残す
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {wizard.selectedChildIds.length > 0 && wizard.currentStepIndex >= 2 && (
@@ -1197,7 +1443,12 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         </div>
       </div>
 
-      <QuickMemoPad organizationId={organizationId} userId={userId} />
+      <QuickMemoPad
+        organizationId={organizationId}
+        userId={userId}
+        recorderId={activeRecorder?.id}
+        onCreateHandover={onCreateHandover}
+      />
 
     </form>
   );
@@ -1209,6 +1460,9 @@ function ReviewAllChildren({
   template,
   steps,
   answerStatus,
+  checks,
+  checksAcknowledged,
+  onChecksAcknowledged,
   onJump,
 }: {
   wizard: WizardDraft;
@@ -1216,11 +1470,67 @@ function ReviewAllChildren({
   template?: Template;
   steps: WizardStep[];
   answerStatus: (step: WizardStep, draft?: ChildDraft) => AnswerStatus;
+  checks: PreSaveCheck[];
+  checksAcknowledged: boolean;
+  onChecksAcknowledged: (checked: boolean) => void;
   onJump: (childId: string, stepId: string) => void;
 }) {
+  const errors = checks.filter((check) => check.level === 'error');
+  const notices = checks.filter((check) => check.level !== 'error');
   return (
     <div className="space-y-4">
       <div className="rounded-xl border border-teal-200 bg-teal-50 p-4 text-sm"><p><strong>日付：</strong>{wizard.date}</p><p><strong>記録者：</strong>{wizard.recorderName}</p><p><strong>テンプレート：</strong>{template?.name}</p></div>
+      <section className={`rounded-xl border-2 p-4 ${
+        errors.length > 0
+          ? 'border-rose-300 bg-rose-50'
+          : notices.length > 0
+            ? 'border-amber-300 bg-amber-50'
+            : 'border-emerald-300 bg-emerald-50'
+      }`}>
+        <h3 className="flex items-center gap-2 text-sm font-black text-slate-900">
+          <ListChecks className="h-5 w-5" />保存前の自動点検
+        </h3>
+        {checks.length === 0 ? (
+          <p className="mt-2 text-sm font-bold text-emerald-800">入力内容に問題は見つかりませんでした。</p>
+        ) : (
+          <>
+            <div className="mt-3 space-y-2">
+              {checks.map((check) => (
+                <div key={check.id} className={`rounded-lg border bg-white p-3 ${
+                  check.level === 'error'
+                    ? 'border-rose-200'
+                    : check.level === 'warning'
+                      ? 'border-amber-200'
+                      : 'border-slate-200'
+                }`}>
+                  <p className={`text-xs font-black ${
+                    check.level === 'error'
+                      ? 'text-rose-800'
+                      : check.level === 'warning'
+                        ? 'text-amber-900'
+                        : 'text-slate-700'
+                  }`}>
+                    {check.level === 'error' ? '修正必須' : check.level === 'warning' ? '要確認' : '確認'}・{check.childName}
+                  </p>
+                  <p className="mt-1 text-sm font-bold text-slate-900">{check.title}</p>
+                  <p className="mt-0.5 text-xs leading-relaxed text-slate-600">{check.detail}</p>
+                </div>
+              ))}
+            </div>
+            {errors.length === 0 && notices.length > 0 && (
+              <label className="mt-3 flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border border-amber-300 bg-white px-4 text-sm font-black text-amber-950">
+                <input
+                  type="checkbox"
+                  checked={checksAcknowledged}
+                  onChange={(event) => onChecksAcknowledged(event.target.checked)}
+                  className="h-5 w-5 rounded border-slate-300 text-teal-600"
+                />
+                点検結果を確認しました
+              </label>
+            )}
+          </>
+        )}
+      </section>
       {wizard.selectedChildIds.map((childId) => {
         const child = childrenList.find((item) => item.id === childId);
         const draft = wizard.childDrafts[childId];

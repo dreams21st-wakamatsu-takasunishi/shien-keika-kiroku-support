@@ -14,30 +14,61 @@ import {
   Sparkles,
   Users,
 } from 'lucide-react';
-import type { ChildProfile, HomeAssistantExecutionResult, HomeAssistantProposal, SupportRecord, UserProfile } from '../types';
+import type {
+  ChildProfile,
+  HandoverItem,
+  HandoverStatus,
+  HomeAssistantExecutionResult,
+  HomeAssistantProposal,
+  RecordDraftSummary,
+  RecorderProfile,
+  SupportRecord,
+  UserProfile,
+} from '../types';
 import type { ActiveTab } from './Header';
 import { executeHomeAssistantProposal, requestHomeAssistantProposal } from '../services/homeAssistantService';
+import { DailyOperationsPanel } from './DailyOperationsPanel';
+import { HandoverPanel } from './HandoverPanel';
+import { getLocalDateString } from '../utils/weekdays';
 
 interface HomeScreenProps {
   records: SupportRecord[];
   childrenList: ChildProfile[];
+  drafts: RecordDraftSummary[];
+  handoverItems: HandoverItem[];
+  activeRecorder?: RecorderProfile;
   currentUser?: UserProfile | null;
   canManageSettings: boolean;
   onNavigate: (tab: ActiveTab) => void;
   onNewRecord: () => void;
+  onStartRecord: (childId: string, date: string) => void;
+  onResumeDraft: (draftKey: string) => void;
+  onDeleteDraft: (draftKey: string) => void;
+  onOpenRecord: (record: SupportRecord) => void;
+  onSaveHandover: (item: HandoverItem) => Promise<void> | void;
+  onHandoverStatusChange: (itemId: string, status: HandoverStatus) => Promise<void> | void;
   onAssistantExecuted: (proposal: HomeAssistantProposal, result: HomeAssistantExecutionResult) => Promise<void> | void;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   records,
   childrenList,
+  drafts,
+  handoverItems,
+  activeRecorder,
   currentUser,
   canManageSettings,
   onNavigate,
   onNewRecord,
+  onStartRecord,
+  onResumeDraft,
+  onDeleteDraft,
+  onOpenRecord,
+  onSaveHandover,
+  onHandoverStatusChange,
   onAssistantExecuted,
 }) => {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = getLocalDateString();
   const todayRecords = records.filter((record) => record.date === today);
   const unapproved = records.filter((record) => record.approvalStatus === '未確認');
   const recentRecords = [...records]
@@ -61,6 +92,26 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         <StatusCard icon={ClipboardList} label="未確認" value={`${unapproved.length}件`} tone="amber" />
         <StatusCard icon={CheckCircle2} label="確認済み" value={`${records.filter((record) => record.approvalStatus === '確認済み').length}件`} tone="emerald" />
       </section>
+
+      <DailyOperationsPanel
+        childrenList={childrenList}
+        records={records}
+        drafts={drafts}
+        currentUserId={currentUser?.id}
+        canManageDrafts={canManageSettings}
+        onStartRecord={onStartRecord}
+        onResumeDraft={onResumeDraft}
+        onDeleteDraft={onDeleteDraft}
+        onOpenRecord={onOpenRecord}
+      />
+
+      <HandoverPanel
+        items={handoverItems}
+        childrenList={childrenList}
+        activeRecorder={activeRecorder}
+        onSave={onSaveHandover}
+        onStatusChange={onHandoverStatusChange}
+      />
 
       <HomeAssistantPanel childrenList={childrenList} onExecuted={onAssistantExecuted} />
 

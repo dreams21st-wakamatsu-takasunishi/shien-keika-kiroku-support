@@ -4,7 +4,11 @@ import {
   ChildProfile,
   DEFAULT_AI_WRITING_SETTINGS,
   ExpressionType,
+  HandoverItem,
+  RecordDraftSummary,
+  RecordRevision,
   RecorderProfile,
+  ReviewIssue,
   RegularDaySchedule,
   SnackType,
   SupportPlan,
@@ -21,6 +25,7 @@ export interface WorkspaceData {
   recorderProfiles: RecorderProfile[];
   templates: Template[];
   records: SupportRecord[];
+  handoverItems: HandoverItem[];
   supportPlans: SupportPlan[];
   aiWritingSettings: AiWritingSettings;
 }
@@ -58,7 +63,27 @@ function mapRecorderProfile(row: any): RecorderProfile {
     id: row.id,
     displayName: row.display_name,
     active: row.active !== false,
+    pinConfigured: row.pin_configured === true,
     createdAt: row.created_at || undefined,
+  };
+}
+
+function mapHandoverItem(row: any, recorderNames?: Map<string, string>): HandoverItem {
+  return {
+    id: row.id,
+    childId: row.child_id || undefined,
+    category: row.category,
+    content: row.content,
+    priority: row.priority,
+    status: row.status,
+    dueDate: row.due_date || undefined,
+    assignee: row.assignee || undefined,
+    createdByRecorderId: row.created_by_recorder_profile_id || undefined,
+    createdByRecorderName: row.created_by_recorder_profile_id
+      ? recorderNames?.get(row.created_by_recorder_profile_id)
+      : undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -122,6 +147,7 @@ function mapRecord(row: any): SupportRecord {
     synthesizedSummary: row.synthesized_summary || undefined,
     approvalStatus: row.approval_status,
     jihatsukanComment: row.review_comment || undefined,
+    reviewIssues: Array.isArray(row.review_issues) ? row.review_issues as ReviewIssue[] : [],
     reviewedBy: row.reviewer_name || undefined,
     reviewedAt: row.reviewed_at || undefined,
     createdAt: row.created_at,
@@ -150,17 +176,18 @@ function mapAiWritingSettings(row: any): AiWritingSettings {
 
 export async function loadWorkspaceData(organizationId: string): Promise<WorkspaceData> {
   const client = assertSupabase();
-  const [childrenResult, schedulesResult, recorderProfilesResult, templatesResult, recordsResult, plansResult, aiSettingsResult] = await Promise.all([
+  const [childrenResult, schedulesResult, recorderProfilesResult, templatesResult, recordsResult, handoversResult, plansResult, aiSettingsResult] = await Promise.all([
     client.from('children').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('name'),
     client.from('child_regular_day_schedules').select('*').eq('organization_id', organizationId).order('effective_from'),
-    client.from('recorder_profiles').select('*').eq('organization_id', organizationId).eq('active', true).order('display_name'),
+    client.from('recorder_profiles').select('id, display_name, active, pin_configured, created_at').eq('organization_id', organizationId).eq('active', true).order('display_name'),
     client.from('record_templates').select('*').eq('organization_id', organizationId).is('archived_at', null).order('created_at'),
     client.from('support_records').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('record_date', { ascending: false }),
+    client.from('handover_items').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }),
     client.from('support_plans').select('*').eq('organization_id', organizationId).order('valid_from', { ascending: false }),
     client.from('organization_ai_settings').select('*').eq('organization_id', organizationId).maybeSingle(),
   ]);
 
-  for (const result of [childrenResult, schedulesResult, recorderProfilesResult, templatesResult, recordsResult, plansResult, aiSettingsResult]) {
+  for (const result of [childrenResult, schedulesResult, recorderProfilesResult, templatesResult, recordsResult, handoversResult, plansResult, aiSettingsResult]) {
     if (result.error) throw result.error;
   }
 
@@ -171,14 +198,18 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     schedulesByChild.set(row.child_id, schedules);
   }
 
+  const recorderProfiles = (recorderProfilesResult.data || []).map(mapRecorderProfile);
+  const recorderNames = new Map(recorderProfiles.map((profile) => [profile.id, profile.displayName]));
+
   return {
     children: (childrenResult.data || []).map((row) => ({
       ...mapChild(row),
       regularDaySchedules: schedulesByChild.get(row.id) || [],
     })),
-    recorderProfiles: (recorderProfilesResult.data || []).map(mapRecorderProfile),
+    recorderProfiles,
     templates: (templatesResult.data || []).map(mapTemplate),
     records: (recordsResult.data || []).map(mapRecord),
+    handoverItems: (handoversResult.data || []).map((row) => mapHandoverItem(row, recorderNames)),
     supportPlans: (plansResult.data || []).map(mapSupportPlan),
     aiWritingSettings: mapAiWritingSettings(aiSettingsResult.data),
   };
@@ -304,6 +335,7 @@ function mapRecordForSave(organizationId: string, record: SupportRecord) {
       synthesized_summary: record.synthesizedSummary || null,
       approval_status: record.approvalStatus,
       review_comment: record.jihatsukanComment || null,
+      review_issues: record.reviewIssues || [],
       reviewer_name: record.reviewedBy || null,
       reviewed_at: record.reviewedAt || null,
       deleted_at: null,
@@ -340,25 +372,47 @@ export async function saveAiWritingSettings(organizationId: string, settings: Ai
 export async function loadRecordDraft(organizationId: string, draftKey: string) {
   const { data, error } = await assertSupabase()
     .from('record_drafts')
-    .select('payload, updated_at')
+    .select('payload, updated_at, revision, device_id, recorder_profile_id')
     .eq('organization_id', organizationId)
     .eq('draft_key', draftKey)
     .maybeSingle();
   if (error) throw error;
-  return data ? { payload: data.payload as unknown, updatedAt: data.updated_at as string } : null;
+  return data ? {
+    payload: data.payload as unknown,
+    updatedAt: data.updated_at as string,
+    revision: Number(data.revision || 1),
+    deviceId: data.device_id as string | null,
+    recorderId: data.recorder_profile_id as string | null,
+  } : null;
 }
 
-export async function saveRecordDraft(organizationId: string, userId: string, draftKey: string, payload: unknown) {
-  const { error } = await assertSupabase().from('record_drafts').upsert(
-    {
-      organization_id: organizationId,
-      user_id: userId,
-      draft_key: draftKey,
-      payload,
-    },
-    { onConflict: 'organization_id,user_id,draft_key' }
-  );
+export interface SaveRecordDraftOptions {
+  deviceId: string;
+  expectedRevision?: number | null;
+  recorderId?: string | null;
+}
+
+export async function saveRecordDraft(
+  organizationId: string,
+  _userId: string,
+  draftKey: string,
+  payload: unknown,
+  options: SaveRecordDraftOptions
+) {
+  const { data, error } = await assertSupabase().rpc('save_record_draft_guarded', {
+    p_organization_id: organizationId,
+    p_draft_key: draftKey,
+    p_payload: payload,
+    p_device_id: options.deviceId,
+    p_expected_revision: options.expectedRevision ?? null,
+    p_recorder_profile_id: options.recorderId || null,
+  });
   if (error) throw error;
+  const saved = Array.isArray(data) ? data[0] : data;
+  return {
+    revision: Number(saved?.new_revision || options.expectedRevision || 1),
+    updatedAt: String(saved?.saved_at || new Date().toISOString()),
+  };
 }
 
 export async function deleteRecordDraft(organizationId: string, draftKey: string) {
@@ -368,6 +422,113 @@ export async function deleteRecordDraft(organizationId: string, draftKey: string
     .eq('organization_id', organizationId)
     .eq('draft_key', draftKey);
   if (error) throw error;
+}
+
+export async function listRecordDrafts(organizationId: string): Promise<RecordDraftSummary[]> {
+  const { data, error } = await assertSupabase()
+    .from('record_drafts')
+    .select('user_id, draft_key, payload, updated_at, revision, device_id, recorder_profile_id')
+    .eq('organization_id', organizationId)
+    .like('draft_key', 'record-%')
+    .order('updated_at', { ascending: false });
+  if (error) throw error;
+
+  return (data || []).flatMap((row) => {
+    const payload = row.payload && typeof row.payload === 'object'
+      ? row.payload as Record<string, unknown>
+      : null;
+    if (!payload || !Array.isArray(payload.selectedChildIds)) return [];
+    return [{
+      draftKey: row.draft_key,
+      revision: Number(row.revision || 1),
+      userId: row.user_id || undefined,
+      deviceId: row.device_id || undefined,
+      recorderId: row.recorder_profile_id || (typeof payload.recorderId === 'string' ? payload.recorderId : undefined),
+      recorderName: typeof payload.recorderName === 'string' ? payload.recorderName : undefined,
+      selectedChildIds: payload.selectedChildIds.filter((value): value is string => typeof value === 'string'),
+      date: typeof payload.date === 'string' ? payload.date : undefined,
+      currentStepIndex: typeof payload.currentStepIndex === 'number' ? payload.currentStepIndex : 0,
+      updatedAt: row.updated_at,
+    }];
+  });
+}
+
+export async function verifyRecorderPin(
+  organizationId: string,
+  recorderId: string,
+  pin: string
+) {
+  const { data, error } = await assertSupabase().rpc('verify_recorder_pin', {
+    p_organization_id: organizationId,
+    p_recorder_profile_id: recorderId,
+    p_pin: pin,
+  });
+  if (error) throw error;
+  return data === true;
+}
+
+export async function setRecorderPin(
+  organizationId: string,
+  recorderId: string,
+  pin: string
+) {
+  const { error } = await assertSupabase().rpc('set_recorder_pin', {
+    p_organization_id: organizationId,
+    p_recorder_profile_id: recorderId,
+    p_pin: pin,
+  });
+  if (error) throw error;
+}
+
+export async function saveHandoverItem(organizationId: string, item: HandoverItem) {
+  const { error } = await assertSupabase().from('handover_items').upsert({
+    id: item.id,
+    organization_id: organizationId,
+    child_id: item.childId || null,
+    category: item.category,
+    content: item.content.trim(),
+    priority: item.priority,
+    status: item.status,
+    due_date: item.dueDate || null,
+    assignee: item.assignee?.trim() || null,
+    created_by_recorder_profile_id: item.createdByRecorderId || null,
+  });
+  if (error) throw error;
+}
+
+export async function updateHandoverStatus(
+  organizationId: string,
+  itemId: string,
+  status: HandoverItem['status']
+) {
+  const { error } = await assertSupabase()
+    .from('handover_items')
+    .update({ status })
+    .eq('organization_id', organizationId)
+    .eq('id', itemId);
+  if (error) throw error;
+}
+
+export async function loadRecordRevisions(
+  organizationId: string,
+  recordId: string
+): Promise<RecordRevision[]> {
+  const { data, error } = await assertSupabase()
+    .from('record_revisions')
+    .select('id, record_id, version, changed_by, snapshot, changed_at')
+    .eq('organization_id', organizationId)
+    .eq('record_id', recordId)
+    .order('changed_at', { ascending: false })
+    .limit(20);
+  if (error) throw error;
+  return (data || []).map((row) => ({
+    id: String(row.id),
+    recordId: row.record_id,
+    version: Number(row.version),
+    changedBy: row.changed_by || undefined,
+    snapshot: row.snapshot || {},
+    changedAt: row.changed_at,
+  }));
 }
 
 export async function softDeleteRecord(organizationId: string, recordId: string) {

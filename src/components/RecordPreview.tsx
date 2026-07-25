@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
-import { SupportRecord } from '../types';
+import React, { useEffect, useState } from 'react';
+import { RecordRevision, ReviewIssue, SectionAnswer, SupportRecord } from '../types';
 import { PDFDocument } from './PDFDocument';
 import { generatePDFFromElement } from '../utils/pdfGenerator';
 import { generateRecordSummary, generateNarrativeReport } from '../utils/textGenerator';
-import { Download, Printer, Copy, Edit, Check, ArrowLeft, LayoutGrid, FileText } from 'lucide-react';
+import { Download, Printer, Copy, Edit, Check, ArrowLeft, LayoutGrid, FileText, History, Plus, Trash2 } from 'lucide-react';
+import { loadRecordRevisions } from '../services/dataService';
 
 interface RecordPreviewProps {
   record: SupportRecord;
@@ -12,11 +13,13 @@ interface RecordPreviewProps {
   canReview?: boolean;
   defaultReviewerName?: string;
   lockReviewerName?: boolean;
+  organizationId?: string;
   onUpdateApproval?: (
     recordId: string,
     comment: string,
     status: '確認済み' | '要修正',
-    reviewerName: string
+    reviewerName: string,
+    reviewIssues: ReviewIssue[]
   ) => void;
 }
 
@@ -27,6 +30,7 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
   canReview = false,
   defaultReviewerName,
   lockReviewerName = false,
+  organizationId,
   onUpdateApproval,
 }) => {
   const [isExportingPDF, setIsExportingPDF] = useState(false);
@@ -41,6 +45,36 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
   const [reviewerName, setReviewerName] = useState(
     record.reviewedBy || defaultReviewerName || '児童発達支援管理責任者'
   );
+  const [reviewIssues, setReviewIssues] = useState<ReviewIssue[]>(record.reviewIssues || []);
+  const [issueLabel, setIssueLabel] = useState('記録全体');
+  const [issueComment, setIssueComment] = useState('');
+  const [revisions, setRevisions] = useState<RecordRevision[]>([]);
+  const [revisionLoading, setRevisionLoading] = useState(false);
+
+  useEffect(() => {
+    setJihatsukanComment(record.jihatsukanComment || '');
+    setReviewIssues(record.reviewIssues || []);
+    setReviewerName(record.reviewedBy || defaultReviewerName || '児童発達支援管理責任者');
+  }, [defaultReviewerName, record]);
+
+  useEffect(() => {
+    if (!organizationId) return;
+    let active = true;
+    setRevisionLoading(true);
+    void loadRecordRevisions(organizationId, record.id)
+      .then((items) => {
+        if (active) setRevisions(items);
+      })
+      .catch(() => {
+        if (active) setRevisions([]);
+      })
+      .finally(() => {
+        if (active) setRevisionLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [organizationId, record.id, record.updatedAt]);
 
   // Handle PDF Download
   const handleDownloadPDF = async () => {
@@ -78,9 +112,30 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
 
   // Handle Jihatsukan Approval
   const handleApprovalSubmit = (status: '確認済み' | '要修正') => {
-    if (onUpdateApproval) {
-      onUpdateApproval(record.id, jihatsukanComment, status, reviewerName);
+    if (status === '要修正' && !jihatsukanComment.trim() && !reviewIssues.some((issue) => !issue.resolved)) {
+      alert('要修正にする場合は、全体コメントまたは修正箇所を入力してください。');
+      return;
     }
+    if (onUpdateApproval) {
+      onUpdateApproval(record.id, jihatsukanComment, status, reviewerName, reviewIssues);
+    }
+  };
+
+  const addReviewIssue = () => {
+    if (!issueComment.trim()) return;
+    setReviewIssues((previous) => [
+      ...previous,
+      {
+        id: typeof crypto !== 'undefined' && 'randomUUID' in crypto
+          ? crypto.randomUUID()
+          : `issue-${Date.now()}`,
+        label: issueLabel,
+        comment: issueComment.trim(),
+        resolved: false,
+        createdAt: new Date().toISOString(),
+      },
+    ]);
+    setIssueComment('');
   };
 
   return (
@@ -206,6 +261,68 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
                 />
               </div>
 
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <p className="text-xs font-black text-slate-800">質問・項目ごとの修正箇所</p>
+                {reviewIssues.length > 0 && (
+                  <div className="mt-2 space-y-2">
+                    {reviewIssues.map((issue) => (
+                      <div key={issue.id} className={`rounded-lg border bg-white p-2.5 ${issue.resolved ? 'border-emerald-200 opacity-70' : 'border-rose-200'}`}>
+                        <div className="flex items-start gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className={`text-[10px] font-black ${issue.resolved ? 'text-emerald-700' : 'text-rose-700'}`}>
+                              {issue.label}・{issue.resolved ? '修正対応済み' : '要修正'}
+                            </p>
+                            <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-800">{issue.comment}</p>
+                          </div>
+                          {canReview && !issue.resolved && (
+                            <button
+                              type="button"
+                              aria-label="修正箇所を削除"
+                              onClick={() => setReviewIssues((previous) => previous.filter((item) => item.id !== issue.id))}
+                              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-rose-700 hover:bg-rose-50"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {canReview && (
+                  <div className="mt-3 space-y-2 border-t border-slate-200 pt-3">
+                    <select
+                      value={issueLabel}
+                      onChange={(event) => setIssueLabel(event.target.value)}
+                      className="min-h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-xs font-bold"
+                    >
+                      <option>記録全体</option>
+                      <option>出欠・表情・おやつ</option>
+                      <option>ABC分析</option>
+                      {(Object.values(record.sectionAnswers || {}) as SectionAnswer[]).map((section) => (
+                        <option key={section.sectionId}>{section.sectionTitle}</option>
+                      ))}
+                    </select>
+                    <textarea
+                      rows={3}
+                      value={issueComment}
+                      onChange={(event) => setIssueComment(event.target.value)}
+                      placeholder="どこを、どのように修正するか入力"
+                      className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-xs leading-relaxed"
+                    />
+                    <button
+                      type="button"
+                      disabled={!issueComment.trim()}
+                      onClick={addReviewIssue}
+                      className="flex min-h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-indigo-300 bg-white text-xs font-bold text-indigo-700 disabled:opacity-40"
+                    >
+                      <Plus className="h-4 w-4" />修正箇所を追加
+                    </button>
+                  </div>
+                )}
+              </div>
+
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">
                   確認者氏名
@@ -258,8 +375,58 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
               {generateNarrativeReport(record)}
             </div>
           </div>
+
+          <details className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+            <summary className="flex min-h-12 cursor-pointer items-center gap-2 px-4 text-xs font-black text-slate-800">
+              <History className="h-4 w-4 text-indigo-600" />
+              修正履歴（{revisions.length}件）
+            </summary>
+            <div className="border-t border-slate-200 p-3">
+              {revisionLoading ? (
+                <p className="py-4 text-center text-xs text-slate-500">履歴を読み込んでいます...</p>
+              ) : revisions.length === 0 ? (
+                <p className="py-4 text-center text-xs text-slate-500">まだ修正履歴はありません。</p>
+              ) : (
+                <div className="space-y-2">
+                  {revisions.map((revision) => (
+                    <div key={revision.id} className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                      <p className="text-xs font-black text-slate-800">
+                        バージョン {revision.version}
+                      </p>
+                      <p className="mt-0.5 text-[10px] text-slate-500">
+                        {new Date(revision.changedAt).toLocaleString('ja-JP')}
+                      </p>
+                      <p className="mt-2 text-[11px] leading-relaxed text-slate-700">
+                        {describeRevisionDifference(revision.snapshot, record)}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </details>
         </div>
       </div>
     </div>
   );
 };
+
+function describeRevisionDifference(snapshot: Record<string, unknown>, current: SupportRecord) {
+  const comparisons: Array<[string, unknown, unknown]> = [
+    ['出欠', snapshot.attendance, current.attendance],
+    ['表情', snapshot.expression, current.expressions.join('、')],
+    ['おやつ', snapshot.snack, current.snack],
+    ['記録者', snapshot.recorder_name, current.recorderName],
+    ['記録内容', snapshot.section_answers, current.sectionAnswers],
+    ['AI要約', snapshot.synthesized_summary, current.synthesizedSummary],
+    ['確認状態', snapshot.approval_status, current.approvalStatus],
+    ['児発管コメント', snapshot.review_comment, current.jihatsukanComment],
+    ['修正箇所', snapshot.review_issues, current.reviewIssues],
+  ];
+  const changed = comparisons
+    .filter(([, previous, next]) => JSON.stringify(previous ?? null) !== JSON.stringify(next ?? null))
+    .map(([label]) => label);
+  return changed.length > 0
+    ? `現在の内容との差分：${changed.join('、')}`
+    : '現在の内容と主要項目の差分はありません。';
+}

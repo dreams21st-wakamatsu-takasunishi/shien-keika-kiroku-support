@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { SupportRecord, ApprovalStatus } from '../types';
 import { Search, Filter, Calendar, FileText, CheckCircle2, AlertCircle, Clock, Eye, Edit, Copy, Trash2, Download } from 'lucide-react';
+import { downloadRecordsCsv } from '../utils/recordCsv';
 
 interface RecordListProps {
   records: SupportRecord[];
@@ -24,6 +25,8 @@ export const RecordList: React.FC<RecordListProps> = ({
   const [searchTerm, setSearchTerm] = useState(initialSearchTerm || '');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [templateFilter, setTemplateFilter] = useState<string>('all');
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
 
   // Filter records
   const filteredRecords = records.filter((r) => {
@@ -37,8 +40,9 @@ export const RecordList: React.FC<RecordListProps> = ({
 
     const matchesTemplate =
       templateFilter === 'all' || r.templateType === templateFilter;
+    const matchesDate = (!dateFrom || r.date >= dateFrom) && (!dateTo || r.date <= dateTo);
 
-    return matchesSearch && matchesStatus && matchesTemplate;
+    return matchesSearch && matchesStatus && matchesTemplate && matchesDate;
   });
 
   const unapprovedCount = records.filter((r) => r.approvalStatus === '未確認').length;
@@ -61,17 +65,27 @@ export const RecordList: React.FC<RecordListProps> = ({
           </p>
         </div>
 
-        <button
-          onClick={onNewRecord}
-          className="bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold px-4 py-2.5 rounded-lg shadow-xs transition-all flex items-center gap-2"
-        >
-          新規記録を入力する
-        </button>
+        <div className="flex w-full gap-2 md:w-auto">
+          <button
+            type="button"
+            disabled={filteredRecords.length === 0}
+            onClick={() => downloadRecordsCsv(filteredRecords)}
+            className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-xs font-bold text-slate-700 disabled:opacity-40 md:flex-none"
+          >
+            <Download className="h-4 w-4" />表示中をCSV出力
+          </button>
+          <button
+            onClick={onNewRecord}
+            className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-teal-600 px-4 text-xs font-bold text-white shadow-xs transition-all hover:bg-teal-500 md:flex-none"
+          >
+            新規記録を入力する
+          </button>
+        </div>
       </div>
 
       {/* Search & Filter Bar */}
       <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-4 space-y-3">
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {/* Search Box */}
           <div className="relative">
             <input
@@ -95,6 +109,25 @@ export const RecordList: React.FC<RecordListProps> = ({
             <option value="確認済み">確認済み (承認完了)</option>
             <option value="要修正">要修正</option>
           </select>
+
+          <label className="text-[10px] font-bold text-slate-500">
+            開始日
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(event) => setDateFrom(event.target.value)}
+              className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-slate-50 px-2 text-xs font-medium"
+            />
+          </label>
+          <label className="text-[10px] font-bold text-slate-500">
+            終了日
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(event) => setDateTo(event.target.value)}
+              className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-slate-50 px-2 text-xs font-medium"
+            />
+          </label>
 
           {/* Template Filter */}
           <select

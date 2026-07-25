@@ -159,7 +159,57 @@ export interface RecorderProfile {
   id: string;
   displayName: string;
   active: boolean;
+  pinConfigured?: boolean;
   createdAt?: string;
+}
+
+export interface RecordDraftSummary {
+  draftKey: string;
+  revision: number;
+  userId?: string;
+  deviceId?: string;
+  recorderId?: string;
+  recorderName?: string;
+  selectedChildIds: string[];
+  date?: string;
+  currentStepIndex: number;
+  updatedAt: string;
+}
+
+export interface ReviewIssue {
+  id: string;
+  label: string;
+  comment: string;
+  resolved: boolean;
+  createdAt: string;
+}
+
+export interface RecordRevision {
+  id: string;
+  recordId: string;
+  version: number;
+  changedAt: string;
+  changedBy?: string;
+  snapshot: Record<string, unknown>;
+}
+
+export type HandoverCategory = '申し送り' | '保護者連絡' | 'けが・事故' | '次回確認' | 'その他';
+export type HandoverPriority = '通常' | '重要' | '緊急';
+export type HandoverStatus = '未対応' | '対応中' | '完了';
+
+export interface HandoverItem {
+  id: string;
+  childId?: string;
+  category: HandoverCategory;
+  content: string;
+  priority: HandoverPriority;
+  status: HandoverStatus;
+  dueDate?: string;
+  assignee?: string;
+  createdByRecorderId?: string;
+  createdByRecorderName?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface SupportPlan {
@@ -271,6 +321,7 @@ export interface SupportRecord {
   // Jihatsukan Review
   approvalStatus: ApprovalStatus;
   jihatsukanComment?: string;
+  reviewIssues?: ReviewIssue[];
   reviewedBy?: string;
   reviewedAt?: string;
   

@@ -1,0 +1,20 @@
+{
+  "name": "支援経過記録作成サポート",
+  "short_name": "支援記録",
+  "description": "放課後等デイサービス・児童発達支援向け支援経過記録作成サポート",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f1f5f9",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "./app-icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

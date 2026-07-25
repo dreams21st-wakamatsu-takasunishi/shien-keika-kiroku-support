@@ -1,11 +1,14 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, Cloud, StickyNote, Trash2, X } from 'lucide-react';
+import { Check, Cloud, Send, StickyNote, Trash2, X } from 'lucide-react';
 import { deleteRecordDraft, loadRecordDraft, saveRecordDraft } from '../services/dataService';
 import { getCurrentDraftCycleKey, getNextDraftResetAt, isDraftCurrent } from '../utils/draftExpiry';
+import { getDeviceId } from '../utils/deviceId';
 
 interface QuickMemoPadProps {
   organizationId?: string;
   userId?: string;
+  recorderId?: string;
+  onCreateHandover?: (content: string) => Promise<void> | void;
 }
 
 interface QuickMemoPayload {
@@ -40,16 +43,24 @@ function readLocalMemo(storageKey: string): QuickMemoPayload | null {
   }
 }
 
-export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({ organizationId, userId }) => {
-  const draftKey = 'quick-memo';
-  const storageKey = `support-quick-memo-v1:${organizationId || 'local'}:${userId || 'local'}`;
+export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
+  organizationId,
+  userId,
+  recorderId,
+  onCreateHandover,
+}) => {
+  const draftKey = `quick-memo-${recorderId || 'account'}`;
+  const storageKey = `support-quick-memo-v1:${organizationId || 'local'}:${userId || 'local'}:${recorderId || 'account'}`;
   const initialLocal = useMemo(() => readLocalMemo(storageKey), [storageKey]);
   const localUpdatedAt = useRef(initialLocal?.updatedAt || '');
   const [content, setContent] = useState(initialLocal?.content || '');
   const [open, setOpen] = useState(false);
   const [ready, setReady] = useState(!organizationId || !userId);
   const [status, setStatus] = useState<SaveStatus>(initialLocal ? 'restored' : null);
+  const [forwarding, setForwarding] = useState(false);
   const skipNextSave = useRef(false);
+  const deviceId = useRef(getDeviceId()).current;
+  const remoteRevision = useRef<number | null>(null);
 
   useEffect(() => {
     if (!organizationId || !userId) return;
@@ -58,6 +69,7 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({ organizationId, user
     void loadRecordDraft(organizationId, draftKey)
       .then((remote) => {
         if (!alive || !remote) return;
+        remoteRevision.current = remote.revision;
         if (
           !isQuickMemoPayload(remote.payload) ||
           !isDraftCurrent(remote.payload.draftCycleKey, remote.updatedAt)
@@ -126,12 +138,19 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({ organizationId, user
 
     setStatus('saving');
     const timer = window.setTimeout(() => {
-      void saveRecordDraft(organizationId, userId, draftKey, payload)
-        .then(() => setStatus('saved'))
+      void saveRecordDraft(organizationId, userId, draftKey, payload, {
+        deviceId,
+        expectedRevision: remoteRevision.current,
+        recorderId: recorderId || null,
+      })
+        .then((saved) => {
+          remoteRevision.current = saved.revision;
+          setStatus('saved');
+        })
         .catch(() => setStatus('error'));
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [content, draftKey, organizationId, ready, storageKey, userId]);
+  }, [content, deviceId, draftKey, organizationId, ready, recorderId, storageKey, userId]);
 
   useEffect(() => {
     let timer: number;
@@ -155,6 +174,18 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({ organizationId, user
   const clearMemo = () => {
     if (content && !window.confirm('クイックメモの内容をすべて消去しますか？')) return;
     setContent('');
+  };
+
+  const createHandover = async () => {
+    if (!content.trim() || !onCreateHandover) return;
+    if (!window.confirm('このメモを「申し送り」として登録しますか？登録後、メモ欄は空になります。')) return;
+    setForwarding(true);
+    try {
+      await onCreateHandover(content.trim());
+      setContent('');
+    } finally {
+      setForwarding(false);
+    }
   };
 
   const statusLabel = status === 'saving'
@@ -213,15 +244,28 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({ organizationId, user
             </p>
             <span className="shrink-0 text-[10px] text-amber-700">{content.length} / 4000</span>
           </div>
-          <button
-            type="button"
-            onClick={clearMemo}
-            disabled={!content}
-            tabIndex={open ? 0 : -1}
-            className="mt-3 flex min-h-10 w-full items-center justify-center gap-2 rounded-lg border border-amber-300 bg-white text-xs font-bold text-rose-700 disabled:opacity-40"
-          >
-            <Trash2 className="h-4 w-4" />メモを消去
-          </button>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {onCreateHandover && (
+              <button
+                type="button"
+                onClick={() => void createHandover()}
+                disabled={!content.trim() || forwarding}
+                tabIndex={open ? 0 : -1}
+                className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3 text-xs font-bold text-white disabled:opacity-40"
+              >
+                <Send className="h-4 w-4" />{forwarding ? '登録中...' : '申し送りに登録'}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={clearMemo}
+              disabled={!content}
+              tabIndex={open ? 0 : -1}
+              className="flex min-h-11 items-center justify-center gap-2 rounded-lg border border-amber-300 bg-white px-3 text-xs font-bold text-rose-700 disabled:opacity-40"
+            >
+              <Trash2 className="h-4 w-4" />メモを消去
+            </button>
+          </div>
         </div>
       </section>
 
