@@ -12,6 +12,7 @@ import {
   Search,
   SkipForward,
   Sparkles,
+  Trash2,
   UserPlus,
   Users,
   X,
@@ -44,11 +45,11 @@ import { formatRegularDays, getRegularDaysForDate, getWeekdayFromDate } from '..
 import {
   formatHomeworkDetails,
   HOMEWORK_ACADEMIC_SUBJECTS,
-  HOMEWORK_FREE_TEXT_SUBJECTS,
   HOMEWORK_MATERIALS,
   HOMEWORK_SUBJECTS,
   normalizeHomeworkDetails,
 } from '../utils/homeworkField';
+import { getCurrentDraftCycleKey, getNextDraftResetAt, isDraftCurrent } from '../utils/draftExpiry';
 
 interface RecordFormProps {
   templates: Template[];
@@ -99,7 +100,8 @@ interface ChildDraft {
 }
 
 interface WizardDraft {
-  version: 5;
+  version: 6;
+  draftCycleKey: string;
   selectedTemplateId: string;
   selectedChildIds: string[];
   activeChildId: string;
@@ -125,6 +127,7 @@ function HomeworkSubjectInput({
   onChange: (answer: SectionFieldAnswer) => void;
 }) {
   const details = normalizeHomeworkDetails(answer.homeworkDetails, answer.value);
+  const [expandedSubject, setExpandedSubject] = useState<string | null>(null);
   const commit = (nextDetails: typeof details) => {
     onChange({
       ...answer,
@@ -135,19 +138,28 @@ function HomeworkSubjectInput({
 
   const toggleSubject = (subject: string) => {
     const selected = details.subjects.includes(subject);
-    const materials = { ...details.materials };
-    const notes = { ...details.notes };
     if (selected) {
-      delete materials[subject];
-      delete notes[subject];
+      setExpandedSubject((current) => current === subject ? null : subject);
+      return;
     }
     commit({
-      subjects: selected
-        ? details.subjects.filter((value) => value !== subject)
-        : [...details.subjects, subject],
+      ...details,
+      subjects: [...details.subjects, subject],
+    });
+    setExpandedSubject(subject);
+  };
+
+  const removeSubject = (subject: string) => {
+    const materials = { ...details.materials };
+    const notes = { ...details.notes };
+    delete materials[subject];
+    delete notes[subject];
+    commit({
+      subjects: details.subjects.filter((value) => value !== subject),
       materials,
       notes,
     });
+    setExpandedSubject(null);
   };
 
   const toggleMaterial = (subject: string, material: string) => {
@@ -175,75 +187,116 @@ function HomeworkSubjectInput({
   };
 
   return (
-    <div className="space-y-4">
-      <div>
-        <p className="mb-2 text-xs font-bold text-slate-600">教科（複数選択可）</p>
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          {HOMEWORK_SUBJECTS.map((subject) => {
-            const selected = details.subjects.includes(subject);
-            return (
-              <button
-                key={subject}
-                type="button"
-                aria-pressed={selected}
-                onClick={() => toggleSubject(subject)}
-                className={`${choiceClass} ${
-                  selected
-                    ? 'border-teal-600 bg-teal-600 text-white'
-                    : 'border-slate-300 bg-white text-slate-700'
-                }`}
-              >
-                {selected && <Check className="mr-1 inline h-4 w-4" />}
-                {subject}
-              </button>
-            );
-          })}
-        </div>
-      </div>
+    <div className="space-y-3">
+      <p className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm leading-relaxed text-sky-950">
+        教科をタップすると、そのすぐ下に詳しい内容が開きます。入力後は「完了して閉じる」を押してください。
+      </p>
+      {HOMEWORK_SUBJECTS.map((subject) => {
+        const selected = details.subjects.includes(subject);
+        const expanded = selected && expandedSubject === subject;
+        const academic = HOMEWORK_ACADEMIC_SUBJECTS.includes(
+          subject as (typeof HOMEWORK_ACADEMIC_SUBJECTS)[number]
+        );
+        const selectedMaterials = details.materials[subject] || [];
+        const note = details.notes[subject]?.trim() || '';
+        const summary = academic
+          ? selectedMaterials.join('・')
+          : note;
 
-      {HOMEWORK_ACADEMIC_SUBJECTS
-        .filter((subject) => details.subjects.includes(subject))
-        .map((subject) => (
-          <div key={subject} className="rounded-xl border border-teal-200 bg-teal-50/60 p-3">
-            <p className="mb-2 text-sm font-bold text-teal-950">{subject}の宿題内容（複数選択可）</p>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-              {HOMEWORK_MATERIALS.map((material) => {
-                const selected = (details.materials[subject] || []).includes(material);
-                return (
+        return (
+          <div
+            key={subject}
+            className={`overflow-hidden rounded-2xl border-2 ${
+              selected ? 'border-teal-500 bg-teal-50/60' : 'border-slate-200 bg-white'
+            }`}
+          >
+            <button
+              type="button"
+              aria-pressed={selected}
+              aria-expanded={expanded}
+              onClick={() => toggleSubject(subject)}
+              className="flex min-h-16 w-full items-center gap-3 px-4 py-3 text-left"
+            >
+              <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border-2 ${
+                selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300 bg-white text-transparent'
+              }`}>
+                <Check className="h-5 w-5" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-base font-black text-slate-900">{subject}</span>
+                <span className={`mt-0.5 block text-sm ${selected ? 'font-bold text-teal-800' : 'text-slate-500'}`}>
+                  {selected
+                    ? summary || (academic ? '教材を選択してください' : '内容を入力してください')
+                    : 'タップして選択'}
+                </span>
+              </span>
+              {selected && (
+                <ChevronRight className={`h-5 w-5 shrink-0 text-teal-700 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+              )}
+            </button>
+
+            {expanded && (
+              <div className="space-y-3 border-t border-teal-200 bg-white p-4">
+                {academic ? (
+                  <>
+                    <p className="text-sm font-bold leading-relaxed text-slate-700">
+                      {subject}の教材を選択してください（複数選択可）
+                    </p>
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      {HOMEWORK_MATERIALS.map((material) => {
+                        const materialSelected = selectedMaterials.includes(material);
+                        return (
+                          <button
+                            key={material}
+                            type="button"
+                            aria-pressed={materialSelected}
+                            onClick={() => toggleMaterial(subject, material)}
+                            className={`${choiceClass} text-left text-base ${
+                              materialSelected
+                                ? 'border-indigo-600 bg-indigo-600 text-white'
+                                : 'border-slate-300 bg-white text-slate-700'
+                            }`}
+                          >
+                            {materialSelected && <Check className="mr-1 inline h-5 w-5" />}
+                            {material}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </>
+                ) : (
+                  <label className="block text-base font-bold text-slate-800">
+                    {subject}の内容
+                    <textarea
+                      rows={3}
+                      value={details.notes[subject] || ''}
+                      onChange={(event) => updateNote(subject, event.target.value)}
+                      placeholder={subject === '自学' ? '例：漢字練習、読書、調べ学習' : '宿題の内容を簡潔に入力'}
+                      className={`${inputClass} mt-2`}
+                    />
+                  </label>
+                )}
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                   <button
-                    key={material}
                     type="button"
-                    aria-pressed={selected}
-                    onClick={() => toggleMaterial(subject, material)}
-                    className={`${choiceClass} text-left ${
-                      selected
-                        ? 'border-indigo-600 bg-indigo-600 text-white'
-                        : 'border-slate-300 bg-white text-slate-700'
-                    }`}
+                    onClick={() => setExpandedSubject(null)}
+                    className="min-h-12 rounded-xl bg-teal-600 px-4 text-sm font-black text-white"
                   >
-                    {selected && <Check className="mr-1 inline h-4 w-4" />}
-                    {material}
+                    入力を完了して閉じる
                   </button>
-                );
-              })}
-            </div>
+                  <button
+                    type="button"
+                    onClick={() => removeSubject(subject)}
+                    className="min-h-12 rounded-xl border border-rose-300 bg-white px-4 text-sm font-bold text-rose-700"
+                  >
+                    {subject}の選択を解除
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
-        ))}
-
-      {HOMEWORK_FREE_TEXT_SUBJECTS
-        .filter((subject) => details.subjects.includes(subject))
-        .map((subject) => (
-          <label key={subject} className="block text-sm font-bold text-slate-700">
-            {subject}の内容
-            <textarea
-              rows={3}
-              value={details.notes[subject] || ''}
-              onChange={(event) => updateNote(subject, event.target.value)}
-              placeholder={subject === '自学' ? '例：漢字練習、読書、調べ学習' : '宿題の内容を簡潔に入力'}
-              className={`${inputClass} mt-2`}
-            />
-          </label>
-        ))}
+        );
+      })}
     </div>
   );
 }
@@ -301,14 +354,16 @@ function createChildDraft(template?: Template, record?: SupportRecord): ChildDra
 function normalizeWizardDraft(value: unknown): WizardDraft | null {
   if (!value || typeof value !== 'object') return null;
   const draft = value as Partial<WizardDraft> & { version?: number };
-  if (![2, 3, 4, 5].includes(draft.version || 0) || !Array.isArray(draft.selectedChildIds) || !draft.childDrafts) return null;
+  if (![2, 3, 4, 5, 6].includes(draft.version || 0) || !Array.isArray(draft.selectedChildIds) || !draft.childDrafts) return null;
+  if (!isDraftCurrent(draft.draftCycleKey, draft.updatedAt)) return null;
   const previousStepIndex = draft.currentStepIndex || 0;
   const currentStepIndex = (draft.version || 0) < 4
     ? previousStepIndex === 1 ? 2 : previousStepIndex === 2 ? 1 : previousStepIndex
     : previousStepIndex;
   return {
     ...draft,
-    version: 5,
+    version: 6,
+    draftCycleKey: getCurrentDraftCycleKey(),
     recorderId: draft.recorderId || '',
     currentStepIndex,
     childStepIds: draft.childStepIds || {},
@@ -333,7 +388,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       : 'new-record-batch';
   const storageKey = `support-record-draft-v2:${organizationId || 'local'}:${userId || 'local'}:${draftKey}`;
 
-  const createInitialDraft = (): WizardDraft => {
+  const createBaseDraft = (): WizardDraft => {
     const initialRecorder = initialRecord
       ? recorderProfiles.find(
           (profile) =>
@@ -344,7 +399,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         ? recorderProfiles[0]
         : undefined;
     const base: WizardDraft = {
-      version: 5,
+      version: 6,
+      draftCycleKey: getCurrentDraftCycleKey(),
       selectedTemplateId: initialTemplate?.id || '',
       selectedChildIds: initialRecord ? [initialRecord.childId] : assistantPrefill ? [assistantPrefill.childId] : [],
       activeChildId: initialRecord?.childId || assistantPrefill?.childId || '',
@@ -359,12 +415,18 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           ? { [assistantPrefill.childId]: createChildDraft(initialTemplate) }
           : {},
     };
+    return base;
+  };
+
+  const createInitialDraft = (): WizardDraft => {
+    const base = createBaseDraft();
     try {
       const local = localStorage.getItem(storageKey);
       if (local) {
         const parsed = JSON.parse(local) as unknown;
         const restored = normalizeWizardDraft(parsed);
         if (restored) return restored;
+        localStorage.removeItem(storageKey);
       }
     } catch {
       // Invalid or unavailable local storage does not block record entry.
@@ -374,7 +436,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
   const [wizard, setWizard] = useState<WizardDraft>(createInitialDraft);
   const [draftReady, setDraftReady] = useState(!organizationId || !userId);
-  const [draftStatus, setDraftStatus] = useState<'restored' | 'saving' | 'saved' | 'error' | null>(null);
+  const [draftStatus, setDraftStatus] = useState<'restored' | 'saving' | 'saved' | 'deleted' | 'reset' | 'error' | null>(null);
   const [stepError, setStepError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -382,6 +444,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const [showChildPicker, setShowChildPicker] = useState(false);
   const [childSearch, setChildSearch] = useState('');
   const draftCleared = useRef(false);
+  const skipNextDraftSave = useRef(false);
 
   const activeTemplate = templates.find((template) => template.id === wizard.selectedTemplateId) || templates[0];
   const wizardQuestions = getWizardQuestions(activeTemplate);
@@ -395,7 +458,11 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       .then((remote) => {
         if (!alive || !remote) return;
         const restored = normalizeWizardDraft(remote.payload);
-        if (!restored) return;
+        if (!restored) {
+          localStorage.removeItem(storageKey);
+          void deleteRecordDraft(organizationId, draftKey);
+          return;
+        }
         const remoteTime = new Date(remote.updatedAt).getTime();
         const localTime = wizard.updatedAt ? new Date(wizard.updatedAt).getTime() : 0;
         if (remoteTime > localTime) {
@@ -413,9 +480,18 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
   useEffect(() => {
     if (!draftReady || draftCleared.current) return;
+    if (skipNextDraftSave.current) {
+      skipNextDraftSave.current = false;
+      return;
+    }
     setDraftStatus('saving');
     const timer = window.setTimeout(() => {
-      const payload: WizardDraft = { ...wizard, updatedAt: new Date().toISOString() };
+      const payload: WizardDraft = {
+        ...wizard,
+        version: 6,
+        draftCycleKey: getCurrentDraftCycleKey(),
+        updatedAt: new Date().toISOString(),
+      };
       try {
         localStorage.setItem(storageKey, JSON.stringify(payload));
       } catch {
@@ -431,6 +507,28 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     }, 700);
     return () => window.clearTimeout(timer);
   }, [wizard, draftReady, storageKey, organizationId, userId, draftKey]);
+
+  useEffect(() => {
+    let timer: number;
+    const scheduleNextReset = () => {
+      const now = new Date();
+      const resetAt = getNextDraftResetAt(now);
+      timer = window.setTimeout(() => {
+        skipNextDraftSave.current = true;
+        localStorage.removeItem(storageKey);
+        if (organizationId) void deleteRecordDraft(organizationId, draftKey);
+        setWizard(createBaseDraft());
+        setStepError(null);
+        setSaveError(null);
+        setDraftStatus('reset');
+        scheduleNextReset();
+      }, resetAt.getTime() - now.getTime());
+    };
+    scheduleNextReset();
+    return () => window.clearTimeout(timer);
+    // The form session keeps scheduling its next local 03:00 reset.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftKey, organizationId, storageKey]);
 
   useEffect(() => {
     if (activeTemplate || templates.length === 0) return;
@@ -986,13 +1084,75 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     }
   };
 
+  const clearCurrentDraft = async () => {
+    const actionLabel = initialRecord ? '編集中の変更' : '入力中の記録';
+    const confirmed = window.confirm(
+      `${actionLabel}をすべて削除しますか？保存済みの支援記録は削除されません。`
+    );
+    if (!confirmed) return;
+
+    skipNextDraftSave.current = true;
+    localStorage.removeItem(storageKey);
+    setWizard(createBaseDraft());
+    setStepError(null);
+    setSaveError(null);
+    setDraftStatus('deleted');
+    document.getElementById('record-wizard')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    if (organizationId) {
+      try {
+        await deleteRecordDraft(organizationId, draftKey);
+      } catch {
+        setDraftStatus('error');
+      }
+    }
+  };
+
   const currentStatus = isChildStep && currentStep ? answerStatus(currentStep, activeChildDraft) : 'answered';
+  const draftStatusLabel = draftStatus === 'saving'
+    ? '下書き保存中'
+    : draftStatus === 'restored'
+      ? '下書きを復元しました'
+      : draftStatus === 'deleted'
+        ? '入力中の記録を削除しました'
+        : draftStatus === 'reset'
+          ? '午前3時に下書きをリセットしました'
+          : draftStatus === 'error'
+            ? '下書きの共有保存に失敗'
+            : '下書き自動保存';
 
   return (
     <form id="record-wizard" onSubmit={handleSubmit} className="max-w-4xl mx-auto space-y-4 scroll-mt-20">
       <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
-        <div className="flex items-center justify-between gap-3 text-xs mb-2"><span className="font-bold text-slate-700">質問 {wizard.currentStepIndex + 1} / {steps.length}</span><span className={`flex items-center gap-1 ${draftStatus === 'error' ? 'text-rose-600' : 'text-slate-500'}`}><Cloud className="w-3.5 h-3.5" />{draftStatus === 'saving' ? '下書き保存中' : draftStatus === 'restored' ? '下書きを復元しました' : draftStatus === 'error' ? '下書きの共有保存に失敗' : '下書き自動保存'}</span></div>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-sm">
+          <span className="font-bold text-slate-700">質問 {wizard.currentStepIndex + 1} / {steps.length}</span>
+          <span
+            aria-live="polite"
+            className={`flex items-center gap-1 ${
+              draftStatus === 'error'
+                ? 'text-rose-600'
+                : draftStatus === 'deleted' || draftStatus === 'reset'
+                  ? 'font-bold text-amber-700'
+                  : 'text-slate-500'
+            }`}
+          >
+            <Cloud className="h-4 w-4" />{draftStatusLabel}
+          </span>
+        </div>
         <div className="h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-teal-500 transition-all" style={{ width: `${progress}%` }} /></div>
+        <div className="mt-3 flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs leading-relaxed text-slate-600">
+            入力内容は自動保存され、毎日午前3時にリセットされます。
+          </p>
+          <button
+            type="button"
+            onClick={() => void clearCurrentDraft()}
+            className="flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-rose-300 bg-white px-4 text-sm font-bold text-rose-700 hover:bg-rose-50"
+          >
+            <Trash2 className="h-4 w-4" />
+            入力中の記録を削除
+          </button>
+        </div>
       </div>
 
       {wizard.selectedChildIds.length > 0 && wizard.currentStepIndex >= 2 && (

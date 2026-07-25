@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { FieldType, Template, TemplateSection, TemplateField, WizardQuestionId } from '../types';
-import { Plus, Trash2, Copy, Save, Check, CheckCircle2, GripVertical, HelpCircle, X } from 'lucide-react';
+import { Plus, Trash2, Copy, Save, Check, CheckCircle2, ChevronRight, GripVertical, HelpCircle, X } from 'lucide-react';
 import { FATIGUE_SCALE_HELP, FATIGUE_SCALE_OPTIONS, normalizeTemplateFatigueScale } from '../utils/templateNormalizer';
 import { getWizardQuestions, WIZARD_QUESTION_LABELS, WIZARD_QUESTION_ORDER } from '../utils/wizardQuestions';
 import { HOMEWORK_FIELD_HELP, HOMEWORK_SUBJECTS } from '../utils/homeworkField';
@@ -64,6 +64,128 @@ const INPUT_TYPE_GUIDES: Array<{
   },
 ];
 
+function InputTypePreview({ type }: { type: FieldType }) {
+  const [singleValue, setSingleValue] = useState('よい');
+  const [multipleValues, setMultipleValues] = useState<string[]>(['笑顔']);
+  const [numberValue, setNumberValue] = useState('20');
+  const [textValue, setTextValue] = useState('');
+  const [timeValue, setTimeValue] = useState('15:30');
+  const [fatigueValue, setFatigueValue] = useState('3');
+  const [leftValue, setLeftValue] = useState('3');
+  const [rightValue, setRightValue] = useState('4');
+  const [homeworkSubjects, setHomeworkSubjects] = useState<string[]>([]);
+  const [expandedHomework, setExpandedHomework] = useState<string | null>(null);
+  const [homeworkMaterials, setHomeworkMaterials] = useState<Record<string, string[]>>({});
+  const [homeworkNotes, setHomeworkNotes] = useState<Record<string, string>>({});
+
+  const buttonClass = 'min-h-11 rounded-lg border px-3 py-2 text-sm font-bold';
+
+  if (type === 'radio') {
+    return (
+      <div className="grid grid-cols-3 gap-2">
+        {['よい', '普通', '気になる'].map((option) => (
+          <button key={option} type="button" onClick={() => setSingleValue(option)} className={`${buttonClass} ${singleValue === option ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300 bg-white'}`}>{option}</button>
+        ))}
+      </div>
+    );
+  }
+
+  if (type === 'checkbox') {
+    return (
+      <div className="grid grid-cols-2 gap-2">
+        {['笑顔', '落ち着いている', '緊張', '眠そう'].map((option) => {
+          const selected = multipleValues.includes(option);
+          return <button key={option} type="button" onClick={() => setMultipleValues(selected ? multipleValues.filter((value) => value !== option) : [...multipleValues, option])} className={`${buttonClass} ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300 bg-white'}`}>{selected && <Check className="mr-1 inline h-4 w-4" />}{option}</button>;
+        })}
+      </div>
+    );
+  }
+
+  if (type === 'number') {
+    return <label className="block text-sm font-bold text-slate-700">取り組み時間<div className="mt-2 flex items-center gap-2"><input type="number" value={numberValue} onChange={(event) => setNumberValue(event.target.value)} className="min-h-12 min-w-0 flex-1 rounded-lg border border-slate-300 px-3 text-base" /><span>分</span></div></label>;
+  }
+
+  if (type === 'text') {
+    return <label className="block text-sm font-bold text-slate-700">活動名<input value={textValue} onChange={(event) => setTextValue(event.target.value)} placeholder="例：カードゲーム" className="mt-2 min-h-12 w-full rounded-lg border border-slate-300 px-3 text-base" /></label>;
+  }
+
+  if (type === 'textarea') {
+    return <label className="block text-sm font-bold text-slate-700">詳しい様子<textarea rows={3} value={textValue} onChange={(event) => setTextValue(event.target.value)} placeholder="複数行で入力できます" className="mt-2 w-full rounded-lg border border-slate-300 p-3 text-base" /></label>;
+  }
+
+  if (type === 'time_select') {
+    return <label className="block text-sm font-bold text-slate-700">開始時刻<input type="time" value={timeValue} onChange={(event) => setTimeValue(event.target.value)} className="mt-2 min-h-12 w-full rounded-lg border border-slate-300 px-3 text-base" /></label>;
+  }
+
+  if (type === 'fatigue_scale') {
+    return (
+      <div className="grid grid-cols-5 gap-1.5">
+        {['1', '2', '3', '4', '5'].map((level) => (
+          <button key={level} type="button" onClick={() => setFatigueValue(level)} className={`min-h-14 rounded-lg border text-lg font-black ${fatigueValue === level ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300 bg-white'}`}>{level}</button>
+        ))}
+      </div>
+    );
+  }
+
+  if (type === 'hand_count') {
+    return (
+      <div className="grid grid-cols-2 gap-3">
+        <label className="rounded-lg border border-slate-200 bg-white p-3 text-sm font-bold">左手<div className="mt-2 flex items-center gap-1"><input type="number" value={leftValue} onChange={(event) => setLeftValue(event.target.value)} className="min-h-11 min-w-0 flex-1 rounded-lg border border-slate-300 px-2 text-base" /><span>本</span></div></label>
+        <label className="rounded-lg border border-slate-200 bg-white p-3 text-sm font-bold">右手<div className="mt-2 flex items-center gap-1"><input type="number" value={rightValue} onChange={(event) => setRightValue(event.target.value)} className="min-h-11 min-w-0 flex-1 rounded-lg border border-slate-300 px-2 text-base" /><span>本</span></div></label>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {HOMEWORK_SUBJECTS.map((subject) => {
+        const selected = homeworkSubjects.includes(subject);
+        const expanded = selected && expandedHomework === subject;
+        const academic = ['国語', '算数', '理科', '社会', '英語'].includes(subject);
+        const summary = academic
+          ? (homeworkMaterials[subject] || []).join('・')
+          : homeworkNotes[subject] || '';
+        return (
+          <div key={subject} className={`overflow-hidden rounded-xl border ${selected ? 'border-teal-500 bg-teal-50' : 'border-slate-300 bg-white'}`}>
+            <button
+              type="button"
+              onClick={() => {
+                if (!selected) {
+                  setHomeworkSubjects([...homeworkSubjects, subject]);
+                  setExpandedHomework(subject);
+                } else {
+                  setExpandedHomework(expanded ? null : subject);
+                }
+              }}
+              className="flex min-h-12 w-full items-center gap-2 px-3 text-left"
+            >
+              <span className={`flex h-6 w-6 items-center justify-center rounded-md border ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300'}`}>{selected && <Check className="h-4 w-4" />}</span>
+              <span className="flex-1"><strong>{subject}</strong>{selected && <span className="ml-2 text-xs text-teal-800">{summary || '詳細を入力'}</span>}</span>
+              {selected && <ChevronRight className={`h-4 w-4 ${expanded ? 'rotate-90' : ''}`} />}
+            </button>
+            {expanded && (
+              <div className="space-y-2 border-t border-teal-200 bg-white p-3">
+                {academic ? (
+                  <div className="grid gap-2">
+                    {['プリント', 'ドリル/ワーク', 'ノート'].map((material) => {
+                      const materials = homeworkMaterials[subject] || [];
+                      const materialSelected = materials.includes(material);
+                      return <button key={material} type="button" onClick={() => setHomeworkMaterials({ ...homeworkMaterials, [subject]: materialSelected ? materials.filter((value) => value !== material) : [...materials, material] })} className={`${buttonClass} text-left ${materialSelected ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300 bg-white'}`}>{materialSelected && <Check className="mr-1 inline h-4 w-4" />}{material}</button>;
+                    })}
+                  </div>
+                ) : (
+                  <textarea rows={2} value={homeworkNotes[subject] || ''} onChange={(event) => setHomeworkNotes({ ...homeworkNotes, [subject]: event.target.value })} placeholder={`${subject}の内容`} className="w-full rounded-lg border border-slate-300 p-3 text-base" />
+                )}
+                <button type="button" onClick={() => setExpandedHomework(null)} className="min-h-11 w-full rounded-lg bg-teal-600 text-sm font-bold text-white">入力を完了して閉じる</button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export const TemplateEditor: React.FC<TemplateEditorProps> = ({
   templates,
   onSaveTemplate,
@@ -75,6 +197,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
   const [feedback, setFeedback] = useState<string | null>(null);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [showInputGuide, setShowInputGuide] = useState(false);
+  const [previewType, setPreviewType] = useState<FieldType | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -381,6 +504,19 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                   <p className="mt-2 rounded-lg bg-white px-3 py-2 text-[11px] text-slate-600">
                     <strong>表示例：</strong>{guide.example}
                   </p>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewType((current) => current === guide.type ? null : guide.type)}
+                    className="mt-3 min-h-11 w-full rounded-lg border border-indigo-300 bg-white px-3 text-sm font-bold text-indigo-800"
+                  >
+                    {previewType === guide.type ? 'プレビューを閉じる' : '実際の表示を試す'}
+                  </button>
+                  {previewType === guide.type && (
+                    <div className="mt-3 rounded-xl border border-indigo-200 bg-white p-3">
+                      <p className="mb-3 text-xs font-bold text-slate-600">操作プレビュー</p>
+                      <InputTypePreview type={guide.type} />
+                    </div>
+                  )}
                 </article>
               ))}
             </div>

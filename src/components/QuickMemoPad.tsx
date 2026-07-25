@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Cloud, StickyNote, Trash2, X } from 'lucide-react';
 import { deleteRecordDraft, loadRecordDraft, saveRecordDraft } from '../services/dataService';
+import { getCurrentDraftCycleKey, getNextDraftResetAt, isDraftCurrent } from '../utils/draftExpiry';
 
 interface QuickMemoPadProps {
   organizationId?: string;
@@ -8,17 +9,20 @@ interface QuickMemoPadProps {
 }
 
 interface QuickMemoPayload {
-  version: 1;
+  version: 1 | 2;
   content: string;
   updatedAt: string;
+  draftCycleKey?: string;
 }
 
-type SaveStatus = 'restored' | 'saving' | 'saved' | 'error' | null;
+type SaveStatus = 'restored' | 'saving' | 'saved' | 'reset' | 'error' | null;
 
 function isQuickMemoPayload(value: unknown): value is QuickMemoPayload {
   if (!value || typeof value !== 'object') return false;
   const payload = value as Partial<QuickMemoPayload>;
-  return payload.version === 1 && typeof payload.content === 'string' && typeof payload.updatedAt === 'string';
+  return (payload.version === 1 || payload.version === 2)
+    && typeof payload.content === 'string'
+    && typeof payload.updatedAt === 'string';
 }
 
 function readLocalMemo(storageKey: string): QuickMemoPayload | null {
@@ -26,7 +30,11 @@ function readLocalMemo(storageKey: string): QuickMemoPayload | null {
     const stored = localStorage.getItem(storageKey);
     if (!stored) return null;
     const parsed = JSON.parse(stored) as unknown;
-    return isQuickMemoPayload(parsed) ? parsed : null;
+    if (!isQuickMemoPayload(parsed) || !isDraftCurrent(parsed.draftCycleKey, parsed.updatedAt)) {
+      localStorage.removeItem(storageKey);
+      return null;
+    }
+    return parsed;
   } catch {
     return null;
   }
@@ -41,6 +49,7 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({ organizationId, user
   const [open, setOpen] = useState(false);
   const [ready, setReady] = useState(!organizationId || !userId);
   const [status, setStatus] = useState<SaveStatus>(initialLocal ? 'restored' : null);
+  const skipNextSave = useRef(false);
 
   useEffect(() => {
     if (!organizationId || !userId) return;
@@ -48,7 +57,15 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({ organizationId, user
     setReady(false);
     void loadRecordDraft(organizationId, draftKey)
       .then((remote) => {
-        if (!alive || !remote || !isQuickMemoPayload(remote.payload)) return;
+        if (!alive || !remote) return;
+        if (
+          !isQuickMemoPayload(remote.payload) ||
+          !isDraftCurrent(remote.payload.draftCycleKey, remote.updatedAt)
+        ) {
+          localStorage.removeItem(storageKey);
+          void deleteRecordDraft(organizationId, draftKey);
+          return;
+        }
         const remoteTime = new Date(remote.updatedAt).getTime();
         const localTime = localUpdatedAt.current ? new Date(localUpdatedAt.current).getTime() : 0;
         if (remoteTime > localTime) {
@@ -70,6 +87,10 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({ organizationId, user
 
   useEffect(() => {
     if (!ready) return;
+    if (skipNextSave.current) {
+      skipNextSave.current = false;
+      return;
+    }
     const updatedAt = new Date().toISOString();
     localUpdatedAt.current = updatedAt;
 
@@ -85,7 +106,12 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({ organizationId, user
       return;
     }
 
-    const payload: QuickMemoPayload = { version: 1, content, updatedAt };
+    const payload: QuickMemoPayload = {
+      version: 2,
+      content,
+      updatedAt,
+      draftCycleKey: getCurrentDraftCycleKey(),
+    };
     try {
       localStorage.setItem(storageKey, JSON.stringify(payload));
     } catch {
@@ -107,6 +133,25 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({ organizationId, user
     return () => window.clearTimeout(timer);
   }, [content, draftKey, organizationId, ready, storageKey, userId]);
 
+  useEffect(() => {
+    let timer: number;
+    const scheduleNextReset = () => {
+      const now = new Date();
+      const resetAt = getNextDraftResetAt(now);
+      timer = window.setTimeout(() => {
+        skipNextSave.current = true;
+        setContent('');
+        localUpdatedAt.current = '';
+        localStorage.removeItem(storageKey);
+        if (organizationId) void deleteRecordDraft(organizationId, draftKey);
+        setStatus('reset');
+        scheduleNextReset();
+      }, resetAt.getTime() - now.getTime());
+    };
+    scheduleNextReset();
+    return () => window.clearTimeout(timer);
+  }, [draftKey, organizationId, storageKey]);
+
   const clearMemo = () => {
     if (content && !window.confirm('クイックメモの内容をすべて消去しますか？')) return;
     setContent('');
@@ -118,6 +163,8 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({ organizationId, user
       ? '保存済み'
       : status === 'restored'
         ? '保存内容を復元'
+        : status === 'reset'
+          ? '午前3時にリセットしました'
         : status === 'error'
           ? '端末には保存済み・共有保存に失敗'
           : '入力すると自動保存';
@@ -136,7 +183,7 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({ organizationId, user
             <h3 className="flex items-center gap-2 text-sm font-bold text-amber-950">
               <StickyNote className="h-4 w-4" />クイックメモ
             </h3>
-            <p className="mt-0.5 text-[10px] text-amber-800">担当外の児童の様子や、とっさの気づきを自由に記録</p>
+            <p className="mt-0.5 text-[11px] text-amber-800">入力内容は自動保存され、毎日午前3時にリセットされます</p>
           </div>
           <button
             type="button"
