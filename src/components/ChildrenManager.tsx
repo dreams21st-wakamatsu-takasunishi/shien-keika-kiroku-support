@@ -10,11 +10,9 @@ import {
   GraduationCap,
   LayoutGrid,
   List,
-  Plus,
   RotateCcw,
   Save,
   Search,
-  SlidersHorizontal,
   Trash2,
   UserPlus,
   X,
@@ -30,8 +28,8 @@ interface ChildrenManagerProps {
 }
 
 type ViewMode = 'grid' | 'list';
-type ControlPanel = 'search' | 'sort' | null;
-type SortField = 'kana' | 'schoolAge' | 'regularDays' | 'careType';
+type ControlPanel = 'search' | null;
+type SortField = 'kana' | 'birthDate' | 'regularDays' | 'careType';
 type SortDirection = 'asc' | 'desc';
 type WeekdayFilter = Weekday | '未設定';
 
@@ -51,28 +49,9 @@ const JAPANESE_COLLATOR = new Intl.Collator('ja', { numeric: true, sensitivity: 
 
 const SORT_FIELD_OPTIONS: Array<{ value: SortField; label: string }> = [
   { value: 'kana', label: '児童名' },
-  { value: 'schoolAge', label: '学年' },
+  { value: 'birthDate', label: '生年月日' },
   { value: 'regularDays', label: '定期利用日' },
   { value: 'careType', label: 'サービス' },
-];
-
-const SORT_PRESETS: Array<{ label: string; rules: Array<Omit<SortRule, 'id'>> }> = [
-  { label: '五十音順', rules: [{ field: 'kana', direction: 'asc' }] },
-  {
-    label: '学齢＋五十音順',
-    rules: [
-      { field: 'schoolAge', direction: 'asc' },
-      { field: 'kana', direction: 'asc' },
-    ],
-  },
-  { label: '学齢順', rules: [{ field: 'schoolAge', direction: 'asc' }] },
-  {
-    label: '利用曜日＋五十音順',
-    rules: [
-      { field: 'regularDays', direction: 'asc' },
-      { field: 'kana', direction: 'asc' },
-    ],
-  },
 ];
 
 const DEFAULT_SORT_RULES: SortRule[] = [{ id: 'sort-kana', field: 'kana', direction: 'asc' }];
@@ -104,7 +83,7 @@ const getRegularDaysSortKey = (child: ChildProfile, date: string) => {
 
 const getDirectionLabels = (field: SortField): [string, string] => {
   if (field === 'kana') return ['あ→ん', 'ん→あ'];
-  if (field === 'schoolAge') return ['年少→年長', '年長→年少'];
+  if (field === 'birthDate') return ['古い→新しい', '新しい→古い'];
   if (field === 'regularDays') return ['月→日', '日→月'];
   return ['昇順', '降順'];
 };
@@ -157,7 +136,6 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   const [activePanel, setActivePanel] = useState<ControlPanel>(null);
   const [viewMode, setViewMode] = useState<ViewMode>(savedPreferences.viewMode);
   const [sortRules, setSortRules] = useState<SortRule[]>(savedPreferences.sortRules);
-  const [draftSortRules, setDraftSortRules] = useState<SortRule[]>(savedPreferences.sortRules);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingChild, setEditingChild] = useState<ChildProfile | null>(null);
 
@@ -269,8 +247,10 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         let comparison = 0;
         if (rule.field === 'kana') {
           comparison = JAPANESE_COLLATOR.compare(left.kana || left.name, right.kana || right.name);
-        } else if (rule.field === 'schoolAge') {
-          comparison = getSchoolAgeRank(getChildGrade(left)) - getSchoolAgeRank(getChildGrade(right));
+        } else if (rule.field === 'birthDate') {
+          if (!left.birthDate && right.birthDate) return 1;
+          if (left.birthDate && !right.birthDate) return -1;
+          comparison = (left.birthDate || '').localeCompare(right.birthDate || '');
         } else if (rule.field === 'regularDays') {
           comparison = JAPANESE_COLLATOR.compare(
             getRegularDaysSortKey(left, today),
@@ -322,49 +302,13 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
           },
         ];
     setSortRules(next);
-    setDraftSortRules(next.map((rule) => ({ ...rule })));
     setActivePanel(null);
   };
 
   const removeHeaderSort = (field: SortField) => {
     const next = sortRules.filter((rule) => rule.field !== field);
     setSortRules(next);
-    setDraftSortRules(next.map((rule) => ({ ...rule })));
     setActivePanel(null);
-  };
-
-  const applySortPreset = (rules: Array<Omit<SortRule, 'id'>>) => {
-    setDraftSortRules(
-      rules.map((rule, index) => ({
-        ...rule,
-        id: `sort-${rule.field}-${index}`,
-      }))
-    );
-  };
-
-  const updateSortRule = (id: string, changes: Partial<Omit<SortRule, 'id'>>) => {
-    setDraftSortRules((current) => current.map((rule) => (rule.id === id ? { ...rule, ...changes } : rule)));
-  };
-
-  const moveSortRule = (index: number, movement: -1 | 1) => {
-    setDraftSortRules((current) => {
-      const destination = index + movement;
-      if (destination < 0 || destination >= current.length) return current;
-      const next = [...current];
-      [next[index], next[destination]] = [next[destination], next[index]];
-      return next;
-    });
-  };
-
-  const addSortRule = () => {
-    const unusedField = SORT_FIELD_OPTIONS.find(
-      (option) => !draftSortRules.some((rule) => rule.field === option.value)
-    );
-    if (!unusedField) return;
-    setDraftSortRules((current) => [
-      ...current,
-      { id: `sort-${unusedField.value}-${Date.now()}`, field: unusedField.value, direction: 'asc' },
-    ]);
   };
 
   const toggleWeekdayFilter = (day: WeekdayFilter) => {
@@ -385,26 +329,12 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setActivePanel('search');
   };
 
-  const openSortPanel = () => {
-    if (activePanel === 'sort') {
-      setActivePanel(null);
-      return;
-    }
-    setDraftSortRules(sortRules.map((rule) => ({ ...rule })));
-    setActivePanel('sort');
-  };
-
   const applySearchFilters = (event: React.FormEvent) => {
     event.preventDefault();
     setSearchTerm(draftSearchTerm);
     setGradeFilter(draftGradeFilter);
     setCareTypeFilter(draftCareTypeFilter);
     setWeekdayFilters(draftWeekdayFilters);
-    setActivePanel(null);
-  };
-
-  const applySorting = () => {
-    setSortRules(draftSortRules.map((rule) => ({ ...rule })));
     setActivePanel(null);
   };
 
@@ -420,14 +350,6 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
       onDeleteChild(child.id);
     }
   };
-
-  const isPresetActive = (presetRules: Array<Omit<SortRule, 'id'>>) =>
-    presetRules.length === draftSortRules.length &&
-    presetRules.every(
-      (presetRule, index) =>
-        presetRule.field === draftSortRules[index]?.field &&
-        presetRule.direction === draftSortRules[index]?.direction
-    );
 
   const activeFilterCount =
     Number(Boolean(searchTerm.trim())) +
@@ -470,10 +392,10 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         </button>
       </div>
 
-      {/* Compact search and sorting controls */}
+      {/* Compact search controls. Sorting is handled directly by the roster headers. */}
       <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
         <div className="flex flex-col gap-2 p-3 sm:flex-row sm:items-center">
-          <div className="grid grid-cols-2 gap-2 sm:flex">
+          <div className="flex">
             <button
               type="button"
               aria-expanded={activePanel === 'search'}
@@ -491,21 +413,6 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                 <span className="rounded-full bg-teal-600 px-1.5 py-0.5 text-[9px] text-white">{activeFilterCount}</span>
               )}
               {activePanel === 'search' ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-            </button>
-            <button
-              type="button"
-              aria-expanded={activePanel === 'sort'}
-              aria-controls="children-sort-panel"
-              onClick={openSortPanel}
-              className={`flex min-h-10 items-center justify-center gap-2 rounded-lg border px-3 text-xs font-bold transition-colors ${
-                activePanel === 'sort'
-                  ? 'border-teal-600 bg-teal-50 text-teal-800'
-                  : 'border-slate-300 bg-white text-slate-700 hover:border-teal-400'
-              }`}
-            >
-              <SlidersHorizontal className="h-4 w-4" />
-              並び替え
-              {activePanel === 'sort' ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
             </button>
           </div>
           <p className="min-w-0 flex-1 truncate px-1 text-[10px] text-slate-500 sm:text-right">
@@ -631,141 +538,6 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
           </form>
         )}
 
-        {activePanel === 'sort' && (
-          <div id="children-sort-panel" className="border-t border-slate-200 bg-slate-50/70 p-4 sm:p-5">
-            <div className="mb-3">
-              <h3 className="text-xs font-bold text-slate-800">並び替え条件</h3>
-              <p className="mt-0.5 text-[10px] text-slate-500">上の条件から順に優先され、決定時に名簿へ反映されます。</p>
-            </div>
-
-            <div className="mb-3 flex flex-wrap gap-1.5">
-              {SORT_PRESETS.map((preset) => {
-                const active = isPresetActive(preset.rules);
-                return (
-                  <button
-                    key={preset.label}
-                    type="button"
-                    aria-pressed={active}
-                    onClick={() => applySortPreset(preset.rules)}
-                    className={`rounded-full border px-3 py-1.5 text-[11px] font-bold transition-colors ${
-                      active
-                        ? 'border-teal-600 bg-teal-600 text-white'
-                        : 'border-slate-300 bg-white text-slate-600 hover:border-teal-400 hover:text-teal-700'
-                    }`}
-                  >
-                    {preset.label}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="space-y-2">
-              {draftSortRules.map((rule, index) => {
-                const [ascendingLabel, descendingLabel] = getDirectionLabels(rule.field);
-                return (
-                  <div
-                    key={rule.id}
-                    className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-2"
-                  >
-                    <span className="w-12 shrink-0 text-center text-[10px] font-bold text-teal-700">
-                      優先 {index + 1}
-                    </span>
-                    <select
-                      aria-label={`優先 ${index + 1} の並び替え項目`}
-                      value={rule.field}
-                      onChange={(event) =>
-                        updateSortRule(rule.id, { field: event.target.value as SortField, direction: 'asc' })
-                      }
-                      className="min-w-32 flex-1 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs font-bold text-slate-700"
-                    >
-                      {SORT_FIELD_OPTIONS.map((option) => (
-                        <option
-                          key={option.value}
-                          value={option.value}
-                          disabled={draftSortRules.some(
-                            (otherRule) => otherRule.id !== rule.id && otherRule.field === option.value
-                          )}
-                        >
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                    <select
-                      aria-label={`優先 ${index + 1} の並び順`}
-                      value={rule.direction}
-                      onChange={(event) => updateSortRule(rule.id, { direction: event.target.value as SortDirection })}
-                      className="min-w-28 rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs text-slate-700"
-                    >
-                      <option value="asc">{ascendingLabel}</option>
-                      <option value="desc">{descendingLabel}</option>
-                    </select>
-                    <div className="flex items-center">
-                      <button
-                        type="button"
-                        title="優先順位を上げる"
-                        aria-label={`優先 ${index + 1} を上へ移動`}
-                        disabled={index === 0}
-                        onClick={() => moveSortRule(index, -1)}
-                        className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30"
-                      >
-                        <ChevronUp className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        title="優先順位を下げる"
-                        aria-label={`優先 ${index + 1} を下へ移動`}
-                        disabled={index === draftSortRules.length - 1}
-                        onClick={() => moveSortRule(index, 1)}
-                        className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30"
-                      >
-                        <ChevronDown className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        title="条件を削除"
-                        aria-label={`優先 ${index + 1} を削除`}
-                        disabled={draftSortRules.length === 1}
-                        onClick={() =>
-                          setDraftSortRules((current) => current.filter((item) => item.id !== rule.id))
-                        }
-                        className="rounded-md p-1.5 text-rose-500 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-30"
-                      >
-                        <X className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            <button
-              type="button"
-              onClick={addSortRule}
-              disabled={draftSortRules.length >= SORT_FIELD_OPTIONS.length}
-              className="mt-2 flex items-center gap-1 rounded-md px-2 py-1.5 text-[11px] font-bold text-teal-700 hover:bg-teal-50 disabled:cursor-not-allowed disabled:text-slate-400"
-            >
-              <Plus className="h-3.5 w-3.5" />
-              並び替え条件を追加
-            </button>
-
-            <div className="mt-3 flex justify-end gap-2 border-t border-slate-200 pt-3">
-              <button
-                type="button"
-                onClick={() => setActivePanel(null)}
-                className="rounded-lg px-4 py-2 text-xs font-bold text-slate-600 hover:bg-white"
-              >
-                キャンセル
-              </button>
-              <button
-                type="button"
-                onClick={applySorting}
-                className="rounded-lg bg-teal-600 px-5 py-2 text-xs font-bold text-white hover:bg-teal-500"
-              >
-                並び替えを決定
-              </button>
-            </div>
-          </div>
-        )}
       </section>
 
       {/* Results and view switcher */}

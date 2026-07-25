@@ -8,6 +8,7 @@ import {
   HandoverStatus,
   HomeAssistantExecutionResult,
   HomeAssistantProposal,
+  MorningMeetingRecord,
   RecordDraftSummary,
   RecorderProfile,
   ReviewIssue,
@@ -41,6 +42,7 @@ import {
   loadWorkspaceData,
   saveChild,
   saveHandoverItem,
+  saveMorningMeetingRecord,
   saveRecord,
   saveRecords,
   saveAiWritingSettings,
@@ -96,6 +98,11 @@ export default function App() {
     const saved = localStorage.getItem('support_handover_items_data');
     return saved ? JSON.parse(saved) : [];
   });
+  const [morningMeetingRecords, setMorningMeetingRecords] = useState<MorningMeetingRecord[]>(() => {
+    if (remoteMode) return [];
+    const saved = localStorage.getItem('support_morning_meeting_records_data');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [recordDrafts, setRecordDrafts] = useState<RecordDraftSummary[]>([]);
   const [activeRecorder, setActiveRecorder] = useState<RecorderProfile | null>(null);
   const [activeDraftKey, setActiveDraftKey] = useState(createRecordDraftKey);
@@ -133,6 +140,11 @@ export default function App() {
     if (!remoteMode) localStorage.setItem('support_handover_items_data', JSON.stringify(handoverItems));
   }, [handoverItems, remoteMode]);
   useEffect(() => {
+    if (!remoteMode) {
+      localStorage.setItem('support_morning_meeting_records_data', JSON.stringify(morningMeetingRecords));
+    }
+  }, [morningMeetingRecords, remoteMode]);
+  useEffect(() => {
     if (!remoteMode) localStorage.setItem('support_plans_data', JSON.stringify(supportPlans));
   }, [supportPlans, remoteMode]);
   useEffect(() => {
@@ -155,6 +167,7 @@ export default function App() {
       setChildrenList(workspace.children);
       setRecorderProfiles(workspace.recorderProfiles);
       setHandoverItems(workspace.handoverItems);
+      setMorningMeetingRecords(workspace.morningMeetingRecords);
       setSupportPlans(workspace.supportPlans);
       setAiWritingSettings(workspace.aiWritingSettings);
       setDataError(null);
@@ -232,6 +245,7 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'record_templates', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'support_plans', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'handover_items', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'morning_meeting_records', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'record_drafts', filter: `organization_id=eq.${organizationId}` }, () => void refreshRecordDrafts())
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
@@ -636,6 +650,21 @@ export default function App() {
     }
   };
 
+  const handleSaveMorningMeeting = async (record: MorningMeetingRecord) => {
+    try {
+      if (organizationId) await saveMorningMeetingRecord(organizationId, record);
+      setMorningMeetingRecords((previous) => [
+        record,
+        ...previous.filter((candidate) => candidate.date !== record.date),
+      ].sort((left, right) => right.date.localeCompare(left.date)));
+      setDataError(null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : '朝礼記録を保存できませんでした。';
+      setDataError(message);
+      throw error;
+    }
+  };
+
   const handleQuickMemoHandover = async (content: string) => {
     const now = new Date().toISOString();
     await handleSaveHandover({
@@ -721,6 +750,8 @@ export default function App() {
             childrenList={childrenList}
             drafts={recordDrafts}
             handoverItems={handoverItems}
+            morningMeetingRecords={morningMeetingRecords}
+            organizationId={organizationId}
             activeRecorder={activeRecorder || undefined}
             currentUser={auth.profile}
             canManageSettings={canManageSettings}
@@ -738,6 +769,7 @@ export default function App() {
             }}
             onSaveHandover={handleSaveHandover}
             onHandoverStatusChange={handleHandoverStatusChange}
+            onSaveMorningMeeting={handleSaveMorningMeeting}
             onAssistantExecuted={handleAssistantExecuted}
           />
         )}

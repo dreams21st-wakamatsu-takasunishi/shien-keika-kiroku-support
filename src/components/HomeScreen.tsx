@@ -4,6 +4,7 @@ import {
   Bot,
   CalendarDays,
   CheckCircle2,
+  ClipboardPenLine,
   ClipboardList,
   History,
   LoaderCircle,
@@ -20,6 +21,7 @@ import type {
   HandoverStatus,
   HomeAssistantExecutionResult,
   HomeAssistantProposal,
+  MorningMeetingRecord,
   RecordDraftSummary,
   RecorderProfile,
   SupportRecord,
@@ -29,6 +31,7 @@ import type { ActiveTab } from './Header';
 import { executeHomeAssistantProposal, requestHomeAssistantProposal } from '../services/homeAssistantService';
 import { DailyOperationsPanel } from './DailyOperationsPanel';
 import { HandoverPanel } from './HandoverPanel';
+import { MorningMeetingPanel } from './MorningMeetingPanel';
 import { getLocalDateString } from '../utils/weekdays';
 
 interface HomeScreenProps {
@@ -36,6 +39,8 @@ interface HomeScreenProps {
   childrenList: ChildProfile[];
   drafts: RecordDraftSummary[];
   handoverItems: HandoverItem[];
+  morningMeetingRecords: MorningMeetingRecord[];
+  organizationId?: string;
   activeRecorder?: RecorderProfile;
   currentUser?: UserProfile | null;
   canManageSettings: boolean;
@@ -47,6 +52,7 @@ interface HomeScreenProps {
   onOpenRecord: (record: SupportRecord) => void;
   onSaveHandover: (item: HandoverItem) => Promise<void> | void;
   onHandoverStatusChange: (itemId: string, status: HandoverStatus) => Promise<void> | void;
+  onSaveMorningMeeting: (record: MorningMeetingRecord) => Promise<void> | void;
   onAssistantExecuted: (proposal: HomeAssistantProposal, result: HomeAssistantExecutionResult) => Promise<void> | void;
 }
 
@@ -55,6 +61,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   childrenList,
   drafts,
   handoverItems,
+  morningMeetingRecords,
+  organizationId,
   activeRecorder,
   currentUser,
   canManageSettings,
@@ -66,9 +74,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onOpenRecord,
   onSaveHandover,
   onHandoverStatusChange,
+  onSaveMorningMeeting,
   onAssistantExecuted,
 }) => {
-  const [activePanel, setActivePanel] = useState<'operations' | 'handover' | 'assistant'>('operations');
+  const [activePanel, setActivePanel] = useState<'operations' | 'morning' | 'handover' | 'assistant'>('operations');
   const today = getLocalDateString();
   const todayRecords = records.filter((record) => record.date === today);
   const unapproved = records.filter((record) => record.approvalStatus === '未確認');
@@ -76,6 +85,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     .sort((a, b) => `${b.date}${b.updatedAt}`.localeCompare(`${a.date}${a.updatedAt}`))
     .slice(0, 3);
   const openHandovers = handoverItems.filter((item) => item.status !== '完了').length;
+  const hasMorningMeetingRecord = morningMeetingRecords.some(
+    (record) => record.date === today && Boolean(record.content.trim())
+  );
 
   return (
     <div className="max-w-6xl mx-auto space-y-4">
@@ -98,13 +110,20 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-        <div className="grid grid-cols-3 gap-1" role="tablist" aria-label="ホーム機能">
+        <div className="grid grid-cols-2 gap-1 sm:grid-cols-4" role="tablist" aria-label="ホーム機能">
           <HomePanelButton
             active={activePanel === 'operations'}
             icon={CalendarDays}
             label="本日の運用"
             badge={drafts.length > 0 ? `${drafts.length}件入力中` : undefined}
             onClick={() => setActivePanel('operations')}
+          />
+          <HomePanelButton
+            active={activePanel === 'morning'}
+            icon={ClipboardPenLine}
+            label="朝礼記録"
+            badge={hasMorningMeetingRecord ? '入力あり' : undefined}
+            onClick={() => setActivePanel('morning')}
           />
           <HomePanelButton
             active={activePanel === 'handover'}
@@ -144,6 +163,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             activeRecorder={activeRecorder}
             onSave={onSaveHandover}
             onStatusChange={onHandoverStatusChange}
+          />
+        )}
+
+        {activePanel === 'morning' && (
+          <MorningMeetingPanel
+            records={morningMeetingRecords}
+            organizationId={organizationId}
+            activeRecorder={activeRecorder}
+            currentUser={currentUser}
+            onSave={onSaveMorningMeeting}
           />
         )}
 

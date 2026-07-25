@@ -5,6 +5,7 @@ import {
   DEFAULT_AI_WRITING_SETTINGS,
   ExpressionType,
   HandoverItem,
+  MorningMeetingRecord,
   RecordDraftSummary,
   RecordRevision,
   RecorderProfile,
@@ -26,6 +27,7 @@ export interface WorkspaceData {
   templates: Template[];
   records: SupportRecord[];
   handoverItems: HandoverItem[];
+  morningMeetingRecords: MorningMeetingRecord[];
   supportPlans: SupportPlan[];
   aiWritingSettings: AiWritingSettings;
 }
@@ -82,6 +84,17 @@ function mapHandoverItem(row: any, recorderNames?: Map<string, string>): Handove
     createdByRecorderName: row.created_by_recorder_profile_id
       ? recorderNames?.get(row.created_by_recorder_profile_id)
       : undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapMorningMeetingRecord(row: any): MorningMeetingRecord {
+  return {
+    date: row.meeting_date,
+    content: row.content || '',
+    updatedByName: row.updated_by_name || undefined,
+    updatedByRecorderId: row.updated_by_recorder_profile_id || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -176,18 +189,19 @@ function mapAiWritingSettings(row: any): AiWritingSettings {
 
 export async function loadWorkspaceData(organizationId: string): Promise<WorkspaceData> {
   const client = assertSupabase();
-  const [childrenResult, schedulesResult, recorderProfilesResult, templatesResult, recordsResult, handoversResult, plansResult, aiSettingsResult] = await Promise.all([
+  const [childrenResult, schedulesResult, recorderProfilesResult, templatesResult, recordsResult, handoversResult, morningMeetingsResult, plansResult, aiSettingsResult] = await Promise.all([
     client.from('children').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('name'),
     client.from('child_regular_day_schedules').select('*').eq('organization_id', organizationId).order('effective_from'),
     client.from('recorder_profiles').select('id, display_name, active, pin_configured, created_at').eq('organization_id', organizationId).eq('active', true).order('display_name'),
     client.from('record_templates').select('*').eq('organization_id', organizationId).is('archived_at', null).order('created_at'),
     client.from('support_records').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('record_date', { ascending: false }),
     client.from('handover_items').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }),
+    client.from('morning_meeting_records').select('*').eq('organization_id', organizationId).order('meeting_date', { ascending: false }),
     client.from('support_plans').select('*').eq('organization_id', organizationId).order('valid_from', { ascending: false }),
     client.from('organization_ai_settings').select('*').eq('organization_id', organizationId).maybeSingle(),
   ]);
 
-  for (const result of [childrenResult, schedulesResult, recorderProfilesResult, templatesResult, recordsResult, handoversResult, plansResult, aiSettingsResult]) {
+  for (const result of [childrenResult, schedulesResult, recorderProfilesResult, templatesResult, recordsResult, handoversResult, morningMeetingsResult, plansResult, aiSettingsResult]) {
     if (result.error) throw result.error;
   }
 
@@ -210,6 +224,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     templates: (templatesResult.data || []).map(mapTemplate),
     records: (recordsResult.data || []).map(mapRecord),
     handoverItems: (handoversResult.data || []).map((row) => mapHandoverItem(row, recorderNames)),
+    morningMeetingRecords: (morningMeetingsResult.data || []).map(mapMorningMeetingRecord),
     supportPlans: (plansResult.data || []).map(mapSupportPlan),
     aiWritingSettings: mapAiWritingSettings(aiSettingsResult.data),
   };
@@ -506,6 +521,23 @@ export async function updateHandoverStatus(
     .update({ status })
     .eq('organization_id', organizationId)
     .eq('id', itemId);
+  if (error) throw error;
+}
+
+export async function saveMorningMeetingRecord(
+  organizationId: string,
+  record: MorningMeetingRecord
+) {
+  const { error } = await assertSupabase().from('morning_meeting_records').upsert(
+    {
+      organization_id: organizationId,
+      meeting_date: record.date,
+      content: record.content,
+      updated_by_recorder_profile_id: record.updatedByRecorderId || null,
+      updated_by_name: record.updatedByName?.trim() || null,
+    },
+    { onConflict: 'organization_id,meeting_date' }
+  );
   if (error) throw error;
 }
 

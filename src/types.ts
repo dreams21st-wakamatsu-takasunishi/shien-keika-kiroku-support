@@ -212,6 +212,15 @@ export interface HandoverItem {
   updatedAt: string;
 }
 
+export interface MorningMeetingRecord {
+  date: string;
+  content: string;
+  updatedByName?: string;
+  updatedByRecorderId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface SupportPlan {
   id: string;
   childId: string;
