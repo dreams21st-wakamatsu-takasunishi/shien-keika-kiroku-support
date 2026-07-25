@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Edit3, MailPlus, RefreshCw, Save, ShieldCheck, Trash2, UserCheck, X } from 'lucide-react';
+import { ClipboardList, Edit3, History, MailPlus, RefreshCw, Save, ShieldCheck, Trash2, UserCheck, Users, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { UserProfile, UserRole } from '../types';
 import { RecorderProfileManager } from './RecorderProfileManager';
@@ -32,6 +32,7 @@ interface AuditRow {
 }
 
 const roleLabels: Record<UserRole, string> = { staff: '職員', manager: '児発管', admin: '管理者' };
+type TeamSection = 'recorders' | 'members' | 'invite' | 'invitations' | 'audit';
 
 async function functionErrorMessage(error: unknown) {
   const typed = error as { message?: string; context?: Response };
@@ -60,6 +61,7 @@ export const TeamManager: React.FC<{ currentUser: UserProfile }> = ({ currentUse
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [activeSection, setActiveSection] = useState<TeamSection>('recorders');
 
   const refresh = async () => {
     if (!supabase) return;
@@ -146,18 +148,36 @@ export const TeamManager: React.FC<{ currentUser: UserProfile }> = ({ currentUse
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
-      <div className="bg-white rounded-xl border border-slate-200 p-5 flex items-center justify-between">
+    <div className="max-w-6xl mx-auto space-y-4">
+      <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-4">
         <div>
           <h2 className="text-lg font-bold flex items-center gap-2"><ShieldCheck className="w-5 h-5 text-teal-600" />職員・権限管理</h2>
-          <p className="text-xs text-slate-500 mt-1">招待制で職員を登録し、管理者は氏名・メール・権限の編集、利用停止、完全削除を行えます。</p>
+          <p className="mt-1 text-xs text-slate-500">項目を選択して、記録者・ログイン職員・招待・監査履歴を管理します。</p>
         </div>
         <button type="button" onClick={refresh} className="p-2 text-slate-500 hover:bg-slate-100 rounded-lg" title="再読み込み"><RefreshCw className="w-4 h-4" /></button>
       </div>
 
-      <RecorderProfileManager currentUser={currentUser} />
+      <section className="rounded-xl border border-slate-200 bg-white p-2 shadow-xs">
+        <div className="grid grid-cols-2 gap-1 sm:grid-cols-5" role="tablist" aria-label="職員管理項目">
+          <TeamSectionButton active={activeSection === 'recorders'} icon={ClipboardList} label="記録者名簿" onClick={() => setActiveSection('recorders')} />
+          <TeamSectionButton active={activeSection === 'members'} icon={Users} label="ログイン職員" count={members.length} onClick={() => setActiveSection('members')} />
+          <TeamSectionButton active={activeSection === 'invite'} icon={MailPlus} label="メール招待" onClick={() => setActiveSection('invite')} />
+          <TeamSectionButton
+            active={activeSection === 'invitations'}
+            icon={UserCheck}
+            label="招待中"
+            count={invitations.filter((item) => !item.accepted_at).length}
+            onClick={() => setActiveSection('invitations')}
+          />
+          <TeamSectionButton active={activeSection === 'audit'} icon={History} label="監査履歴" count={audits.length} onClick={() => setActiveSection('audit')} />
+        </div>
+      </section>
 
-      <form onSubmit={invite} className="bg-white rounded-xl border border-slate-200 p-5 space-y-3">
+      {message && <p role="status" className="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-700">{message}</p>}
+
+      {activeSection === 'recorders' && <RecorderProfileManager currentUser={currentUser} />}
+
+      {activeSection === 'invite' && <form onSubmit={invite} className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
         <h3 className="text-xs font-bold flex items-center gap-2"><MailPlus className="w-4 h-4 text-teal-600" />職員をメールで招待</h3>
         <div className="grid md:grid-cols-[1fr_1fr_140px_auto] gap-3">
           <input type="email" required value={email} onChange={(event) => setEmail(event.target.value)} placeholder="staff@example.jp" className="min-h-11 border rounded-lg p-2 text-xs" />
@@ -168,10 +188,9 @@ export const TeamManager: React.FC<{ currentUser: UserProfile }> = ({ currentUse
           </select>
           <button disabled={busy} className="min-h-11 bg-teal-600 disabled:bg-slate-400 text-white text-xs font-bold px-4 py-2 rounded-lg">招待する</button>
         </div>
-        {message && <p className="text-xs bg-slate-50 border rounded-lg p-3 text-slate-700">{message}</p>}
-      </form>
+      </form>}
 
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      {activeSection === 'members' && <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         <div className="p-4 border-b"><h3 className="text-xs font-bold">登録済み職員</h3></div>
         {loading ? <p className="p-6 text-xs text-slate-500">読み込み中...</p> : (
           <div className="divide-y divide-slate-200">
@@ -212,20 +231,20 @@ export const TeamManager: React.FC<{ currentUser: UserProfile }> = ({ currentUse
             })}
           </div>
         )}
-      </div>
+      </div>}
 
-      {invitations.some((item) => !item.accepted_at) && (
-        <div className="bg-white rounded-xl border border-slate-200 p-5">
+      {activeSection === 'invitations' && (
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
           <h3 className="text-xs font-bold mb-3 flex items-center gap-2"><UserCheck className="w-4 h-4" />招待中</h3>
-          <div className="space-y-2">
+          {invitations.some((item) => !item.accepted_at) ? <div className="space-y-2">
             {invitations.filter((item) => !item.accepted_at).map((item) => (
               <div key={item.id} className="flex flex-col sm:flex-row sm:justify-between gap-1 text-xs bg-slate-50 rounded-lg p-3"><span>{item.email}</span><span>{roleLabels[item.role]}・期限 {new Date(item.expires_at).toLocaleDateString('ja-JP')}</span></div>
             ))}
-          </div>
+          </div> : <p className="rounded-lg bg-slate-50 p-5 text-center text-xs text-slate-500">招待中の職員はいません。</p>}
         </div>
       )}
 
-      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+      {activeSection === 'audit' && <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         <div className="p-4 border-b"><h3 className="text-xs font-bold">直近の監査履歴</h3></div>
         {audits.length === 0 ? <p className="p-6 text-xs text-slate-500">表示できる履歴はありません。</p> : (
           <div className="overflow-x-auto max-h-80">
@@ -240,7 +259,41 @@ export const TeamManager: React.FC<{ currentUser: UserProfile }> = ({ currentUse
             </table>
           </div>
         )}
-      </div>
+      </div>}
     </div>
   );
 };
+
+function TeamSectionButton({
+  active,
+  icon: Icon,
+  label,
+  count,
+  onClick,
+}: {
+  active: boolean;
+  icon: React.ElementType;
+  label: string;
+  count?: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={`flex min-h-12 items-center justify-center gap-1.5 rounded-lg px-2 text-[11px] font-bold transition-colors ${
+        active ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+      }`}
+    >
+      <Icon className={`h-4 w-4 shrink-0 ${active ? 'text-teal-300' : 'text-teal-600'}`} />
+      <span>{label}</span>
+      {typeof count === 'number' && (
+        <span className={`rounded-full px-1.5 py-0.5 text-[9px] ${active ? 'bg-white/15 text-white' : 'bg-slate-100 text-slate-600'}`}>
+          {count}
+        </span>
+      )}
+    </button>
+  );
+}

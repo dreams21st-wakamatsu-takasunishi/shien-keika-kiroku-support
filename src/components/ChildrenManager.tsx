@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ChildProfile, Weekday } from '../types';
 import {
+  ArrowDown,
+  ArrowUp,
   CalendarDays,
   ChevronDown,
   ChevronUp,
@@ -48,10 +50,10 @@ const PREFERENCE_STORAGE_KEY = 'children-manager-preferences-v1';
 const JAPANESE_COLLATOR = new Intl.Collator('ja', { numeric: true, sensitivity: 'base' });
 
 const SORT_FIELD_OPTIONS: Array<{ value: SortField; label: string }> = [
-  { value: 'kana', label: '五十音' },
-  { value: 'schoolAge', label: '学齢' },
-  { value: 'regularDays', label: '利用曜日' },
-  { value: 'careType', label: 'サービス種別' },
+  { value: 'kana', label: '児童名' },
+  { value: 'schoolAge', label: '学年' },
+  { value: 'regularDays', label: '定期利用日' },
+  { value: 'careType', label: 'サービス' },
 ];
 
 const SORT_PRESETS: Array<{ label: string; rules: Array<Omit<SortRule, 'id'>> }> = [
@@ -303,6 +305,34 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setDraftWeekdayFilters([]);
   };
 
+  const toggleHeaderSort = (field: SortField) => {
+    const existing = sortRules.find((rule) => rule.field === field);
+    const next = existing
+      ? sortRules.map((rule) =>
+          rule.field === field
+            ? { ...rule, direction: rule.direction === 'asc' ? 'desc' as const : 'asc' as const }
+            : rule
+        )
+      : [
+          ...sortRules,
+          {
+            id: `sort-${field}-${Date.now()}`,
+            field,
+            direction: 'asc' as const,
+          },
+        ];
+    setSortRules(next);
+    setDraftSortRules(next.map((rule) => ({ ...rule })));
+    setActivePanel(null);
+  };
+
+  const removeHeaderSort = (field: SortField) => {
+    const next = sortRules.filter((rule) => rule.field !== field);
+    setSortRules(next);
+    setDraftSortRules(next.map((rule) => ({ ...rule })));
+    setActivePanel(null);
+  };
+
   const applySortPreset = (rules: Array<Omit<SortRule, 'id'>>) => {
     setDraftSortRules(
       rules.map((rule, index) => ({
@@ -479,7 +509,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
             </button>
           </div>
           <p className="min-w-0 flex-1 truncate px-1 text-[10px] text-slate-500 sm:text-right">
-            {filterSummary || '絞り込みなし'}／{sortSummary}
+            {filterSummary || '絞り込みなし'}{sortSummary ? `／${sortSummary}` : '／並び替えなし'}
           </p>
         </div>
 
@@ -770,6 +800,27 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         </div>
       </div>
 
+      <section className={`rounded-xl border border-slate-200 bg-white p-2 shadow-xs ${viewMode === 'list' ? 'md:hidden' : ''}`}>
+        <div className="mb-1.5 flex items-center justify-between gap-2 px-1">
+          <p className="text-[10px] font-bold text-slate-600">見出しをタップして並び替え</p>
+          <p className="hidden text-[9px] text-slate-400 sm:block">選択順が優先順位・再タップで昇順／降順</p>
+        </div>
+        <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+          {SORT_FIELD_OPTIONS.map((option) => (
+            <React.Fragment key={option.value}>
+              <SortHeaderButton
+                label={option.label}
+                field={option.value}
+                rule={sortRules.find((rule) => rule.field === option.value)}
+                priority={sortRules.findIndex((rule) => rule.field === option.value) + 1}
+                onToggle={toggleHeaderSort}
+                onRemove={removeHeaderSort}
+              />
+            </React.Fragment>
+          ))}
+        </div>
+      </section>
+
       {filteredAndSortedList.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center">
           <Search className="mx-auto mb-3 h-8 w-8 text-slate-300" />
@@ -799,11 +850,20 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         </div>
       ) : (
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
-          <div className="hidden grid-cols-[minmax(190px,1.4fr)_110px_150px_minmax(150px,1fr)_116px] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-[10px] font-bold text-slate-500 md:grid">
-            <span>児童名</span>
-            <span>学年</span>
-            <span>定期利用曜日</span>
-            <span>サービス・予約</span>
+          <div className="hidden grid-cols-[minmax(190px,1.4fr)_110px_150px_minmax(150px,1fr)_116px] gap-3 border-b border-slate-200 bg-slate-50 px-3 py-2 md:grid">
+            {SORT_FIELD_OPTIONS.map((option) => (
+              <React.Fragment key={option.value}>
+                <SortHeaderButton
+                  compact
+                  label={option.label}
+                  field={option.value}
+                  rule={sortRules.find((rule) => rule.field === option.value)}
+                  priority={sortRules.findIndex((rule) => rule.field === option.value) + 1}
+                  onToggle={toggleHeaderSort}
+                  onRemove={removeHeaderSort}
+                />
+              </React.Fragment>
+            ))}
             <span className="text-right">操作</span>
           </div>
           <div className="divide-y divide-slate-100">
@@ -965,6 +1025,67 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     </div>
   );
 };
+
+function SortHeaderButton({
+  label,
+  field,
+  rule,
+  priority,
+  compact = false,
+  onToggle,
+  onRemove,
+}: {
+  label: string;
+  field: SortField;
+  rule?: SortRule;
+  priority: number;
+  compact?: boolean;
+  onToggle: (field: SortField) => void;
+  onRemove: (field: SortField) => void;
+}) {
+  const directionLabel = rule
+    ? getDirectionLabels(field)[rule.direction === 'asc' ? 0 : 1]
+    : '未選択';
+  return (
+    <div className={`flex min-w-0 items-stretch overflow-hidden rounded-lg border ${
+      rule ? 'border-teal-400 bg-teal-50' : 'border-slate-200 bg-white'
+    }`}>
+      <button
+        type="button"
+        onClick={() => onToggle(field)}
+        aria-label={`${label}で並び替え。現在${rule ? `優先${priority}、${directionLabel}` : '未選択'}`}
+        className={`flex min-w-0 flex-1 items-center gap-1.5 text-left font-bold transition-colors hover:bg-teal-100 ${
+          compact ? 'min-h-8 px-2 text-[10px]' : 'min-h-11 px-3 text-xs'
+        } ${rule ? 'text-teal-900' : 'text-slate-600'}`}
+      >
+        {rule && (
+          <span className="flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full bg-teal-600 px-1 text-[9px] text-white">
+            {priority}
+          </span>
+        )}
+        <span className="truncate">{label}</span>
+        {rule && (
+          rule.direction === 'asc'
+            ? <ArrowUp className="ml-auto h-3.5 w-3.5 shrink-0" />
+            : <ArrowDown className="ml-auto h-3.5 w-3.5 shrink-0" />
+        )}
+      </button>
+      {rule && (
+        <button
+          type="button"
+          aria-label={`${label}の並び替えを解除`}
+          title="この条件を解除"
+          onClick={() => onRemove(field)}
+          className={`flex shrink-0 items-center justify-center border-l border-teal-200 text-teal-700 hover:bg-white ${
+            compact ? 'w-7' : 'w-9'
+          }`}
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </div>
+  );
+}
 
 interface ChildDisplayProps {
   child: ChildProfile;
