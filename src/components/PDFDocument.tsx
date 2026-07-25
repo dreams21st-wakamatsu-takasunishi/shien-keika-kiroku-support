@@ -126,7 +126,7 @@ export const PDFDocument: React.FC<PDFDocumentProps> = ({
               </div>
               <div className="flex-1 p-2 space-y-1 bg-white">
                 <div className="text-[11px] font-semibold border-b border-slate-200 pb-1 mb-1">
-                  取組内容： <span className="font-normal text-slate-800">{study.subTitleValue || '学校宿題・個別課題'}</span>
+                  宿題内容： <span className="font-normal text-slate-800">{study.answers['homework_content']?.value || study.subTitleValue || '学校宿題・個別課題'}</span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-x-4 gap-y-1 text-[11px]">
                   <div>

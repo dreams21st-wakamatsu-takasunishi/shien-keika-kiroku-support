@@ -22,6 +22,7 @@ import {
   ExpressionType,
   RecorderProfile,
   SectionAnswer,
+  SectionFieldAnswer,
   SnackType,
   SupportRecord,
   Template,
@@ -40,6 +41,14 @@ import {
 import { calculateSchoolGrade } from '../utils/schoolGrade';
 import { getWizardQuestions, renderQuestionText } from '../utils/wizardQuestions';
 import { formatRegularDays, getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
+import {
+  formatHomeworkDetails,
+  HOMEWORK_ACADEMIC_SUBJECTS,
+  HOMEWORK_FREE_TEXT_SUBJECTS,
+  HOMEWORK_MATERIALS,
+  HOMEWORK_SUBJECTS,
+  normalizeHomeworkDetails,
+} from '../utils/homeworkField';
 
 interface RecordFormProps {
   templates: Template[];
@@ -107,6 +116,138 @@ type AnswerStatus = 'answered' | 'skipped' | 'unanswered';
 
 const inputClass = 'w-full min-h-12 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-base sm:text-sm text-slate-900 focus:border-teal-500 focus:ring-2 focus:ring-teal-200 outline-none';
 const choiceClass = 'min-h-12 rounded-xl border px-3 py-2.5 text-sm font-bold transition-colors text-center';
+
+function HomeworkSubjectInput({
+  answer,
+  onChange,
+}: {
+  answer: SectionFieldAnswer;
+  onChange: (answer: SectionFieldAnswer) => void;
+}) {
+  const details = normalizeHomeworkDetails(answer.homeworkDetails, answer.value);
+  const commit = (nextDetails: typeof details) => {
+    onChange({
+      ...answer,
+      value: formatHomeworkDetails(nextDetails),
+      homeworkDetails: nextDetails,
+    });
+  };
+
+  const toggleSubject = (subject: string) => {
+    const selected = details.subjects.includes(subject);
+    const materials = { ...details.materials };
+    const notes = { ...details.notes };
+    if (selected) {
+      delete materials[subject];
+      delete notes[subject];
+    }
+    commit({
+      subjects: selected
+        ? details.subjects.filter((value) => value !== subject)
+        : [...details.subjects, subject],
+      materials,
+      notes,
+    });
+  };
+
+  const toggleMaterial = (subject: string, material: string) => {
+    const current = details.materials[subject] || [];
+    const selected = current.includes(material);
+    commit({
+      ...details,
+      materials: {
+        ...details.materials,
+        [subject]: selected
+          ? current.filter((value) => value !== material)
+          : [...current, material],
+      },
+    });
+  };
+
+  const updateNote = (subject: string, value: string) => {
+    commit({
+      ...details,
+      notes: {
+        ...details.notes,
+        [subject]: value,
+      },
+    });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <p className="mb-2 text-xs font-bold text-slate-600">教科（複数選択可）</p>
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          {HOMEWORK_SUBJECTS.map((subject) => {
+            const selected = details.subjects.includes(subject);
+            return (
+              <button
+                key={subject}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => toggleSubject(subject)}
+                className={`${choiceClass} ${
+                  selected
+                    ? 'border-teal-600 bg-teal-600 text-white'
+                    : 'border-slate-300 bg-white text-slate-700'
+                }`}
+              >
+                {selected && <Check className="mr-1 inline h-4 w-4" />}
+                {subject}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {HOMEWORK_ACADEMIC_SUBJECTS
+        .filter((subject) => details.subjects.includes(subject))
+        .map((subject) => (
+          <div key={subject} className="rounded-xl border border-teal-200 bg-teal-50/60 p-3">
+            <p className="mb-2 text-sm font-bold text-teal-950">{subject}の宿題内容（複数選択可）</p>
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+              {HOMEWORK_MATERIALS.map((material) => {
+                const selected = (details.materials[subject] || []).includes(material);
+                return (
+                  <button
+                    key={material}
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() => toggleMaterial(subject, material)}
+                    className={`${choiceClass} text-left ${
+                      selected
+                        ? 'border-indigo-600 bg-indigo-600 text-white'
+                        : 'border-slate-300 bg-white text-slate-700'
+                    }`}
+                  >
+                    {selected && <Check className="mr-1 inline h-4 w-4" />}
+                    {material}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+
+      {HOMEWORK_FREE_TEXT_SUBJECTS
+        .filter((subject) => details.subjects.includes(subject))
+        .map((subject) => (
+          <label key={subject} className="block text-sm font-bold text-slate-700">
+            {subject}の内容
+            <textarea
+              rows={3}
+              value={details.notes[subject] || ''}
+              onChange={(event) => updateNote(subject, event.target.value)}
+              placeholder={subject === '自学' ? '例：漢字練習、読書、調べ学習' : '宿題の内容を簡潔に入力'}
+              className={`${inputClass} mt-2`}
+            />
+          </label>
+        ))}
+    </div>
+  );
+}
+
 function newRecordId() {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return `rec-${crypto.randomUUID()}`;
   return `rec-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -409,7 +550,11 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     });
   };
 
-  const updateField = (sectionId: string, fieldId: string, value: string, note?: string) => {
+  const updateFieldAnswer = (
+    sectionId: string,
+    fieldId: string,
+    updates: Partial<SectionFieldAnswer>,
+  ) => {
     if (!wizard.activeChildId || !currentStep) return;
     updateChildDraft(wizard.activeChildId, (raw) => {
       const draft = unskip(raw, currentStep.id);
@@ -423,12 +568,18 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             ...section,
             answers: {
               ...section.answers,
-              [fieldId]: { value, note: note === undefined ? answer.note : note },
+              [fieldId]: { ...answer, ...updates },
             },
           },
         },
       };
     });
+  };
+
+  const updateField = (sectionId: string, fieldId: string, value: string, note?: string) => {
+    const updates: Partial<SectionFieldAnswer> = { value };
+    if (note !== undefined) updates.note = note;
+    updateFieldAnswer(sectionId, fieldId, updates);
   };
 
   const updateSection = (sectionId: string, updates: Partial<SectionAnswer>) => {
@@ -566,11 +717,11 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const renderField = (field: TemplateField, sectionId: string) => {
     const answer = activeChildDraft?.sectionAnswers[sectionId]?.answers[field.id] || { value: field.defaultValue || '', note: '' };
     const selectedValues = answer.value ? answer.value.split('、').filter(Boolean) : [];
-    const fatigueField = isFatigueField(field);
+    const fatigueField = field.type === 'fatigue_scale' || isFatigueField(field);
     const fatigueOptions = fatigueField ? [...FATIGUE_SCALE_OPTIONS] : [];
     return (
       <div className="space-y-4">
-        {field.type === 'radio' && fatigueField && <div>
+        {fatigueField && <div>
           <div className="grid grid-cols-5 gap-1.5 sm:gap-2">{fatigueOptions.map((option) => {
             const [level, label] = option.split('：');
             const selected = answer.value === option;
@@ -603,6 +754,12 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           const selected = selectedValues.includes(option);
           return <button key={option} type="button" onClick={() => updateField(sectionId, field.id, (selected ? selectedValues.filter((item) => item !== option) : [...selectedValues, option]).join('、'))} className={`${choiceClass} text-left ${selected ? 'bg-teal-600 border-teal-600 text-white' : 'bg-white border-slate-300 text-slate-700'}`}>{selected && <Check className="inline w-4 h-4 mr-1" />}{option}</button>;
         })}</div>}
+        {field.type === 'homework_subjects' && (
+          <HomeworkSubjectInput
+            answer={answer}
+            onChange={(nextAnswer) => updateFieldAnswer(sectionId, field.id, nextAnswer)}
+          />
+        )}
         {field.type === 'number' && <div className="flex items-center gap-3"><input type="number" value={answer.value} onChange={(event) => updateField(sectionId, field.id, event.target.value)} className={inputClass} />{field.unit && <span className="shrink-0 text-sm font-bold text-slate-600">{field.unit}</span>}</div>}
         {field.type === 'hand_count' && (() => {
           const handCount = parseHandCount(answer.value);
@@ -618,7 +775,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         {field.type === 'text' && <input type="text" value={answer.value} onChange={(event) => updateField(sectionId, field.id, event.target.value)} className={inputClass} />}
         {field.type === 'textarea' && <textarea rows={5} value={answer.value} onChange={(event) => updateField(sectionId, field.id, event.target.value)} className={inputClass} />}
         {field.type === 'time_select' && <input type="time" value={answer.value} onChange={(event) => updateField(sectionId, field.id, event.target.value)} className={inputClass} />}
-        {field.hasNote && <label className="block text-sm font-bold text-slate-700">備考（任意）<input type="text" value={answer.note || ''} onChange={(event) => updateField(sectionId, field.id, answer.value, event.target.value)} placeholder={field.notePlaceholder || '補足事項を入力'} className={`${inputClass} mt-2`} /></label>}
+        {field.hasNote && field.type !== 'homework_subjects' && <label className="block text-sm font-bold text-slate-700">備考（任意）<input type="text" value={answer.note || ''} onChange={(event) => updateField(sectionId, field.id, answer.value, event.target.value)} placeholder={field.notePlaceholder || '補足事項を入力'} className={`${inputClass} mt-2`} /></label>}
       </div>
     );
   };

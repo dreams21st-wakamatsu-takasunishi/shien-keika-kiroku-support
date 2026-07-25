@@ -84,7 +84,7 @@ export function generateNarrativeReport(
   const study = record.sectionAnswers['study'];
   if (study) {
     handledSections.add('study');
-    const sub = study.subTitleValue || '学習課題';
+    const sub = study.answers['homework_content']?.value || study.subTitleValue || '学習課題';
     const time = study.answers['homework_time']?.value || '20';
     const attitude = study.answers['homework_attitude']?.value || '自力で済ませた';
     const leaving = study.answers['leaving_seat']?.value || 'なかった';

@@ -1,4 +1,5 @@
 import { Template } from '../types';
+import { HOMEWORK_FIELD_HELP, HOMEWORK_SUBJECTS } from '../utils/homeworkField';
 import { FATIGUE_SCALE_HELP, FATIGUE_SCALE_OPTIONS } from '../utils/templateNormalizer';
 
 export const defaultTemplates: Template[] = [
@@ -16,7 +17,7 @@ export const defaultTemplates: Template[] = [
           {
             id: 'fatigue',
             label: '【疲労感】',
-            type: 'radio',
+            type: 'fatigue_scale',
             options: [...FATIGUE_SCALE_OPTIONS],
             defaultValue: FATIGUE_SCALE_OPTIONS[0],
             hasNote: true,
@@ -73,9 +74,16 @@ export const defaultTemplates: Template[] = [
       {
         id: 'study',
         title: '学習',
-        hasSubTitleField: true,
-        subTitleLabel: '取組内容',
         fields: [
+          {
+            id: 'homework_content',
+            label: '【宿題内容】',
+            type: 'homework_subjects',
+            options: [...HOMEWORK_SUBJECTS],
+            defaultValue: '',
+            hasNote: false,
+            helpText: HOMEWORK_FIELD_HELP,
+          },
           {
             id: 'homework_time',
             label: '【宿題取り組み時間】',
@@ -164,7 +172,7 @@ export const defaultTemplates: Template[] = [
           {
             id: 'fatigue',
             label: '【疲労感】',
-            type: 'radio',
+            type: 'fatigue_scale',
             options: [...FATIGUE_SCALE_OPTIONS],
             defaultValue: FATIGUE_SCALE_OPTIONS[0],
             hasNote: true,
@@ -230,9 +238,16 @@ export const defaultTemplates: Template[] = [
       {
         id: 'study',
         title: '学習',
-        hasSubTitleField: true,
-        subTitleLabel: '取組内容',
         fields: [
+          {
+            id: 'homework_content',
+            label: '【宿題内容】',
+            type: 'homework_subjects',
+            options: [...HOMEWORK_SUBJECTS],
+            defaultValue: '',
+            hasNote: false,
+            helpText: HOMEWORK_FIELD_HELP,
+          },
           {
             id: 'homework_time',
             label: '【宿題取り組み時間】',

@@ -66,6 +66,14 @@ export const sampleRecords: SupportRecord[] = [
         sectionTitle: '学習',
         subTitleValue: '学校の宿題（算数プリント・漢字練習）',
         answers: {
+          homework_content: {
+            value: '国語（ノート）、算数（プリント）',
+            homeworkDetails: {
+              subjects: ['国語', '算数'],
+              materials: { 国語: ['ノート'], 算数: ['プリント'] },
+              notes: {},
+            },
+          },
           homework_time: { value: '25', note: '算数計算ドリル、漢字2文字' },
           homework_attitude: { value: '自力で済ませた', note: '' },
           leaving_seat: { value: 'なかった', note: '' },

@@ -62,7 +62,16 @@ export interface HomeAssistantExecutionResult {
   };
 }
 
-export type FieldType = 'radio' | 'checkbox' | 'text' | 'number' | 'textarea' | 'time_select' | 'hand_count';
+export type FieldType =
+  | 'radio'
+  | 'checkbox'
+  | 'text'
+  | 'number'
+  | 'textarea'
+  | 'time_select'
+  | 'hand_count'
+  | 'fatigue_scale'
+  | 'homework_subjects';
 
 export interface FieldOption {
   id: string;
@@ -180,11 +189,23 @@ export interface FieldAnswer {
   note?: string;
 }
 
+export interface HomeworkFieldDetails {
+  subjects: string[];
+  materials: Record<string, string[]>;
+  notes: Record<string, string>;
+}
+
+export interface SectionFieldAnswer {
+  value: string;
+  note?: string;
+  homeworkDetails?: HomeworkFieldDetails;
+}
+
 export interface SectionAnswer {
   sectionId: string;
   sectionTitle: string;
   subTitleValue?: string; // e.g. 宿題の内容、PCの取組内容、活動名
-  answers: Record<string, { value: string; note?: string }>;
+  answers: Record<string, SectionFieldAnswer>;
   detailText?: string; // 【様子】/ 【特記】 free text
   abcAnalysis?: ABCAnalysis;
 }

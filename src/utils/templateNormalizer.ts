@@ -1,4 +1,5 @@
 import type { Template, TemplateField } from '../types';
+import { HOMEWORK_FIELD_HELP, HOMEWORK_SUBJECTS } from './homeworkField';
 
 export const FATIGUE_SCALE_OPTIONS = [
   '1：なし',
@@ -45,7 +46,7 @@ export function normalizeTemplateFatigueScale(template: Template): Template {
         if (isFatigueField(field)) {
           return {
             ...field,
-            type: 'radio',
+            type: 'fatigue_scale',
             options: [...FATIGUE_SCALE_OPTIONS],
             defaultValue: normalizeFatigueValue(field.defaultValue),
             helpText: field.helpText || FATIGUE_SCALE_HELP,
@@ -58,6 +59,15 @@ export function normalizeTemplateFatigueScale(template: Template): Template {
             type: 'hand_count',
             defaultValue: formatHandCount(handCount.left, handCount.right),
             helpText: field.helpText || '左手・右手それぞれで使用した指の本数を入力してください。',
+          };
+        }
+        if (field.type === 'homework_subjects') {
+          return {
+            ...field,
+            options: [...HOMEWORK_SUBJECTS],
+            defaultValue: '',
+            hasNote: false,
+            helpText: field.helpText || HOMEWORK_FIELD_HELP,
           };
         }
         return field;
