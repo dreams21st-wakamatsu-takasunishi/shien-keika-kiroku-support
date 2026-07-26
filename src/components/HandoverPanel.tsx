@@ -1,10 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
-  AlertTriangle,
-  CheckCircle2,
   ChevronDown,
   ClipboardPlus,
-  Clock3,
   Filter,
   LoaderCircle,
   MessageSquareText,
@@ -84,6 +81,7 @@ export const HandoverPanel: React.FC<HandoverPanelProps> = ({
   const [confirmationFilter, setConfirmationFilter] = useState<ConfirmationFilter>('すべて');
   const [busy, setBusy] = useState(false);
   const [busyItemId, setBusyItemId] = useState('');
+  const [expandedItemIds, setExpandedItemIds] = useState<Set<string>>(new Set());
   const [expandedConfirmationIds, setExpandedConfirmationIds] = useState<Set<string>>(new Set());
 
   const confirmationActor = activeRecorder
@@ -228,6 +226,23 @@ export const HandoverPanel: React.FC<HandoverPanelProps> = ({
     });
   };
 
+  const toggleItemDetails = (itemId: string) => {
+    setExpandedItemIds((current) => {
+      const next = new Set(current);
+      if (next.has(itemId)) {
+        next.delete(itemId);
+        setExpandedConfirmationIds((confirmationIds) => {
+          const nextConfirmationIds = new Set(confirmationIds);
+          nextConfirmationIds.delete(itemId);
+          return nextConfirmationIds;
+        });
+      } else {
+        next.add(itemId);
+      }
+      return next;
+    });
+  };
+
   const clearFilters = () => {
     setSearchQuery('');
     setStatusFilter('未完了');
@@ -242,13 +257,13 @@ export const HandoverPanel: React.FC<HandoverPanelProps> = ({
 
   return (
     <section className="overflow-hidden rounded-2xl border border-indigo-200 bg-white shadow-sm">
-      <div className="border-b border-indigo-100 bg-indigo-50/70 p-4 sm:p-5">
+      <div className="border-b border-indigo-100 bg-indigo-50/70 p-4">
         <div className="flex items-center justify-between gap-3">
           <div>
             <h3 className="flex items-center gap-2 text-base font-black text-slate-900">
               <MessageSquareText className="h-5 w-5 text-indigo-700" />重要事項・申し送り
             </h3>
-            <p className="mt-1 text-xs text-slate-600">優先度・対応状況・職員ごとの確認状況を一か所で管理します。</p>
+            <p className="mt-0.5 text-[10px] text-slate-600">未完了・緊急・未確認を優先して共有します。</p>
           </div>
           <button
             type="button"
@@ -260,17 +275,16 @@ export const HandoverPanel: React.FC<HandoverPanelProps> = ({
           </button>
         </div>
 
-        <div className="mt-3 grid grid-cols-3 gap-2">
+        <div className="mt-3 flex gap-1.5 overflow-x-auto pb-0.5">
           <button
             type="button"
             onClick={() => {
               setStatusFilter('未完了');
               setPriorityFilter('すべて');
             }}
-            className="rounded-xl border border-white bg-white px-2 py-2 text-left shadow-xs"
+            className="flex min-h-9 shrink-0 items-center gap-1.5 rounded-full border border-white bg-white px-3 text-[10px] font-bold text-slate-600 shadow-xs"
           >
-            <span className="block text-[9px] font-bold text-slate-500">未完了</span>
-            <span className="text-lg font-black text-indigo-800">{openItems.length}</span>
+            未完了 <span className="font-black text-indigo-800">{openItems.length}</span>
           </button>
           <button
             type="button"
@@ -278,10 +292,9 @@ export const HandoverPanel: React.FC<HandoverPanelProps> = ({
               setStatusFilter('未完了');
               setPriorityFilter('緊急');
             }}
-            className="rounded-xl border border-white bg-white px-2 py-2 text-left shadow-xs"
+            className="flex min-h-9 shrink-0 items-center gap-1.5 rounded-full border border-rose-100 bg-white px-3 text-[10px] font-bold text-rose-700 shadow-xs"
           >
-            <span className="block text-[9px] font-bold text-rose-600">緊急・未完了</span>
-            <span className="text-lg font-black text-rose-700">{urgentOpenCount}</span>
+            緊急 <span className="font-black">{urgentOpenCount}</span>
           </button>
           <button
             type="button"
@@ -289,10 +302,9 @@ export const HandoverPanel: React.FC<HandoverPanelProps> = ({
               setStatusFilter('未完了');
               setConfirmationFilter('自分が未確認');
             }}
-            className="rounded-xl border border-white bg-white px-2 py-2 text-left shadow-xs"
+            className="flex min-h-9 shrink-0 items-center gap-1.5 rounded-full border border-amber-100 bg-white px-3 text-[10px] font-bold text-amber-800 shadow-xs"
           >
-            <span className="block text-[9px] font-bold text-amber-700">自分が未確認</span>
-            <span className="text-lg font-black text-amber-800">{unconfirmedOpenCount}</span>
+            自分が未確認 <span className="font-black">{unconfirmedOpenCount}</span>
           </button>
         </div>
       </div>
@@ -352,24 +364,18 @@ export const HandoverPanel: React.FC<HandoverPanelProps> = ({
         </form>
       )}
 
-      <div className="border-b border-slate-100 p-3 sm:p-4">
-        <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-          <label className="relative block">
-            <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
-            <input
-              value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
-              placeholder="児童名・内容・担当者で検索"
-              className="min-h-11 w-full rounded-xl border border-slate-300 bg-white pl-9 pr-3 text-sm"
-            />
-          </label>
+      <div className="border-b border-slate-100 p-3">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-[10px] text-slate-500">
+            {visibleItems.length}件・確認者：{confirmationActor?.confirmerName || '未選択'}
+          </p>
           <button
             type="button"
             aria-expanded={showFilters}
             onClick={() => setShowFilters((current) => !current)}
-            className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-4 text-xs font-bold text-indigo-800"
+            className="flex min-h-10 shrink-0 items-center justify-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-[10px] font-bold text-indigo-800"
           >
-            <Filter className="h-4 w-4" />絞り込み
+            <Filter className="h-4 w-4" />検索・絞り込み
             {activeFilterCount > 0 && <span className="rounded-full bg-indigo-600 px-1.5 py-0.5 text-[9px] text-white">{activeFilterCount}</span>}
             <ChevronDown className={`h-4 w-4 transition-transform ${showFilters ? 'rotate-180' : ''}`} />
           </button>
@@ -377,6 +383,15 @@ export const HandoverPanel: React.FC<HandoverPanelProps> = ({
 
         {showFilters && (
           <div className="mt-2 grid gap-2 rounded-xl bg-slate-50 p-3 sm:grid-cols-3">
+            <label className="relative block sm:col-span-3">
+              <Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
+              <input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="児童名・内容・担当者で検索"
+                className="min-h-11 w-full rounded-xl border border-slate-300 bg-white pl-9 pr-3 text-sm"
+              />
+            </label>
             <label className="text-[10px] font-bold text-slate-600">
               対応状況
               <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)} className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-xs">
@@ -400,10 +415,6 @@ export const HandoverPanel: React.FC<HandoverPanelProps> = ({
             </button>
           </div>
         )}
-
-        <p className="mt-2 text-[10px] text-slate-500">
-          {visibleItems.length}件を表示・確認者：{confirmationActor?.confirmerName || '未選択'}
-        </p>
       </div>
 
       <div className="divide-y divide-slate-100">
@@ -421,14 +432,15 @@ export const HandoverPanel: React.FC<HandoverPanelProps> = ({
           ));
           const actorReceipt = getCurrentActorConfirmation(item);
           const actorConfirmed = isConfirmationCurrent(actorReceipt, item);
-          const detailsExpanded = expandedConfirmationIds.has(item.id);
+          const itemExpanded = expandedItemIds.has(item.id);
+          const confirmationDetailsExpanded = expandedConfirmationIds.has(item.id);
           const overdue = Boolean(
             item.dueDate
             && item.status !== '完了'
             && item.dueDate < new Date().toISOString().slice(0, 10)
           );
           return (
-            <article key={item.id} className={`p-4 ${item.priority === '緊急' ? 'bg-rose-50/60' : ''}`}>
+            <article key={item.id} className={`p-3 sm:p-4 ${item.priority === '緊急' ? 'bg-rose-50/60' : ''}`}>
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className={`rounded-full px-2 py-1 text-[10px] font-black ${
                   item.priority === '緊急'
@@ -453,43 +465,71 @@ export const HandoverPanel: React.FC<HandoverPanelProps> = ({
                 )}
               </div>
 
-              <p className="mt-2 whitespace-pre-wrap text-sm font-medium leading-relaxed text-slate-900">{item.content}</p>
-              {(item.assignee || item.createdByRecorderName) && (
-                <p className="mt-2 text-[10px] text-slate-500">
+              <p className={`mt-2 whitespace-pre-wrap text-sm font-medium leading-relaxed text-slate-900 ${
+                itemExpanded ? '' : 'line-clamp-2'
+              }`}>{item.content}</p>
+
+              <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex min-w-0 flex-wrap items-center gap-2 text-[10px]">
+                  <span className="flex items-center gap-1 font-bold text-emerald-800">
+                    <Users className="h-3.5 w-3.5" />確認 {confirmedRecorderIds.size}/{recorderProfiles.length}
+                  </span>
+                  {item.assignee && <span className="truncate text-slate-500">担当：{item.assignee}</span>}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    disabled={!confirmationActor || busyItemId === item.id}
+                    onClick={() => void toggleConfirmation(item)}
+                    className={`flex min-h-10 items-center gap-1 rounded-lg px-2.5 text-[10px] font-black disabled:bg-slate-300 disabled:text-white ${
+                      actorConfirmed
+                        ? 'border border-emerald-300 bg-white text-emerald-800'
+                        : 'bg-emerald-700 text-white'
+                    }`}
+                  >
+                    {busyItemId === item.id
+                      ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                      : <UserCheck className="h-3.5 w-3.5" />}
+                    {actorConfirmed ? '確認取消' : actorReceipt ? '再確認' : '確認する'}
+                  </button>
+                  <button
+                    type="button"
+                    aria-expanded={itemExpanded}
+                    onClick={() => toggleItemDetails(item.id)}
+                    className="flex min-h-10 items-center gap-1 rounded-lg border border-slate-300 bg-white px-2.5 text-[10px] font-bold text-slate-700"
+                  >
+                    {itemExpanded ? '閉じる' : '詳細'}
+                    <ChevronDown className={`h-3.5 w-3.5 transition-transform ${itemExpanded ? 'rotate-180' : ''}`} />
+                  </button>
+                </div>
+              </div>
+
+              {itemExpanded && (
+              <div className="mt-3 space-y-2 border-t border-slate-100 pt-3">
+                <p className="text-[10px] text-slate-500">
                   {item.assignee && <span className="mr-3 font-bold text-slate-700">対応担当：{item.assignee}</span>}
                   登録者：{item.createdByRecorderName || '職員'}・{new Date(item.createdAt).toLocaleString('ja-JP')}
                 </p>
-              )}
 
-              <div className="mt-3 grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
-                <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-2.5">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="grid gap-2 lg:grid-cols-[minmax(0,1fr)_auto]">
+                  <div className="rounded-xl border border-emerald-100 bg-emerald-50/70 p-2.5">
                     <button
                       type="button"
+                      aria-expanded={confirmationDetailsExpanded}
+                      aria-label={`全指導員の確認状況 ${confirmedRecorderIds.size}/${recorderProfiles.length}名`}
                       onClick={() => toggleConfirmationDetails(item.id)}
-                      className="flex min-h-9 items-center gap-1.5 text-left text-[10px] font-black text-emerald-900"
+                      className="flex min-h-9 w-full items-center justify-between gap-2 text-left text-[10px] font-black text-emerald-900"
                     >
-                      <Users className="h-4 w-4 text-emerald-700" />
-                      指導員確認 {confirmedRecorderIds.size}/{recorderProfiles.length}名
-                      <ChevronDown className={`h-3.5 w-3.5 transition-transform ${detailsExpanded ? 'rotate-180' : ''}`} />
+                      <span className="flex items-center gap-1.5">
+                        <Users className="h-4 w-4 text-emerald-700" />
+                        全指導員の確認状況
+                      </span>
+                      <span className="flex items-center gap-1">
+                        {confirmedRecorderIds.size}/{recorderProfiles.length}名
+                        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${confirmationDetailsExpanded ? 'rotate-180' : ''}`} />
+                      </span>
                     </button>
-                    <button
-                      type="button"
-                      disabled={!confirmationActor || busyItemId === item.id}
-                      onClick={() => void toggleConfirmation(item)}
-                      className={`flex min-h-10 items-center gap-1 rounded-lg px-3 text-[10px] font-black disabled:bg-slate-300 disabled:text-white ${
-                        actorConfirmed
-                          ? 'border border-emerald-300 bg-white text-emerald-800'
-                          : 'bg-emerald-700 text-white'
-                      }`}
-                    >
-                      {busyItemId === item.id
-                        ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                        : <UserCheck className="h-3.5 w-3.5" />}
-                      {actorConfirmed ? '確認を取り消す' : actorReceipt ? '再確認する' : '確認済みにする'}
-                    </button>
-                  </div>
-                  {detailsExpanded && (
+                    {confirmationDetailsExpanded && (
                     <div className="mt-2 grid gap-1.5 sm:grid-cols-2">
                       {recorderProfiles.map((profile) => {
                         const receipt = itemConfirmations.find((confirmation) =>
@@ -512,39 +552,37 @@ export const HandoverPanel: React.FC<HandoverPanelProps> = ({
                         );
                       })}
                     </div>
-                  )}
-                </div>
+                    )}
+                  </div>
 
-                <div className="grid grid-cols-3 gap-1.5 lg:min-w-64">
-                  {statuses.map((status) => (
-                    <button
-                      key={status}
-                      type="button"
-                      disabled={busyItemId === item.id}
-                      onClick={() => void changeStatus(item.id, status)}
-                      className={`min-h-11 rounded-lg border px-2 text-[11px] font-bold disabled:opacity-50 ${
-                        item.status === status
-                          ? status === '完了'
-                            ? 'border-emerald-600 bg-emerald-600 text-white'
-                            : 'border-indigo-600 bg-indigo-600 text-white'
-                          : 'border-slate-300 bg-white text-slate-600'
-                      }`}
-                    >
-                      {status}
-                    </button>
-                  ))}
+                  <div>
+                    <p className="mb-1 text-[9px] font-bold text-slate-500">対応状況</p>
+                    <div className="grid grid-cols-3 gap-1.5 lg:min-w-64">
+                      {statuses.map((status) => (
+                        <button
+                          key={status}
+                          type="button"
+                          disabled={busyItemId === item.id}
+                          onClick={() => void changeStatus(item.id, status)}
+                          className={`min-h-11 rounded-lg border px-2 text-[11px] font-bold disabled:opacity-50 ${
+                            item.status === status
+                              ? status === '完了'
+                                ? 'border-emerald-600 bg-emerald-600 text-white'
+                                : 'border-indigo-600 bg-indigo-600 text-white'
+                              : 'border-slate-300 bg-white text-slate-600'
+                          }`}
+                        >
+                          {status}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
+              )}
             </article>
           );
         })}
-      </div>
-
-      <div className="flex items-center justify-center gap-2 border-t border-slate-100 bg-slate-50 px-3 py-2 text-[10px] text-slate-600">
-        {urgentOpenCount > 0
-          ? <><AlertTriangle className="h-4 w-4 text-rose-600" />緊急の未完了が{urgentOpenCount}件あります。</>
-          : <><CheckCircle2 className="h-4 w-4 text-emerald-600" />緊急の未完了はありません。</>}
-        {openItems.some((item) => item.dueDate) && <Clock3 className="ml-2 h-3.5 w-3.5 text-slate-400" />}
       </div>
     </section>
   );

@@ -9,6 +9,7 @@ import {
   Clock3,
   Copy,
   FilePlus2,
+  ListPlus,
   LoaderCircle,
   MousePointer2,
   PencilLine,
@@ -223,6 +224,10 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
   const [copied, setCopied] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [showTemplateManager, setShowTemplateManager] = useState(false);
+  const [showPreparation, setShowPreparation] = useState(false);
+  const [showConfirmationDetails, setShowConfirmationDetails] = useState(false);
+  const [showCollaborationDetails, setShowCollaborationDetails] = useState(false);
+  const [showQuickSections, setShowQuickSections] = useState(false);
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
   const [templateName, setTemplateName] = useState('');
   const [templateContent, setTemplateContent] = useState('');
@@ -594,6 +599,7 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
     const separator = content.trim() ? '\n\n' : '';
     const nextContent = `${content}${separator}【${section}】\n・`;
     updateContent(nextContent, nextContent.length, nextContent.length);
+    setShowQuickSections(false);
   };
 
   const clearContent = () => {
@@ -733,36 +739,26 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
 
   return (
     <section className="overflow-hidden rounded-2xl border border-sky-200 bg-white shadow-sm">
-      <div className="border-b border-sky-100 bg-sky-50/80 p-4 sm:p-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="border-b border-sky-100 bg-sky-50/80 p-4">
+        <div className="flex items-center justify-between gap-3">
           <div>
             <h3 className="flex items-center gap-2 text-base font-black text-slate-900">
               <ClipboardPenLine className="h-5 w-5 text-sky-700" />朝礼記録
             </h3>
-            <p className="mt-1 text-xs text-slate-600">入力中の内容が、同じ日付を開いている職員へ即時表示されます。</p>
+            <p className="mt-0.5 text-[10px] text-slate-600">入力内容は自動保存・リアルタイム共有されます。</p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className={`flex min-h-9 items-center gap-1.5 rounded-full px-3 text-[10px] font-bold ${
-              organizationId ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'
-            }`}>
-              <Radio className="h-3.5 w-3.5" />
-              {organizationId ? 'リアルタイム共有中' : 'ローカル試用'}
-            </span>
-            <span className="flex min-h-9 items-center gap-1.5 rounded-full bg-white px-3 text-[10px] font-bold text-slate-700">
-              <Users className="h-3.5 w-3.5 text-sky-600" />同時閲覧 {effectiveViewerCount}人
-            </span>
-            {typingCollaborators.length > 0 && (
-              <span className="flex min-h-9 items-center gap-1.5 rounded-full bg-indigo-100 px-3 text-[10px] font-bold text-indigo-800">
-                <PencilLine className="h-3.5 w-3.5 animate-pulse" />
-                {typingCollaborators.map((collaborator) => collaborator.editorName).join('・')}が入力中
-              </span>
-            )}
-          </div>
+          <span className={`flex min-h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[10px] font-bold ${
+            organizationId ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'
+          }`}>
+            <Radio className="h-3.5 w-3.5" />
+            {organizationId ? `共有中・${effectiveViewerCount}人` : 'ローカル試用'}
+            {typingCollaborators.length > 0 && `・${typingCollaborators.length}人入力中`}
+          </span>
         </div>
       </div>
 
-      <div className="space-y-4 p-4 sm:p-5">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex flex-col gap-3 p-4 sm:p-5">
+        <div className="order-1 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
           <label className="block">
             <span className="mb-1 block text-[11px] font-bold text-slate-600">朝礼日</span>
             <span className="relative block">
@@ -775,18 +771,30 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
               />
             </span>
           </label>
-          <div className="text-[10px] text-slate-500 sm:text-right">
-            {saveStatus === 'saving' && <span className="flex items-center gap-1 font-bold text-sky-700"><LoaderCircle className="h-3.5 w-3.5 animate-spin" />自動保存中...</span>}
-            {saveStatus === 'saved' && <span className="flex items-center gap-1 font-bold text-emerald-700"><Check className="h-3.5 w-3.5" />保存しました</span>}
-            {saveStatus === 'remote' && <span className="font-bold text-indigo-700">{remoteEditor}さんの入力を反映しました</span>}
-            {saveStatus === 'error' && <span className="font-bold text-rose-700">保存できませんでした。通信状態を確認してください。</span>}
-            {saveStatus === 'idle' && selectedRecord && (
-              <span>最終更新：{new Date(selectedRecord.updatedAt).toLocaleString('ja-JP')}・{selectedRecord.updatedByName || '職員'}</span>
-            )}
+          <div className="flex flex-wrap items-center justify-between gap-2 sm:justify-end">
+            <div className="text-[10px] text-slate-500 sm:text-right">
+              {saveStatus === 'saving' && <span className="flex items-center gap-1 font-bold text-sky-700"><LoaderCircle className="h-3.5 w-3.5 animate-spin" />自動保存中...</span>}
+              {saveStatus === 'saved' && <span className="flex items-center gap-1 font-bold text-emerald-700"><Check className="h-3.5 w-3.5" />保存しました</span>}
+              {saveStatus === 'remote' && <span className="font-bold text-indigo-700">{remoteEditor}さんの入力を反映しました</span>}
+              {saveStatus === 'error' && <span className="font-bold text-rose-700">保存できませんでした。通信状態を確認してください。</span>}
+              {saveStatus === 'idle' && selectedRecord && (
+                <span>最終更新：{new Date(selectedRecord.updatedAt).toLocaleString('ja-JP')}・{selectedRecord.updatedByName || '職員'}</span>
+              )}
+            </div>
+            <button
+              type="button"
+              aria-expanded={showPreparation}
+              onClick={() => setShowPreparation((current) => !current)}
+              className="flex min-h-10 items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-3 text-[10px] font-black text-sky-800"
+            >
+              <Settings2 className="h-4 w-4" />入力準備
+              <ChevronDown className={`h-4 w-4 transition-transform ${showPreparation ? 'rotate-180' : ''}`} />
+            </button>
           </div>
         </div>
 
-        <section className="rounded-xl border border-sky-100 bg-sky-50/60 p-3">
+        {showPreparation && (
+        <section className="order-2 rounded-xl border border-sky-100 bg-sky-50/60 p-3">
           <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
             <label className="min-w-0">
               <span className="mb-1 block text-[10px] font-bold text-sky-900">朝礼テンプレート</span>
@@ -912,23 +920,30 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
             </div>
           )}
         </section>
+        )}
 
-        <section className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3" aria-live="polite">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h4 className="flex items-center gap-1.5 text-xs font-black text-emerald-950">
-                <UserCheck className="h-4 w-4 text-emerald-700" />指導員の確認状況
-              </h4>
-              <p className="mt-0.5 text-[10px] text-emerald-800">
-                内容が更新されると、以前の確認は「再確認が必要」に変わります。
-              </p>
-            </div>
-            <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-emerald-800">
-              確認済み {confirmedRecorderIds.size} / {recorderProfiles.length}名
-            </span>
+        <section className="order-6 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3" aria-live="polite">
+          <div className="flex items-center justify-between gap-2">
+            <h4 className="flex items-center gap-1.5 text-xs font-black text-emerald-950">
+              <UserCheck className="h-4 w-4 text-emerald-700" />確認
+            </h4>
+            <button
+              type="button"
+              aria-expanded={showConfirmationDetails}
+              onClick={() => setShowConfirmationDetails((current) => !current)}
+              className="flex min-h-9 items-center gap-1 rounded-lg bg-white px-2.5 text-[10px] font-black text-emerald-800"
+            >
+              全員の状況 {confirmedRecorderIds.size}/{recorderProfiles.length}名
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showConfirmationDetails ? 'rotate-180' : ''}`} />
+            </button>
           </div>
 
-          <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+          {showConfirmationDetails && (
+          <div className="mt-2 border-t border-emerald-100 pt-2">
+            <p className="mb-2 text-[9px] text-emerald-800">
+              内容が更新されると、以前の確認は「再確認が必要」に変わります。
+            </p>
+            <div className="flex gap-2 overflow-x-auto pb-1">
             {recorderProfiles.map((profile) => {
               const receipt = targetConfirmations.find((confirmation) =>
                 confirmation.recorderProfileId === profile.id
@@ -960,12 +975,14 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
                 </div>
               );
             })}
+            </div>
           </div>
+          )}
 
-          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+          <div className="mt-2 flex items-center justify-between gap-2">
             <p className="text-[10px] text-emerald-800">
               {confirmationActor
-                ? `現在の確認者：${confirmationActor.confirmerName}`
+                ? `${confirmationActor.confirmerName}：${currentActorConfirmed ? '確認済み' : currentReceipt ? '再確認が必要' : '未確認'}`
                 : '確認者を特定できません。'}
             </p>
             <button
@@ -996,23 +1013,28 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
         <section
           id="morning-collaboration-status"
           aria-live="polite"
-          className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-3"
+          className="order-7 rounded-xl border border-indigo-100 bg-indigo-50/60 p-2.5"
         >
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <h4 className="flex items-center gap-1.5 text-xs font-black text-indigo-950">
-                <Users className="h-4 w-4 text-indigo-600" />共同編集状況
-              </h4>
-              <p className="mt-0.5 text-[10px] text-indigo-700">
-                色付きカーソルと行・列で、各職員の位置を確認できます。
-              </p>
-            </div>
-            <span className="rounded-full bg-white px-2.5 py-1 text-[9px] font-bold text-indigo-700">
+          <button
+            type="button"
+            aria-expanded={showCollaborationDetails}
+            onClick={() => setShowCollaborationDetails((current) => !current)}
+            className="flex min-h-9 w-full items-center justify-between gap-2 text-left"
+          >
+            <span className="flex items-center gap-1.5 text-xs font-black text-indigo-950">
+              <Users className="h-4 w-4 text-indigo-600" />共同編集
+              <span className="font-bold text-indigo-700">{effectiveViewerCount}人</span>
+            </span>
+            <span className="flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-[9px] font-bold text-indigo-700">
               {typingCollaborators.length > 0
                 ? `${typingCollaborators.length}人が入力中`
-                : '現在入力中なし'}
+                : '詳細'}
+              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showCollaborationDetails ? 'rotate-180' : ''}`} />
             </span>
-          </div>
+          </button>
+          {showCollaborationDetails && (
+          <div className="mt-2 border-t border-indigo-100 pt-2">
+            <p className="mb-2 text-[9px] text-indigo-700">色付きカーソルと行・列で、各職員の位置を確認できます。</p>
           <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
             {visibleCollaborators.map((collaborator) => {
               const isCurrentUser = collaborator.sessionId === sessionId;
@@ -1049,10 +1071,21 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
               );
             })}
           </div>
+          </div>
+          )}
         </section>
 
-        <div>
-          <p className="text-[10px] font-bold text-slate-500">見出しを追加</p>
+        <div className="order-3">
+          <button
+            type="button"
+            aria-expanded={showQuickSections}
+            onClick={() => setShowQuickSections((current) => !current)}
+            className="flex min-h-9 items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 text-[10px] font-bold text-sky-800"
+          >
+            <ListPlus className="h-4 w-4" />見出しを追加
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showQuickSections ? 'rotate-180' : ''}`} />
+          </button>
+          {showQuickSections && (
           <div className="mt-1.5 flex gap-1.5 overflow-x-auto pb-1">
             {QUICK_SECTIONS.map((section) => (
               <button
@@ -1065,9 +1098,10 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
               </button>
             ))}
           </div>
+          )}
         </div>
 
-        <div className="relative">
+        <div className="relative order-4">
           <textarea
             value={content}
             onChange={(event) => {
@@ -1094,8 +1128,8 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
           />
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[10px] text-slate-500">{content.length.toLocaleString()} / 20,000文字・入力後0.6秒で自動保存</p>
+        <div className="order-5 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[10px] text-slate-500">{content.length.toLocaleString()} / 20,000文字・自動保存</p>
           <div className="flex gap-2">
             <button
               type="button"
