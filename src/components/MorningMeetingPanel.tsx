@@ -3,25 +3,48 @@ import type { RealtimeChannel } from '@supabase/supabase-js';
 import {
   CalendarDays,
   Check,
+  CheckCircle2,
+  ChevronDown,
   ClipboardPenLine,
+  Clock3,
   Copy,
+  FilePlus2,
   LoaderCircle,
   MousePointer2,
   PencilLine,
   Radio,
+  Save,
+  Settings2,
   Trash2,
+  UserCheck,
   Users,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import type { MorningMeetingRecord, RecorderProfile, UserProfile } from '../types';
+import type {
+  MorningMeetingConfirmation,
+  MorningMeetingRecord,
+  MorningMeetingTemplate,
+  RecorderProfile,
+  UserProfile,
+} from '../types';
 import { getLocalDateString } from '../utils/weekdays';
 
 interface MorningMeetingPanelProps {
   records: MorningMeetingRecord[];
+  templates: MorningMeetingTemplate[];
+  confirmations: MorningMeetingConfirmation[];
+  recorderProfiles: RecorderProfile[];
   organizationId?: string;
   activeRecorder?: RecorderProfile;
   currentUser?: UserProfile | null;
+  canManageTemplates: boolean;
   onSave: (record: MorningMeetingRecord) => Promise<void> | void;
+  onSaveTemplate: (template: MorningMeetingTemplate) => Promise<void> | void;
+  onArchiveTemplate: (templateId: string) => Promise<void> | void;
+  onSetConfirmation: (
+    confirmation: MorningMeetingConfirmation,
+    confirmed: boolean
+  ) => Promise<void> | void;
 }
 
 const QUICK_SECTIONS = ['本日の予定', '欠席・追加利用', '送迎確認', '児童対応', '職員連絡', '安全確認'];
@@ -94,6 +117,16 @@ function getCursorPositionLabel(content: string, activity: CollaboratorActivity)
     : `${line}行${column}列`;
 }
 
+function isConfirmationCurrent(confirmedAt: string, updatedAt?: string) {
+  if (!updatedAt) return false;
+  const confirmedTime = Date.parse(confirmedAt);
+  const updatedTime = Date.parse(updatedAt);
+  if (Number.isNaN(confirmedTime) || Number.isNaN(updatedTime)) {
+    return confirmedAt >= updatedAt;
+  }
+  return confirmedTime >= updatedTime;
+}
+
 function RemoteCursorOverlay({
   content,
   collaborators,
@@ -164,10 +197,17 @@ function RemoteCursorOverlay({
 
 export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
   records,
+  templates,
+  confirmations,
+  recorderProfiles,
   organizationId,
   activeRecorder,
   currentUser,
+  canManageTemplates,
   onSave,
+  onSaveTemplate,
+  onArchiveTemplate,
+  onSetConfirmation,
 }) => {
   const [targetDate, setTargetDate] = useState(getLocalDateString());
   const selectedRecord = useMemo(
@@ -181,6 +221,13 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
   const [editorScroll, setEditorScroll] = useState({ top: 0, left: 0 });
   const [remoteEditor, setRemoteEditor] = useState('');
   const [copied, setCopied] = useState(false);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
+  const [showTemplateManager, setShowTemplateManager] = useState(false);
+  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
+  const [templateName, setTemplateName] = useState('');
+  const [templateContent, setTemplateContent] = useState('');
+  const [templateBusy, setTemplateBusy] = useState(false);
+  const [confirmationBusy, setConfirmationBusy] = useState(false);
   const channelRef = useRef<RealtimeChannel | null>(null);
   const channelReadyRef = useRef(false);
   const saveTimerRef = useRef<number | null>(null);
@@ -231,6 +278,44 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
   );
   const typingCollaborators = visibleCollaborators.filter((collaborator) => collaborator.typing);
   const effectiveViewerCount = Math.max(viewerCount, remoteCollaborators.length + 1);
+  const confirmationActor = activeRecorder
+    ? {
+        confirmerKey: `recorder:${activeRecorder.id}`,
+        recorderProfileId: activeRecorder.id,
+        userId: undefined,
+        confirmerName: activeRecorder.displayName,
+      }
+    : currentUser
+      ? {
+          confirmerKey: `user:${currentUser.id}`,
+          recorderProfileId: undefined,
+          userId: currentUser.id,
+          confirmerName: currentUser.displayName,
+        }
+      : null;
+  const targetConfirmations = confirmations.filter((confirmation) => confirmation.date === targetDate);
+  const validConfirmations = targetConfirmations.filter((confirmation) =>
+    isConfirmationCurrent(confirmation.confirmedAt, selectedRecord?.updatedAt)
+  );
+  const currentReceipt = confirmationActor
+    ? targetConfirmations.find((confirmation) =>
+        confirmation.confirmerKey === confirmationActor.confirmerKey
+      )
+    : undefined;
+  const currentActorConfirmed = Boolean(
+    currentReceipt && isConfirmationCurrent(currentReceipt.confirmedAt, selectedRecord?.updatedAt)
+  );
+  const confirmedRecorderIds = new Set(
+    validConfirmations.flatMap((confirmation) =>
+      confirmation.recorderProfileId ? [confirmation.recorderProfileId] : []
+    )
+  );
+  const recordReadyForConfirmation = Boolean(
+    selectedRecord
+    && content.trim()
+    && selectedRecord.content === content
+    && saveStatus !== 'saving'
+  );
 
   useEffect(() => {
     const nextActivity = {
@@ -570,6 +655,82 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
     setEditorScroll({ top: 0, left: 0 });
   };
 
+  const applySelectedTemplate = () => {
+    const template = templates.find((candidate) => candidate.id === selectedTemplateId);
+    if (!template) return;
+    if (
+      content.trim()
+      && content !== template.content
+      && !window.confirm('現在の朝礼内容をテンプレートの内容に置き換えますか？')
+    ) return;
+    updateContent(template.content, template.content.length, template.content.length);
+  };
+
+  const resetTemplateForm = (useCurrentContent = false) => {
+    setEditingTemplateId(null);
+    setTemplateName('');
+    setTemplateContent(useCurrentContent ? content : '');
+  };
+
+  const editTemplate = (template: MorningMeetingTemplate) => {
+    setEditingTemplateId(template.id);
+    setTemplateName(template.name);
+    setTemplateContent(template.content);
+    setShowTemplateManager(true);
+  };
+
+  const submitTemplate = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!templateName.trim() || !templateContent.trim()) return;
+    setTemplateBusy(true);
+    try {
+      const now = new Date().toISOString();
+      const existing = templates.find((template) => template.id === editingTemplateId);
+      const template: MorningMeetingTemplate = {
+        id: existing?.id || (
+          typeof crypto !== 'undefined' && 'randomUUID' in crypto
+            ? crypto.randomUUID()
+            : `morning-template-${Date.now()}`
+        ),
+        name: templateName.trim(),
+        content: templateContent.slice(0, 20000),
+        createdAt: existing?.createdAt || now,
+        updatedAt: now,
+      };
+      await Promise.resolve(onSaveTemplate(template));
+      setSelectedTemplateId(template.id);
+      resetTemplateForm();
+    } finally {
+      setTemplateBusy(false);
+    }
+  };
+
+  const archiveTemplate = async (template: MorningMeetingTemplate) => {
+    if (!window.confirm(`朝礼テンプレート「${template.name}」を削除しますか？`)) return;
+    setTemplateBusy(true);
+    try {
+      await Promise.resolve(onArchiveTemplate(template.id));
+      if (selectedTemplateId === template.id) setSelectedTemplateId('');
+      if (editingTemplateId === template.id) resetTemplateForm();
+    } finally {
+      setTemplateBusy(false);
+    }
+  };
+
+  const toggleConfirmation = async () => {
+    if (!confirmationActor || !selectedRecord || !content.trim()) return;
+    setConfirmationBusy(true);
+    try {
+      await Promise.resolve(onSetConfirmation({
+        date: targetDate,
+        ...confirmationActor,
+        confirmedAt: new Date().toISOString(),
+      }, !currentActorConfirmed));
+    } finally {
+      setConfirmationBusy(false);
+    }
+  };
+
   return (
     <section className="overflow-hidden rounded-2xl border border-sky-200 bg-white shadow-sm">
       <div className="border-b border-sky-100 bg-sky-50/80 p-4 sm:p-5">
@@ -624,6 +785,213 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
             )}
           </div>
         </div>
+
+        <section className="rounded-xl border border-sky-100 bg-sky-50/60 p-3">
+          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+            <label className="min-w-0">
+              <span className="mb-1 block text-[10px] font-bold text-sky-900">朝礼テンプレート</span>
+              <select
+                value={selectedTemplateId}
+                onChange={(event) => setSelectedTemplateId(event.target.value)}
+                className="min-h-11 w-full rounded-xl border border-sky-200 bg-white px-3 text-sm font-bold text-slate-800"
+              >
+                <option value="">テンプレートを選択</option>
+                {templates.map((template) => (
+                  <option key={template.id} value={template.id}>{template.name}</option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              disabled={!selectedTemplateId}
+              onClick={applySelectedTemplate}
+              className="min-h-11 self-end rounded-xl bg-sky-700 px-4 text-xs font-black text-white disabled:bg-slate-300"
+            >
+              内容へ適用
+            </button>
+            {canManageTemplates && (
+              <button
+                type="button"
+                aria-expanded={showTemplateManager}
+                onClick={() => setShowTemplateManager((current) => !current)}
+                className="flex min-h-11 items-center justify-center gap-1.5 self-end rounded-xl border border-sky-300 bg-white px-3 text-xs font-bold text-sky-800"
+              >
+                <Settings2 className="h-4 w-4" />テンプレート管理
+                <ChevronDown className={`h-4 w-4 transition-transform ${showTemplateManager ? 'rotate-180' : ''}`} />
+              </button>
+            )}
+          </div>
+
+          {templates.length === 0 && !showTemplateManager && (
+            <p className="mt-2 text-[10px] text-sky-800">
+              テンプレートはまだありません。管理者・児発管が「テンプレート管理」から作成できます。
+            </p>
+          )}
+
+          {canManageTemplates && showTemplateManager && (
+            <div className="mt-3 grid gap-3 border-t border-sky-100 pt-3 lg:grid-cols-[0.85fr_1.15fr]">
+              <div>
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-black text-sky-950">登録済みテンプレート</p>
+                  <button
+                    type="button"
+                    onClick={() => resetTemplateForm(true)}
+                    className="flex min-h-9 items-center gap-1 rounded-lg border border-sky-200 bg-white px-2.5 text-[10px] font-bold text-sky-800"
+                  >
+                    <FilePlus2 className="h-3.5 w-3.5" />現在の内容から新規作成
+                  </button>
+                </div>
+                <div className="mt-2 space-y-1.5">
+                  {templates.length === 0 && (
+                    <p className="rounded-lg bg-white p-3 text-center text-[10px] text-slate-500">登録済みテンプレートはありません。</p>
+                  )}
+                  {templates.map((template) => (
+                    <div key={template.id} className="flex items-center gap-2 rounded-lg border border-white bg-white p-2">
+                      <button
+                        type="button"
+                        onClick={() => editTemplate(template)}
+                        className="min-w-0 flex-1 text-left"
+                      >
+                        <span className="block truncate text-xs font-black text-slate-800">{template.name}</span>
+                        <span className="block truncate text-[9px] text-slate-500">{template.content.replace(/\n/g, ' ')}</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={templateBusy}
+                        onClick={() => void archiveTemplate(template)}
+                        aria-label={`${template.name}を削除`}
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-rose-600 hover:bg-rose-50 disabled:opacity-40"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <form onSubmit={submitTemplate} className="space-y-2 rounded-xl border border-sky-100 bg-white p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <h5 className="text-xs font-black text-slate-900">
+                    {editingTemplateId ? 'テンプレートを編集' : '新しいテンプレート'}
+                  </h5>
+                  {editingTemplateId && (
+                    <button type="button" onClick={() => resetTemplateForm()} className="text-[10px] font-bold text-sky-700">
+                      新規作成に戻る
+                    </button>
+                  )}
+                </div>
+                <label className="block text-[10px] font-bold text-slate-600">
+                  テンプレート名
+                  <input
+                    value={templateName}
+                    onChange={(event) => setTemplateName(event.target.value)}
+                    maxLength={100}
+                    placeholder="例：平日の朝礼"
+                    className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
+                  />
+                </label>
+                <label className="block text-[10px] font-bold text-slate-600">
+                  初期表示する内容
+                  <textarea
+                    value={templateContent}
+                    onChange={(event) => setTemplateContent(event.target.value.slice(0, 20000))}
+                    rows={7}
+                    placeholder={'【本日の予定】\n・\n\n【児童対応】\n・'}
+                    className="mt-1 w-full rounded-lg border border-slate-300 p-3 text-sm leading-6"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  disabled={templateBusy || !templateName.trim() || !templateContent.trim()}
+                  className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-sky-700 px-4 text-xs font-black text-white disabled:bg-slate-300"
+                >
+                  {templateBusy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                  {editingTemplateId ? '変更を保存' : 'テンプレートを作成'}
+                </button>
+              </form>
+            </div>
+          )}
+        </section>
+
+        <section className="rounded-xl border border-emerald-200 bg-emerald-50/70 p-3" aria-live="polite">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <h4 className="flex items-center gap-1.5 text-xs font-black text-emerald-950">
+                <UserCheck className="h-4 w-4 text-emerald-700" />指導員の確認状況
+              </h4>
+              <p className="mt-0.5 text-[10px] text-emerald-800">
+                内容が更新されると、以前の確認は「再確認が必要」に変わります。
+              </p>
+            </div>
+            <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-emerald-800">
+              確認済み {confirmedRecorderIds.size} / {recorderProfiles.length}名
+            </span>
+          </div>
+
+          <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+            {recorderProfiles.map((profile) => {
+              const receipt = targetConfirmations.find((confirmation) =>
+                confirmation.recorderProfileId === profile.id
+              );
+              const isCurrent = Boolean(
+                receipt && isConfirmationCurrent(receipt.confirmedAt, selectedRecord?.updatedAt)
+              );
+              return (
+                <div
+                  key={profile.id}
+                  className={`min-w-36 shrink-0 rounded-lg border px-2.5 py-2 ${
+                    isCurrent
+                      ? 'border-emerald-300 bg-white'
+                      : receipt
+                        ? 'border-amber-300 bg-amber-50'
+                        : 'border-slate-200 bg-white/70'
+                  }`}
+                >
+                  <p className="truncate text-[10px] font-black text-slate-800">{profile.displayName}</p>
+                  <p className={`mt-0.5 flex items-center gap-1 text-[9px] font-bold ${
+                    isCurrent ? 'text-emerald-700' : receipt ? 'text-amber-700' : 'text-slate-500'
+                  }`}>
+                    {isCurrent
+                      ? <><CheckCircle2 className="h-3 w-3" />確認済み {new Date(receipt.confirmedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}</>
+                      : receipt
+                        ? <><Clock3 className="h-3 w-3" />再確認が必要</>
+                        : '未確認'}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[10px] text-emerald-800">
+              {confirmationActor
+                ? `現在の確認者：${confirmationActor.confirmerName}`
+                : '確認者を特定できません。'}
+            </p>
+            <button
+              type="button"
+              disabled={
+                confirmationBusy
+                || !confirmationActor
+                || (!currentActorConfirmed && !recordReadyForConfirmation)
+              }
+              onClick={() => void toggleConfirmation()}
+              className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl px-4 text-xs font-black disabled:bg-slate-300 disabled:text-white ${
+                currentActorConfirmed
+                  ? 'border border-emerald-300 bg-white text-emerald-800'
+                  : 'bg-emerald-700 text-white'
+              }`}
+            >
+              {confirmationBusy
+                ? <LoaderCircle className="h-4 w-4 animate-spin" />
+                : <UserCheck className="h-4 w-4" />}
+              {currentActorConfirmed ? '確認を取り消す' : 'この内容を確認済みにする'}
+            </button>
+          </div>
+          {!currentActorConfirmed && content.trim() && !recordReadyForConfirmation && (
+            <p className="mt-1 text-right text-[9px] font-bold text-amber-700">自動保存が完了すると確認できます。</p>
+          )}
+        </section>
 
         <section
           id="morning-collaboration-status"

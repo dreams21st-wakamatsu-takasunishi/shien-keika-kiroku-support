@@ -4,8 +4,11 @@ import {
   ChildProfile,
   DEFAULT_AI_WRITING_SETTINGS,
   ExpressionType,
+  HandoverConfirmation,
   HandoverItem,
+  MorningMeetingConfirmation,
   MorningMeetingRecord,
+  MorningMeetingTemplate,
   RecordDraftSummary,
   RecordRevision,
   RecorderProfile,
@@ -27,7 +30,10 @@ export interface WorkspaceData {
   templates: Template[];
   records: SupportRecord[];
   handoverItems: HandoverItem[];
+  handoverConfirmations: HandoverConfirmation[];
   morningMeetingRecords: MorningMeetingRecord[];
+  morningMeetingTemplates: MorningMeetingTemplate[];
+  morningMeetingConfirmations: MorningMeetingConfirmation[];
   supportPlans: SupportPlan[];
   aiWritingSettings: AiWritingSettings;
 }
@@ -97,6 +103,38 @@ function mapMorningMeetingRecord(row: any): MorningMeetingRecord {
     updatedByRecorderId: row.updated_by_recorder_profile_id || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function mapMorningMeetingTemplate(row: any): MorningMeetingTemplate {
+  return {
+    id: row.id,
+    name: row.name,
+    content: row.content || '',
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapMorningMeetingConfirmation(row: any): MorningMeetingConfirmation {
+  return {
+    date: row.meeting_date,
+    confirmerKey: row.confirmer_key,
+    recorderProfileId: row.recorder_profile_id || undefined,
+    userId: row.user_id || undefined,
+    confirmerName: row.confirmer_name,
+    confirmedAt: row.confirmed_at,
+  };
+}
+
+function mapHandoverConfirmation(row: any): HandoverConfirmation {
+  return {
+    handoverItemId: row.handover_item_id,
+    confirmerKey: row.confirmer_key,
+    recorderProfileId: row.recorder_profile_id || undefined,
+    userId: row.user_id || undefined,
+    confirmerName: row.confirmer_name,
+    confirmedAt: row.confirmed_at,
   };
 }
 
@@ -189,19 +227,48 @@ function mapAiWritingSettings(row: any): AiWritingSettings {
 
 export async function loadWorkspaceData(organizationId: string): Promise<WorkspaceData> {
   const client = assertSupabase();
-  const [childrenResult, schedulesResult, recorderProfilesResult, templatesResult, recordsResult, handoversResult, morningMeetingsResult, plansResult, aiSettingsResult] = await Promise.all([
+  const [
+    childrenResult,
+    schedulesResult,
+    recorderProfilesResult,
+    templatesResult,
+    recordsResult,
+    handoversResult,
+    handoverConfirmationsResult,
+    morningMeetingsResult,
+    morningMeetingTemplatesResult,
+    morningMeetingConfirmationsResult,
+    plansResult,
+    aiSettingsResult,
+  ] = await Promise.all([
     client.from('children').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('name'),
     client.from('child_regular_day_schedules').select('*').eq('organization_id', organizationId).order('effective_from'),
     client.from('recorder_profiles').select('id, display_name, active, pin_configured, created_at').eq('organization_id', organizationId).eq('active', true).order('display_name'),
     client.from('record_templates').select('*').eq('organization_id', organizationId).is('archived_at', null).order('created_at'),
     client.from('support_records').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('record_date', { ascending: false }),
     client.from('handover_items').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }),
+    client.from('handover_confirmations').select('*').eq('organization_id', organizationId).order('confirmed_at', { ascending: false }),
     client.from('morning_meeting_records').select('*').eq('organization_id', organizationId).order('meeting_date', { ascending: false }),
+    client.from('morning_meeting_templates').select('*').eq('organization_id', organizationId).is('archived_at', null).order('updated_at', { ascending: false }),
+    client.from('morning_meeting_confirmations').select('*').eq('organization_id', organizationId).order('confirmed_at', { ascending: false }),
     client.from('support_plans').select('*').eq('organization_id', organizationId).order('valid_from', { ascending: false }),
     client.from('organization_ai_settings').select('*').eq('organization_id', organizationId).maybeSingle(),
   ]);
 
-  for (const result of [childrenResult, schedulesResult, recorderProfilesResult, templatesResult, recordsResult, handoversResult, morningMeetingsResult, plansResult, aiSettingsResult]) {
+  for (const result of [
+    childrenResult,
+    schedulesResult,
+    recorderProfilesResult,
+    templatesResult,
+    recordsResult,
+    handoversResult,
+    handoverConfirmationsResult,
+    morningMeetingsResult,
+    morningMeetingTemplatesResult,
+    morningMeetingConfirmationsResult,
+    plansResult,
+    aiSettingsResult,
+  ]) {
     if (result.error) throw result.error;
   }
 
@@ -224,7 +291,10 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     templates: (templatesResult.data || []).map(mapTemplate),
     records: (recordsResult.data || []).map(mapRecord),
     handoverItems: (handoversResult.data || []).map((row) => mapHandoverItem(row, recorderNames)),
+    handoverConfirmations: (handoverConfirmationsResult.data || []).map(mapHandoverConfirmation),
     morningMeetingRecords: (morningMeetingsResult.data || []).map(mapMorningMeetingRecord),
+    morningMeetingTemplates: (morningMeetingTemplatesResult.data || []).map(mapMorningMeetingTemplate),
+    morningMeetingConfirmations: (morningMeetingConfirmationsResult.data || []).map(mapMorningMeetingConfirmation),
     supportPlans: (plansResult.data || []).map(mapSupportPlan),
     aiWritingSettings: mapAiWritingSettings(aiSettingsResult.data),
   };
@@ -538,6 +608,101 @@ export async function saveMorningMeetingRecord(
     },
     { onConflict: 'organization_id,meeting_date' }
   );
+  if (error) throw error;
+}
+
+export async function saveMorningMeetingTemplate(
+  organizationId: string,
+  template: MorningMeetingTemplate
+) {
+  const { error } = await assertSupabase().from('morning_meeting_templates').upsert(
+    {
+      id: template.id,
+      organization_id: organizationId,
+      name: template.name.trim(),
+      content: template.content,
+      archived_at: null,
+    },
+    { onConflict: 'id' }
+  );
+  if (error) throw error;
+}
+
+export async function archiveMorningMeetingTemplate(
+  organizationId: string,
+  templateId: string
+) {
+  const { error } = await assertSupabase()
+    .from('morning_meeting_templates')
+    .update({ archived_at: new Date().toISOString() })
+    .eq('organization_id', organizationId)
+    .eq('id', templateId);
+  if (error) throw error;
+}
+
+export async function saveMorningMeetingConfirmation(
+  organizationId: string,
+  confirmation: MorningMeetingConfirmation
+) {
+  const { error } = await assertSupabase().from('morning_meeting_confirmations').upsert(
+    {
+      organization_id: organizationId,
+      meeting_date: confirmation.date,
+      confirmer_key: confirmation.confirmerKey,
+      user_id: confirmation.userId || null,
+      recorder_profile_id: confirmation.recorderProfileId || null,
+      confirmer_name: confirmation.confirmerName,
+      confirmed_at: confirmation.confirmedAt,
+    },
+    { onConflict: 'organization_id,meeting_date,confirmer_key' }
+  );
+  if (error) throw error;
+}
+
+export async function deleteMorningMeetingConfirmation(
+  organizationId: string,
+  date: string,
+  confirmerKey: string
+) {
+  const { error } = await assertSupabase()
+    .from('morning_meeting_confirmations')
+    .delete()
+    .eq('organization_id', organizationId)
+    .eq('meeting_date', date)
+    .eq('confirmer_key', confirmerKey);
+  if (error) throw error;
+}
+
+export async function saveHandoverConfirmation(
+  organizationId: string,
+  confirmation: HandoverConfirmation
+) {
+  const { error } = await assertSupabase().from('handover_confirmations').upsert(
+    {
+      organization_id: organizationId,
+      handover_item_id: confirmation.handoverItemId,
+      confirmer_key: confirmation.confirmerKey,
+      user_id: confirmation.userId || null,
+      recorder_profile_id: confirmation.recorderProfileId || null,
+      confirmer_name: confirmation.confirmerName,
+      confirmed_at: confirmation.confirmedAt,
+    },
+    { onConflict: 'organization_id,handover_item_id,confirmer_key' }
+  );
+  if (error) throw error;
+}
+
+export async function deleteHandoverConfirmation(
+  organizationId: string,
+  handoverItemId: string,
+  confirmerKey: string
+) {
+  const { error } = await assertSupabase()
+    .from('handover_confirmations')
+    .delete()
+    .eq('organization_id', organizationId)
+    .eq('handover_item_id', handoverItemId)
+    .eq('confirmer_key', confirmerKey);
   if (error) throw error;
 }
 

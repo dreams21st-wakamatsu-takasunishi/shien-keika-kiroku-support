@@ -4,11 +4,14 @@ import {
   AiWritingSettings,
   ChildProfile,
   DEFAULT_AI_WRITING_SETTINGS,
+  HandoverConfirmation,
   HandoverItem,
   HandoverStatus,
   HomeAssistantExecutionResult,
   HomeAssistantProposal,
+  MorningMeetingConfirmation,
   MorningMeetingRecord,
+  MorningMeetingTemplate,
   RecordDraftSummary,
   RecorderProfile,
   ReviewIssue,
@@ -35,14 +38,20 @@ import { supabase } from './lib/supabase';
 import { FEATURE_FLAGS } from './config/features';
 import { normalizeTemplateFatigueScale } from './utils/templateNormalizer';
 import {
+  archiveMorningMeetingTemplate,
   archiveTemplate,
   closeSupportPlan,
+  deleteHandoverConfirmation,
+  deleteMorningMeetingConfirmation,
   deleteRecordDraft,
   listRecordDrafts,
   loadWorkspaceData,
   saveChild,
+  saveHandoverConfirmation,
   saveHandoverItem,
+  saveMorningMeetingConfirmation,
   saveMorningMeetingRecord,
+  saveMorningMeetingTemplate,
   saveRecord,
   saveRecords,
   saveAiWritingSettings,
@@ -98,9 +107,24 @@ export default function App() {
     const saved = localStorage.getItem('support_handover_items_data');
     return saved ? JSON.parse(saved) : [];
   });
+  const [handoverConfirmations, setHandoverConfirmations] = useState<HandoverConfirmation[]>(() => {
+    if (remoteMode) return [];
+    const saved = localStorage.getItem('support_handover_confirmations_data');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [morningMeetingRecords, setMorningMeetingRecords] = useState<MorningMeetingRecord[]>(() => {
     if (remoteMode) return [];
     const saved = localStorage.getItem('support_morning_meeting_records_data');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [morningMeetingTemplates, setMorningMeetingTemplates] = useState<MorningMeetingTemplate[]>(() => {
+    if (remoteMode) return [];
+    const saved = localStorage.getItem('support_morning_meeting_templates_data');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [morningMeetingConfirmations, setMorningMeetingConfirmations] = useState<MorningMeetingConfirmation[]>(() => {
+    if (remoteMode) return [];
+    const saved = localStorage.getItem('support_morning_meeting_confirmations_data');
     return saved ? JSON.parse(saved) : [];
   });
   const [recordDrafts, setRecordDrafts] = useState<RecordDraftSummary[]>([]);
@@ -141,9 +165,24 @@ export default function App() {
   }, [handoverItems, remoteMode]);
   useEffect(() => {
     if (!remoteMode) {
+      localStorage.setItem('support_handover_confirmations_data', JSON.stringify(handoverConfirmations));
+    }
+  }, [handoverConfirmations, remoteMode]);
+  useEffect(() => {
+    if (!remoteMode) {
       localStorage.setItem('support_morning_meeting_records_data', JSON.stringify(morningMeetingRecords));
     }
   }, [morningMeetingRecords, remoteMode]);
+  useEffect(() => {
+    if (!remoteMode) {
+      localStorage.setItem('support_morning_meeting_templates_data', JSON.stringify(morningMeetingTemplates));
+    }
+  }, [morningMeetingTemplates, remoteMode]);
+  useEffect(() => {
+    if (!remoteMode) {
+      localStorage.setItem('support_morning_meeting_confirmations_data', JSON.stringify(morningMeetingConfirmations));
+    }
+  }, [morningMeetingConfirmations, remoteMode]);
   useEffect(() => {
     if (!remoteMode) localStorage.setItem('support_plans_data', JSON.stringify(supportPlans));
   }, [supportPlans, remoteMode]);
@@ -167,7 +206,10 @@ export default function App() {
       setChildrenList(workspace.children);
       setRecorderProfiles(workspace.recorderProfiles);
       setHandoverItems(workspace.handoverItems);
+      setHandoverConfirmations(workspace.handoverConfirmations);
       setMorningMeetingRecords(workspace.morningMeetingRecords);
+      setMorningMeetingTemplates(workspace.morningMeetingTemplates);
+      setMorningMeetingConfirmations(workspace.morningMeetingConfirmations);
       setSupportPlans(workspace.supportPlans);
       setAiWritingSettings(workspace.aiWritingSettings);
       setDataError(null);
@@ -245,7 +287,10 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'record_templates', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'support_plans', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'handover_items', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'handover_confirmations', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'morning_meeting_records', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'morning_meeting_templates', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'morning_meeting_confirmations', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'record_drafts', filter: `organization_id=eq.${organizationId}` }, () => void refreshRecordDrafts())
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
@@ -665,6 +710,101 @@ export default function App() {
     }
   };
 
+  const handleSaveMorningMeetingTemplate = async (template: MorningMeetingTemplate) => {
+    try {
+      if (organizationId) await saveMorningMeetingTemplate(organizationId, template);
+      setMorningMeetingTemplates((previous) => [
+        template,
+        ...previous.filter((candidate) => candidate.id !== template.id),
+      ]);
+      setDataError(null);
+    } catch (error) {
+      persistError(error);
+    }
+  };
+
+  const handleArchiveMorningMeetingTemplate = async (templateId: string) => {
+    try {
+      if (organizationId) await archiveMorningMeetingTemplate(organizationId, templateId);
+      setMorningMeetingTemplates((previous) =>
+        previous.filter((template) => template.id !== templateId)
+      );
+      setDataError(null);
+    } catch (error) {
+      persistError(error);
+    }
+  };
+
+  const handleSetMorningMeetingConfirmation = async (
+    confirmation: MorningMeetingConfirmation,
+    confirmed: boolean
+  ) => {
+    try {
+      if (organizationId) {
+        if (confirmed) {
+          await saveMorningMeetingConfirmation(organizationId, confirmation);
+        } else {
+          await deleteMorningMeetingConfirmation(
+            organizationId,
+            confirmation.date,
+            confirmation.confirmerKey
+          );
+        }
+      }
+      setMorningMeetingConfirmations((previous) => confirmed
+        ? [
+            confirmation,
+            ...previous.filter((candidate) =>
+              candidate.date !== confirmation.date
+              || candidate.confirmerKey !== confirmation.confirmerKey
+            ),
+          ]
+        : previous.filter((candidate) =>
+            candidate.date !== confirmation.date
+            || candidate.confirmerKey !== confirmation.confirmerKey
+          )
+      );
+      setDataError(null);
+    } catch (error) {
+      persistError(error);
+    }
+  };
+
+  const handleSetHandoverConfirmation = async (
+    confirmation: HandoverConfirmation,
+    confirmed: boolean
+  ) => {
+    try {
+      if (organizationId) {
+        if (confirmed) {
+          await saveHandoverConfirmation(organizationId, confirmation);
+        } else {
+          await deleteHandoverConfirmation(
+            organizationId,
+            confirmation.handoverItemId,
+            confirmation.confirmerKey
+          );
+        }
+      }
+      setHandoverConfirmations((previous) => confirmed
+        ? [
+            confirmation,
+            ...previous.filter((candidate) =>
+              candidate.handoverItemId !== confirmation.handoverItemId
+              || candidate.confirmerKey !== confirmation.confirmerKey
+            ),
+          ]
+        : previous.filter((candidate) =>
+            candidate.handoverItemId !== confirmation.handoverItemId
+            || candidate.confirmerKey !== confirmation.confirmerKey
+          )
+      );
+      setDataError(null);
+    } catch (error) {
+      persistError(error);
+    }
+  };
+
   const handleQuickMemoHandover = async (content: string) => {
     const now = new Date().toISOString();
     await handleSaveHandover({
@@ -749,8 +889,12 @@ export default function App() {
             records={records}
             childrenList={childrenList}
             drafts={recordDrafts}
+            recorderProfiles={recorderProfiles}
             handoverItems={handoverItems}
+            handoverConfirmations={handoverConfirmations}
             morningMeetingRecords={morningMeetingRecords}
+            morningMeetingTemplates={morningMeetingTemplates}
+            morningMeetingConfirmations={morningMeetingConfirmations}
             organizationId={organizationId}
             activeRecorder={activeRecorder || undefined}
             currentUser={auth.profile}
@@ -769,7 +913,11 @@ export default function App() {
             }}
             onSaveHandover={handleSaveHandover}
             onHandoverStatusChange={handleHandoverStatusChange}
+            onSetHandoverConfirmation={handleSetHandoverConfirmation}
             onSaveMorningMeeting={handleSaveMorningMeeting}
+            onSaveMorningMeetingTemplate={handleSaveMorningMeetingTemplate}
+            onArchiveMorningMeetingTemplate={handleArchiveMorningMeetingTemplate}
+            onSetMorningMeetingConfirmation={handleSetMorningMeetingConfirmation}
             onAssistantExecuted={handleAssistantExecuted}
           />
         )}

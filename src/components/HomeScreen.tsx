@@ -17,11 +17,14 @@ import {
 } from 'lucide-react';
 import type {
   ChildProfile,
+  HandoverConfirmation,
   HandoverItem,
   HandoverStatus,
   HomeAssistantExecutionResult,
   HomeAssistantProposal,
+  MorningMeetingConfirmation,
   MorningMeetingRecord,
+  MorningMeetingTemplate,
   RecordDraftSummary,
   RecorderProfile,
   SupportRecord,
@@ -38,8 +41,12 @@ interface HomeScreenProps {
   records: SupportRecord[];
   childrenList: ChildProfile[];
   drafts: RecordDraftSummary[];
+  recorderProfiles: RecorderProfile[];
   handoverItems: HandoverItem[];
+  handoverConfirmations: HandoverConfirmation[];
   morningMeetingRecords: MorningMeetingRecord[];
+  morningMeetingTemplates: MorningMeetingTemplate[];
+  morningMeetingConfirmations: MorningMeetingConfirmation[];
   organizationId?: string;
   activeRecorder?: RecorderProfile;
   currentUser?: UserProfile | null;
@@ -52,7 +59,11 @@ interface HomeScreenProps {
   onOpenRecord: (record: SupportRecord) => void;
   onSaveHandover: (item: HandoverItem) => Promise<void> | void;
   onHandoverStatusChange: (itemId: string, status: HandoverStatus) => Promise<void> | void;
+  onSetHandoverConfirmation: (confirmation: HandoverConfirmation, confirmed: boolean) => Promise<void> | void;
   onSaveMorningMeeting: (record: MorningMeetingRecord) => Promise<void> | void;
+  onSaveMorningMeetingTemplate: (template: MorningMeetingTemplate) => Promise<void> | void;
+  onArchiveMorningMeetingTemplate: (templateId: string) => Promise<void> | void;
+  onSetMorningMeetingConfirmation: (confirmation: MorningMeetingConfirmation, confirmed: boolean) => Promise<void> | void;
   onAssistantExecuted: (proposal: HomeAssistantProposal, result: HomeAssistantExecutionResult) => Promise<void> | void;
 }
 
@@ -60,8 +71,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   records,
   childrenList,
   drafts,
+  recorderProfiles,
   handoverItems,
+  handoverConfirmations,
   morningMeetingRecords,
+  morningMeetingTemplates,
+  morningMeetingConfirmations,
   organizationId,
   activeRecorder,
   currentUser,
@@ -74,7 +89,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onOpenRecord,
   onSaveHandover,
   onHandoverStatusChange,
+  onSetHandoverConfirmation,
   onSaveMorningMeeting,
+  onSaveMorningMeetingTemplate,
+  onArchiveMorningMeetingTemplate,
+  onSetMorningMeetingConfirmation,
   onAssistantExecuted,
 }) => {
   const [activePanel, setActivePanel] = useState<'operations' | 'morning' | 'handover' | 'assistant'>('operations');
@@ -159,20 +178,31 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         {activePanel === 'handover' && (
           <HandoverPanel
             items={handoverItems}
+            confirmations={handoverConfirmations}
             childrenList={childrenList}
+            recorderProfiles={recorderProfiles}
             activeRecorder={activeRecorder}
+            currentUser={currentUser}
             onSave={onSaveHandover}
             onStatusChange={onHandoverStatusChange}
+            onSetConfirmation={onSetHandoverConfirmation}
           />
         )}
 
         {activePanel === 'morning' && (
           <MorningMeetingPanel
             records={morningMeetingRecords}
+            templates={morningMeetingTemplates}
+            confirmations={morningMeetingConfirmations}
+            recorderProfiles={recorderProfiles}
             organizationId={organizationId}
             activeRecorder={activeRecorder}
             currentUser={currentUser}
+            canManageTemplates={canManageSettings}
             onSave={onSaveMorningMeeting}
+            onSaveTemplate={onSaveMorningMeetingTemplate}
+            onArchiveTemplate={onArchiveMorningMeetingTemplate}
+            onSetConfirmation={onSetMorningMeetingConfirmation}
           />
         )}
 

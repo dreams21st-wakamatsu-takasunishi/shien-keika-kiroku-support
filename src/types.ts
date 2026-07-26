@@ -212,6 +212,18 @@ export interface HandoverItem {
   updatedAt: string;
 }
 
+export interface ConfirmationReceipt {
+  confirmerKey: string;
+  recorderProfileId?: string;
+  userId?: string;
+  confirmerName: string;
+  confirmedAt: string;
+}
+
+export interface HandoverConfirmation extends ConfirmationReceipt {
+  handoverItemId: string;
+}
+
 export interface MorningMeetingRecord {
   date: string;
   content: string;
@@ -219,6 +231,18 @@ export interface MorningMeetingRecord {
   updatedByRecorderId?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface MorningMeetingTemplate {
+  id: string;
+  name: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface MorningMeetingConfirmation extends ConfirmationReceipt {
+  date: string;
 }
 
 export interface SupportPlan {
