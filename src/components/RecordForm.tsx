@@ -52,6 +52,8 @@ import { getCurrentDraftCycleKey, getNextDraftResetAt, isDraftCurrent } from '..
 import { createRecordDraftKey, getDeviceId } from '../utils/deviceId';
 import { isStructuredWeekdayTemplate } from '../data/weekdayTemplate';
 import { generateStructuredWeekdaySummary } from '../utils/weekdayRecordSummary';
+import { isStructuredHolidayTemplate } from '../data/holidayTemplate';
+import { generateStructuredHolidaySummary } from '../utils/holidayRecordSummary';
 
 interface RecordFormProps {
   templates: Template[];
@@ -333,6 +335,86 @@ function clampHandCount(value: string) {
   const parsed = Number.parseInt(value, 10);
   if (Number.isNaN(parsed)) return '';
   return String(Math.min(5, Math.max(0, parsed)));
+}
+
+function MealDetailsInput({
+  answer,
+  options,
+  onChange,
+}: {
+  answer: SectionFieldAnswer;
+  options: string[];
+  onChange: (answer: SectionFieldAnswer) => void;
+}) {
+  const details = answer.nestedDetails || {};
+  const minutes = String(details.minutes || '');
+  const portion = String(details.portion || '');
+  const commit = (
+    nextMinutes: string,
+    nextPortion: string,
+    nextNote = answer.note || '',
+  ) => {
+    const parts = [
+      nextMinutes ? `食事時間：${nextMinutes}分` : '',
+      nextPortion ? `食事量：${nextPortion}` : '',
+    ].filter(Boolean);
+    onChange({
+      ...answer,
+      value: parts.join('／'),
+      note: nextNote,
+      nestedDetails: { ...details, minutes: nextMinutes, portion: nextPortion },
+    });
+  };
+
+  return (
+    <div className="space-y-4">
+      <label className="block rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm font-black text-slate-700">
+        食事にかかった時間
+        <div className="mt-2 flex items-center gap-3">
+          <input
+            aria-label="昼食にかかった時間"
+            type="number"
+            min="0"
+            max="180"
+            inputMode="numeric"
+            value={minutes}
+            onChange={(event) => commit(event.target.value, portion)}
+            className={inputClass}
+          />
+          <span className="shrink-0 font-bold">分</span>
+        </div>
+      </label>
+      <div>
+        <p className="mb-2 text-sm font-black text-slate-700">食べた量</p>
+        <div className="grid gap-2 sm:grid-cols-3">
+          {options.map((option) => {
+            const selected = portion === option;
+            return (
+              <button
+                key={option}
+                type="button"
+                onClick={() => commit(minutes, option)}
+                className={`${choiceClass} ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300 bg-white text-slate-700'}`}
+              >
+                {selected && <Check className="mr-1 inline h-4 w-4" />}
+                {option}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <label className="block text-sm font-bold text-slate-700">
+        昼食の備考（任意）
+        <textarea
+          rows={3}
+          value={answer.note || ''}
+          onChange={(event) => commit(minutes, portion, event.target.value)}
+          placeholder="食事中の様子、食べにくかった物、必要だった声掛けなどを入力してください。"
+          className={`${inputClass} mt-2`}
+        />
+      </label>
+    </div>
+  );
 }
 
 function StudyExtrasInput({
@@ -866,6 +948,72 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       return next;
     }
 
+    if (isStructuredHolidayTemplate(activeTemplate)) {
+      next.push(
+        { id: 'attendance', kind: 'attendance', displayNumber: 4, ...questions.attendance },
+        { id: 'expression', kind: 'expression', displayNumber: 5, ...questions.expression },
+      );
+
+      const addField = (sectionId: string, field: TemplateField, displayNumber: number) => next.push({
+        id: `field-${sectionId}-${field.id}`,
+        kind: 'field',
+        sectionId,
+        fieldId: field.id,
+        displayNumber,
+        title: field.questionTitle || `${field.label}はどうですか？`,
+        help: field.helpText,
+      });
+      const life = activeTemplate?.sections.find((section) => section.id === 'life');
+      const lifeNumbers: Record<string, number> = {
+        fatigue: 6,
+        preparation: 7,
+        response_to_prompt: 8,
+        medication: 9,
+      };
+      life?.fields.forEach((field) => addField('life', field, lifeNumbers[field.id] || 9));
+
+      ([
+        { sectionId: 'morning', baseNumber: 10 },
+        { sectionId: 'afternoon', baseNumber: 16 },
+      ] as const).forEach(({ sectionId, baseNumber }) => {
+        const section = activeTemplate?.sections.find((candidate) => candidate.id === sectionId);
+        const questionOffset: Record<string, number> = {
+          [`${sectionId}_type`]: 0,
+          [`${sectionId}_study_homework`]: 1,
+          [`${sectionId}_study_attitude`]: 2,
+          [`${sectionId}_study_extras`]: 3,
+          [`${sectionId}_study_posture`]: 4,
+          [`${sectionId}_pc_content`]: 1,
+          [`${sectionId}_pc_finger`]: 2,
+          [`${sectionId}_pc_posture`]: 3,
+          [`${sectionId}_pc_transition`]: 4,
+          [`${sectionId}_activity_content`]: 1,
+          [`${sectionId}_activity_initiative`]: 2,
+        };
+        section?.fields.forEach((field) => addField(sectionId, field, baseNumber + (questionOffset[field.id] || 0)));
+      });
+
+      const lunch = activeTemplate?.sections.find((section) => section.id === 'lunch');
+      lunch?.fields.forEach((field) => addField('lunch', field, 15));
+      const afternoonStart = next.findIndex((step) => step.sectionId === 'afternoon');
+      if (afternoonStart >= 0) {
+        const lunchSteps = next.splice(next.findIndex((step) => step.sectionId === 'lunch'));
+        next.splice(afternoonStart, 0, ...lunchSteps);
+      }
+
+      next.push({ id: 'snack', kind: 'snack', displayNumber: 21, ...questions.snack });
+      next.push({
+        id: 'abc-special',
+        kind: 'abc-sequence',
+        sectionId: 'special',
+        displayNumber: 22,
+        title: questions.abcBehavior.title,
+        help: 'B（行動）→C（結果）→A（きっかけ）の順に入力します。各入力は箇条書きや短い言葉でまとめてください。',
+      });
+      next.push({ id: 'review', kind: 'review', title: 'フォーマット表示と文章合成プレビューを確認してください。' });
+      return next;
+    }
+
     next.push(
       { id: 'attendance', kind: 'attendance', ...questions.attendance },
       { id: 'expression', kind: 'expression', ...questions.expression },
@@ -926,10 +1074,11 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   }, [steps.length, wizard.currentStepIndex]);
 
   const currentStep = steps[wizard.currentStepIndex];
+  const questionTotal = isStructuredHolidayTemplate(activeTemplate) ? 22 : 21;
   const progress = currentStep?.kind === 'review'
     ? 100
     : currentStep?.displayNumber
-      ? (currentStep.displayNumber / 21) * 100
+      ? (currentStep.displayNumber / questionTotal) * 100
       : steps.length > 0
         ? ((wizard.currentStepIndex + 1) / steps.length) * 100
         : 0;
@@ -1178,6 +1327,23 @@ export const RecordForm: React.FC<RecordFormProps> = ({
               });
             }
           }
+          if (field.type === 'meal_details') {
+            const details = answer?.nestedDetails || {};
+            const missing = [
+              !String(details.minutes || '').trim() ? '食事時間' : '',
+              !String(details.portion || '').trim() ? '食べた量' : '',
+            ].filter(Boolean);
+            if (missing.length > 0) {
+              checks.push({
+                id: `${childId}-${stepId}-meal-details`,
+                childId,
+                childName,
+                level: 'warning',
+                title: `${missing.join('・')}が未入力です`,
+                detail: '昼食の時間と食べた量を確認してください。',
+              });
+            }
+          }
           if (field.type === 'hand_count' && answer?.value && answer.value !== 'タイピング練習に取り組んでいない') {
             const counts = parseHandCount(answer.value);
             if (!counts.left || !counts.right) {
@@ -1402,6 +1568,13 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             onChange={(nextAnswer) => updateFieldAnswer(sectionId, field.id, nextAnswer)}
           />
         )}
+        {field.type === 'meal_details' && (
+          <MealDetailsInput
+            answer={answer}
+            options={field.options || ['完食', '半量食べた', '1/4食べた']}
+            onChange={(nextAnswer) => updateFieldAnswer(sectionId, field.id, nextAnswer)}
+          />
+        )}
         {field.type === 'number' && <div className="flex items-center gap-3"><input type="number" value={answer.value} onChange={(event) => updateField(sectionId, field.id, event.target.value)} className={inputClass} />{field.unit && <span className="shrink-0 text-sm font-bold text-slate-600">{field.unit}</span>}</div>}
         {field.type === 'hand_count' && (() => {
           const notPracticed = answer.value === 'タイピング練習に取り組んでいない';
@@ -1421,7 +1594,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         {field.type === 'text' && <input type="text" value={answer.value} onChange={(event) => updateField(sectionId, field.id, event.target.value)} className={inputClass} />}
         {field.type === 'textarea' && <textarea rows={5} value={answer.value} onChange={(event) => updateField(sectionId, field.id, event.target.value)} className={inputClass} />}
         {field.type === 'time_select' && <input type="time" value={answer.value} onChange={(event) => updateField(sectionId, field.id, event.target.value)} className={inputClass} />}
-        {field.hasNote && !['homework_subjects', 'study_extras', 'pc_activities'].includes(field.type) && <label className="block text-sm font-bold text-slate-700">備考（任意）<textarea rows={3} value={answer.note || ''} onChange={(event) => updateField(sectionId, field.id, answer.value, event.target.value)} placeholder={field.notePlaceholder || '補足事項を入力'} className={`${inputClass} mt-2`} /></label>}
+        {field.hasNote && !['homework_subjects', 'study_extras', 'pc_activities', 'meal_details'].includes(field.type) && <label className="block text-sm font-bold text-slate-700">備考（任意）<textarea rows={3} value={answer.note || ''} onChange={(event) => updateField(sectionId, field.id, answer.value, event.target.value)} placeholder={field.notePlaceholder || '補足事項を入力'} className={`${inputClass} mt-2`} /></label>}
       </div>
     );
   };
@@ -1553,14 +1726,14 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       case 'attendance':
         return <div className="space-y-4"><div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{(wizardQuestions.attendance.options || []).map((item) => <button key={item} type="button" onClick={() => updateChildDraft(wizard.activeChildId, (draft) => ({ ...unskip(draft, currentStep.id), attendance: item }))} className={`${choiceClass} ${activeChildDraft?.attendance === item ? 'bg-teal-600 border-teal-600 text-white' : 'bg-white border-slate-300 text-slate-700'}`}>{activeChildDraft?.attendance === item && <Check className="inline w-4 h-4 mr-1" />}{item}</button>)}</div><label className="block text-sm font-bold text-slate-700">{wizardQuestions.attendance.noteLabel}<textarea rows={3} value={activeChildDraft?.attendanceNote || ''} onChange={(event) => updateChildDraft(wizard.activeChildId, (draft) => ({ ...unskip(draft, currentStep.id), attendanceNote: event.target.value }))} placeholder={wizardQuestions.attendance.notePlaceholder} className={`${inputClass} mt-2`} /></label></div>;
       case 'expression':
-        return <div className="space-y-4"><div className={isStructuredWeekdayTemplate(activeTemplate) ? 'grid gap-2' : 'grid grid-cols-2 gap-2 sm:grid-cols-3'}>{(wizardQuestions.expression.options || []).map((item) => {
+        return <div className="space-y-4"><div className={isStructuredWeekdayTemplate(activeTemplate) || isStructuredHolidayTemplate(activeTemplate) ? 'grid gap-2' : 'grid grid-cols-2 gap-2 sm:grid-cols-3'}>{(wizardQuestions.expression.options || []).map((item) => {
           const selected = activeChildDraft?.expressions.includes(item);
-          if (isStructuredWeekdayTemplate(activeTemplate)) {
+          if (isStructuredWeekdayTemplate(activeTemplate) || isStructuredHolidayTemplate(activeTemplate)) {
             const [level, description] = item.split('：');
             return <button key={item} type="button" onClick={() => updateChildDraft(wizard.activeChildId, (raw) => ({ ...unskip(raw, currentStep.id), expressions: [item] }))} className={`flex min-h-14 items-center gap-3 rounded-xl border-2 px-3 py-2.5 text-left ${selected ? 'border-amber-500 bg-amber-50 text-amber-950' : 'border-slate-300 bg-white text-slate-700'}`}><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-lg font-black ${selected ? 'bg-amber-500 text-slate-950' : 'bg-slate-100 text-slate-900'}`}>{level}</span><span className="text-sm font-bold leading-relaxed sm:text-base">{description}</span>{selected && <Check className="ml-auto h-5 w-5 shrink-0" />}</button>;
           }
           return <button key={item} type="button" onClick={() => updateChildDraft(wizard.activeChildId, (raw) => { const draft = unskip(raw, currentStep.id); return { ...draft, expressions: selected ? draft.expressions.filter((value) => value !== item) : [...draft.expressions, item] }; })} className={`${choiceClass} ${selected ? 'bg-amber-500 border-amber-500 text-slate-950' : 'bg-white border-slate-300 text-slate-700'}`}>{selected && <Check className="inline w-4 h-4 mr-1" />}{item}</button>;
-        })}</div>{isStructuredWeekdayTemplate(activeTemplate) && <div className="flex justify-between text-[11px] font-bold text-slate-500"><span>1：笑顔</span><span>5：暗い表情</span></div>}<label className="block text-sm font-bold text-slate-700">{wizardQuestions.expression.noteLabel}<textarea rows={3} value={activeChildDraft?.expressionNote || ''} onChange={(event) => updateChildDraft(wizard.activeChildId, (draft) => ({ ...unskip(draft, currentStep.id), expressionNote: event.target.value }))} placeholder={wizardQuestions.expression.notePlaceholder} className={`${inputClass} mt-2`} /></label></div>;
+        })}</div>{(isStructuredWeekdayTemplate(activeTemplate) || isStructuredHolidayTemplate(activeTemplate)) && <div className="flex justify-between text-[11px] font-bold text-slate-500"><span>1：暗い表情</span><span>5：笑顔</span></div>}<label className="block text-sm font-bold text-slate-700">{wizardQuestions.expression.noteLabel}<textarea rows={3} value={activeChildDraft?.expressionNote || ''} onChange={(event) => updateChildDraft(wizard.activeChildId, (draft) => ({ ...unskip(draft, currentStep.id), expressionNote: event.target.value }))} placeholder={wizardQuestions.expression.notePlaceholder} className={`${inputClass} mt-2`} /></label></div>;
       case 'snack':
         return <div className="space-y-4"><div className="grid grid-cols-2 gap-2">{(wizardQuestions.snack.options || []).map((item) => <button key={item} type="button" onClick={() => updateChildDraft(wizard.activeChildId, (draft) => ({ ...unskip(draft, currentStep.id), snack: item }))} className={`${choiceClass} ${activeChildDraft?.snack === item ? 'bg-teal-600 border-teal-600 text-white' : 'bg-white border-slate-300 text-slate-700'}`}>{activeChildDraft?.snack === item && <Check className="inline w-4 h-4 mr-1" />}{item}</button>)}</div><label className="block text-sm font-bold text-slate-700">{wizardQuestions.snack.noteLabel}<textarea rows={3} value={activeChildDraft?.snackNote || ''} onChange={(event) => updateChildDraft(wizard.activeChildId, (draft) => ({ ...unskip(draft, currentStep.id), snackNote: event.target.value }))} placeholder={wizardQuestions.snack.notePlaceholder} className={`${inputClass} mt-2`} /></label></div>;
       case 'section-subtitle': {
@@ -1596,30 +1769,55 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         const summaryQuestion = renderQuestionText(wizardQuestions.abcSummary);
         return (
           <div className="space-y-5">
-            <label className="block text-sm font-black text-slate-800">
-              <span className="mb-1 block text-violet-700">B（行動）</span>
-              {behaviorQuestion.title}
-              <span className="mt-1 block text-xs font-medium leading-relaxed text-slate-500">{behaviorQuestion.help}</span>
-              <textarea rows={5} maxLength={500} value={abc?.behavior || ''} onChange={(event) => updateABC(currentStep.sectionId!, 'behavior', event.target.value)} placeholder={'・席を立ち、入口へ向かった\n・「やりたくない」と大きな声で話した'} className={`${inputClass} mt-2`} />
-            </label>
-            {behaviorReady && (
-              <label className="block border-t border-slate-200 pt-5 text-sm font-black text-slate-800">
-                <span className="mb-1 block text-violet-700">C（結果）</span>
-                {consequenceQuestion.title}
-                <span className="mt-1 block text-xs font-medium leading-relaxed text-slate-500">{consequenceQuestion.help}</span>
-                <textarea rows={5} maxLength={500} value={abc?.consequence || ''} onChange={(event) => updateABC(currentStep.sectionId!, 'consequence', event.target.value)} placeholder={'・職員が選択肢を示すと席へ戻った\n・5分後に課題を再開した'} className={`${inputClass} mt-2`} />
+            <section className={`rounded-2xl border-2 p-4 transition-colors ${behaviorReady ? 'border-emerald-300 bg-emerald-50/70' : 'border-violet-400 bg-violet-50'}`}>
+              <div className="mb-2 flex items-center justify-between gap-3">
+                <span className="rounded-full bg-violet-700 px-3 py-1 text-xs font-black text-white">B（行動）</span>
+                <span className={`flex items-center gap-1 text-xs font-black ${behaviorReady ? 'text-emerald-700' : 'text-violet-700'}`}>
+                  {behaviorReady && <Check className="h-4 w-4" />}
+                  {behaviorReady ? '入力済み' : 'ここから入力'}
+                </span>
+              </div>
+              <label className="block text-sm font-black text-slate-800">
+                {behaviorQuestion.title}
+                <span className="mt-1 block text-xs font-medium leading-relaxed text-slate-500">{behaviorQuestion.help}</span>
+                <textarea rows={5} maxLength={500} value={abc?.behavior || ''} onChange={(event) => updateABC(currentStep.sectionId!, 'behavior', event.target.value)} placeholder={'・席を立ち、入口へ向かった\n・「やりたくない」と大きな声で話した'} className={`${inputClass} mt-2`} />
               </label>
+            </section>
+            {behaviorReady && (
+              <section className={`wizard-reveal rounded-2xl border-2 p-4 ${consequenceReady ? 'border-emerald-300 bg-emerald-50/70' : 'border-sky-500 bg-sky-50 shadow-md shadow-sky-100'}`}>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <span className="rounded-full bg-sky-700 px-3 py-1 text-xs font-black text-white">C（結果）</span>
+                  <span className={`flex items-center gap-1 text-xs font-black ${consequenceReady ? 'text-emerald-700' : 'text-sky-800'}`}>
+                    {consequenceReady && <Check className="h-4 w-4" />}
+                    {consequenceReady ? '入力済み' : '次に入力'}
+                  </span>
+                </div>
+                <label className="block text-sm font-black text-slate-800">
+                  {consequenceQuestion.title}
+                  <span className="mt-1 block text-xs font-medium leading-relaxed text-slate-500">{consequenceQuestion.help}</span>
+                  <textarea autoFocus={!consequenceReady} rows={5} maxLength={500} value={abc?.consequence || ''} onChange={(event) => updateABC(currentStep.sectionId!, 'consequence', event.target.value)} placeholder={'・職員が選択肢を示すと席へ戻った\n・5分後に課題を再開した'} className={`${inputClass} mt-2 border-sky-300 ring-2 ring-sky-100`} />
+                </label>
+              </section>
             )}
             {behaviorReady && consequenceReady && (
-              <label className="block border-t border-slate-200 pt-5 text-sm font-black text-slate-800">
-                <span className="mb-1 block text-violet-700">A（きっかけ）</span>
-                {antecedentQuestion.title}
-                <span className="mt-1 block text-xs font-medium leading-relaxed text-slate-500">{antecedentQuestion.help}</span>
-                <textarea rows={5} maxLength={500} value={abc?.antecedent || ''} onChange={(event) => updateABC(currentStep.sectionId!, 'antecedent', event.target.value)} placeholder={'・難しい課題へ切り替わった直後\n・周囲の音が大きくなった'} className={`${inputClass} mt-2`} />
-              </label>
+              <section className={`wizard-reveal rounded-2xl border-2 p-4 ${antecedentReady ? 'border-emerald-300 bg-emerald-50/70' : 'border-amber-500 bg-amber-50 shadow-md shadow-amber-100'}`}>
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <span className="rounded-full bg-amber-700 px-3 py-1 text-xs font-black text-white">A（きっかけ）</span>
+                  <span className={`flex items-center gap-1 text-xs font-black ${antecedentReady ? 'text-emerald-700' : 'text-amber-900'}`}>
+                    {antecedentReady && <Check className="h-4 w-4" />}
+                    {antecedentReady ? '入力済み' : '次に入力'}
+                  </span>
+                </div>
+                <label className="block text-sm font-black text-slate-800">
+                  {antecedentQuestion.title}
+                  <span className="mt-1 block text-xs font-medium leading-relaxed text-slate-500">{antecedentQuestion.help}</span>
+                  <textarea autoFocus={!antecedentReady} rows={5} maxLength={500} value={abc?.antecedent || ''} onChange={(event) => updateABC(currentStep.sectionId!, 'antecedent', event.target.value)} placeholder={'・難しい課題へ切り替わった直後\n・周囲の音が大きくなった'} className={`${inputClass} mt-2 border-amber-300 ring-2 ring-amber-100`} />
+                </label>
+              </section>
             )}
             {behaviorReady && consequenceReady && antecedentReady && (
-              <div className="space-y-4 border-t border-slate-200 pt-5">
+              <div className="wizard-reveal space-y-4 rounded-2xl border-2 border-violet-400 bg-violet-50 p-4 shadow-md shadow-violet-100">
+                <p className="flex items-center gap-2 text-sm font-black text-violet-900"><Check className="h-5 w-5 text-emerald-600" />A・B・Cの入力がそろいました。内容を要約できます。</p>
                 <button type="button" disabled={summarizingSectionId === currentStep.sectionId} onClick={() => summarizeABC(currentStep.sectionId!)} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 text-sm font-black text-white disabled:bg-slate-400">{summarizingSectionId === currentStep.sectionId ? <LoaderCircle className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}{summarizingSectionId === currentStep.sectionId ? '要約中...' : 'ABC行動分析に基づいて要約する'}</button>
                 <label className="block text-sm font-black text-slate-800">{summaryQuestion.title}<span className="mt-1 block text-xs font-medium leading-relaxed text-slate-500">{summaryQuestion.help}</span><textarea rows={7} value={abc?.summary || ''} onChange={(event) => updateABC(currentStep.sectionId!, 'summary', event.target.value)} placeholder="「要約する」を押すと、ここに文章が表示されます。" className={`${inputClass} mt-2`} /></label>
               </div>
@@ -1709,6 +1907,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       } satisfies SupportRecord;
       return isStructuredWeekdayTemplate(activeTemplate)
         ? { ...record, synthesizedSummary: generateStructuredWeekdaySummary(record) }
+        : isStructuredHolidayTemplate(activeTemplate)
+          ? { ...record, synthesizedSummary: generateStructuredHolidaySummary(record) }
         : record;
     });
 
@@ -1820,7 +2020,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             {currentStep?.kind === 'review'
               ? '最終確認'
               : currentStep?.displayNumber
-                ? `質問 ${currentStep.displayNumber} / 21`
+                ? `質問 ${currentStep.displayNumber} / ${questionTotal}`
                 : `入力設定 ${wizard.currentStepIndex + 1} / ${steps.length}`}
           </span>
           <span
@@ -2017,10 +2217,10 @@ function ReviewAllChildren({
             <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-bold text-slate-900">{child?.name || '児童'}</h3><div className="flex gap-2 text-[10px] font-bold"><span className={`rounded-full px-2 py-1 ${unanswered.length ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{unanswered.length ? `未回答 ${unanswered.length}` : '全回答済み'}</span>{skipped.length > 0 && <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">スキップ {skipped.length}</span>}</div></div>
             <p className="text-xs text-slate-600">出欠：{draft?.attendance || '未回答'}{draft?.attendanceNote ? `（${draft.attendanceNote}）` : ''} ／ 表情：{draft?.expressions.join('、') || '未回答'} ／ おやつ：{draft?.snack || '未回答'}</p>
             {unanswered.length > 0 && <div className="rounded-lg bg-amber-50 p-3"><p className="text-xs font-bold text-amber-900 mb-2">未回答の質問</p><div className="flex flex-wrap gap-2">{unanswered.map((step) => <button key={step.id} type="button" onClick={() => onJump(childId, step.id)} className="rounded-md border border-amber-300 bg-white px-2 py-1 text-[11px] text-amber-900">{step.title}</button>)}</div></div>}
-            {template && isStructuredWeekdayTemplate(template) ? (
+            {template && (isStructuredWeekdayTemplate(template) || isStructuredHolidayTemplate(template)) ? (
               <div className="overflow-hidden rounded-xl border border-slate-300">
                 <div className="border-b border-slate-200 bg-slate-100 px-3 py-2 text-xs font-black text-slate-700">文章合成プレビュー</div>
-                <pre className="whitespace-pre-wrap bg-white p-4 font-sans text-xs leading-relaxed text-slate-800">{generateStructuredWeekdaySummary({
+                <pre className="whitespace-pre-wrap bg-white p-4 font-sans text-xs leading-relaxed text-slate-800">{(isStructuredHolidayTemplate(template) ? generateStructuredHolidaySummary : generateStructuredWeekdaySummary)({
                   recorderName: wizard.recorderName,
                   expressions: draft?.expressions || [],
                   expressionNote: draft?.expressionNote,

@@ -1,5 +1,6 @@
 import { SupportRecord, SectionAnswer } from '../types';
 import { generateStructuredWeekdaySummary, hasStructuredWeekdayAnswers } from './weekdayRecordSummary';
+import { generateStructuredHolidaySummary, hasStructuredHolidayAnswers } from './holidayRecordSummary';
 
 /**
  * Automatically builds a coherent, professional summary text from structured form responses.
@@ -8,6 +9,9 @@ export function generateRecordSummary(
   record: Partial<SupportRecord> & { sectionAnswers?: Record<string, SectionAnswer> }
 ): string {
   if (!record.sectionAnswers) return '';
+  if (hasStructuredHolidayAnswers(record as Pick<SupportRecord, 'sectionAnswers'>)) {
+    return record.synthesizedSummary || generateStructuredHolidaySummary(record as SupportRecord);
+  }
   if (hasStructuredWeekdayAnswers(record as Pick<SupportRecord, 'sectionAnswers'>)) {
     return record.synthesizedSummary || generateStructuredWeekdaySummary(record as SupportRecord);
   }
@@ -56,6 +60,9 @@ export function generateNarrativeReport(
   record: Partial<SupportRecord> & { sectionAnswers?: Record<string, SectionAnswer> }
 ): string {
   if (!record.sectionAnswers) return '';
+  if (hasStructuredHolidayAnswers(record as Pick<SupportRecord, 'sectionAnswers'>)) {
+    return record.synthesizedSummary || generateStructuredHolidaySummary(record as SupportRecord);
+  }
   if (hasStructuredWeekdayAnswers(record as Pick<SupportRecord, 'sectionAnswers'>)) {
     return record.synthesizedSummary || generateStructuredWeekdaySummary(record as SupportRecord);
   }

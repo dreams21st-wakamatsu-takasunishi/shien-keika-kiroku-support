@@ -16,3 +16,23 @@ input,
 textarea {
   touch-action: manipulation;
 }
+@keyframes wizard-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.wizard-reveal {
+  animation: wizard-reveal 0.35s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wizard-reveal {
+    animation: none;
+  }
+}

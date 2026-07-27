@@ -38,6 +38,7 @@ import { supabase } from './lib/supabase';
 import { FEATURE_FLAGS } from './config/features';
 import { normalizeTemplateFatigueScale } from './utils/templateNormalizer';
 import { upgradeStandardWeekdayTemplate } from './data/weekdayTemplate';
+import { upgradeStandardHolidayTemplate } from './data/holidayTemplate';
 import {
   archiveMorningMeetingTemplate,
   archiveTemplate,
@@ -91,7 +92,7 @@ export default function App() {
     if (remoteMode) return [];
     const saved = localStorage.getItem('support_templates_data');
     const source = saved ? JSON.parse(saved) as Template[] : defaultTemplates;
-    return source.map((template) => upgradeStandardWeekdayTemplate(normalizeTemplateFatigueScale(template)));
+    return source.map((template) => upgradeStandardHolidayTemplate(upgradeStandardWeekdayTemplate(normalizeTemplateFatigueScale(template))));
   });
   const [childrenList, setChildrenList] = useState<ChildProfile[]>(() => {
     if (remoteMode) return [];

@@ -1,6 +1,7 @@
 import React from 'react';
 import { SectionAnswer, SupportRecord } from '../types';
 import { generateStructuredWeekdaySummary, hasStructuredWeekdayAnswers } from '../utils/weekdayRecordSummary';
+import { generateStructuredHolidaySummary, hasStructuredHolidayAnswers } from '../utils/holidayRecordSummary';
 
 interface PDFDocumentProps {
   record: SupportRecord;
@@ -19,6 +20,8 @@ export const PDFDocument: React.FC<PDFDocumentProps> = ({
     const pc = record.sectionAnswers?.['pc'];
     const activity = record.sectionAnswers?.['activity'];
     const structuredWeekday = hasStructuredWeekdayAnswers(record);
+    const structuredHoliday = hasStructuredHolidayAnswers(record);
+    const structuredRecord = structuredWeekday || structuredHoliday;
 
     return (
       <div className="bg-white text-slate-900 text-xs font-sans p-6 leading-relaxed max-w-[800px] mx-auto border border-slate-300 shadow-xs print:shadow-none print:border-none">
@@ -42,7 +45,7 @@ export const PDFDocument: React.FC<PDFDocumentProps> = ({
             <tr className="bg-slate-100 font-bold">
               <td className="border border-slate-800 p-1 w-20">日付</td>
               <td className="border border-slate-800 p-1 w-16">出欠</td>
-              <td className="border border-slate-800 p-1">{structuredWeekday ? '表情（5段階）' : '表情（複数可）'}</td>
+              <td className="border border-slate-800 p-1">{structuredRecord ? '表情（5段階）' : '表情（複数可）'}</td>
               <td className="border border-slate-800 p-1 w-20">おやつ</td>
               <td className="border border-slate-800 p-1 w-24">記録者</td>
             </tr>
@@ -64,16 +67,18 @@ export const PDFDocument: React.FC<PDFDocumentProps> = ({
           </tbody>
         </table>
 
-        {structuredWeekday && (
+        {structuredRecord && (
           <div className="mb-3 border-2 border-slate-900">
             <div className="border-b border-slate-900 bg-slate-200 px-3 py-1.5 text-[11px] font-bold">文章合成記録</div>
             <div className="whitespace-pre-wrap p-3 text-[11px] leading-relaxed">
-              {record.synthesizedSummary || generateStructuredWeekdaySummary(record)}
+              {record.synthesizedSummary || (structuredHoliday
+                ? generateStructuredHolidaySummary(record)
+                : generateStructuredWeekdaySummary(record))}
             </div>
           </div>
         )}
 
-        {record.templateType !== 'カスタム' && !structuredWeekday && <>
+        {record.templateType !== 'カスタム' && !structuredRecord && <>
         {/* Section 1: 生活 */}
         {life && (
           <div className="border-2 border-slate-900 mb-3">

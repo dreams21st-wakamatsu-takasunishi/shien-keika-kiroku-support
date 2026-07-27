@@ -44,7 +44,7 @@ const INPUT_TYPE_GUIDES: Array<{
   {
     type: 'fatigue_scale',
     name: '5段階評価',
-    description: '1（なし）から5（非常に強い）までを大きなボタンで選択します。',
+    description: '1（疲労感が非常に強い）から5（疲労感なし）までを大きなボタンで選択します。',
     example: '疲労感：3 中程度',
     special: true,
   },
@@ -83,6 +83,13 @@ const INPUT_TYPE_GUIDES: Array<{
     example: 'Dレッスン（タイピング練習）',
     special: true,
   },
+  {
+    type: 'meal_details',
+    name: '食事詳細入力',
+    description: '食事時間、食べた量、自由記入欄を1つの質問内にまとめて表示します。',
+    example: '食事時間：25分／食事量：完食',
+    special: true,
+  },
 ];
 
 function InputTypePreview({ type }: { type: FieldType }) {
@@ -94,6 +101,8 @@ function InputTypePreview({ type }: { type: FieldType }) {
   const [fatigueValue, setFatigueValue] = useState('3');
   const [leftValue, setLeftValue] = useState('3');
   const [rightValue, setRightValue] = useState('4');
+  const [mealMinutes, setMealMinutes] = useState('25');
+  const [mealPortion, setMealPortion] = useState('完食');
   const [homeworkSubjects, setHomeworkSubjects] = useState<string[]>([]);
   const [expandedHomework, setExpandedHomework] = useState<string | null>(null);
   const [homeworkMaterials, setHomeworkMaterials] = useState<Record<string, string[]>>({});
@@ -163,6 +172,16 @@ function InputTypePreview({ type }: { type: FieldType }) {
 
   if (type === 'pc_activities') {
     return <div className="space-y-2"><button type="button" className={`${buttonClass} w-full border-teal-600 bg-teal-600 text-left text-white`}><Check className="mr-1 inline h-4 w-4" />Dレッスン（タイピング練習）</button><button type="button" className={`${buttonClass} w-full border-slate-300 bg-white text-left`}>文章入力模擬試験</button><button type="button" className={`${buttonClass} w-full border-slate-300 bg-white text-left`}>その他</button></div>;
+  }
+
+  if (type === 'meal_details') {
+    return (
+      <div className="space-y-3">
+        <label className="block text-sm font-bold text-slate-700">食事にかかった時間<div className="mt-2 flex items-center gap-2"><input type="number" value={mealMinutes} onChange={(event) => setMealMinutes(event.target.value)} className="min-h-12 min-w-0 flex-1 rounded-lg border border-slate-300 px-3 text-base" /><span>分</span></div></label>
+        <div className="grid grid-cols-3 gap-2">{['完食', '半量食べた', '1/4食べた'].map((option) => <button key={option} type="button" onClick={() => setMealPortion(option)} className={`${buttonClass} ${mealPortion === option ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300 bg-white'}`}>{mealPortion === option && <Check className="mr-1 inline h-4 w-4" />}{option}</button>)}</div>
+        <textarea rows={2} placeholder="食事中の様子を入力" className="w-full rounded-lg border border-slate-300 p-3 text-base" />
+      </div>
+    );
   }
 
   return (
@@ -463,6 +482,18 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
         options: ['Dレッスン', '文章入力模擬試験', 'その他'],
         defaultValue: '',
         hasNote: false,
+      });
+      return;
+    }
+
+    if (type === 'meal_details') {
+      handleUpdateField(sectionId, fieldId, {
+        type,
+        label: field.label === '【新規項目】' ? '昼食の様子' : field.label,
+        options: ['完食', '半量食べた', '1/4食べた'],
+        defaultValue: '',
+        hasNote: false,
+        helpText: field.helpText || '食事にかかった時間と食べた量を選び、必要に応じて様子を入力してください。',
       });
       return;
     }
@@ -914,6 +945,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                             <option value="homework_subjects">教科連動選択（宿題内容）</option>
                             <option value="study_extras">宿題以外の学習（条件入力）</option>
                             <option value="pc_activities">パソコン取り組み（条件入力）</option>
+                            <option value="meal_details">食事詳細（時間・量・備考）</option>
                           </select>
                         </div>
 
@@ -977,7 +1009,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                               type="checkbox"
                               checked={field.hasNote || false}
                               onChange={(e) => handleUpdateField(sec.id, field.id, { hasNote: e.target.checked })}
-                              disabled={['homework_subjects', 'study_extras', 'pc_activities'].includes(field.type)}
+                              disabled={['homework_subjects', 'study_extras', 'pc_activities', 'meal_details'].includes(field.type)}
                               className="rounded-xs text-indigo-600 focus:ring-indigo-500"
                             />
                             <span>備考入力欄を表示</span>

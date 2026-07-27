@@ -1,23 +1,23 @@
 import type { Template, TemplateField } from '../types';
 import { HOMEWORK_FIELD_HELP, HOMEWORK_SUBJECTS } from '../utils/homeworkField';
 
-const expressionOptions = [
-  '1：笑顔が見られ、明るい表情だった',
-  '2：口元がやわらかく、穏やかな表情だった',
+export const EXPRESSION_SCALE_OPTIONS = [
+  '1：うつむきや暗い表情が強く見られた',
+  '2：表情が硬く、やや暗い様子だった',
   '3：普段通りで、大きな変化は見られなかった',
-  '4：表情が硬く、やや暗い様子だった',
-  '5：うつむきや暗い表情が強く見られた',
+  '4：口元がやわらかく、穏やかな表情だった',
+  '5：笑顔が見られ、明るい表情だった',
 ];
 
-const fatigueOptions = [
-  '1：疲労感は見られなかった',
-  '2：少し疲れた様子が見られた',
+export const FATIGUE_RATING_OPTIONS = [
+  '1：非常に強い疲労感が見られた',
+  '2：強い疲れや休息を求める様子が見られた',
   '3：疲れた様子が見られた',
-  '4：強い疲れや休息を求める様子が見られた',
-  '5：非常に強い疲労感が見られた',
+  '4：少し疲れた様子が見られた',
+  '5：疲労感は見られなかった',
 ];
 
-const preparationOptions = [
+export const PREPARATION_SCALE_OPTIONS = [
   '1：準備を行うことができなかった',
   '2：繰り返しの声掛けや手順の提示で一部行えた',
   '3：指導員の声掛けで行えた',
@@ -25,7 +25,7 @@ const preparationOptions = [
   '5：必要な準備に気づき、自分で行えた',
 ];
 
-const responseOptions = [
+export const RESPONSE_SCALE_OPTIONS = [
   '1：声掛けに反応が見られなかった',
   '2：反応はあったが、返事が小さい・遅れる様子だった',
   '3：声掛けに返事ができた',
@@ -33,7 +33,7 @@ const responseOptions = [
   '5：目を合わせ、はっきりと返事ができた',
 ];
 
-const homeworkAttitudeOptions = [
+export const HOMEWORK_ATTITUDE_SCALE_OPTIONS = [
   '1：宿題に取り組むことができなかった',
   '2：継続した支援を受けながら一部取り組めた',
   '3：分からないところを自ら聞いて取り組めた',
@@ -41,7 +41,7 @@ const homeworkAttitudeOptions = [
   '5：自力で宿題を済ませられた',
 ];
 
-const transitionOptions = [
+export const TRANSITION_SCALE_OPTIONS = [
   '1：自由時間から切り替えることができなかった',
   '2：繰り返しの声掛け後に時間をかけて切り替えられた',
   '3：指導員からの声掛けで切り替えられた',
@@ -49,7 +49,7 @@ const transitionOptions = [
   '5：自分でタイマーに気づき、切り替えられた',
 ];
 
-const studyPostureOptions = [
+export const STUDY_POSTURE_OPTIONS = [
   '背がまっすぐ',
   '背が丸まる',
   '横を向いている',
@@ -60,7 +60,7 @@ const studyPostureOptions = [
   'その他',
 ];
 
-const pcPostureOptions = [
+export const PC_POSTURE_OPTIONS = [
   '背がまっすぐ',
   '背が丸まる',
   '横を向いている',
@@ -71,8 +71,12 @@ const pcPostureOptions = [
   'その他',
 ];
 
-function periodFields(periodNumber: 1 | 2): TemplateField[] {
-  const prefix = `period${periodNumber}`;
+export function createLearningPcFields(
+  prefix: string,
+  typeQuestion: string,
+  typeLabel: string,
+  options: string[] = ['学習', 'パソコン', 'その他'],
+): TemplateField[] {
   const visibleWhen = (value: '学習' | 'パソコン') => ({
     fieldId: `${prefix}_type`,
     equals: value,
@@ -81,10 +85,10 @@ function periodFields(periodNumber: 1 | 2): TemplateField[] {
   return [
     {
       id: `${prefix}_type`,
-      label: `${periodNumber}コマ目の取り組み`,
-      questionTitle: `${periodNumber}コマ目はなんの取り組みですか？`,
+      label: typeLabel,
+      questionTitle: typeQuestion,
       type: 'radio',
-      options: ['学習', 'パソコン', 'その他'],
+      options,
       defaultValue: '',
       hasNote: true,
       notePlaceholder: '取り組み内容や補足を入力してください。',
@@ -106,7 +110,7 @@ function periodFields(periodNumber: 1 | 2): TemplateField[] {
       label: '宿題への取り組み',
       questionTitle: '宿題への取り組みはどうですか？',
       type: 'rating_scale',
-      options: homeworkAttitudeOptions,
+      options: HOMEWORK_ATTITUDE_SCALE_OPTIONS,
       defaultValue: '',
       hasNote: true,
       notePlaceholder: '取り組み方や必要だった支援を簡潔に入力してください。',
@@ -131,7 +135,7 @@ function periodFields(periodNumber: 1 | 2): TemplateField[] {
       label: '学習時の姿勢',
       questionTitle: '学習時の姿勢はどうでしたか？',
       type: 'checkbox',
-      options: studyPostureOptions,
+      options: STUDY_POSTURE_OPTIONS,
       defaultValue: '',
       hasNote: true,
       notePlaceholder: '「その他」の内容や、姿勢についての補足を入力してください。',
@@ -165,7 +169,7 @@ function periodFields(periodNumber: 1 | 2): TemplateField[] {
       label: '取り組み時の姿勢',
       questionTitle: '取り組み時の姿勢はどうでしたか？',
       type: 'checkbox',
-      options: pcPostureOptions,
+      options: PC_POSTURE_OPTIONS,
       defaultValue: '',
       hasNote: true,
       notePlaceholder: '「その他」の内容や、姿勢についての補足を入力してください。',
@@ -177,7 +181,7 @@ function periodFields(periodNumber: 1 | 2): TemplateField[] {
       label: '自由時間からの切り替え',
       questionTitle: '自由時間からの切り替えはどうですか？',
       type: 'rating_scale',
-      options: transitionOptions,
+      options: TRANSITION_SCALE_OPTIONS,
       defaultValue: '',
       hasNote: true,
       notePlaceholder: 'タイマーへの気づき方や、必要だった声掛けを簡潔に入力してください。',
@@ -189,6 +193,14 @@ function periodFields(periodNumber: 1 | 2): TemplateField[] {
   ];
 }
 
+function periodFields(periodNumber: 1 | 2): TemplateField[] {
+  return createLearningPcFields(
+    `period${periodNumber}`,
+    `${periodNumber}コマ目はなんの取り組みですか？`,
+    `${periodNumber}コマ目の取り組み`,
+  );
+}
+
 export const STANDARD_WEEKDAY_TEMPLATE: Template = {
   id: 'template-weekday',
   name: '支援経過記録 (平日)',
@@ -198,8 +210,8 @@ export const STANDARD_WEEKDAY_TEMPLATE: Template = {
   wizardQuestions: {
     expression: {
       title: '来所時の表情はどうですか？',
-      help: '1が笑顔、5が暗い表情の基準です。最も近い状態を1つ選択してください。',
-      options: expressionOptions,
+      help: '1が暗い表情、5が笑顔の基準です。最も近い状態を1つ選択してください。',
+      options: EXPRESSION_SCALE_OPTIONS,
       noteLabel: '表情の備考（任意）',
       notePlaceholder: '来所時の具体的な表情や、その後の変化を入力してください。',
     },
@@ -237,20 +249,20 @@ export const STANDARD_WEEKDAY_TEMPLATE: Template = {
           label: '疲労感',
           questionTitle: '来所時の疲労感はどうですか？',
           type: 'rating_scale',
-          options: fatigueOptions,
+          options: FATIGUE_RATING_OPTIONS,
           defaultValue: '',
           hasNote: true,
           notePlaceholder: '疲れた様子、休息の必要性、眠気などを入力してください。',
-          helpText: '1が「疲労感なし」、5が「疲労感が強い」の基準です。',
-          scaleLowLabel: '1：疲労感なし',
-          scaleHighLabel: '5：疲労感が強い',
+          helpText: '1が「疲労感が非常に強い」、5が「疲労感なし」の基準です。',
+          scaleLowLabel: '1：疲労感が非常に強い',
+          scaleHighLabel: '5：疲労感なし',
         },
         {
           id: 'preparation',
           label: '準備',
           questionTitle: '準備はどうですか？',
           type: 'rating_scale',
-          options: preparationOptions,
+          options: PREPARATION_SCALE_OPTIONS,
           defaultValue: '',
           hasNote: true,
           notePlaceholder: '荷物整理など、自分で行えた範囲を入力してください。',
@@ -263,7 +275,7 @@ export const STANDARD_WEEKDAY_TEMPLATE: Template = {
           label: '声掛けへの反応',
           questionTitle: '指導員からの声掛けへの反応はどうですか？',
           type: 'rating_scale',
-          options: responseOptions,
+          options: RESPONSE_SCALE_OPTIONS,
           defaultValue: '',
           hasNote: true,
           notePlaceholder: '目線、返事の様子、反応までの時間などを入力してください。',
@@ -309,11 +321,49 @@ export function isStructuredWeekdayTemplate(template?: Template) {
 }
 
 export function upgradeStandardWeekdayTemplate(template: Template): Template {
-  if (template.id !== STANDARD_WEEKDAY_TEMPLATE.id || isStructuredWeekdayTemplate(template)) return template;
+  if (template.id !== STANDARD_WEEKDAY_TEMPLATE.id) return template;
+  if (!isStructuredWeekdayTemplate(template)) {
+    return {
+      ...STANDARD_WEEKDAY_TEMPLATE,
+      name: template.name || STANDARD_WEEKDAY_TEMPLATE.name,
+      description: template.description || STANDARD_WEEKDAY_TEMPLATE.description,
+      isDefault: template.isDefault ?? true,
+    };
+  }
+
+  const currentExpression = template.wizardQuestions?.expression;
+  const expressionNeedsDirectionFix = !currentExpression?.options?.length
+    || /笑顔|明る/.test(currentExpression.options[0] || '');
   return {
-    ...STANDARD_WEEKDAY_TEMPLATE,
-    name: template.name || STANDARD_WEEKDAY_TEMPLATE.name,
-    description: template.description || STANDARD_WEEKDAY_TEMPLATE.description,
-    isDefault: template.isDefault ?? true,
+    ...template,
+    wizardQuestions: {
+      ...template.wizardQuestions,
+      expression: {
+        ...STANDARD_WEEKDAY_TEMPLATE.wizardQuestions?.expression,
+        ...currentExpression,
+        ...(expressionNeedsDirectionFix ? {
+          help: STANDARD_WEEKDAY_TEMPLATE.wizardQuestions?.expression?.help,
+          options: [...EXPRESSION_SCALE_OPTIONS],
+        } : {}),
+      },
+    },
+    sections: template.sections.map((section) => ({
+      ...section,
+      fields: section.fields.map((field) => {
+        if (section.id === 'life' && field.id === 'fatigue') {
+          const fatigueNeedsDirectionFix = !field.options?.length
+            || /疲労感は見られなかった|なし/.test(field.options[0] || '');
+          if (!fatigueNeedsDirectionFix) return field;
+          return {
+            ...field,
+            options: [...FATIGUE_RATING_OPTIONS],
+            helpText: '1が「疲労感が非常に強い」、5が「疲労感なし」の基準です。',
+            scaleLowLabel: '1：疲労感が非常に強い',
+            scaleHighLabel: '5：疲労感なし',
+          };
+        }
+        return field;
+      }),
+    })),
   };
 }

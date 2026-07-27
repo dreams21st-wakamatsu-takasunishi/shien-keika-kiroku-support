@@ -74,7 +74,8 @@ export type FieldType =
   | 'rating_scale'
   | 'homework_subjects'
   | 'study_extras'
-  | 'pc_activities';
+  | 'pc_activities'
+  | 'meal_details';
 
 export interface FieldOption {
   id: string;
