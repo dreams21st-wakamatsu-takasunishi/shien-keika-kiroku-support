@@ -1,4 +1,5 @@
 import { SupportRecord, SectionAnswer } from '../types';
+import { generateStructuredWeekdaySummary, hasStructuredWeekdayAnswers } from './weekdayRecordSummary';
 
 /**
  * Automatically builds a coherent, professional summary text from structured form responses.
@@ -7,6 +8,9 @@ export function generateRecordSummary(
   record: Partial<SupportRecord> & { sectionAnswers?: Record<string, SectionAnswer> }
 ): string {
   if (!record.sectionAnswers) return '';
+  if (hasStructuredWeekdayAnswers(record as Pick<SupportRecord, 'sectionAnswers'>)) {
+    return record.synthesizedSummary || generateStructuredWeekdaySummary(record as SupportRecord);
+  }
 
   const parts: string[] = [];
 
@@ -52,6 +56,9 @@ export function generateNarrativeReport(
   record: Partial<SupportRecord> & { sectionAnswers?: Record<string, SectionAnswer> }
 ): string {
   if (!record.sectionAnswers) return '';
+  if (hasStructuredWeekdayAnswers(record as Pick<SupportRecord, 'sectionAnswers'>)) {
+    return record.synthesizedSummary || generateStructuredWeekdaySummary(record as SupportRecord);
+  }
 
   const narrativeParts: string[] = [];
   const handledSections = new Set<string>();

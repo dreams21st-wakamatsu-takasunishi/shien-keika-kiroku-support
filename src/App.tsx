@@ -37,6 +37,7 @@ import { useAuth } from './hooks/useAuth';
 import { supabase } from './lib/supabase';
 import { FEATURE_FLAGS } from './config/features';
 import { normalizeTemplateFatigueScale } from './utils/templateNormalizer';
+import { upgradeStandardWeekdayTemplate } from './data/weekdayTemplate';
 import {
   archiveMorningMeetingTemplate,
   archiveTemplate,
@@ -90,7 +91,7 @@ export default function App() {
     if (remoteMode) return [];
     const saved = localStorage.getItem('support_templates_data');
     const source = saved ? JSON.parse(saved) as Template[] : defaultTemplates;
-    return source.map(normalizeTemplateFatigueScale);
+    return source.map((template) => upgradeStandardWeekdayTemplate(normalizeTemplateFatigueScale(template)));
   });
   const [childrenList, setChildrenList] = useState<ChildProfile[]>(() => {
     if (remoteMode) return [];
@@ -930,6 +931,7 @@ export default function App() {
             initialRecord={currentRecord}
             organizationId={organizationId}
             userId={auth.profile?.id}
+            userDisplayName={auth.profile?.displayName}
             draftKey={activeDraftKey}
             activeRecorder={activeRecorder || undefined}
             assistantPrefill={assistantRecordPrefill}

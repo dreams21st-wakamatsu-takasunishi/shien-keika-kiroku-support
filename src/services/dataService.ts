@@ -21,6 +21,7 @@ import {
   Weekday,
 } from '../types';
 import { normalizeTemplateFatigueScale } from '../utils/templateNormalizer';
+import { upgradeStandardWeekdayTemplate } from '../data/weekdayTemplate';
 import { calculateSchoolGrade } from '../utils/schoolGrade';
 import { getLocalDateString } from '../utils/weekdays';
 
@@ -139,7 +140,7 @@ function mapHandoverConfirmation(row: any): HandoverConfirmation {
 }
 
 function mapTemplate(row: any): Template {
-  return normalizeTemplateFatigueScale({
+  return upgradeStandardWeekdayTemplate(normalizeTemplateFatigueScale({
     id: row.id,
     name: row.name,
     type: row.template_type,
@@ -147,7 +148,7 @@ function mapTemplate(row: any): Template {
     description: row.description || undefined,
     sections: row.sections || [],
     wizardQuestions: row.wizard_questions || undefined,
-  });
+  }));
 }
 
 function mapSupportPlan(row: any): SupportPlan {

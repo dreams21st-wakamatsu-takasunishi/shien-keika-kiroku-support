@@ -35,7 +35,6 @@ import { QuickMemoPad } from './QuickMemoPad';
 import {
   FATIGUE_SCALE_OPTIONS,
   formatHandCount,
-  isFatigueField,
   normalizeFatigueValue,
   parseHandCount,
 } from '../utils/templateNormalizer';
@@ -51,6 +50,8 @@ import {
 } from '../utils/homeworkField';
 import { getCurrentDraftCycleKey, getNextDraftResetAt, isDraftCurrent } from '../utils/draftExpiry';
 import { createRecordDraftKey, getDeviceId } from '../utils/deviceId';
+import { isStructuredWeekdayTemplate } from '../data/weekdayTemplate';
+import { generateStructuredWeekdaySummary } from '../utils/weekdayRecordSummary';
 
 interface RecordFormProps {
   templates: Template[];
@@ -59,6 +60,7 @@ interface RecordFormProps {
   initialRecord?: SupportRecord | null;
   organizationId?: string;
   userId?: string;
+  userDisplayName?: string;
   draftKey?: string;
   activeRecorder?: RecorderProfile;
   assistantPrefill?: { childId: string; date: string; requestId: string } | null;
@@ -81,6 +83,7 @@ type StepKind =
   | 'abc-consequence'
   | 'abc-antecedent'
   | 'abc-summary'
+  | 'abc-sequence'
   | 'review';
 
 interface WizardStep {
@@ -90,6 +93,7 @@ interface WizardStep {
   help?: string;
   sectionId?: string;
   fieldId?: string;
+  displayNumber?: number;
 }
 
 interface ChildDraft {
@@ -105,7 +109,7 @@ interface ChildDraft {
 }
 
 interface WizardDraft {
-  version: 7;
+  version: 8;
   draftCycleKey: string;
   selectedTemplateId: string;
   selectedChildIds: string[];
@@ -315,6 +319,220 @@ function HomeworkSubjectInput({
   );
 }
 
+const KANKEN_GRADES = ['10級', '9級', '8級', '7級', '6級', '5級', '4級', '3級', '準2級', '2級', '準1級', '1級'];
+const EDISON_OPTIONS = ['練習帳', '確認テスト'];
+const D_LESSON_OPTIONS = ['マウス練習', 'ビジョントレーニング', 'タイピング練習', 'ブラインドタッチ練習', '文章入力練習', 'Word練習'];
+
+function detailArray(details: Record<string, string | string[]> | undefined, key: string) {
+  const value = details?.[key];
+  return Array.isArray(value) ? value : [];
+}
+
+function clampHandCount(value: string) {
+  if (!value) return '';
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isNaN(parsed)) return '';
+  return String(Math.min(5, Math.max(0, parsed)));
+}
+
+function StudyExtrasInput({
+  answer,
+  onChange,
+}: {
+  answer: SectionFieldAnswer;
+  onChange: (answer: SectionFieldAnswer) => void;
+}) {
+  const details = answer.nestedDetails || {};
+  const selections = detailArray(details, 'selections');
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const commit = (nextDetails: Record<string, string | string[]>) => {
+    const nextSelections = detailArray(nextDetails, 'selections');
+    const parts = nextSelections.map((selection) => {
+      if (selection === '漢検') {
+        const grade = String(nextDetails.kankenGrade || '').trim();
+        return grade ? `漢検（${grade}）` : '漢検';
+      }
+      if (selection === 'エジソン') {
+        const activities = detailArray(nextDetails, 'edisonActivities');
+        return activities.length ? `エジソン（${activities.join('・')}）` : 'エジソン';
+      }
+      if (selection === 'その他') {
+        const note = String(nextDetails.otherNote || '').trim();
+        return note ? `その他（${note}）` : 'その他';
+      }
+      return selection;
+    });
+    onChange({ ...answer, value: parts.join('、'), nestedDetails: nextDetails });
+  };
+
+  const toggleSelection = (selection: string) => {
+    const selected = selections.includes(selection);
+    if (selected) {
+      setExpanded((current) => current === selection ? null : selection);
+      return;
+    }
+    const nextSelections = selection === '取り組みなし'
+      ? ['取り組みなし']
+      : [...selections.filter((item) => item !== '取り組みなし'), selection];
+    commit({ ...details, selections: nextSelections });
+    setExpanded(selection === '取り組みなし' ? null : selection);
+  };
+
+  const removeSelection = (selection: string) => {
+    const next: Record<string, string | string[]> = { ...details, selections: selections.filter((item) => item !== selection) };
+    if (selection === '漢検') delete next.kankenGrade;
+    if (selection === 'エジソン') delete next.edisonActivities;
+    if (selection === 'その他') delete next.otherNote;
+    commit(next);
+    setExpanded(null);
+  };
+
+  return (
+    <div className="space-y-3">
+      {['漢検', 'エジソン', '取り組みなし', 'その他'].map((selection) => {
+        const selected = selections.includes(selection);
+        const isExpanded = selected && expanded === selection;
+        const summary = selection === '漢検'
+          ? String(details.kankenGrade || '')
+          : selection === 'エジソン'
+            ? detailArray(details, 'edisonActivities').join('・')
+            : selection === 'その他'
+              ? String(details.otherNote || '')
+              : '';
+        return (
+          <div key={selection} className={`overflow-hidden rounded-2xl border-2 ${selected ? 'border-teal-500 bg-teal-50' : 'border-slate-200 bg-white'}`}>
+            <button type="button" aria-pressed={selected} aria-expanded={isExpanded} onClick={() => toggleSelection(selection)} className="flex min-h-14 w-full items-center gap-3 px-4 py-3 text-left">
+              <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border-2 ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300 text-transparent'}`}><Check className="h-5 w-5" /></span>
+              <span className="min-w-0 flex-1"><strong className="block text-base text-slate-900">{selection}</strong>{selected && selection !== '取り組みなし' && <span className="block truncate text-xs font-bold text-teal-800">{summary || '詳細を入力してください'}</span>}</span>
+              {selected && selection !== '取り組みなし' && <ChevronRight className={`h-5 w-5 text-teal-700 ${isExpanded ? 'rotate-90' : ''}`} />}
+            </button>
+            {isExpanded && (
+              <div className="space-y-3 border-t border-teal-200 bg-white p-4">
+                {selection === '漢検' && (
+                  <label className="block text-sm font-bold text-slate-700">取り組んだ級
+                    <select value={String(details.kankenGrade || '')} onChange={(event) => commit({ ...details, kankenGrade: event.target.value })} className={`${inputClass} mt-2`}>
+                      <option value="">級を選択してください</option>
+                      {KANKEN_GRADES.map((grade) => <option key={grade} value={grade}>{grade}</option>)}
+                    </select>
+                  </label>
+                )}
+                {selection === 'エジソン' && (
+                  <div><p className="mb-2 text-sm font-bold text-slate-700">取り組んだ内容（複数選択可）</p><div className="grid grid-cols-2 gap-2">{EDISON_OPTIONS.map((option) => {
+                    const selectedOption = detailArray(details, 'edisonActivities').includes(option);
+                    return <button key={option} type="button" onClick={() => { const current = detailArray(details, 'edisonActivities'); commit({ ...details, edisonActivities: selectedOption ? current.filter((item) => item !== option) : [...current, option] }); }} className={`${choiceClass} ${selectedOption ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300 bg-white text-slate-700'}`}>{selectedOption && <Check className="mr-1 inline h-4 w-4" />}{option}</button>;
+                  })}</div></div>
+                )}
+                {selection === 'その他' && <textarea rows={3} value={String(details.otherNote || '')} onChange={(event) => commit({ ...details, otherNote: event.target.value })} placeholder="取り組み内容を簡潔に入力" className={inputClass} />}
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <button type="button" onClick={() => setExpanded(null)} className="min-h-12 rounded-xl bg-teal-600 px-4 text-sm font-black text-white">入力を完了して閉じる</button>
+                  <button type="button" onClick={() => removeSelection(selection)} className="min-h-12 rounded-xl border border-rose-300 px-4 text-sm font-bold text-rose-700">選択を解除</button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function PcActivitiesInput({
+  answer,
+  onChange,
+}: {
+  answer: SectionFieldAnswer;
+  onChange: (answer: SectionFieldAnswer) => void;
+}) {
+  const details = answer.nestedDetails || {};
+  const selections = detailArray(details, 'selections');
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const commit = (nextDetails: Record<string, string | string[]>) => {
+    const nextSelections = detailArray(nextDetails, 'selections');
+    const parts = nextSelections.map((selection) => {
+      if (selection === 'Dレッスン') {
+        const activities = detailArray(nextDetails, 'dLessonActivities');
+        return activities.length ? `Dレッスン（${activities.join('・')}）` : 'Dレッスン';
+      }
+      if (selection === '文章入力模擬試験') {
+        const count = String(nextDetails.mockCharacterCount || '').trim();
+        const round = String(nextDetails.mockPastRound || '').trim();
+        const values = [count && `${count}文字`, round && `第${round}回過去問`].filter(Boolean);
+        return values.length ? `文章入力模擬試験（${values.join('・')}）` : '文章入力模擬試験';
+      }
+      const note = String(nextDetails.otherNote || '').trim();
+      return note ? `その他（${note}）` : 'その他';
+    });
+    onChange({ ...answer, value: parts.join('、'), nestedDetails: nextDetails });
+  };
+
+  const toggleSelection = (selection: string) => {
+    if (selections.includes(selection)) {
+      setExpanded((current) => current === selection ? null : selection);
+      return;
+    }
+    commit({ ...details, selections: [...selections, selection] });
+    setExpanded(selection);
+  };
+
+  const removeSelection = (selection: string) => {
+    const next: Record<string, string | string[]> = { ...details, selections: selections.filter((item) => item !== selection) };
+    if (selection === 'Dレッスン') delete next.dLessonActivities;
+    if (selection === '文章入力模擬試験') {
+      delete next.mockCharacterCount;
+      delete next.mockPastRound;
+    }
+    if (selection === 'その他') delete next.otherNote;
+    commit(next);
+    setExpanded(null);
+  };
+
+  return (
+    <div className="space-y-3">
+      {['Dレッスン', '文章入力模擬試験', 'その他'].map((selection) => {
+        const selected = selections.includes(selection);
+        const isExpanded = selected && expanded === selection;
+        const summary = selection === 'Dレッスン'
+          ? detailArray(details, 'dLessonActivities').join('・')
+          : selection === '文章入力模擬試験'
+            ? [details.mockCharacterCount && `${details.mockCharacterCount}文字`, details.mockPastRound && `第${details.mockPastRound}回過去問`].filter(Boolean).join('・')
+            : String(details.otherNote || '');
+        return (
+          <div key={selection} className={`overflow-hidden rounded-2xl border-2 ${selected ? 'border-teal-500 bg-teal-50' : 'border-slate-200 bg-white'}`}>
+            <button type="button" aria-pressed={selected} aria-expanded={isExpanded} onClick={() => toggleSelection(selection)} className="flex min-h-14 w-full items-center gap-3 px-4 py-3 text-left">
+              <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border-2 ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300 text-transparent'}`}><Check className="h-5 w-5" /></span>
+              <span className="min-w-0 flex-1"><strong className="block text-base text-slate-900">{selection}</strong>{selected && <span className="block truncate text-xs font-bold text-teal-800">{summary || '詳細を入力してください'}</span>}</span>
+              {selected && <ChevronRight className={`h-5 w-5 text-teal-700 ${isExpanded ? 'rotate-90' : ''}`} />}
+            </button>
+            {isExpanded && (
+              <div className="space-y-3 border-t border-teal-200 bg-white p-4">
+                {selection === 'Dレッスン' && (
+                  <div><p className="mb-2 text-sm font-bold text-slate-700">取り組んだ練習（複数選択可）</p><div className="grid gap-2 sm:grid-cols-2">{D_LESSON_OPTIONS.map((option) => {
+                    const selectedOption = detailArray(details, 'dLessonActivities').includes(option);
+                    return <button key={option} type="button" onClick={() => { const current = detailArray(details, 'dLessonActivities'); commit({ ...details, dLessonActivities: selectedOption ? current.filter((item) => item !== option) : [...current, option] }); }} className={`${choiceClass} text-left ${selectedOption ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300 bg-white text-slate-700'}`}>{selectedOption && <Check className="mr-1 inline h-4 w-4" />}{option}</button>;
+                  })}</div></div>
+                )}
+                {selection === '文章入力模擬試験' && (
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <label className="text-sm font-bold text-slate-700">入力文字数<div className="mt-2 flex items-center gap-2"><input type="number" min="0" inputMode="numeric" value={String(details.mockCharacterCount || '')} onChange={(event) => commit({ ...details, mockCharacterCount: event.target.value })} className={inputClass} /><span>文字</span></div></label>
+                    <label className="text-sm font-bold text-slate-700">過去問<div className="mt-2 flex items-center gap-2"><span>第</span><input type="number" min="1" inputMode="numeric" value={String(details.mockPastRound || '')} onChange={(event) => commit({ ...details, mockPastRound: event.target.value })} className={inputClass} /><span>回</span></div></label>
+                  </div>
+                )}
+                {selection === 'その他' && <textarea rows={3} value={String(details.otherNote || '')} onChange={(event) => commit({ ...details, otherNote: event.target.value })} placeholder="取り組み内容を簡潔に入力" className={inputClass} />}
+                <div className="grid gap-2 sm:grid-cols-2">
+                  <button type="button" onClick={() => setExpanded(null)} className="min-h-12 rounded-xl bg-teal-600 px-4 text-sm font-black text-white">入力を完了して閉じる</button>
+                  <button type="button" onClick={() => removeSelection(selection)} className="min-h-12 rounded-xl border border-rose-300 px-4 text-sm font-bold text-rose-700">選択を解除</button>
+                </div>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function newRecordId() {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return `rec-${crypto.randomUUID()}`;
   return `rec-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -332,7 +550,7 @@ function createSectionAnswers(template?: Template, existing?: Record<string, Sec
         value,
         note: '',
       };
-      if (isFatigueField(field)) {
+      if (field.type === 'fatigue_scale') {
         answers[field.id] = {
           ...answers[field.id],
           value: normalizeFatigueValue(value),
@@ -368,7 +586,7 @@ function createChildDraft(template?: Template, record?: SupportRecord): ChildDra
 function normalizeWizardDraft(value: unknown): WizardDraft | null {
   if (!value || typeof value !== 'object') return null;
   const draft = value as Partial<WizardDraft> & { version?: number };
-  if (![2, 3, 4, 5, 6, 7].includes(draft.version || 0) || !Array.isArray(draft.selectedChildIds) || !draft.childDrafts) return null;
+  if (![2, 3, 4, 5, 6, 7, 8].includes(draft.version || 0) || !Array.isArray(draft.selectedChildIds) || !draft.childDrafts) return null;
   if (!isDraftCurrent(draft.draftCycleKey, draft.updatedAt)) return null;
   const previousStepIndex = draft.currentStepIndex || 0;
   const currentStepIndex = (draft.version || 0) < 4
@@ -376,7 +594,7 @@ function normalizeWizardDraft(value: unknown): WizardDraft | null {
     : previousStepIndex;
   return {
     ...draft,
-    version: 7,
+    version: 8,
     draftCycleKey: getCurrentDraftCycleKey(),
     recorderId: draft.recorderId || '',
     currentStepIndex,
@@ -391,6 +609,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   initialRecord,
   organizationId,
   userId,
+  userDisplayName,
   draftKey: requestedDraftKey,
   activeRecorder,
   assistantPrefill,
@@ -398,7 +617,16 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   onDraftChanged,
   onCreateHandover,
 }) => {
-  const initialTemplate = templates.find((template) => template.id === initialRecord?.templateId) || templates[0];
+  const storedTemplate = templates.find((template) => template.id === initialRecord?.templateId) || templates[0];
+  const initialTemplate = initialRecord?.templateSectionsSnapshot?.length
+    ? {
+        id: initialRecord.templateId,
+        name: initialRecord.templateName,
+        type: initialRecord.templateType,
+        sections: initialRecord.templateSectionsSnapshot,
+        wizardQuestions: storedTemplate?.wizardQuestions,
+      } satisfies Template
+    : storedTemplate;
   const draftKey = useRef(
     requestedDraftKey
       || (initialRecord ? `record-edit-${initialRecord.id}` : createRecordDraftKey())
@@ -416,14 +644,14 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         ? recorderProfiles[0]
         : undefined);
     const base: WizardDraft = {
-      version: 7,
+      version: 8,
       draftCycleKey: getCurrentDraftCycleKey(),
       selectedTemplateId: initialTemplate?.id || '',
       selectedChildIds: initialRecord ? [initialRecord.childId] : assistantPrefill ? [assistantPrefill.childId] : [],
       activeChildId: initialRecord?.childId || assistantPrefill?.childId || '',
       date: initialRecord?.date || assistantPrefill?.date || new Date().toISOString().split('T')[0],
-      recorderId: initialRecorder?.id || '',
-      recorderName: activeRecorder?.displayName || initialRecord?.recorderName || initialRecorder?.displayName || '',
+      recorderId: activeRecorder?.id || initialRecord?.recorderId || (!userDisplayName ? initialRecorder?.id : '') || '',
+      recorderName: activeRecorder?.displayName || initialRecord?.recorderName || userDisplayName || initialRecorder?.displayName || '',
       currentStepIndex: 0,
       childStepIds: {},
       childDrafts: initialRecord
@@ -466,7 +694,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const deviceId = useRef(getDeviceId()).current;
   const remoteRevision = useRef<number | null>(null);
 
-  const activeTemplate = templates.find((template) => template.id === wizard.selectedTemplateId) || templates[0];
+  const activeTemplate = initialRecord
+    ? initialTemplate
+    : templates.find((template) => template.id === wizard.selectedTemplateId) || templates[0];
   const wizardQuestions = getWizardQuestions(activeTemplate);
   const activeChild = childrenList.find((child) => child.id === wizard.activeChildId);
   const activeChildDraft = wizard.childDrafts[wizard.activeChildId];
@@ -509,7 +739,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     const timer = window.setTimeout(() => {
       const payload: WizardDraft = {
         ...wizard,
-        version: 7,
+        version: 8,
         draftCycleKey: getCurrentDraftCycleKey(),
         updatedAt: new Date().toISOString(),
       };
@@ -572,15 +802,75 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const steps = useMemo<WizardStep[]>(() => {
     const questions = getWizardQuestions(activeTemplate);
     const next: WizardStep[] = [
-      { id: 'template', kind: 'template', ...questions.template },
-      { id: 'date', kind: 'date', ...questions.date },
-      { id: 'children', kind: 'children', ...questions.children },
-      { id: 'recorder', kind: 'recorder', ...questions.recorder },
+      { id: 'template', kind: 'template', displayNumber: 1, ...questions.template },
+      { id: 'date', kind: 'date', displayNumber: 2, ...questions.date },
+      { id: 'children', kind: 'children', displayNumber: 3, ...questions.children },
+    ];
+
+    if (!activeRecorder && !userDisplayName) {
+      next.push({ id: 'recorder', kind: 'recorder', ...questions.recorder });
+    }
+
+    if (isStructuredWeekdayTemplate(activeTemplate)) {
+      next.push(
+        { id: 'attendance', kind: 'attendance', displayNumber: 4, ...questions.attendance },
+        { id: 'expression', kind: 'expression', displayNumber: 5, ...questions.expression },
+      );
+
+      const life = activeTemplate?.sections.find((section) => section.id === 'life');
+      const addField = (sectionId: string, field: TemplateField, displayNumber: number) => next.push({
+        id: `field-${sectionId}-${field.id}`,
+        kind: 'field',
+        sectionId,
+        fieldId: field.id,
+        displayNumber,
+        title: field.questionTitle || `${field.label}はどうですか？`,
+        help: field.helpText,
+      });
+      const lifeNumbers: Record<string, number> = {
+        fatigue: 6,
+        preparation: 7,
+        response_to_prompt: 9,
+        medication: 10,
+      };
+      life?.fields.forEach((field) => addField('life', field, lifeNumbers[field.id] || 10));
+      const responseIndex = next.findIndex((step) => step.fieldId === 'response_to_prompt');
+      next.splice(responseIndex, 0, { id: 'snack', kind: 'snack', displayNumber: 8, ...questions.snack });
+
+      (['period1', 'period2'] as const).forEach((sectionId, sectionIndex) => {
+        const section = activeTemplate?.sections.find((candidate) => candidate.id === sectionId);
+        const baseNumber = sectionIndex === 0 ? 11 : 16;
+        const questionOffset: Record<string, number> = {
+          [`${sectionId}_type`]: 0,
+          [`${sectionId}_study_homework`]: 1,
+          [`${sectionId}_study_attitude`]: 2,
+          [`${sectionId}_study_extras`]: 3,
+          [`${sectionId}_study_posture`]: 4,
+          [`${sectionId}_pc_content`]: 1,
+          [`${sectionId}_pc_finger`]: 2,
+          [`${sectionId}_pc_posture`]: 3,
+          [`${sectionId}_pc_transition`]: 4,
+        };
+        section?.fields.forEach((field) => addField(sectionId, field, baseNumber + (questionOffset[field.id] || 0)));
+      });
+
+      next.push({
+        id: 'abc-special',
+        kind: 'abc-sequence',
+        sectionId: 'special',
+        displayNumber: 21,
+        title: questions.abcBehavior.title,
+        help: 'B（行動）→C（結果）→A（きっかけ）の順に入力します。各入力は箇条書きや短い言葉でまとめてください。',
+      });
+      next.push({ id: 'review', kind: 'review', title: 'フォーマット表示と文章合成プレビューを確認してください。' });
+      return next;
+    }
+
+    next.push(
       { id: 'attendance', kind: 'attendance', ...questions.attendance },
       { id: 'expression', kind: 'expression', ...questions.expression },
       { id: 'snack', kind: 'snack', ...questions.snack },
-    ];
-
+    );
     activeTemplate?.sections.forEach((section) => {
       if (section.hasSubTitleField) {
         next.push({
@@ -596,7 +886,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         kind: 'field',
         sectionId: section.id,
         fieldId: field.id,
-        title: `${section.title}：${field.label}`,
+        title: field.questionTitle || `${section.title}：${field.label}`,
         help: field.helpText,
       }));
       next.push(
@@ -628,7 +918,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     });
     next.push({ id: 'review', kind: 'review', title: '選択した児童全員の入力内容を確認してください。' });
     return next;
-  }, [activeTemplate]);
+  }, [activeRecorder, activeTemplate, userDisplayName]);
 
   useEffect(() => {
     if (wizard.currentStepIndex < steps.length) return;
@@ -636,7 +926,13 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   }, [steps.length, wizard.currentStepIndex]);
 
   const currentStep = steps[wizard.currentStepIndex];
-  const progress = steps.length > 0 ? ((wizard.currentStepIndex + 1) / steps.length) * 100 : 0;
+  const progress = currentStep?.kind === 'review'
+    ? 100
+    : currentStep?.displayNumber
+      ? (currentStep.displayNumber / 21) * 100
+      : steps.length > 0
+        ? ((wizard.currentStepIndex + 1) / steps.length) * 100
+        : 0;
   const isChildStep = currentStep && !['template', 'children', 'date', 'recorder', 'review'].includes(currentStep.kind);
 
   const updateWizard = (updates: Partial<WizardDraft>) => setWizard((previous) => ({ ...previous, ...updates }));
@@ -741,6 +1037,21 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     .find((section) => section.id === step.sectionId)?.fields
     .find((field) => field.id === step.fieldId);
 
+  const fieldIsVisible = (field: TemplateField, childDraft?: ChildDraft, sectionId?: string) => {
+    if (!field.visibleWhen) return true;
+    const controllingValue = childDraft?.sectionAnswers[sectionId || '']?.answers[field.visibleWhen.fieldId]?.value;
+    const expectedValues = Array.isArray(field.visibleWhen.equals)
+      ? field.visibleWhen.equals
+      : [field.visibleWhen.equals];
+    return expectedValues.includes(controllingValue || '');
+  };
+
+  const stepIsVisible = (step: WizardStep, childDraft?: ChildDraft) => {
+    if (step.kind !== 'field') return true;
+    const field = fieldForStep(step);
+    return field ? fieldIsVisible(field, childDraft, step.sectionId) : false;
+  };
+
   const answerStatus = (step: WizardStep, childDraft?: ChildDraft): AnswerStatus => {
     if (!childDraft) return 'unanswered';
     if (childDraft.skippedQuestionIds.includes(step.id)) return 'skipped';
@@ -755,13 +1066,16 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       case 'abc-consequence': return section?.abcAnalysis?.consequence?.trim() ? 'answered' : 'unanswered';
       case 'abc-antecedent': return section?.abcAnalysis?.antecedent?.trim() ? 'answered' : 'unanswered';
       case 'abc-summary': return section?.abcAnalysis?.summary?.trim() ? 'answered' : 'unanswered';
+      case 'abc-sequence': return section?.abcAnalysis?.summary?.trim() ? 'answered' : 'unanswered';
       default: return 'answered';
     }
   };
 
-  const perChildSteps = steps.filter((step) => !['template', 'children', 'date', 'recorder', 'review'].includes(step.kind));
-  const unansweredForChild = (childId: string) => perChildSteps.filter((step) => answerStatus(step, wizard.childDrafts[childId]) === 'unanswered');
-  const skippedForChild = (childId: string) => perChildSteps.filter((step) => answerStatus(step, wizard.childDrafts[childId]) === 'skipped');
+  const allPerChildSteps = steps.filter((step) => !['template', 'children', 'date', 'recorder', 'review'].includes(step.kind));
+  const childStepsForDraft = (draft?: ChildDraft) => allPerChildSteps.filter((step) => stepIsVisible(step, draft));
+  const perChildSteps = childStepsForDraft(activeChildDraft);
+  const unansweredForChild = (childId: string) => childStepsForDraft(wizard.childDrafts[childId]).filter((step) => answerStatus(step, wizard.childDrafts[childId]) === 'unanswered');
+  const skippedForChild = (childId: string) => childStepsForDraft(wizard.childDrafts[childId]).filter((step) => answerStatus(step, wizard.childDrafts[childId]) === 'skipped');
 
   const getPreSaveChecks = (): PreSaveCheck[] => {
     const checks: PreSaveCheck[] = [];
@@ -795,6 +1109,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       activeTemplate?.sections.forEach((section) => {
         const sectionAnswer = draft.sectionAnswers[section.id];
         section.fields.forEach((field) => {
+          if (!fieldIsVisible(field, draft, section.id)) return;
           const answer = sectionAnswer?.answers?.[field.id];
           const stepId = `field-${section.id}-${field.id}`;
           if (field.required && !answer?.value?.trim() && !draft.skippedQuestionIds.includes(stepId)) {
@@ -822,6 +1137,57 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                 level: 'warning',
                 title: `${incomplete.join('・')}の詳しい内容が未入力です`,
                 detail: '教科を選択した直下の教材または自由記入欄を確認してください。',
+              });
+            }
+          }
+          if (field.type === 'study_extras' && answer?.nestedDetails) {
+            const details = answer.nestedDetails;
+            const selections = detailArray(details, 'selections');
+            const incomplete = [
+              selections.includes('漢検') && !String(details.kankenGrade || '').trim() ? '漢検の級' : '',
+              selections.includes('エジソン') && detailArray(details, 'edisonActivities').length === 0 ? 'エジソンの内容' : '',
+              selections.includes('その他') && !String(details.otherNote || '').trim() ? 'その他の内容' : '',
+            ].filter(Boolean);
+            if (incomplete.length) {
+              checks.push({
+                id: `${childId}-${stepId}-study-extras`,
+                childId,
+                childName,
+                level: 'warning',
+                title: `${incomplete.join('・')}が未入力です`,
+                detail: '選択した項目のすぐ下に表示される詳細欄を確認してください。',
+              });
+            }
+          }
+          if (field.type === 'pc_activities' && answer?.nestedDetails) {
+            const details = answer.nestedDetails;
+            const selections = detailArray(details, 'selections');
+            const incomplete = [
+              selections.includes('Dレッスン') && detailArray(details, 'dLessonActivities').length === 0 ? 'Dレッスンの練習内容' : '',
+              selections.includes('文章入力模擬試験') && (!String(details.mockCharacterCount || '').trim() || !String(details.mockPastRound || '').trim()) ? '模擬試験の文字数または過去問回' : '',
+              selections.includes('その他') && !String(details.otherNote || '').trim() ? 'その他の内容' : '',
+            ].filter(Boolean);
+            if (incomplete.length) {
+              checks.push({
+                id: `${childId}-${stepId}-pc-activities`,
+                childId,
+                childName,
+                level: 'warning',
+                title: `${incomplete.join('・')}が未入力です`,
+                detail: '選択した項目のすぐ下に表示される詳細欄を確認してください。',
+              });
+            }
+          }
+          if (field.type === 'hand_count' && answer?.value && answer.value !== 'タイピング練習に取り組んでいない') {
+            const counts = parseHandCount(answer.value);
+            if (!counts.left || !counts.right) {
+              checks.push({
+                id: `${childId}-${stepId}-hand-count`,
+                childId,
+                childName,
+                level: 'warning',
+                title: '左右どちらかの指本数が未入力です',
+                detail: '左・右の両方を0～5本で入力するか、「タイピング練習に取り組んでいない」を選択してください。',
               });
             }
           }
@@ -891,7 +1257,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const switchChild = (childId: string) => {
     const rememberedStepId = wizard.childStepIds[childId];
     const firstUnanswered = unansweredForChild(childId)[0];
-    const target = perChildSteps.find((step) => step.id === rememberedStepId) || firstUnanswered || perChildSteps[0];
+    const targetSteps = childStepsForDraft(wizard.childDrafts[childId]);
+    const target = targetSteps.find((step) => step.id === rememberedStepId) || firstUnanswered || targetSteps[0];
     moveToStep(target ? steps.findIndex((step) => step.id === target.id) : wizard.currentStepIndex, childId);
   };
 
@@ -915,7 +1282,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const goNext = () => {
     const error = validateGlobalStep();
     if (error) return setStepError(error);
-    if (wizard.currentStepIndex === steps.length - 2 && wizard.selectedChildIds.length > 1) {
+    const currentChildSteps = childStepsForDraft(activeChildDraft);
+    const currentChildStepIndex = currentStep ? currentChildSteps.findIndex((step) => step.id === currentStep.id) : -1;
+    if (currentChildStepIndex === currentChildSteps.length - 1 && currentChildStepIndex >= 0 && wizard.selectedChildIds.length > 1) {
       const activeIndex = wizard.selectedChildIds.indexOf(wizard.activeChildId);
       const remainingIds = [...wizard.selectedChildIds.slice(activeIndex + 1), ...wizard.selectedChildIds.slice(0, activeIndex)];
       const nextChildId = remainingIds.find((id) => unansweredForChild(id).length > 0);
@@ -925,7 +1294,25 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         return;
       }
     }
-    moveToStep(wizard.currentStepIndex + 1);
+    let targetIndex = wizard.currentStepIndex + 1;
+    while (targetIndex < steps.length) {
+      const target = steps[targetIndex];
+      const targetIsChildStep = !['template', 'children', 'date', 'recorder', 'review'].includes(target.kind);
+      if (!targetIsChildStep || stepIsVisible(target, activeChildDraft)) break;
+      targetIndex += 1;
+    }
+    moveToStep(targetIndex);
+  };
+
+  const goPrevious = () => {
+    let targetIndex = wizard.currentStepIndex - 1;
+    while (targetIndex >= 0) {
+      const target = steps[targetIndex];
+      const targetIsChildStep = !['template', 'children', 'date', 'recorder', 'review'].includes(target.kind);
+      if (!targetIsChildStep || stepIsVisible(target, activeChildDraft)) break;
+      targetIndex -= 1;
+    }
+    moveToStep(targetIndex);
   };
 
   const skipCurrent = () => {
@@ -956,12 +1343,16 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const renderField = (field: TemplateField, sectionId: string) => {
     const answer = activeChildDraft?.sectionAnswers[sectionId]?.answers[field.id] || { value: field.defaultValue || '', note: '' };
     const selectedValues = answer.value ? answer.value.split('、').filter(Boolean) : [];
-    const fatigueField = field.type === 'fatigue_scale' || isFatigueField(field);
-    const fatigueOptions = fatigueField ? [...FATIGUE_SCALE_OPTIONS] : [];
+    const ratingField = field.type === 'rating_scale' || field.type === 'fatigue_scale';
+    const ratingOptions = field.options?.length
+      ? field.options
+      : field.type === 'fatigue_scale'
+        ? [...FATIGUE_SCALE_OPTIONS]
+        : [];
     return (
       <div className="space-y-4">
-        {fatigueField && <div>
-          <div className="grid grid-cols-5 gap-1.5 sm:gap-2">{fatigueOptions.map((option) => {
+        {ratingField && <div>
+          <div className="grid gap-2">{ratingOptions.map((option) => {
             const [level, label] = option.split('：');
             const selected = answer.value === option;
             return (
@@ -969,22 +1360,22 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                 key={option}
                 type="button"
                 onClick={() => updateField(sectionId, field.id, option)}
-                aria-label={`疲労感 ${option}`}
+                aria-label={option}
                 aria-pressed={selected}
-                className={`min-h-16 rounded-xl border px-1 py-2 transition-all ${
+                className={`flex min-h-14 items-center gap-3 rounded-xl border-2 px-3 py-2.5 text-left transition-all ${
                   selected
                     ? 'border-teal-600 bg-teal-600 text-white shadow-sm'
                     : 'border-slate-300 bg-white text-slate-700'
-                }`}
+                  }`}
               >
-                <span className="block text-xl font-black leading-none">{level}</span>
-                <span className="mt-1 block text-[9px] font-bold leading-tight sm:text-[10px]">{label}</span>
+                <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-lg font-black ${selected ? 'bg-white/20' : 'bg-slate-100 text-slate-900'}`}>{level}</span>
+                <span className="text-sm font-bold leading-relaxed sm:text-base">{label || option}</span>
               </button>
             );
           })}</div>
-          <div className="mt-2 flex justify-between text-[10px] font-medium text-slate-500"><span>疲労なし</span><span>疲労が強い</span></div>
+          {(field.scaleLowLabel || field.scaleHighLabel) && <div className="mt-2 flex justify-between gap-3 text-[11px] font-bold text-slate-500"><span>{field.scaleLowLabel}</span><span className="text-right">{field.scaleHighLabel}</span></div>}
         </div>}
-        {field.type === 'radio' && !fatigueField && field.options && <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{field.options.map((option) => (
+        {field.type === 'radio' && !ratingField && field.options && <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{field.options.map((option) => (
           <button key={option} type="button" onClick={() => updateField(sectionId, field.id, option)} className={`${choiceClass} ${answer.value === option ? 'bg-teal-600 border-teal-600 text-white' : 'bg-white border-slate-300 text-slate-700'}`}>
             {answer.value === option && <Check className="inline w-4 h-4 mr-1" />}{option}
           </button>
@@ -999,22 +1390,38 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             onChange={(nextAnswer) => updateFieldAnswer(sectionId, field.id, nextAnswer)}
           />
         )}
+        {field.type === 'study_extras' && (
+          <StudyExtrasInput
+            answer={answer}
+            onChange={(nextAnswer) => updateFieldAnswer(sectionId, field.id, nextAnswer)}
+          />
+        )}
+        {field.type === 'pc_activities' && (
+          <PcActivitiesInput
+            answer={answer}
+            onChange={(nextAnswer) => updateFieldAnswer(sectionId, field.id, nextAnswer)}
+          />
+        )}
         {field.type === 'number' && <div className="flex items-center gap-3"><input type="number" value={answer.value} onChange={(event) => updateField(sectionId, field.id, event.target.value)} className={inputClass} />{field.unit && <span className="shrink-0 text-sm font-bold text-slate-600">{field.unit}</span>}</div>}
         {field.type === 'hand_count' && (() => {
+          const notPracticed = answer.value === 'タイピング練習に取り組んでいない';
           const handCount = parseHandCount(answer.value);
-          return <div className="grid grid-cols-2 gap-3">
-            <label className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-black text-slate-700">左手
-              <div className="mt-2 flex items-center gap-2"><input aria-label="左手の指本数" type="number" min="0" max="5" inputMode="numeric" value={handCount.left} onChange={(event) => updateField(sectionId, field.id, formatHandCount(event.target.value, handCount.right))} className={inputClass} /><span className="font-bold">本</span></div>
-            </label>
-            <label className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-black text-slate-700">右手
-              <div className="mt-2 flex items-center gap-2"><input aria-label="右手の指本数" type="number" min="0" max="5" inputMode="numeric" value={handCount.right} onChange={(event) => updateField(sectionId, field.id, formatHandCount(handCount.left, event.target.value))} className={inputClass} /><span className="font-bold">本</span></div>
-            </label>
+          return <div className="space-y-3">
+            <button type="button" onClick={() => updateField(sectionId, field.id, notPracticed ? '' : 'タイピング練習に取り組んでいない')} className={`flex min-h-12 w-full items-center gap-3 rounded-xl border-2 px-4 text-left text-sm font-bold ${notPracticed ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300 bg-white text-slate-700'}`}><span className={`flex h-6 w-6 items-center justify-center rounded-md border ${notPracticed ? 'border-white bg-white/20' : 'border-slate-300'}`}>{notPracticed && <Check className="h-4 w-4" />}</span>タイピング練習に取り組んでいない</button>
+            {!notPracticed && <div className="grid grid-cols-2 gap-3">
+              <label className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-black text-slate-700">左
+                <div className="mt-2 flex items-center gap-2"><input aria-label="左手の指本数" type="number" min="0" max="5" inputMode="numeric" value={handCount.left} onChange={(event) => updateField(sectionId, field.id, formatHandCount(clampHandCount(event.target.value), handCount.right))} className={inputClass} /><span className="font-bold">本</span></div>
+              </label>
+              <label className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm font-black text-slate-700">右
+                <div className="mt-2 flex items-center gap-2"><input aria-label="右手の指本数" type="number" min="0" max="5" inputMode="numeric" value={handCount.right} onChange={(event) => updateField(sectionId, field.id, formatHandCount(handCount.left, clampHandCount(event.target.value)))} className={inputClass} /><span className="font-bold">本</span></div>
+              </label>
+            </div>}
           </div>;
         })()}
         {field.type === 'text' && <input type="text" value={answer.value} onChange={(event) => updateField(sectionId, field.id, event.target.value)} className={inputClass} />}
         {field.type === 'textarea' && <textarea rows={5} value={answer.value} onChange={(event) => updateField(sectionId, field.id, event.target.value)} className={inputClass} />}
         {field.type === 'time_select' && <input type="time" value={answer.value} onChange={(event) => updateField(sectionId, field.id, event.target.value)} className={inputClass} />}
-        {field.hasNote && field.type !== 'homework_subjects' && <label className="block text-sm font-bold text-slate-700">備考（任意）<input type="text" value={answer.note || ''} onChange={(event) => updateField(sectionId, field.id, answer.value, event.target.value)} placeholder={field.notePlaceholder || '補足事項を入力'} className={`${inputClass} mt-2`} /></label>}
+        {field.hasNote && !['homework_subjects', 'study_extras', 'pc_activities'].includes(field.type) && <label className="block text-sm font-bold text-slate-700">備考（任意）<textarea rows={3} value={answer.note || ''} onChange={(event) => updateField(sectionId, field.id, answer.value, event.target.value)} placeholder={field.notePlaceholder || '補足事項を入力'} className={`${inputClass} mt-2`} /></label>}
       </div>
     );
   };
@@ -1023,7 +1430,19 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     if (!currentStep) return null;
     switch (currentStep.kind) {
       case 'template':
-        return <select value={wizard.selectedTemplateId} onChange={(event) => selectTemplate(event.target.value)} className={inputClass}>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</select>;
+        return (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {templates.map((template) => {
+              const selected = wizard.selectedTemplateId === template.id;
+              return (
+                <button key={template.id} type="button" onClick={() => selectTemplate(template.id)} aria-pressed={selected} className={`min-h-24 rounded-2xl border-2 p-4 text-left transition-all ${selected ? 'border-teal-600 bg-teal-50 shadow-sm' : 'border-slate-200 bg-white hover:border-teal-300'}`}>
+                  <span className="flex items-start justify-between gap-3"><span><strong className="block text-base font-black text-slate-900">{template.name}</strong><span className="mt-1 block text-xs font-bold text-teal-700">{template.type}</span></span><span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300 text-transparent'}`}><Check className="h-4 w-4" /></span></span>
+                  {template.description && <span className="mt-2 block text-xs leading-relaxed text-slate-500">{template.description}</span>}
+                </button>
+              );
+            })}
+          </div>
+        );
       case 'children':
         {
           const targetWeekday = getWeekdayFromDate(wizard.date);
@@ -1134,10 +1553,14 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       case 'attendance':
         return <div className="space-y-4"><div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{(wizardQuestions.attendance.options || []).map((item) => <button key={item} type="button" onClick={() => updateChildDraft(wizard.activeChildId, (draft) => ({ ...unskip(draft, currentStep.id), attendance: item }))} className={`${choiceClass} ${activeChildDraft?.attendance === item ? 'bg-teal-600 border-teal-600 text-white' : 'bg-white border-slate-300 text-slate-700'}`}>{activeChildDraft?.attendance === item && <Check className="inline w-4 h-4 mr-1" />}{item}</button>)}</div><label className="block text-sm font-bold text-slate-700">{wizardQuestions.attendance.noteLabel}<textarea rows={3} value={activeChildDraft?.attendanceNote || ''} onChange={(event) => updateChildDraft(wizard.activeChildId, (draft) => ({ ...unskip(draft, currentStep.id), attendanceNote: event.target.value }))} placeholder={wizardQuestions.attendance.notePlaceholder} className={`${inputClass} mt-2`} /></label></div>;
       case 'expression':
-        return <div className="space-y-4"><div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{(wizardQuestions.expression.options || []).map((item) => {
+        return <div className="space-y-4"><div className={isStructuredWeekdayTemplate(activeTemplate) ? 'grid gap-2' : 'grid grid-cols-2 gap-2 sm:grid-cols-3'}>{(wizardQuestions.expression.options || []).map((item) => {
           const selected = activeChildDraft?.expressions.includes(item);
+          if (isStructuredWeekdayTemplate(activeTemplate)) {
+            const [level, description] = item.split('：');
+            return <button key={item} type="button" onClick={() => updateChildDraft(wizard.activeChildId, (raw) => ({ ...unskip(raw, currentStep.id), expressions: [item] }))} className={`flex min-h-14 items-center gap-3 rounded-xl border-2 px-3 py-2.5 text-left ${selected ? 'border-amber-500 bg-amber-50 text-amber-950' : 'border-slate-300 bg-white text-slate-700'}`}><span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-lg font-black ${selected ? 'bg-amber-500 text-slate-950' : 'bg-slate-100 text-slate-900'}`}>{level}</span><span className="text-sm font-bold leading-relaxed sm:text-base">{description}</span>{selected && <Check className="ml-auto h-5 w-5 shrink-0" />}</button>;
+          }
           return <button key={item} type="button" onClick={() => updateChildDraft(wizard.activeChildId, (raw) => { const draft = unskip(raw, currentStep.id); return { ...draft, expressions: selected ? draft.expressions.filter((value) => value !== item) : [...draft.expressions, item] }; })} className={`${choiceClass} ${selected ? 'bg-amber-500 border-amber-500 text-slate-950' : 'bg-white border-slate-300 text-slate-700'}`}>{selected && <Check className="inline w-4 h-4 mr-1" />}{item}</button>;
-        })}</div><label className="block text-sm font-bold text-slate-700">{wizardQuestions.expression.noteLabel}<textarea rows={3} value={activeChildDraft?.expressionNote || ''} onChange={(event) => updateChildDraft(wizard.activeChildId, (draft) => ({ ...unskip(draft, currentStep.id), expressionNote: event.target.value }))} placeholder={wizardQuestions.expression.notePlaceholder} className={`${inputClass} mt-2`} /></label></div>;
+        })}</div>{isStructuredWeekdayTemplate(activeTemplate) && <div className="flex justify-between text-[11px] font-bold text-slate-500"><span>1：笑顔</span><span>5：暗い表情</span></div>}<label className="block text-sm font-bold text-slate-700">{wizardQuestions.expression.noteLabel}<textarea rows={3} value={activeChildDraft?.expressionNote || ''} onChange={(event) => updateChildDraft(wizard.activeChildId, (draft) => ({ ...unskip(draft, currentStep.id), expressionNote: event.target.value }))} placeholder={wizardQuestions.expression.notePlaceholder} className={`${inputClass} mt-2`} /></label></div>;
       case 'snack':
         return <div className="space-y-4"><div className="grid grid-cols-2 gap-2">{(wizardQuestions.snack.options || []).map((item) => <button key={item} type="button" onClick={() => updateChildDraft(wizard.activeChildId, (draft) => ({ ...unskip(draft, currentStep.id), snack: item }))} className={`${choiceClass} ${activeChildDraft?.snack === item ? 'bg-teal-600 border-teal-600 text-white' : 'bg-white border-slate-300 text-slate-700'}`}>{activeChildDraft?.snack === item && <Check className="inline w-4 h-4 mr-1" />}{item}</button>)}</div><label className="block text-sm font-bold text-slate-700">{wizardQuestions.snack.noteLabel}<textarea rows={3} value={activeChildDraft?.snackNote || ''} onChange={(event) => updateChildDraft(wizard.activeChildId, (draft) => ({ ...unskip(draft, currentStep.id), snackNote: event.target.value }))} placeholder={wizardQuestions.snack.notePlaceholder} className={`${inputClass} mt-2`} /></label></div>;
       case 'section-subtitle': {
@@ -1161,13 +1584,56 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         const abc = section?.abcAnalysis;
         return <div className="space-y-4"><div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs space-y-2"><p><strong>A：</strong>{abc?.antecedent || '未入力'}</p><p><strong>B：</strong>{abc?.behavior || '未入力'}</p><p><strong>C：</strong>{abc?.consequence || '未入力'}</p></div><button type="button" disabled={summarizingSectionId === currentStep.sectionId} onClick={() => summarizeABC(currentStep.sectionId!)} className="w-full min-h-12 rounded-xl bg-violet-600 disabled:bg-slate-400 text-white font-bold text-sm flex items-center justify-center gap-2">{summarizingSectionId === currentStep.sectionId ? <LoaderCircle className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}ABC分析を要約する</button><label className="block text-sm font-bold text-slate-700">要約文（修正できます）<textarea rows={7} value={abc?.summary || ''} onChange={(event) => updateABC(currentStep.sectionId!, 'summary', event.target.value)} className={`${inputClass} mt-2`} /></label></div>;
       }
+      case 'abc-sequence': {
+        const section = activeChildDraft?.sectionAnswers[currentStep.sectionId || ''];
+        const abc = section?.abcAnalysis;
+        const behaviorReady = Boolean(abc?.behavior.trim());
+        const consequenceReady = Boolean(abc?.consequence.trim());
+        const antecedentReady = Boolean(abc?.antecedent.trim());
+        const behaviorQuestion = renderQuestionText(wizardQuestions.abcBehavior);
+        const consequenceQuestion = renderQuestionText(wizardQuestions.abcConsequence);
+        const antecedentQuestion = renderQuestionText(wizardQuestions.abcAntecedent);
+        const summaryQuestion = renderQuestionText(wizardQuestions.abcSummary);
+        return (
+          <div className="space-y-5">
+            <label className="block text-sm font-black text-slate-800">
+              <span className="mb-1 block text-violet-700">B（行動）</span>
+              {behaviorQuestion.title}
+              <span className="mt-1 block text-xs font-medium leading-relaxed text-slate-500">{behaviorQuestion.help}</span>
+              <textarea rows={5} maxLength={500} value={abc?.behavior || ''} onChange={(event) => updateABC(currentStep.sectionId!, 'behavior', event.target.value)} placeholder={'・席を立ち、入口へ向かった\n・「やりたくない」と大きな声で話した'} className={`${inputClass} mt-2`} />
+            </label>
+            {behaviorReady && (
+              <label className="block border-t border-slate-200 pt-5 text-sm font-black text-slate-800">
+                <span className="mb-1 block text-violet-700">C（結果）</span>
+                {consequenceQuestion.title}
+                <span className="mt-1 block text-xs font-medium leading-relaxed text-slate-500">{consequenceQuestion.help}</span>
+                <textarea rows={5} maxLength={500} value={abc?.consequence || ''} onChange={(event) => updateABC(currentStep.sectionId!, 'consequence', event.target.value)} placeholder={'・職員が選択肢を示すと席へ戻った\n・5分後に課題を再開した'} className={`${inputClass} mt-2`} />
+              </label>
+            )}
+            {behaviorReady && consequenceReady && (
+              <label className="block border-t border-slate-200 pt-5 text-sm font-black text-slate-800">
+                <span className="mb-1 block text-violet-700">A（きっかけ）</span>
+                {antecedentQuestion.title}
+                <span className="mt-1 block text-xs font-medium leading-relaxed text-slate-500">{antecedentQuestion.help}</span>
+                <textarea rows={5} maxLength={500} value={abc?.antecedent || ''} onChange={(event) => updateABC(currentStep.sectionId!, 'antecedent', event.target.value)} placeholder={'・難しい課題へ切り替わった直後\n・周囲の音が大きくなった'} className={`${inputClass} mt-2`} />
+              </label>
+            )}
+            {behaviorReady && consequenceReady && antecedentReady && (
+              <div className="space-y-4 border-t border-slate-200 pt-5">
+                <button type="button" disabled={summarizingSectionId === currentStep.sectionId} onClick={() => summarizeABC(currentStep.sectionId!)} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 text-sm font-black text-white disabled:bg-slate-400">{summarizingSectionId === currentStep.sectionId ? <LoaderCircle className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}{summarizingSectionId === currentStep.sectionId ? '要約中...' : 'ABC行動分析に基づいて要約する'}</button>
+                <label className="block text-sm font-black text-slate-800">{summaryQuestion.title}<span className="mt-1 block text-xs font-medium leading-relaxed text-slate-500">{summaryQuestion.help}</span><textarea rows={7} value={abc?.summary || ''} onChange={(event) => updateABC(currentStep.sectionId!, 'summary', event.target.value)} placeholder="「要約する」を押すと、ここに文章が表示されます。" className={`${inputClass} mt-2`} /></label>
+              </div>
+            )}
+          </div>
+        );
+      }
       case 'review':
         return (
           <ReviewAllChildren
             wizard={wizard}
             childrenList={childrenList}
             template={activeTemplate}
-            steps={perChildSteps}
+            getStepsForChild={(childId) => childStepsForDraft(wizard.childDrafts[childId])}
             answerStatus={answerStatus}
             checks={getPreSaveChecks()}
             checksAcknowledged={checksAcknowledged}
@@ -1186,8 +1652,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       !activeTemplate ||
       wizard.selectedChildIds.length === 0 ||
       !wizard.date ||
-      !wizard.recorderName.trim() ||
-      (!initialRecord && !wizard.recorderId)
+      !wizard.recorderName.trim()
     ) {
       setSaveError('テンプレート、児童、日付、記録者を確認してください。');
       return;
@@ -1209,7 +1674,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       const child = childrenList.find((item) => item.id === childId);
       const childDraft = wizard.childDrafts[childId] || createChildDraft(activeTemplate);
       const previous = initialRecord?.childId === childId ? initialRecord : undefined;
-      return {
+      const record = {
         id: childDraft.recordId,
         templateId: activeTemplate.id,
         templateName: activeTemplate.name,
@@ -1242,6 +1707,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         createdAt: previous?.createdAt || now,
         updatedAt: now,
       } satisfies SupportRecord;
+      return isStructuredWeekdayTemplate(activeTemplate)
+        ? { ...record, synthesizedSummary: generateStructuredWeekdaySummary(record) }
+        : record;
     });
 
     setIsSaving(true);
@@ -1300,7 +1768,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         remoteRevision.current = remote.revision;
         const payload: WizardDraft = {
           ...wizard,
-          version: 7,
+          version: 8,
           draftCycleKey: getCurrentDraftCycleKey(),
           updatedAt: new Date().toISOString(),
         };
@@ -1329,6 +1797,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   };
 
   const currentStatus = isChildStep && currentStep ? answerStatus(currentStep, activeChildDraft) : 'answered';
+  const currentFieldWarning = currentStep?.kind === 'field' ? fieldForStep(currentStep)?.warningText : undefined;
   const draftStatusLabel = draftStatus === 'saving'
     ? '下書き保存中'
     : draftStatus === 'restored'
@@ -1347,7 +1816,13 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     <form id="record-wizard" onSubmit={handleSubmit} className="max-w-4xl mx-auto space-y-4 scroll-mt-20">
       <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-sm">
-          <span className="font-bold text-slate-700">質問 {wizard.currentStepIndex + 1} / {steps.length}</span>
+          <span className="font-bold text-slate-700">
+            {currentStep?.kind === 'review'
+              ? '最終確認'
+              : currentStep?.displayNumber
+                ? `質問 ${currentStep.displayNumber} / 21`
+                : `入力設定 ${wizard.currentStepIndex + 1} / ${steps.length}`}
+          </span>
           <span
             aria-live="polite"
             className={`flex items-center gap-1 ${
@@ -1416,7 +1891,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-5 sm:p-7 border-b border-slate-100">
           {isChildStep && <p className="text-xs font-bold text-teal-700 mb-2 flex items-center gap-1"><Users className="w-4 h-4" />{activeChild?.name || '児童を選択してください'}の記録</p>}
-          <div className="flex items-start gap-3"><div className={`mt-1 h-6 w-6 rounded-full flex items-center justify-center shrink-0 ${currentStatus === 'answered' ? 'bg-emerald-100 text-emerald-700' : currentStatus === 'skipped' ? 'bg-slate-200 text-slate-500' : 'bg-amber-100 text-amber-700'}`}>{currentStatus === 'answered' ? <Check className="w-4 h-4" /> : currentStatus === 'skipped' ? <SkipForward className="w-3.5 h-3.5" /> : <Circle className="w-3.5 h-3.5" />}</div><div><h2 className="text-lg sm:text-xl font-bold text-slate-900 leading-relaxed">{currentStep?.title}</h2>{currentStep?.help && <p className="mt-2 text-sm leading-relaxed text-slate-500">{currentStep.help}</p>}</div></div>
+          <div className="flex items-start gap-3"><div className={`mt-1 h-6 w-6 rounded-full flex items-center justify-center shrink-0 ${currentStatus === 'answered' ? 'bg-emerald-100 text-emerald-700' : currentStatus === 'skipped' ? 'bg-slate-200 text-slate-500' : 'bg-amber-100 text-amber-700'}`}>{currentStatus === 'answered' ? <Check className="w-4 h-4" /> : currentStatus === 'skipped' ? <SkipForward className="w-3.5 h-3.5" /> : <Circle className="w-3.5 h-3.5" />}</div><div><h2 className="text-lg sm:text-xl font-bold text-slate-900 leading-relaxed">{currentStep?.title}</h2>{currentFieldWarning && <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-black leading-relaxed text-rose-700">{currentFieldWarning}</p>}{currentStep?.help && <p className="mt-2 text-sm leading-relaxed text-slate-500">{currentStep.help}</p>}</div></div>
         </div>
         <div className="p-5 sm:p-7">{renderStep()}{stepError && <div className="mt-4 flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><AlertCircle className="w-5 h-5 shrink-0" />{stepError}</div>}</div>
       </section>
@@ -1436,10 +1911,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       {saveError && <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{saveError}</div>}
 
       <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-        <button type="button" onClick={() => moveToStep(wizard.currentStepIndex - 1)} disabled={wizard.currentStepIndex === 0} className="min-h-12 rounded-xl border border-slate-300 px-4 text-sm font-bold text-slate-700 disabled:opacity-40 flex items-center justify-center gap-2"><ChevronLeft className="w-4 h-4" />前の質問</button>
+        <button type="button" onClick={goPrevious} disabled={wizard.currentStepIndex === 0} className="min-h-12 rounded-xl border border-slate-300 px-4 text-sm font-bold text-slate-700 disabled:opacity-40 flex items-center justify-center gap-2"><ChevronLeft className="w-4 h-4" />前の質問</button>
         <div className="flex flex-col sm:flex-row gap-2">
-          {isChildStep && <button type="button" onClick={skipCurrent} className="min-h-12 rounded-xl border border-slate-300 px-4 text-sm font-bold text-slate-600 flex items-center justify-center gap-2"><SkipForward className="w-4 h-4" />この質問をスキップ</button>}
-          {currentStep?.kind === 'review' ? <button type="submit" disabled={isSaving} className="min-h-12 rounded-xl bg-emerald-600 disabled:bg-slate-400 px-6 text-sm font-bold text-white flex items-center justify-center gap-2"><Save className="w-4 h-4" />{isSaving ? '保存中...' : `${wizard.selectedChildIds.length}名分を保存`}</button> : <button type="button" onClick={goNext} className="min-h-12 rounded-xl bg-teal-600 px-6 text-sm font-bold text-white flex items-center justify-center gap-2">次の質問<ChevronRight className="w-4 h-4" /></button>}
+          {isChildStep && <button type="button" onClick={(event) => { event.preventDefault(); skipCurrent(); }} className="min-h-12 rounded-xl border border-slate-300 px-4 text-sm font-bold text-slate-600 flex items-center justify-center gap-2"><SkipForward className="w-4 h-4" />この質問をスキップ</button>}
+          {currentStep?.kind === 'review' ? <button type="submit" disabled={isSaving} className="min-h-12 rounded-xl bg-emerald-600 disabled:bg-slate-400 px-6 text-sm font-bold text-white flex items-center justify-center gap-2"><Save className="w-4 h-4" />{isSaving ? '保存中...' : `${wizard.selectedChildIds.length}名分を保存`}</button> : <button type="button" onClick={(event) => { event.preventDefault(); goNext(); }} className="min-h-12 rounded-xl bg-teal-600 px-6 text-sm font-bold text-white flex items-center justify-center gap-2">次の質問<ChevronRight className="w-4 h-4" /></button>}
         </div>
       </div>
 
@@ -1458,7 +1933,7 @@ function ReviewAllChildren({
   wizard,
   childrenList,
   template,
-  steps,
+  getStepsForChild,
   answerStatus,
   checks,
   checksAcknowledged,
@@ -1468,7 +1943,7 @@ function ReviewAllChildren({
   wizard: WizardDraft;
   childrenList: ChildProfile[];
   template?: Template;
-  steps: WizardStep[];
+  getStepsForChild: (childId: string) => WizardStep[];
   answerStatus: (step: WizardStep, draft?: ChildDraft) => AnswerStatus;
   checks: PreSaveCheck[];
   checksAcknowledged: boolean;
@@ -1534,17 +2009,30 @@ function ReviewAllChildren({
       {wizard.selectedChildIds.map((childId) => {
         const child = childrenList.find((item) => item.id === childId);
         const draft = wizard.childDrafts[childId];
-        const unanswered = steps.filter((step) => answerStatus(step, draft) === 'unanswered');
-        const skipped = steps.filter((step) => answerStatus(step, draft) === 'skipped');
+        const childSteps = getStepsForChild(childId);
+        const unanswered = childSteps.filter((step) => answerStatus(step, draft) === 'unanswered');
+        const skipped = childSteps.filter((step) => answerStatus(step, draft) === 'skipped');
         return (
           <article key={childId} className="rounded-xl border border-slate-200 p-4 space-y-3">
             <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-bold text-slate-900">{child?.name || '児童'}</h3><div className="flex gap-2 text-[10px] font-bold"><span className={`rounded-full px-2 py-1 ${unanswered.length ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{unanswered.length ? `未回答 ${unanswered.length}` : '全回答済み'}</span>{skipped.length > 0 && <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">スキップ {skipped.length}</span>}</div></div>
             <p className="text-xs text-slate-600">出欠：{draft?.attendance || '未回答'}{draft?.attendanceNote ? `（${draft.attendanceNote}）` : ''} ／ 表情：{draft?.expressions.join('、') || '未回答'} ／ おやつ：{draft?.snack || '未回答'}</p>
             {unanswered.length > 0 && <div className="rounded-lg bg-amber-50 p-3"><p className="text-xs font-bold text-amber-900 mb-2">未回答の質問</p><div className="flex flex-wrap gap-2">{unanswered.map((step) => <button key={step.id} type="button" onClick={() => onJump(childId, step.id)} className="rounded-md border border-amber-300 bg-white px-2 py-1 text-[11px] text-amber-900">{step.title}</button>)}</div></div>}
-            <div className="space-y-2">{template?.sections.map((section) => {
+            {template && isStructuredWeekdayTemplate(template) ? (
+              <div className="overflow-hidden rounded-xl border border-slate-300">
+                <div className="border-b border-slate-200 bg-slate-100 px-3 py-2 text-xs font-black text-slate-700">文章合成プレビュー</div>
+                <pre className="whitespace-pre-wrap bg-white p-4 font-sans text-xs leading-relaxed text-slate-800">{generateStructuredWeekdaySummary({
+                  recorderName: wizard.recorderName,
+                  expressions: draft?.expressions || [],
+                  expressionNote: draft?.expressionNote,
+                  snack: draft?.snack || '',
+                  snackNote: draft?.snackNote,
+                  sectionAnswers: draft?.sectionAnswers || {},
+                })}</pre>
+              </div>
+            ) : <div className="space-y-2">{template?.sections.map((section) => {
               const answer = draft?.sectionAnswers[section.id];
               return <div key={section.id} className="rounded-lg bg-slate-50 p-3 text-xs"><p className="font-bold mb-1">{section.title}</p>{answer?.abcAnalysis?.summary ? <p className="whitespace-pre-wrap leading-relaxed">{answer.abcAnalysis.summary}</p> : <p className="text-slate-400">ABC要約なし</p>}</div>;
-            })}</div>
+            })}</div>}
           </article>
         );
       })}

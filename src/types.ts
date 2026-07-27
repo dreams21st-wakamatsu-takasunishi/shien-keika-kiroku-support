@@ -71,7 +71,10 @@ export type FieldType =
   | 'time_select'
   | 'hand_count'
   | 'fatigue_scale'
-  | 'homework_subjects';
+  | 'rating_scale'
+  | 'homework_subjects'
+  | 'study_extras'
+  | 'pc_activities';
 
 export interface FieldOption {
   id: string;
@@ -90,6 +93,14 @@ export interface TemplateField {
   notePlaceholder?: string;
   helpText?: string;
   required?: boolean;
+  questionTitle?: string;
+  warningText?: string;
+  scaleLowLabel?: string;
+  scaleHighLabel?: string;
+  visibleWhen?: {
+    fieldId: string;
+    equals: string | string[];
+  };
 }
 
 export interface TemplateSection {
@@ -282,6 +293,7 @@ export interface SectionFieldAnswer {
   value: string;
   note?: string;
   homeworkDetails?: HomeworkFieldDetails;
+  nestedDetails?: Record<string, string | string[]>;
 }
 
 export interface SectionAnswer {

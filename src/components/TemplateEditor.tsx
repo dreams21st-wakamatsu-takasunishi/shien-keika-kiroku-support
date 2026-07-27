@@ -49,6 +49,13 @@ const INPUT_TYPE_GUIDES: Array<{
     special: true,
   },
   {
+    type: 'rating_scale',
+    name: '説明付き5段階評価',
+    description: '1～5それぞれの判断例を表示し、最も近い段階を1つ選択します。',
+    example: '準備：5 自分で行えた',
+    special: true,
+  },
+  {
     type: 'hand_count',
     name: '左右固定数値',
     description: '「左手」「右手」の見出しを固定し、それぞれの数値を入力します。',
@@ -60,6 +67,20 @@ const INPUT_TYPE_GUIDES: Array<{
     name: '教科連動選択',
     description: '教科を複数選択し、主要5教科では教材種別、自学・その他では自由記入欄を自動表示します。',
     example: '国語（ノート）＋算数（プリント）＋自学（漢字練習）',
+    special: true,
+  },
+  {
+    type: 'study_extras',
+    name: '宿題以外の学習',
+    description: '漢検の級、エジソンの内容、その他の自由記入を選択内容に応じて表示します。',
+    example: '漢検（5級）＋エジソン（練習帳）',
+    special: true,
+  },
+  {
+    type: 'pc_activities',
+    name: 'パソコン取り組み',
+    description: 'Dレッスンの練習種別、模擬試験の文字数・回、その他の自由記入を表示します。',
+    example: 'Dレッスン（タイピング練習）',
     special: true,
   },
 ];
@@ -117,7 +138,7 @@ function InputTypePreview({ type }: { type: FieldType }) {
     return <label className="block text-sm font-bold text-slate-700">開始時刻<input type="time" value={timeValue} onChange={(event) => setTimeValue(event.target.value)} className="mt-2 min-h-12 w-full rounded-lg border border-slate-300 px-3 text-base" /></label>;
   }
 
-  if (type === 'fatigue_scale') {
+  if (type === 'fatigue_scale' || type === 'rating_scale') {
     return (
       <div className="grid grid-cols-5 gap-1.5">
         {['1', '2', '3', '4', '5'].map((level) => (
@@ -134,6 +155,14 @@ function InputTypePreview({ type }: { type: FieldType }) {
         <label className="rounded-lg border border-slate-200 bg-white p-3 text-sm font-bold">右手<div className="mt-2 flex items-center gap-1"><input type="number" value={rightValue} onChange={(event) => setRightValue(event.target.value)} className="min-h-11 min-w-0 flex-1 rounded-lg border border-slate-300 px-2 text-base" /><span>本</span></div></label>
       </div>
     );
+  }
+
+  if (type === 'study_extras') {
+    return <div className="grid grid-cols-2 gap-2">{['漢検（5級）', 'エジソン（練習帳）', '取り組みなし', 'その他'].map((option, index) => <button key={option} type="button" className={`${buttonClass} text-left ${index < 2 ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300 bg-white'}`}>{index < 2 && <Check className="mr-1 inline h-4 w-4" />}{option}</button>)}</div>;
+  }
+
+  if (type === 'pc_activities') {
+    return <div className="space-y-2"><button type="button" className={`${buttonClass} w-full border-teal-600 bg-teal-600 text-left text-white`}><Check className="mr-1 inline h-4 w-4" />Dレッスン（タイピング練習）</button><button type="button" className={`${buttonClass} w-full border-slate-300 bg-white text-left`}>文章入力模擬試験</button><button type="button" className={`${buttonClass} w-full border-slate-300 bg-white text-left`}>その他</button></div>;
   }
 
   return (
@@ -397,6 +426,15 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
       return;
     }
 
+    if (type === 'rating_scale') {
+      handleUpdateField(sectionId, fieldId, {
+        type,
+        options: ['1：段階1', '2：段階2', '3：段階3', '4：段階4', '5：段階5'],
+        defaultValue: '',
+      });
+      return;
+    }
+
     if (type === 'homework_subjects') {
       handleUpdateField(sectionId, fieldId, {
         type,
@@ -405,6 +443,26 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
         defaultValue: '',
         hasNote: false,
         helpText: field.helpText || HOMEWORK_FIELD_HELP,
+      });
+      return;
+    }
+
+    if (type === 'study_extras') {
+      handleUpdateField(sectionId, fieldId, {
+        type,
+        options: ['漢検', 'エジソン', '取り組みなし', 'その他'],
+        defaultValue: '',
+        hasNote: false,
+      });
+      return;
+    }
+
+    if (type === 'pc_activities') {
+      handleUpdateField(sectionId, fieldId, {
+        type,
+        options: ['Dレッスン', '文章入力模擬試験', 'その他'],
+        defaultValue: '',
+        hasNote: false,
       });
       return;
     }
@@ -824,6 +882,19 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
 
                         <div>
                           <label className="text-[11px] font-bold text-slate-700 block mb-0.5">
+                            記録画面の質問文
+                          </label>
+                          <input
+                            type="text"
+                            value={field.questionTitle || ''}
+                            onChange={(e) => handleUpdateField(sec.id, field.id, { questionTitle: e.target.value })}
+                            placeholder="未入力時は項目名から自動作成"
+                            className="w-full bg-white border border-slate-300 rounded-md p-1.5"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="text-[11px] font-bold text-slate-700 block mb-0.5">
                             入力形式
                           </label>
                           <select
@@ -838,8 +909,11 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                             <option value="textarea">長文入力</option>
                             <option value="time_select">時刻入力</option>
                             <option value="fatigue_scale">5段階評価（疲労感）</option>
+                            <option value="rating_scale">説明付き5段階評価</option>
                             <option value="hand_count">左右固定数値（左手・右手）</option>
                             <option value="homework_subjects">教科連動選択（宿題内容）</option>
+                            <option value="study_extras">宿題以外の学習（条件入力）</option>
+                            <option value="pc_activities">パソコン取り組み（条件入力）</option>
                           </select>
                         </div>
 
@@ -859,7 +933,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                               })
                             }
                             placeholder="例: なし, あり"
-                            disabled={!['radio', 'checkbox'].includes(field.type)}
+                            disabled={!['radio', 'checkbox', 'rating_scale'].includes(field.type)}
                             className="w-full bg-white border border-slate-300 rounded-md p-1.5 disabled:opacity-50"
                           />
                         </div>
@@ -903,7 +977,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                               type="checkbox"
                               checked={field.hasNote || false}
                               onChange={(e) => handleUpdateField(sec.id, field.id, { hasNote: e.target.checked })}
-                              disabled={field.type === 'homework_subjects'}
+                              disabled={['homework_subjects', 'study_extras', 'pc_activities'].includes(field.type)}
                               className="rounded-xs text-indigo-600 focus:ring-indigo-500"
                             />
                             <span>備考入力欄を表示</span>

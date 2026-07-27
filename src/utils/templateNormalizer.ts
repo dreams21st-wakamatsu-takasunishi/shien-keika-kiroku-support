@@ -43,7 +43,7 @@ export function normalizeTemplateFatigueScale(template: Template): Template {
     sections: template.sections.map((section) => ({
       ...section,
       fields: section.fields.map((field) => {
-        if (isFatigueField(field)) {
+        if (field.type === 'fatigue_scale' || (isFatigueField(field) && field.type !== 'rating_scale')) {
           return {
             ...field,
             type: 'fatigue_scale',
