@@ -48,11 +48,11 @@ Deno.serve(async (request) => {
 
   const { data: caller } = await userClient
     .from('profiles')
-    .select('organization_id, role')
+    .select('organization_id, role, active')
     .eq('id', userId)
     .single();
-  if (!caller || !['manager', 'admin'].includes(caller.role)) {
-    return jsonResponse({ error: 'Manager permission is required' }, 403);
+  if (!caller?.active || !['staff', 'manager', 'admin'].includes(caller.role)) {
+    return jsonResponse({ error: 'An active staff account is required' }, 403);
   }
 
   const serviceClient = createClient(supabaseUrl, serviceRoleKey);

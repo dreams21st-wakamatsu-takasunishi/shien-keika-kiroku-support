@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ArrowRight,
   Bot,
@@ -18,6 +18,7 @@ import {
 import type {
   ChildProfile,
   Announcement,
+  AnnouncementConfirmation,
   HandoverConfirmation,
   HandoverItem,
   HandoverStatus,
@@ -42,6 +43,7 @@ import { getLocalDateString } from '../utils/weekdays';
 interface HomeScreenProps {
   records: SupportRecord[];
   announcements: Announcement[];
+  announcementConfirmations: AnnouncementConfirmation[];
   childrenList: ChildProfile[];
   drafts: RecordDraftSummary[];
   recorderProfiles: RecorderProfile[];
@@ -63,6 +65,7 @@ interface HomeScreenProps {
   onOpenRecord: (record: SupportRecord) => void;
   onSaveAnnouncement: (announcement: Announcement) => Promise<void> | void;
   onArchiveAnnouncement: (announcementId: string) => Promise<void> | void;
+  onSaveAnnouncementConfirmation: (confirmation: AnnouncementConfirmation) => Promise<void> | void;
   onSaveHandover: (item: HandoverItem) => Promise<void> | void;
   onHandoverStatusChange: (itemId: string, status: HandoverStatus) => Promise<void> | void;
   onSetHandoverConfirmation: (confirmation: HandoverConfirmation, confirmed: boolean) => Promise<void> | void;
@@ -76,6 +79,7 @@ interface HomeScreenProps {
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   records,
   announcements,
+  announcementConfirmations,
   childrenList,
   drafts,
   recorderProfiles,
@@ -97,6 +101,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onOpenRecord,
   onSaveAnnouncement,
   onArchiveAnnouncement,
+  onSaveAnnouncementConfirmation,
   onSaveHandover,
   onHandoverStatusChange,
   onSetHandoverConfirmation,
@@ -117,21 +122,56 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const hasMorningMeetingRecord = morningMeetingRecords.some(
     (record) => record.date === today && Boolean(record.content.trim())
   );
+  const correctionAnnouncements = useMemo<Announcement[]>(() => records
+    .filter((record) => record.approvalStatus === '要修正')
+    .map((record) => {
+      const unresolved = (record.reviewIssues || []).filter((issue) => !issue.resolved);
+      const correctionDetails = unresolved.length > 0
+        ? unresolved.map((issue) => `・${issue.label}：${issue.comment}`).join('\n')
+        : record.jihatsukanComment?.trim() || '修正箇所の指定を児発管または管理者へ確認してください。';
+      const publishedAt = record.reviewedAt || record.updatedAt;
+      return {
+        id: `record-correction:${record.id}:${publishedAt}`,
+        title: `【要修正】${record.childName}さん・${record.date}`,
+        content: correctionDetails,
+        priority: 'important',
+        sourceType: 'record_correction',
+        relatedRecordId: record.id,
+        publishedAt,
+        createdByName: record.reviewedBy || '児発管・管理者',
+        createdAt: publishedAt,
+        updatedAt: publishedAt,
+      };
+    }), [records]);
+  const visibleAnnouncements = useMemo(
+    () => [...correctionAnnouncements, ...announcements]
+      .sort((left, right) => right.publishedAt.localeCompare(left.publishedAt)),
+    [announcements, correctionAnnouncements]
+  );
 
   return (
     <div className="max-w-6xl mx-auto space-y-4">
       <AnnouncementPanel
-        announcements={announcements}
+        announcements={visibleAnnouncements}
+        confirmations={announcementConfirmations}
+        recorderProfiles={recorderProfiles}
         organizationId={organizationId}
-        canManage={canManageSettings}
-        currentUserName={currentUser?.displayName}
+        activeRecorder={activeRecorder}
+        currentUser={currentUser}
+        canCreate={!organizationId || Boolean(currentUser)}
+        canArchive={canManageSettings}
+        onOpenRecord={(recordId) => {
+          const record = records.find((candidate) => candidate.id === recordId);
+          if (record) onOpenRecord(record);
+        }}
         onSave={onSaveAnnouncement}
         onArchive={onArchiveAnnouncement}
+        onSaveConfirmation={onSaveAnnouncementConfirmation}
       />
-      <section className="flex flex-col gap-4 overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-teal-950 p-5 text-white shadow-sm sm:flex-row sm:items-center sm:justify-between sm:px-6">
+      <section className="flex flex-col gap-3 overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-teal-950 p-4 text-white shadow-sm sm:flex-row sm:items-center sm:justify-between sm:px-5">
         <div>
           <p className="text-[11px] font-bold text-teal-300">支援経過記録サポート</p>
-          <h2 className="mt-1 text-xl font-black">{currentUser?.displayName || '職員'}さん、お疲れさまです。</h2>
+          <h2 className="mt-1 text-lg font-black sm:text-xl">{activeRecorder?.displayName || currentUser?.displayName || '職員'}さん、お疲れさまです。</h2>
           <p className="mt-1 text-xs text-slate-300">児童の様子を、その場で迷わず記録できます。</p>
         </div>
         <button type="button" onClick={onNewRecord} className="flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-teal-500 px-5 text-sm font-black text-slate-950 shadow-lg shadow-teal-950/30">

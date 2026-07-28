@@ -2,6 +2,7 @@ import { supabase } from '../lib/supabase';
 import {
   AiWritingSettings,
   Announcement,
+  AnnouncementConfirmation,
   ChildProfile,
   DEFAULT_AI_WRITING_SETTINGS,
   ExpressionType,
@@ -40,6 +41,7 @@ export interface WorkspaceData {
   supportPlans: SupportPlan[];
   aiWritingSettings: AiWritingSettings;
   announcements: Announcement[];
+  announcementConfirmations: AnnouncementConfirmation[];
 }
 
 function assertSupabase() {
@@ -148,11 +150,25 @@ function mapAnnouncement(row: any): Announcement {
     title: row.title,
     content: row.content,
     priority: row.priority || 'normal',
+    sourceType: 'manual',
     publishedAt: row.published_at,
     expiresAt: row.expires_at || undefined,
+    createdByRecorderId: row.created_by_recorder_profile_id || undefined,
     createdByName: row.created_by_name || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function mapAnnouncementConfirmation(row: any): AnnouncementConfirmation {
+  return {
+    announcementId: row.announcement_id,
+    confirmerKey: row.confirmer_key,
+    recorderProfileId: row.recorder_profile_id || undefined,
+    userId: row.user_id || undefined,
+    confirmerName: row.confirmer_name,
+    readAt: row.read_at,
+    confirmedAt: row.confirmed_at || undefined,
   };
 }
 
@@ -259,6 +275,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     plansResult,
     aiSettingsResult,
     announcementsResult,
+    announcementConfirmationsResult,
   ] = await Promise.all([
     client.from('children').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('name'),
     client.from('child_regular_day_schedules').select('*').eq('organization_id', organizationId).order('effective_from'),
@@ -273,6 +290,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     client.from('support_plans').select('*').eq('organization_id', organizationId).order('valid_from', { ascending: false }),
     client.from('organization_ai_settings').select('*').eq('organization_id', organizationId).maybeSingle(),
     client.from('announcements').select('*').eq('organization_id', organizationId).is('archived_at', null).order('published_at', { ascending: false }),
+    client.from('announcement_confirmations').select('*').eq('organization_id', organizationId).order('read_at', { ascending: false }),
   ]);
 
   for (const result of [
@@ -318,6 +336,9 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     supportPlans: (plansResult.data || []).map(mapSupportPlan),
     aiWritingSettings: mapAiWritingSettings(aiSettingsResult.data),
     announcements: announcementsResult.error ? [] : (announcementsResult.data || []).map(mapAnnouncement),
+    announcementConfirmations: announcementConfirmationsResult.error
+      ? []
+      : (announcementConfirmationsResult.data || []).map(mapAnnouncementConfirmation),
   };
 }
 
@@ -330,9 +351,30 @@ export async function saveAnnouncement(organizationId: string, announcement: Ann
     priority: announcement.priority,
     published_at: announcement.publishedAt,
     expires_at: announcement.expiresAt || null,
+    created_by_recorder_profile_id: announcement.createdByRecorderId || null,
     created_by_name: announcement.createdByName || null,
     archived_at: null,
   }, { onConflict: 'organization_id,id' });
+  if (error) throw error;
+}
+
+export async function saveAnnouncementConfirmation(
+  organizationId: string,
+  confirmation: AnnouncementConfirmation
+) {
+  const { error } = await assertSupabase().from('announcement_confirmations').upsert(
+    {
+      organization_id: organizationId,
+      announcement_id: confirmation.announcementId,
+      confirmer_key: confirmation.confirmerKey,
+      user_id: confirmation.userId || null,
+      recorder_profile_id: confirmation.recorderProfileId || null,
+      confirmer_name: confirmation.confirmerName,
+      read_at: confirmation.readAt,
+      confirmed_at: confirmation.confirmedAt || null,
+    },
+    { onConflict: 'organization_id,announcement_id,confirmer_key' }
+  );
   if (error) throw error;
 }
 

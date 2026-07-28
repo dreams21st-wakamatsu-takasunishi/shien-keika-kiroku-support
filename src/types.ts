@@ -326,11 +326,24 @@ export interface Announcement {
   title: string;
   content: string;
   priority: AnnouncementPriority;
+  sourceType?: 'manual' | 'record_correction';
+  relatedRecordId?: string;
   publishedAt: string;
   expiresAt?: string;
+  createdByRecorderId?: string;
   createdByName?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface AnnouncementConfirmation {
+  announcementId: string;
+  confirmerKey: string;
+  recorderProfileId?: string;
+  userId?: string;
+  confirmerName: string;
+  readAt: string;
+  confirmedAt?: string;
 }
 
 export type AiTone = 'assertive' | 'polite' | 'custom';

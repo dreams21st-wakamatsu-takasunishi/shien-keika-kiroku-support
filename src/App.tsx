@@ -1,8 +1,9 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, Cloud, HardDrive, LoaderCircle, RefreshCw, UserRoundCog, WifiOff } from 'lucide-react';
+import { AlertTriangle, ChevronRight, Cloud, HardDrive, House, LoaderCircle, RefreshCw, UserRoundCog, WifiOff } from 'lucide-react';
 import {
   AiWritingSettings,
   Announcement,
+  AnnouncementConfirmation,
   ChildProfile,
   DEFAULT_AI_WRITING_SETTINGS,
   HandoverConfirmation,
@@ -60,6 +61,7 @@ import {
   saveRecords,
   saveAiWritingSettings,
   saveAnnouncement,
+  saveAnnouncementConfirmation,
   saveSupportPlan,
   sendAnnouncementNotification,
   saveTemplate,
@@ -140,6 +142,11 @@ export default function App() {
     const saved = localStorage.getItem('support_announcements_data');
     return saved ? JSON.parse(saved) : [];
   });
+  const [announcementConfirmations, setAnnouncementConfirmations] = useState<AnnouncementConfirmation[]>(() => {
+    if (remoteMode) return [];
+    const saved = localStorage.getItem('support_announcement_confirmations_data');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [activeRecorder, setActiveRecorder] = useState<RecorderProfile | null>(null);
   const [activeDraftKey, setActiveDraftKey] = useState(createRecordDraftKey);
   const [online, setOnline] = useState(() => navigator.onLine);
@@ -206,6 +213,11 @@ export default function App() {
   useEffect(() => {
     if (!remoteMode) localStorage.setItem('support_announcements_data', JSON.stringify(announcements));
   }, [announcements, remoteMode]);
+  useEffect(() => {
+    if (!remoteMode) {
+      localStorage.setItem('support_announcement_confirmations_data', JSON.stringify(announcementConfirmations));
+    }
+  }, [announcementConfirmations, remoteMode]);
 
   const refreshRemoteData = useCallback(async (showLoading = true) => {
     if (!auth.profile) return;
@@ -230,6 +242,7 @@ export default function App() {
       setSupportPlans(workspace.supportPlans);
       setAiWritingSettings(workspace.aiWritingSettings);
       setAnnouncements(workspace.announcements);
+      setAnnouncementConfirmations(workspace.announcementConfirmations);
       setDataError(null);
     } catch (error) {
       setDataError(error instanceof Error ? error.message : '共有データを取得できませんでした。');
@@ -317,6 +330,7 @@ export default function App() {
         }
         void refreshRemoteData(false);
       })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'announcement_confirmations', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, [auth.profile, refreshRemoteData, refreshRecordDrafts]);
@@ -488,13 +502,16 @@ export default function App() {
       handleEditRecord(record);
       return;
     }
-    const targetIssue = issue || record.reviewIssues?.find((item) => !item.resolved);
-    const inferredStepId = targetIssue?.stepId
-      || (targetIssue?.label.includes('ABC') ? 'abc-special'
-        : targetIssue?.label.includes('出欠') || targetIssue?.label.includes('表情') || targetIssue?.label.includes('おやつ')
-          ? 'attendance'
-          : 'review');
-    setCorrectionTarget({ stepId: inferredStepId, issueId: targetIssue?.id });
+    const targetIssue = issue?.stepId
+      ? issue
+      : record.reviewIssues?.find((item) => !item.resolved && item.stepId);
+    if (!targetIssue?.stepId) {
+      alert('修正する質問が指定されていません。記録確認画面で児発管または管理者に修正箇所を登録してもらってください。');
+      setCurrentRecord(record);
+      setActiveTab('preview');
+      return;
+    }
+    setCorrectionTarget({ stepId: targetIssue.stepId, issueId: targetIssue.id });
     setReadOnlyDraft(null);
     setCurrentRecord(record);
     setActiveDraftKey(`record-correction-${record.id}-${targetIssue?.id || 'general'}`);
@@ -597,22 +614,31 @@ export default function App() {
   };
 
   const handleSaveAnnouncement = async (announcement: Announcement) => {
-    if (!canManageSettings) throw new Error('お知らせを送信する権限がありません。');
+    if (remoteMode && !auth.profile) throw new Error('お知らせを送信するにはログインが必要です。');
+    if (auth.profile?.role === 'staff' && !activeRecorder) {
+      throw new Error('記録者を選択してからお知らせを作成してください。');
+    }
+    const savedAnnouncement: Announcement = {
+      ...announcement,
+      sourceType: 'manual',
+      createdByRecorderId: activeRecorder?.id,
+      createdByName: activeRecorder?.displayName || auth.profile?.displayName || '職員',
+    };
     if (organizationId) {
-      await saveAnnouncement(organizationId, announcement);
+      await saveAnnouncement(organizationId, savedAnnouncement);
     }
     setAnnouncements((previous) => [
-      announcement,
-      ...previous.filter((item) => item.id !== announcement.id),
+      savedAnnouncement,
+      ...previous.filter((item) => item.id !== savedAnnouncement.id),
     ]);
     if (organizationId) {
       try {
-        await sendAnnouncementNotification(announcement.id);
+        await sendAnnouncementNotification(savedAnnouncement.id);
       } catch (error) {
         setDataError(`お知らせは保存しましたが、端末通知の配信に失敗しました: ${error instanceof Error ? error.message : '配信設定を確認してください。'}`);
       }
     } else {
-      await showAnnouncementNotification(announcement.title, announcement.content, announcement.id);
+      await showAnnouncementNotification(savedAnnouncement.title, savedAnnouncement.content, savedAnnouncement.id);
     }
   };
 
@@ -621,6 +647,22 @@ export default function App() {
     if (!window.confirm('このお知らせの表示を終了しますか？')) return;
     if (organizationId) await archiveAnnouncement(organizationId, announcementId);
     setAnnouncements((previous) => previous.filter((item) => item.id !== announcementId));
+  };
+
+  const handleSaveAnnouncementConfirmation = async (confirmation: AnnouncementConfirmation) => {
+    try {
+      if (organizationId) await saveAnnouncementConfirmation(organizationId, confirmation);
+      setAnnouncementConfirmations((previous) => [
+        confirmation,
+        ...previous.filter((candidate) =>
+          candidate.announcementId !== confirmation.announcementId
+          || candidate.confirmerKey !== confirmation.confirmerKey
+        ),
+      ]);
+      setDataError(null);
+    } catch (error) {
+      persistError(error);
+    }
   };
 
   const handleAddChild = async (child: ChildProfile) => {
@@ -966,11 +1008,18 @@ export default function App() {
           </div>
         </div>
         {dataError && <div className="mb-4 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-lg p-3">{dataError}</div>}
+        {activeTab !== 'home' && (
+          <ScreenContextBar
+            activeTab={activeTab}
+            onHome={() => setActiveTab('home')}
+          />
+        )}
 
         {activeTab === 'home' && (
           <HomeScreen
             records={records}
             announcements={announcements}
+            announcementConfirmations={announcementConfirmations}
             childrenList={childrenList}
             drafts={recordDrafts}
             recorderProfiles={recorderProfiles}
@@ -998,6 +1047,7 @@ export default function App() {
             }}
             onSaveAnnouncement={handleSaveAnnouncement}
             onArchiveAnnouncement={handleArchiveAnnouncement}
+            onSaveAnnouncementConfirmation={handleSaveAnnouncementConfirmation}
             onSaveHandover={handleSaveHandover}
             onHandoverStatusChange={handleHandoverStatusChange}
             onSetHandoverConfirmation={handleSetHandoverConfirmation}
@@ -1081,6 +1131,43 @@ export default function App() {
         )}
         {activeTab === 'team' && auth.profile && canReview && <TeamManager currentUser={auth.profile} />}
       </main>
+    </div>
+  );
+}
+
+function ScreenContextBar({
+  activeTab,
+  onHome,
+}: {
+  activeTab: ActiveTab | 'preview';
+  onHome: () => void;
+}) {
+  const meta: Record<ActiveTab | 'preview', { title: string; description: string }> = {
+    home: { title: 'ホーム', description: '' },
+    form: { title: '記録作成', description: '質問に沿って支援経過を入力' },
+    records: { title: '記録一覧', description: '確認・修正・出力' },
+    preview: { title: '記録確認', description: '内容確認・修正指摘・承認' },
+    children: { title: '児童名簿', description: '児童情報・利用曜日の管理' },
+    plans: { title: '個別支援計画', description: '現在は機能凍結中' },
+    templates: { title: '設定', description: 'AI・記録フォーマットの管理' },
+    team: { title: '職員管理', description: '記録者・ログイン職員の管理' },
+  };
+  const current = meta[activeTab];
+  return (
+    <div className="mb-4 flex min-h-12 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
+      <div className="flex min-w-0 items-center gap-2">
+        <button type="button" onClick={onHome} aria-label="ホームに戻る" className="flex min-h-9 min-w-9 items-center justify-center rounded-lg text-teal-700 hover:bg-teal-50">
+          <House className="h-4 w-4" />
+        </button>
+        <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" />
+        <div className="min-w-0">
+          <p className="truncate text-sm font-black text-slate-900">{current.title}</p>
+          <p className="hidden truncate text-[10px] text-slate-500 sm:block">{current.description}</p>
+        </div>
+      </div>
+      <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-500">
+        {activeTab === 'form' ? '入力内容は自動保存' : 'ホームへすぐ戻れます'}
+      </span>
     </div>
   );
 }

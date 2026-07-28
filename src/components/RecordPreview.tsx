@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { RecordRevision, ReviewIssue, SectionAnswer, SupportRecord } from '../types';
+import { RecordRevision, ReviewIssue, SectionAnswer, SupportRecord, Template } from '../types';
 import { PDFDocument } from './PDFDocument';
 import { generatePDFFromElement } from '../utils/pdfGenerator';
 import { generateRecordSummary, generateNarrativeReport } from '../utils/textGenerator';
 import { Download, Printer, Copy, Edit, Check, ArrowLeft, LayoutGrid, FileText, History, Plus, Trash2, Wrench } from 'lucide-react';
 import { loadRecordRevisions } from '../services/dataService';
+import { isStructuredWeekdayTemplate } from '../data/weekdayTemplate';
+import { isStructuredHolidayTemplate } from '../data/holidayTemplate';
 
 interface RecordPreviewProps {
   record: SupportRecord;
@@ -48,27 +50,64 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
     record.reviewedBy || defaultReviewerName || '児童発達支援管理責任者'
   );
   const [reviewIssues, setReviewIssues] = useState<ReviewIssue[]>(record.reviewIssues || []);
-  const [issueStepId, setIssueStepId] = useState('review');
+  const [issueStepId, setIssueStepId] = useState('');
   const [issueComment, setIssueComment] = useState('');
   const [revisions, setRevisions] = useState<RecordRevision[]>([]);
   const [revisionLoading, setRevisionLoading] = useState(false);
   const issueTargets = useMemo(() => {
+    const template: Template = {
+      id: record.templateId,
+      name: record.templateName,
+      type: record.templateType,
+      sections: record.templateSectionsSnapshot || [],
+    };
+    const structured = isStructuredWeekdayTemplate(template) || isStructuredHolidayTemplate(template);
     const targets = [
-      { stepId: 'review', label: '記録全体' },
-      { stepId: 'attendance', label: '出欠・表情・おやつ' },
-      { stepId: 'abc-special', label: 'ABC分析・特記' },
+      { stepId: 'date', label: '記録日' },
+      { stepId: 'attendance', label: '本日の出欠' },
+      { stepId: 'expression', label: '来所時の表情' },
+      { stepId: 'snack', label: 'おやつの様子' },
     ];
-    (Object.values(record.sectionAnswers || {}) as SectionAnswer[]).forEach((section) => {
-      const firstFieldId = Object.keys(section.answers || {})[0];
-      targets.push({
-        stepId: firstFieldId ? `field-${section.sectionId}-${firstFieldId}` : `abc-b-${section.sectionId}`,
-        label: section.sectionTitle,
+    template.sections.forEach((section) => {
+      if (!structured && section.hasSubTitleField) {
+        targets.push({
+          stepId: `subtitle-${section.id}`,
+          label: `${section.title}：${section.subTitleLabel || '取組内容'}`,
+        });
+      }
+      section.fields.forEach((field) => {
+        targets.push({
+          stepId: `field-${section.id}-${field.id}`,
+          label: `${section.title}：${field.questionTitle || field.label}`,
+        });
       });
+      if (!structured && section.id !== 'special') {
+        targets.push(
+          { stepId: `abc-b-${section.id}`, label: `${section.title}：B（行動）` },
+          { stepId: `abc-c-${section.id}`, label: `${section.title}：C（結果）` },
+          { stepId: `abc-a-${section.id}`, label: `${section.title}：A（きっかけ）` },
+          { stepId: `abc-summary-${section.id}`, label: `${section.title}：ABC要約` },
+        );
+      }
     });
+    if (template.sections.length === 0) {
+      (Object.values(record.sectionAnswers || {}) as SectionAnswer[]).forEach((section) => {
+        const firstFieldId = Object.keys(section.answers || {})[0];
+        if (firstFieldId) {
+          targets.push({
+            stepId: `field-${section.sectionId}-${firstFieldId}`,
+            label: `${section.sectionTitle}の質問`,
+          });
+        }
+      });
+    }
+    targets.push(
+      { stepId: structured ? 'abc-special' : 'review', label: structured ? '特記・ABC分析' : '記録全体・最終確認' },
+    );
     return targets.filter((target, index, all) =>
       all.findIndex((candidate) => candidate.stepId === target.stepId) === index
     );
-  }, [record.sectionAnswers]);
+  }, [record]);
 
   useEffect(() => {
     setJihatsukanComment(record.jihatsukanComment || '');
@@ -131,8 +170,8 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
 
   // Handle Jihatsukan Approval
   const handleApprovalSubmit = (status: '確認済み' | '要修正') => {
-    if (status === '要修正' && !jihatsukanComment.trim() && !reviewIssues.some((issue) => !issue.resolved)) {
-      alert('要修正にする場合は、全体コメントまたは修正箇所を入力してください。');
+    if (status === '要修正' && !reviewIssues.some((issue) => !issue.resolved)) {
+      alert('要修正にする場合は、「修正する質問」を選び、修正指示を追加してください。');
       return;
     }
     if (onUpdateApproval) {
@@ -141,23 +180,26 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
   };
 
   const addReviewIssue = () => {
-    if (!issueComment.trim()) return;
-    const target = issueTargets.find((item) => item.stepId === issueStepId) || issueTargets[0];
+    if (!issueStepId || !issueComment.trim()) return;
+    const target = issueTargets.find((item) => item.stepId === issueStepId);
+    if (!target) return;
     setReviewIssues((previous) => [
       ...previous,
       {
         id: typeof crypto !== 'undefined' && 'randomUUID' in crypto
           ? crypto.randomUUID()
           : `issue-${Date.now()}`,
-        label: target?.label || '記録全体',
+        label: target.label,
         comment: issueComment.trim(),
         stepId: target?.stepId,
         resolved: false,
         createdAt: new Date().toISOString(),
       },
     ]);
+    setIssueStepId('');
     setIssueComment('');
   };
+  const unresolvedIssue = record.reviewIssues?.find((issue) => !issue.resolved && issue.stepId);
 
   return (
     <div className="max-w-6xl mx-auto space-y-6">
@@ -215,11 +257,12 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
           {record.approvalStatus === '要修正' && onCorrectIssue && (
             <button
               type="button"
-              onClick={() => onCorrectIssue(record, record.reviewIssues?.find((issue) => !issue.resolved))}
-              className="flex items-center gap-1.5 rounded-md border border-rose-400 bg-rose-600 px-3 py-1.5 text-xs font-black text-white hover:bg-rose-500"
+              onClick={() => unresolvedIssue && onCorrectIssue(record, unresolvedIssue)}
+              disabled={!unresolvedIssue}
+              className="flex items-center gap-1.5 rounded-md border border-rose-400 bg-rose-600 px-3 py-1.5 text-xs font-black text-white hover:bg-rose-500 disabled:border-slate-500 disabled:bg-slate-700 disabled:text-slate-300"
             >
               <Wrench className="h-3.5 w-3.5" />
-              修正
+              {unresolvedIssue ? '指摘箇所を修正' : '修正箇所未指定'}
             </button>
           )}
 
@@ -246,7 +289,7 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Document Preview (A4 Paper view) */}
-        <div className="lg:col-span-2 space-y-4">
+        <div className="order-2 space-y-4 lg:order-1 lg:col-span-2">
           <div className="bg-slate-200/80 p-4 rounded-xl border border-slate-300 shadow-inner overflow-x-auto">
             <div id="pdf-preview-target-container" className="bg-white shadow-xl rounded-xs">
               <PDFDocument
@@ -259,7 +302,7 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
         </div>
 
         {/* Jihatsukan Review & Comments Panel */}
-        <div className="space-y-4 print:hidden">
+        <div className="order-1 space-y-4 print:hidden lg:order-2">
           <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-5 space-y-4">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="font-bold text-xs text-slate-900 uppercase tracking-wider">
@@ -279,6 +322,14 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
             </div>
 
             <div className="space-y-3">
+              {record.approvalStatus === '要修正' && !record.reviewIssues?.some((issue) => !issue.resolved && issue.stepId) && (
+                <div className="rounded-xl border-2 border-rose-300 bg-rose-50 p-3 text-xs leading-relaxed text-rose-900">
+                  <p className="font-black">この記録には修正する質問が指定されていません</p>
+                  <p className="mt-1">
+                    下の「修正指摘の入力」で質問と修正内容を追加し、もう一度「要修正にする」を押してください。
+                  </p>
+                </div>
+              )}
               <div>
                 <label className="text-xs font-bold text-slate-700 block mb-1">
                   児発管コメント・助言
@@ -293,8 +344,13 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
                 />
               </div>
 
-              <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-                <p className="text-xs font-black text-slate-800">質問・項目ごとの修正箇所</p>
+              <div className="rounded-xl border-2 border-rose-200 bg-rose-50/50 p-3">
+                <div className="rounded-lg bg-white p-3">
+                  <p className="text-sm font-black text-rose-900">修正指摘の入力</p>
+                  <p className="mt-1 text-[11px] leading-relaxed text-slate-600">
+                    「修正する質問」を指定すると、指導員の「修正」ボタンからその質問へ直接移動できます。
+                  </p>
+                </div>
                 {reviewIssues.length > 0 && (
                   <div className="mt-2 space-y-2">
                     {reviewIssues.map((issue) => (
@@ -332,28 +388,35 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
                 )}
 
                 {canReview && (
-                  <div className="mt-3 space-y-2 border-t border-slate-200 pt-3">
+                  <div className="mt-3 space-y-3 border-t border-rose-200 pt-3">
+                    <label className="block text-xs font-black text-slate-800">
+                      修正する質問（必須）
                     <select
                       value={issueStepId}
                       onChange={(event) => setIssueStepId(event.target.value)}
-                      className="min-h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-xs font-bold"
+                      className="mt-1 min-h-12 w-full rounded-xl border-2 border-rose-300 bg-white px-3 text-sm font-bold focus:ring-2 focus:ring-rose-200"
                     >
+                      <option value="">質問を選択してください</option>
                       {issueTargets.map((target) => (
                         <option key={target.stepId} value={target.stepId}>{target.label}</option>
                       ))}
                     </select>
+                    </label>
+                    <label className="block text-xs font-black text-slate-800">
+                      修正してほしい内容（必須）
                     <textarea
                       rows={3}
                       value={issueComment}
                       onChange={(event) => setIssueComment(event.target.value)}
                       placeholder="どこを、どのように修正するか入力"
-                      className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-xs leading-relaxed"
+                      className="mt-1 w-full rounded-xl border border-slate-300 bg-white p-3 text-sm leading-relaxed"
                     />
+                    </label>
                     <button
                       type="button"
-                      disabled={!issueComment.trim()}
+                      disabled={!issueStepId || !issueComment.trim()}
                       onClick={addReviewIssue}
-                      className="flex min-h-10 w-full items-center justify-center gap-1.5 rounded-lg border border-indigo-300 bg-white text-xs font-bold text-indigo-700 disabled:opacity-40"
+                      className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-rose-600 text-xs font-black text-white disabled:bg-slate-300"
                     >
                       <Plus className="h-4 w-4" />修正箇所を追加
                     </button>

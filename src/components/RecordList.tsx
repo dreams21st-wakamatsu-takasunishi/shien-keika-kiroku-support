@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { SupportRecord, ApprovalStatus } from '../types';
-import { Search, FileText, Clock, Eye, Edit, Copy, Trash2, Download, Wrench } from 'lucide-react';
+import { Search, FileText, Clock, Eye, Edit, Copy, Trash2, Download, Wrench, SlidersHorizontal, X } from 'lucide-react';
 import { downloadRecordsCsv } from '../utils/recordCsv';
 
 interface RecordListProps {
@@ -31,6 +31,7 @@ export const RecordList: React.FC<RecordListProps> = ({
   const [templateFilter, setTemplateFilter] = useState<string>('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   // Filter records
   const filteredRecords = records.filter((r) => {
@@ -50,14 +51,28 @@ export const RecordList: React.FC<RecordListProps> = ({
   });
 
   const unapprovedCount = records.filter((r) => r.approvalStatus === '未確認').length;
+  const activeFilterCount = [
+    Boolean(searchTerm.trim()),
+    statusFilter !== 'all',
+    templateFilter !== 'all',
+    Boolean(dateFrom),
+    Boolean(dateTo),
+  ].filter(Boolean).length;
+  const clearFilters = () => {
+    setSearchTerm('');
+    setStatusFilter('all');
+    setTemplateFilter('all');
+    setDateFrom('');
+    setDateTo('');
+  };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="mx-auto max-w-6xl space-y-4">
       {/* Top Header & Quick Stats */}
-      <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+      <div className="flex flex-col items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-lg font-bold text-slate-900">支援経過記録 データベース</h2>
+            <h2 className="text-lg font-black text-slate-900">記録一覧</h2>
             {unapprovedCount > 0 && (
               <span className="bg-amber-100 text-amber-800 border border-amber-300 text-xs font-bold px-2.5 py-0.5 rounded-full flex items-center gap-1">
                 <Clock className="w-3.5 h-3.5" /> 児発管確認待ち {unapprovedCount}件
@@ -65,7 +80,7 @@ export const RecordList: React.FC<RecordListProps> = ({
             )}
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            過去の支援経過記録の閲覧・再編集・児発管フィードバック確認・PDF出力が行えます
+            全{records.length}件・条件に一致 {filteredRecords.length}件
           </p>
         </div>
 
@@ -88,7 +103,19 @@ export const RecordList: React.FC<RecordListProps> = ({
       </div>
 
       {/* Search & Filter Bar */}
-      <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-4 space-y-3">
+      <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+        <button
+          type="button"
+          onClick={() => setFiltersOpen((current) => !current)}
+          className="flex min-h-11 w-full items-center justify-between rounded-xl px-2 text-sm font-black text-slate-800 lg:hidden"
+        >
+          <span className="flex items-center gap-2"><SlidersHorizontal className="h-4 w-4 text-teal-700" />検索・絞り込み</span>
+          <span className="flex items-center gap-2">
+            {activeFilterCount > 0 && <span className="rounded-full bg-teal-600 px-2 py-0.5 text-[10px] text-white">{activeFilterCount}</span>}
+            {filtersOpen ? <X className="h-4 w-4" /> : <Search className="h-4 w-4" />}
+          </span>
+        </button>
+        <div className={`${filtersOpen ? 'block' : 'hidden'} space-y-3 border-t border-slate-100 pt-3 lg:block lg:border-0 lg:pt-0`}>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
           {/* Search Box */}
           <div className="relative">
@@ -145,6 +172,13 @@ export const RecordList: React.FC<RecordListProps> = ({
             <option value="カスタム">カスタム記録</option>
           </select>
         </div>
+          {activeFilterCount > 0 && (
+            <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-3">
+              <p className="text-xs font-bold text-slate-600">{filteredRecords.length}件を表示</p>
+              <button type="button" onClick={clearFilters} className="min-h-9 rounded-lg px-3 text-xs font-black text-rose-700 hover:bg-rose-50">条件を解除</button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Records Table / Cards */}
@@ -161,7 +195,49 @@ export const RecordList: React.FC<RecordListProps> = ({
         </div>
       ) : (
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden">
-          <div className="overflow-x-auto">
+          <div className="divide-y divide-slate-100 lg:hidden">
+            {filteredRecords.map((record) => {
+              const life = record.sectionAnswers?.life;
+              const study = record.sectionAnswers?.study;
+              const summary = study?.detailText || life?.detailText || record.synthesizedSummary || '記録内容あり';
+              return (
+                <article key={record.id} className="p-4">
+                  <button type="button" onClick={() => onSelectRecord(record)} className="w-full text-left">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-base font-black text-slate-950">{record.childName}</p>
+                        <p className="mt-0.5 text-[11px] font-bold text-slate-500">{record.date}・{record.templateName}</p>
+                      </div>
+                      <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black ${
+                        record.approvalStatus === '確認済み'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : record.approvalStatus === '要修正'
+                            ? 'bg-rose-100 text-rose-800'
+                            : 'bg-amber-100 text-amber-800'
+                      }`}>{record.approvalStatus}</span>
+                    </div>
+                    <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-slate-600">{summary}</p>
+                    <p className="mt-2 text-[10px] text-slate-500">出欠：{record.attendance || '未回答'}・記録者：{record.recorderName}</p>
+                  </button>
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    <button type="button" onClick={() => onSelectRecord(record)} className="flex min-h-10 items-center justify-center gap-1 rounded-lg bg-slate-900 text-xs font-black text-white"><Eye className="h-4 w-4" />確認</button>
+                    {record.approvalStatus === '要修正' && onCorrectRecord ? (
+                      <button type="button" onClick={() => onCorrectRecord(record)} className="flex min-h-10 items-center justify-center gap-1 rounded-lg bg-rose-600 text-xs font-black text-white"><Wrench className="h-4 w-4" />修正</button>
+                    ) : (
+                      <button type="button" onClick={() => onEditRecord(record)} className="flex min-h-10 items-center justify-center gap-1 rounded-lg border border-slate-300 text-xs font-black text-slate-700"><Edit className="h-4 w-4" />再編集</button>
+                    )}
+                    <button type="button" onClick={() => onDuplicateRecord(record)} className="flex min-h-10 items-center justify-center gap-1 rounded-lg border border-teal-200 text-xs font-black text-teal-700"><Copy className="h-4 w-4" />再利用</button>
+                    {canDeleteRecords && (
+                      <button type="button" onClick={() => {
+                        if (confirm('この記録を削除してもよろしいですか？')) onDeleteRecord(record.id);
+                      }} className="flex min-h-10 items-center justify-center gap-1 rounded-lg border border-rose-200 text-xs font-black text-rose-700"><Trash2 className="h-4 w-4" />削除</button>
+                    )}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+          <div className="hidden overflow-x-auto lg:block">
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
