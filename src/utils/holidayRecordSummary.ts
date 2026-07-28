@@ -6,12 +6,45 @@ function answerText(answer?: SectionFieldAnswer) {
   return answer.note?.trim() ? `${value}（${answer.note.trim()}）` : value;
 }
 
+function periodLines(section: SectionAnswer, periodNumber: 1 | 2) {
+  const prefix = `${section.sectionId}_period${periodNumber}`;
+  const mode = section.answers[`${prefix}_type`]?.value;
+  const heading = `［${periodNumber}コマ目：${mode || '未回答'}］`;
+  if (mode === '学習') {
+    return [
+      heading,
+      `宿題内容：${answerText(section.answers[`${prefix}_study_homework`])}`,
+      `宿題の取り組み：${answerText(section.answers[`${prefix}_study_attitude`])}`,
+      `宿題以外の取り組み：${answerText(section.answers[`${prefix}_study_extras`])}`,
+      `姿勢：${answerText(section.answers[`${prefix}_study_posture`])}`,
+    ];
+  }
+  if (mode === 'パソコン') {
+    return [
+      heading,
+      `パソコン取り組み内容：${answerText(section.answers[`${prefix}_pc_content`])}`,
+      `タイピング時の指使い：${answerText(section.answers[`${prefix}_pc_finger`])}`,
+      `取り組み時の姿勢：${answerText(section.answers[`${prefix}_pc_posture`])}`,
+      `自由時間からの切り替え：${answerText(section.answers[`${prefix}_pc_transition`])}`,
+    ];
+  }
+  return [heading, `内容：${answerText(section.answers[`${prefix}_type`])}`];
+}
+
 function workBlockLines(section: SectionAnswer | undefined, blockLabel: string) {
   if (!section) return [`［${blockLabel}］未回答`];
   const prefix = section.sectionId;
   const mode = section.answers[`${prefix}_type`]?.value;
   const heading = `［${blockLabel}：${mode || '未回答'}］`;
 
+  if (mode === '学習/パソコン') {
+    return [
+      heading,
+      ...periodLines(section, 1),
+      ...periodLines(section, 2),
+      `［3コマ目］${answerText(section.answers[`${prefix}_period3_type`])}`,
+    ];
+  }
   if (mode === '学習') {
     return [
       heading,

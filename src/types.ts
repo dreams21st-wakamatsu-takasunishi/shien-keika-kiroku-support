@@ -101,7 +101,10 @@ export interface TemplateField {
   visibleWhen?: {
     fieldId: string;
     equals: string | string[];
-  };
+  } | Array<{
+    fieldId: string;
+    equals: string | string[];
+  }>;
 }
 
 export interface TemplateSection {

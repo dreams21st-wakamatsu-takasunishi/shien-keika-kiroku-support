@@ -52,7 +52,7 @@ import { getCurrentDraftCycleKey, getNextDraftResetAt, isDraftCurrent } from '..
 import { createRecordDraftKey, getDeviceId } from '../utils/deviceId';
 import { isStructuredWeekdayTemplate } from '../data/weekdayTemplate';
 import { generateStructuredWeekdaySummary } from '../utils/weekdayRecordSummary';
-import { isStructuredHolidayTemplate } from '../data/holidayTemplate';
+import { isIntegratedHolidayTemplate, isStructuredHolidayTemplate } from '../data/holidayTemplate';
 import { generateStructuredHolidaySummary } from '../utils/holidayRecordSummary';
 
 interface RecordFormProps {
@@ -111,7 +111,7 @@ interface ChildDraft {
 }
 
 interface WizardDraft {
-  version: 8;
+  version: 9;
   draftCycleKey: string;
   selectedTemplateId: string;
   selectedChildIds: string[];
@@ -665,23 +665,72 @@ function createChildDraft(template?: Template, record?: SupportRecord): ChildDra
   };
 }
 
+function migrateLegacyHolidayBlock(section: SectionAnswer | undefined, prefix: 'morning' | 'afternoon') {
+  if (!section) return section;
+  const answers = section.answers || {};
+  const legacyMode = answers[`${prefix}_type`]?.value;
+  if (legacyMode !== '学習' && legacyMode !== 'パソコン') return section;
+
+  const periodPrefix = `${prefix}_period1`;
+  const migratedAnswers = {
+    ...answers,
+    [`${prefix}_type`]: {
+      ...answers[`${prefix}_type`],
+      value: '学習/パソコン',
+    },
+    [`${periodPrefix}_type`]: {
+      value: legacyMode,
+      note: '',
+    },
+  };
+  const suffixes = legacyMode === '学習'
+    ? ['study_homework', 'study_attitude', 'study_extras', 'study_posture']
+    : ['pc_content', 'pc_finger', 'pc_posture', 'pc_transition'];
+  suffixes.forEach((suffix) => {
+    const legacyAnswer = answers[`${prefix}_${suffix}`];
+    if (legacyAnswer) migratedAnswers[`${periodPrefix}_${suffix}`] = legacyAnswer;
+  });
+  return { ...section, answers: migratedAnswers };
+}
+
+function migrateLegacyHolidayDraft(draft: WizardDraft) {
+  if (draft.selectedTemplateId !== 'template-holiday') return draft;
+  return {
+    ...draft,
+    childDrafts: Object.fromEntries(
+      Object.entries(draft.childDrafts).map(([childId, childDraft]) => [
+        childId,
+        {
+          ...childDraft,
+          sectionAnswers: {
+            ...childDraft.sectionAnswers,
+            morning: migrateLegacyHolidayBlock(childDraft.sectionAnswers.morning, 'morning'),
+            afternoon: migrateLegacyHolidayBlock(childDraft.sectionAnswers.afternoon, 'afternoon'),
+          },
+        },
+      ]),
+    ),
+  };
+}
+
 function normalizeWizardDraft(value: unknown): WizardDraft | null {
   if (!value || typeof value !== 'object') return null;
   const draft = value as Partial<WizardDraft> & { version?: number };
-  if (![2, 3, 4, 5, 6, 7, 8].includes(draft.version || 0) || !Array.isArray(draft.selectedChildIds) || !draft.childDrafts) return null;
+  if (![2, 3, 4, 5, 6, 7, 8, 9].includes(draft.version || 0) || !Array.isArray(draft.selectedChildIds) || !draft.childDrafts) return null;
   if (!isDraftCurrent(draft.draftCycleKey, draft.updatedAt)) return null;
   const previousStepIndex = draft.currentStepIndex || 0;
   const currentStepIndex = (draft.version || 0) < 4
     ? previousStepIndex === 1 ? 2 : previousStepIndex === 2 ? 1 : previousStepIndex
     : previousStepIndex;
-  return {
+  const normalized = {
     ...draft,
-    version: 8,
+    version: 9,
     draftCycleKey: getCurrentDraftCycleKey(),
     recorderId: draft.recorderId || '',
     currentStepIndex,
     childStepIds: draft.childStepIds || {},
   } as WizardDraft;
+  return (draft.version || 0) < 9 ? migrateLegacyHolidayDraft(normalized) : normalized;
 }
 
 export const RecordForm: React.FC<RecordFormProps> = ({
@@ -726,7 +775,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         ? recorderProfiles[0]
         : undefined);
     const base: WizardDraft = {
-      version: 8,
+      version: 9,
       draftCycleKey: getCurrentDraftCycleKey(),
       selectedTemplateId: initialTemplate?.id || '',
       selectedChildIds: initialRecord ? [initialRecord.childId] : assistantPrefill ? [assistantPrefill.childId] : [],
@@ -821,7 +870,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     const timer = window.setTimeout(() => {
       const payload: WizardDraft = {
         ...wizard,
-        version: 8,
+        version: 9,
         draftCycleKey: getCurrentDraftCycleKey(),
         updatedAt: new Date().toISOString(),
       };
@@ -972,10 +1021,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       };
       life?.fields.forEach((field) => addField('life', field, lifeNumbers[field.id] || 9));
 
-      ([
-        { sectionId: 'morning', baseNumber: 10 },
-        { sectionId: 'afternoon', baseNumber: 16 },
-      ] as const).forEach(({ sectionId, baseNumber }) => {
+      const addLegacyBlock = (sectionId: 'morning' | 'afternoon', baseNumber: number) => {
         const section = activeTemplate?.sections.find((candidate) => candidate.id === sectionId);
         const questionOffset: Record<string, number> = {
           [`${sectionId}_type`]: 0,
@@ -991,22 +1037,58 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           [`${sectionId}_activity_initiative`]: 2,
         };
         section?.fields.forEach((field) => addField(sectionId, field, baseNumber + (questionOffset[field.id] || 0)));
-      });
+      };
+      const addIntegratedBlock = (sectionId: 'morning' | 'afternoon', baseNumber: number) => {
+        const section = activeTemplate?.sections.find((candidate) => candidate.id === sectionId);
+        const questionOffset: Record<string, number> = {
+          [`${sectionId}_type`]: 0,
+          [`${sectionId}_period1_type`]: 1,
+          [`${sectionId}_period1_study_homework`]: 2,
+          [`${sectionId}_period1_study_attitude`]: 3,
+          [`${sectionId}_period1_study_extras`]: 4,
+          [`${sectionId}_period1_study_posture`]: 5,
+          [`${sectionId}_period1_pc_content`]: 2,
+          [`${sectionId}_period1_pc_finger`]: 3,
+          [`${sectionId}_period1_pc_posture`]: 4,
+          [`${sectionId}_period1_pc_transition`]: 5,
+          [`${sectionId}_period2_type`]: 6,
+          [`${sectionId}_period2_study_homework`]: 7,
+          [`${sectionId}_period2_study_attitude`]: 8,
+          [`${sectionId}_period2_study_extras`]: 9,
+          [`${sectionId}_period2_study_posture`]: 10,
+          [`${sectionId}_period2_pc_content`]: 7,
+          [`${sectionId}_period2_pc_finger`]: 8,
+          [`${sectionId}_period2_pc_posture`]: 9,
+          [`${sectionId}_period2_pc_transition`]: 10,
+          [`${sectionId}_period3_type`]: 11,
+          [`${sectionId}_activity_content`]: 1,
+          [`${sectionId}_activity_initiative`]: 2,
+        };
+        section?.fields.forEach((field) => addField(sectionId, field, baseNumber + (questionOffset[field.id] || 0)));
+      };
 
       const lunch = activeTemplate?.sections.find((section) => section.id === 'lunch');
-      lunch?.fields.forEach((field) => addField('lunch', field, 15));
-      const afternoonStart = next.findIndex((step) => step.sectionId === 'afternoon');
-      if (afternoonStart >= 0) {
-        const lunchSteps = next.splice(next.findIndex((step) => step.sectionId === 'lunch'));
-        next.splice(afternoonStart, 0, ...lunchSteps);
+      if (isIntegratedHolidayTemplate(activeTemplate)) {
+        addIntegratedBlock('morning', 10);
+        lunch?.fields.forEach((field) => addField('lunch', field, 22));
+        addIntegratedBlock('afternoon', 23);
+      } else {
+        addLegacyBlock('morning', 10);
+        lunch?.fields.forEach((field) => addField('lunch', field, 15));
+        addLegacyBlock('afternoon', 16);
       }
 
-      next.push({ id: 'snack', kind: 'snack', displayNumber: 21, ...questions.snack });
+      next.push({
+        id: 'snack',
+        kind: 'snack',
+        displayNumber: isIntegratedHolidayTemplate(activeTemplate) ? 35 : 21,
+        ...questions.snack,
+      });
       next.push({
         id: 'abc-special',
         kind: 'abc-sequence',
         sectionId: 'special',
-        displayNumber: 22,
+        displayNumber: isIntegratedHolidayTemplate(activeTemplate) ? 36 : 22,
         title: questions.abcBehavior.title,
         help: 'B（行動）→C（結果）→A（きっかけ）の順に入力します。各入力は箇条書きや短い言葉でまとめてください。',
       });
@@ -1074,7 +1156,11 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   }, [steps.length, wizard.currentStepIndex]);
 
   const currentStep = steps[wizard.currentStepIndex];
-  const questionTotal = isStructuredHolidayTemplate(activeTemplate) ? 22 : 21;
+  const questionTotal = isIntegratedHolidayTemplate(activeTemplate)
+    ? 36
+    : isStructuredHolidayTemplate(activeTemplate)
+      ? 22
+      : 21;
   const progress = currentStep?.kind === 'review'
     ? 100
     : currentStep?.displayNumber
@@ -1188,11 +1274,12 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
   const fieldIsVisible = (field: TemplateField, childDraft?: ChildDraft, sectionId?: string) => {
     if (!field.visibleWhen) return true;
-    const controllingValue = childDraft?.sectionAnswers[sectionId || '']?.answers[field.visibleWhen.fieldId]?.value;
-    const expectedValues = Array.isArray(field.visibleWhen.equals)
-      ? field.visibleWhen.equals
-      : [field.visibleWhen.equals];
-    return expectedValues.includes(controllingValue || '');
+    const conditions = Array.isArray(field.visibleWhen) ? field.visibleWhen : [field.visibleWhen];
+    return conditions.every((condition) => {
+      const controllingValue = childDraft?.sectionAnswers[sectionId || '']?.answers[condition.fieldId]?.value;
+      const expectedValues = Array.isArray(condition.equals) ? condition.equals : [condition.equals];
+      return expectedValues.includes(controllingValue || '');
+    });
   };
 
   const stepIsVisible = (step: WizardStep, childDraft?: ChildDraft) => {
@@ -1968,7 +2055,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         remoteRevision.current = remote.revision;
         const payload: WizardDraft = {
           ...wizard,
-          version: 8,
+          version: 9,
           draftCycleKey: getCurrentDraftCycleKey(),
           updatedAt: new Date().toISOString(),
         };

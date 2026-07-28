@@ -18,17 +18,51 @@ const ACTIVITY_INITIATIVE_SCALE_OPTIONS = [
 function holidayWorkBlockFields(
   prefix: 'morning' | 'afternoon',
   label: '午前' | '午後',
-  includeActivity = false,
 ): TemplateField[] {
-  const fields = createLearningPcFields(
-    prefix,
-    `${label}の取り組みはなんですか？`,
-    `${label}の取り組み`,
-    includeActivity ? ['学習', 'パソコン', '活動', 'その他'] : ['学習', 'パソコン', 'その他'],
-  );
-  if (!includeActivity) return fields;
+  const blockCondition = { fieldId: `${prefix}_type`, equals: '学習/パソコン' };
+  const periodFields = (periodNumber: 1 | 2) => {
+    const periodPrefix = `${prefix}_period${periodNumber}`;
+    return createLearningPcFields(
+      periodPrefix,
+      `${periodNumber}コマ目の取り組みはなんですか？`,
+      `${periodNumber}コマ目の取り組み`,
+    ).map((field) => {
+      const ownConditions = field.visibleWhen
+        ? Array.isArray(field.visibleWhen) ? field.visibleWhen : [field.visibleWhen]
+        : [];
+      return {
+        ...field,
+        visibleWhen: [blockCondition, ...ownConditions],
+      };
+    });
+  };
+
   return [
-    ...fields,
+    {
+      id: `${prefix}_type`,
+      label: `${label}の取り組み`,
+      questionTitle: `${label}の取り組みはなんですか？`,
+      type: 'radio',
+      options: ['学習/パソコン', '活動', 'その他'],
+      defaultValue: '',
+      hasNote: true,
+      notePlaceholder: '取り組み内容や補足を入力してください。',
+      required: true,
+    },
+    ...periodFields(1),
+    ...periodFields(2),
+    {
+      id: `${prefix}_period3_type`,
+      label: '3コマ目の取り組み',
+      questionTitle: '3コマ目の取り組みはなんですか？',
+      type: 'radio',
+      options: ['漢検', 'パソコン', 'その他'],
+      defaultValue: '',
+      hasNote: true,
+      notePlaceholder: '漢検の級、パソコンの取り組み内容、その他の内容などを入力してください。',
+      helpText: '当てはまる取り組みを1つ選び、内容を自由記入欄に入力してください。',
+      visibleWhen: blockCondition,
+    },
     {
       id: `${prefix}_activity_content`,
       label: '活動内容',
@@ -153,7 +187,7 @@ export const STANDARD_HOLIDAY_TEMPLATE: Template = {
     {
       id: 'morning',
       title: '午前の取り組み',
-      fields: holidayWorkBlockFields('morning', '午前', true),
+      fields: holidayWorkBlockFields('morning', '午前'),
     },
     {
       id: 'lunch',
@@ -193,6 +227,15 @@ export function isStructuredHolidayTemplate(template?: Template) {
     && sectionIds.has('special');
 }
 
+export function isIntegratedHolidayTemplate(template?: Template) {
+  if (!isStructuredHolidayTemplate(template)) return false;
+  return Boolean(
+    template?.sections
+      .find((section) => section.id === 'morning')
+      ?.fields.some((field) => field.id === 'morning_period1_type')
+  );
+}
+
 export function upgradeStandardHolidayTemplate(template: Template): Template {
   if (template.id !== STANDARD_HOLIDAY_TEMPLATE.id) return template;
   if (!isStructuredHolidayTemplate(template)) {
@@ -201,6 +244,24 @@ export function upgradeStandardHolidayTemplate(template: Template): Template {
       name: template.name || STANDARD_HOLIDAY_TEMPLATE.name,
       description: template.description || STANDARD_HOLIDAY_TEMPLATE.description,
       isDefault: template.isDefault ?? true,
+    };
+  }
+  if (!isIntegratedHolidayTemplate(template)) {
+    const replacementSections = new Map(
+      STANDARD_HOLIDAY_TEMPLATE.sections.map((section) => [section.id, section]),
+    );
+    return {
+      ...template,
+      description: template.description || STANDARD_HOLIDAY_TEMPLATE.description,
+      wizardQuestions: {
+        ...STANDARD_HOLIDAY_TEMPLATE.wizardQuestions,
+        ...template.wizardQuestions,
+      },
+      sections: template.sections.map((section) =>
+        section.id === 'morning' || section.id === 'afternoon'
+          ? replacementSections.get(section.id) || section
+          : section
+      ),
     };
   }
   return template;
