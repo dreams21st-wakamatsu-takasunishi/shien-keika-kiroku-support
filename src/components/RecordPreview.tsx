@@ -1,14 +1,15 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { RecordRevision, ReviewIssue, SectionAnswer, SupportRecord } from '../types';
 import { PDFDocument } from './PDFDocument';
 import { generatePDFFromElement } from '../utils/pdfGenerator';
 import { generateRecordSummary, generateNarrativeReport } from '../utils/textGenerator';
-import { Download, Printer, Copy, Edit, Check, ArrowLeft, LayoutGrid, FileText, History, Plus, Trash2 } from 'lucide-react';
+import { Download, Printer, Copy, Edit, Check, ArrowLeft, LayoutGrid, FileText, History, Plus, Trash2, Wrench } from 'lucide-react';
 import { loadRecordRevisions } from '../services/dataService';
 
 interface RecordPreviewProps {
   record: SupportRecord;
   onEditRecord: (record: SupportRecord) => void;
+  onCorrectIssue?: (record: SupportRecord, issue?: ReviewIssue) => void;
   onBackToList: () => void;
   canReview?: boolean;
   defaultReviewerName?: string;
@@ -26,6 +27,7 @@ interface RecordPreviewProps {
 export const RecordPreview: React.FC<RecordPreviewProps> = ({
   record,
   onEditRecord,
+  onCorrectIssue,
   onBackToList,
   canReview = false,
   defaultReviewerName,
@@ -46,10 +48,27 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
     record.reviewedBy || defaultReviewerName || '児童発達支援管理責任者'
   );
   const [reviewIssues, setReviewIssues] = useState<ReviewIssue[]>(record.reviewIssues || []);
-  const [issueLabel, setIssueLabel] = useState('記録全体');
+  const [issueStepId, setIssueStepId] = useState('review');
   const [issueComment, setIssueComment] = useState('');
   const [revisions, setRevisions] = useState<RecordRevision[]>([]);
   const [revisionLoading, setRevisionLoading] = useState(false);
+  const issueTargets = useMemo(() => {
+    const targets = [
+      { stepId: 'review', label: '記録全体' },
+      { stepId: 'attendance', label: '出欠・表情・おやつ' },
+      { stepId: 'abc-special', label: 'ABC分析・特記' },
+    ];
+    (Object.values(record.sectionAnswers || {}) as SectionAnswer[]).forEach((section) => {
+      const firstFieldId = Object.keys(section.answers || {})[0];
+      targets.push({
+        stepId: firstFieldId ? `field-${section.sectionId}-${firstFieldId}` : `abc-b-${section.sectionId}`,
+        label: section.sectionTitle,
+      });
+    });
+    return targets.filter((target, index, all) =>
+      all.findIndex((candidate) => candidate.stepId === target.stepId) === index
+    );
+  }, [record.sectionAnswers]);
 
   useEffect(() => {
     setJihatsukanComment(record.jihatsukanComment || '');
@@ -123,14 +142,16 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
 
   const addReviewIssue = () => {
     if (!issueComment.trim()) return;
+    const target = issueTargets.find((item) => item.stepId === issueStepId) || issueTargets[0];
     setReviewIssues((previous) => [
       ...previous,
       {
         id: typeof crypto !== 'undefined' && 'randomUUID' in crypto
           ? crypto.randomUUID()
           : `issue-${Date.now()}`,
-        label: issueLabel,
+        label: target?.label || '記録全体',
         comment: issueComment.trim(),
+        stepId: target?.stepId,
         resolved: false,
         createdAt: new Date().toISOString(),
       },
@@ -190,6 +211,17 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
             <Edit className="w-3.5 h-3.5" />
             再編集
           </button>
+
+          {record.approvalStatus === '要修正' && onCorrectIssue && (
+            <button
+              type="button"
+              onClick={() => onCorrectIssue(record, record.reviewIssues?.find((issue) => !issue.resolved))}
+              className="flex items-center gap-1.5 rounded-md border border-rose-400 bg-rose-600 px-3 py-1.5 text-xs font-black text-white hover:bg-rose-500"
+            >
+              <Wrench className="h-3.5 w-3.5" />
+              修正
+            </button>
+          )}
 
           {/* Print Button */}
           <button
@@ -273,6 +305,15 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
                               {issue.label}・{issue.resolved ? '修正対応済み' : '要修正'}
                             </p>
                             <p className="mt-1 whitespace-pre-wrap text-xs leading-relaxed text-slate-800">{issue.comment}</p>
+                            {!issue.resolved && record.approvalStatus === '要修正' && onCorrectIssue && (
+                              <button
+                                type="button"
+                                onClick={() => onCorrectIssue(record, issue)}
+                                className="mt-2 inline-flex min-h-9 items-center gap-1 rounded-lg bg-rose-600 px-3 text-xs font-black text-white"
+                              >
+                                <Wrench className="h-3.5 w-3.5" />この箇所を修正
+                              </button>
+                            )}
                           </div>
                           {canReview && !issue.resolved && (
                             <button
@@ -293,15 +334,12 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
                 {canReview && (
                   <div className="mt-3 space-y-2 border-t border-slate-200 pt-3">
                     <select
-                      value={issueLabel}
-                      onChange={(event) => setIssueLabel(event.target.value)}
+                      value={issueStepId}
+                      onChange={(event) => setIssueStepId(event.target.value)}
                       className="min-h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-xs font-bold"
                     >
-                      <option>記録全体</option>
-                      <option>出欠・表情・おやつ</option>
-                      <option>ABC分析</option>
-                      {(Object.values(record.sectionAnswers || {}) as SectionAnswer[]).map((section) => (
-                        <option key={section.sectionId}>{section.sectionTitle}</option>
+                      {issueTargets.map((target) => (
+                        <option key={target.stepId} value={target.stepId}>{target.label}</option>
                       ))}
                     </select>
                     <textarea

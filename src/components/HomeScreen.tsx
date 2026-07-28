@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import type {
   ChildProfile,
+  Announcement,
   HandoverConfirmation,
   HandoverItem,
   HandoverStatus,
@@ -35,10 +36,12 @@ import { executeHomeAssistantProposal, requestHomeAssistantProposal } from '../s
 import { DailyOperationsPanel } from './DailyOperationsPanel';
 import { HandoverPanel } from './HandoverPanel';
 import { MorningMeetingPanel } from './MorningMeetingPanel';
+import { AnnouncementPanel } from './AnnouncementPanel';
 import { getLocalDateString } from '../utils/weekdays';
 
 interface HomeScreenProps {
   records: SupportRecord[];
+  announcements: Announcement[];
   childrenList: ChildProfile[];
   drafts: RecordDraftSummary[];
   recorderProfiles: RecorderProfile[];
@@ -55,8 +58,11 @@ interface HomeScreenProps {
   onNewRecord: () => void;
   onStartRecord: (childId: string, date: string) => void;
   onResumeDraft: (draftKey: string) => void;
+  onViewDraft: (draftKey: string, ownerName?: string) => void;
   onDeleteDraft: (draftKey: string) => void;
   onOpenRecord: (record: SupportRecord) => void;
+  onSaveAnnouncement: (announcement: Announcement) => Promise<void> | void;
+  onArchiveAnnouncement: (announcementId: string) => Promise<void> | void;
   onSaveHandover: (item: HandoverItem) => Promise<void> | void;
   onHandoverStatusChange: (itemId: string, status: HandoverStatus) => Promise<void> | void;
   onSetHandoverConfirmation: (confirmation: HandoverConfirmation, confirmed: boolean) => Promise<void> | void;
@@ -69,6 +75,7 @@ interface HomeScreenProps {
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   records,
+  announcements,
   childrenList,
   drafts,
   recorderProfiles,
@@ -85,8 +92,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onNewRecord,
   onStartRecord,
   onResumeDraft,
+  onViewDraft,
   onDeleteDraft,
   onOpenRecord,
+  onSaveAnnouncement,
+  onArchiveAnnouncement,
   onSaveHandover,
   onHandoverStatusChange,
   onSetHandoverConfirmation,
@@ -110,6 +120,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
   return (
     <div className="max-w-6xl mx-auto space-y-4">
+      <AnnouncementPanel
+        announcements={announcements}
+        organizationId={organizationId}
+        canManage={canManageSettings}
+        currentUserName={currentUser?.displayName}
+        onSave={onSaveAnnouncement}
+        onArchive={onArchiveAnnouncement}
+      />
       <section className="flex flex-col gap-4 overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-teal-950 p-5 text-white shadow-sm sm:flex-row sm:items-center sm:justify-between sm:px-6">
         <div>
           <p className="text-[11px] font-bold text-teal-300">支援経過記録サポート</p>
@@ -167,9 +185,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             records={records}
             drafts={drafts}
             currentUserId={currentUser?.id}
+            currentRecorderId={activeRecorder?.id}
             canManageDrafts={canManageSettings}
             onStartRecord={onStartRecord}
             onResumeDraft={onResumeDraft}
+            onViewDraft={onViewDraft}
             onDeleteDraft={onDeleteDraft}
             onOpenRecord={onOpenRecord}
           />

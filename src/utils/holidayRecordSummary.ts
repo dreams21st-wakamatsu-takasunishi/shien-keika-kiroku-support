@@ -74,8 +74,15 @@ function workBlockLines(section: SectionAnswer | undefined, blockLabel: string) 
 }
 
 export function generateStructuredHolidaySummary(
-  record: Pick<SupportRecord, 'recorderName' | 'expressions' | 'expressionNote' | 'snack' | 'snackNote' | 'sectionAnswers'>,
+  record: Pick<SupportRecord, 'recorderName' | 'attendance' | 'attendanceNote' | 'expressions' | 'expressionNote' | 'snack' | 'snackNote' | 'sectionAnswers'>,
 ) {
+  if (record.attendance.includes('欠席')) {
+    const note = record.attendanceNote?.trim();
+    return [
+      `記録者：${record.recorderName || '未選択'}`,
+      `【出欠】\n欠席${note ? `（${note}）` : ''}`,
+    ].join('\n\n');
+  }
   const life = record.sectionAnswers.life;
   const lunch = record.sectionAnswers.lunch;
   const special = record.sectionAnswers.special;
@@ -86,6 +93,10 @@ export function generateStructuredHolidaySummary(
   const snackText = record.snackNote?.trim()
     ? `${record.snack || '未回答'}（${record.snackNote.trim()}）`
     : record.snack || '未回答';
+
+  const specialText = special?.abcAnalysis?.inputMode === 'free'
+    ? special.abcAnalysis.freeText?.trim()
+    : special?.abcAnalysis?.summary?.trim();
 
   return [
     `記録者：${record.recorderName || '未選択'}`,
@@ -101,7 +112,7 @@ export function generateStructuredHolidaySummary(
     `【昼食】\n${answerText(lunch?.answers.lunch_details)}`,
     ['【午後】', ...workBlockLines(record.sectionAnswers.afternoon, '午後')].join('\n'),
     `【おやつ】\nおやつ：${snackText}`,
-    `【特記】\n${special?.abcAnalysis?.summary?.trim() || '特記事項なし'}`,
+    `【特記】\n${specialText || '特記事項なし'}`,
   ].join('\n\n');
 }
 

@@ -16,6 +16,24 @@ input,
 textarea {
   touch-action: manipulation;
 }
+
+.desktop-top-navigation {
+  display: none;
+}
+
+.mobile-bottom-navigation {
+  display: block;
+}
+
+@media (min-width: 1024px) {
+  .desktop-top-navigation {
+    display: flex !important;
+  }
+
+  .mobile-bottom-navigation {
+    display: none !important;
+  }
+}
 @keyframes wizard-reveal {
   from {
     opacity: 0;

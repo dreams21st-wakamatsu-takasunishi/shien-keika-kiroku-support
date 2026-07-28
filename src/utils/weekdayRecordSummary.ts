@@ -32,8 +32,15 @@ function periodLines(section: SectionAnswer | undefined, periodLabel: string, mo
 }
 
 export function generateStructuredWeekdaySummary(
-  record: Pick<SupportRecord, 'recorderName' | 'expressions' | 'expressionNote' | 'snack' | 'snackNote' | 'sectionAnswers'>,
+  record: Pick<SupportRecord, 'recorderName' | 'attendance' | 'attendanceNote' | 'expressions' | 'expressionNote' | 'snack' | 'snackNote' | 'sectionAnswers'>,
 ) {
+  if (record.attendance.includes('欠席')) {
+    const note = record.attendanceNote?.trim();
+    return [
+      `記録者：${record.recorderName || '未選択'}`,
+      `【出欠】\n欠席${note ? `（${note}）` : ''}`,
+    ].join('\n\n');
+  }
   const life = record.sectionAnswers.life;
   const period1 = record.sectionAnswers.period1;
   const period2 = record.sectionAnswers.period2;
@@ -77,7 +84,10 @@ export function generateStructuredWeekdaySummary(
   ];
 
   if (otherLines.length) blocks.push(['【その他の取り組み】', ...otherLines].join('\n'));
-  blocks.push(`【特記】\n${special?.abcAnalysis?.summary?.trim() || '特記事項なし'}`);
+  const specialText = special?.abcAnalysis?.inputMode === 'free'
+    ? special.abcAnalysis.freeText?.trim()
+    : special?.abcAnalysis?.summary?.trim();
+  blocks.push(`【特記】\n${specialText || '特記事項なし'}`);
   return blocks.join('\n\n');
 }
 

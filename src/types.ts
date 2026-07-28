@@ -195,6 +195,7 @@ export interface ReviewIssue {
   id: string;
   label: string;
   comment: string;
+  stepId?: string;
   resolved: boolean;
   createdAt: string;
 }
@@ -310,10 +311,26 @@ export interface SectionAnswer {
 }
 
 export interface ABCAnalysis {
+  inputMode?: 'abc' | 'free';
   behavior: string;
   consequence: string;
   antecedent: string;
   summary?: string;
+  freeText?: string;
+}
+
+export type AnnouncementPriority = 'normal' | 'important' | 'urgent';
+
+export interface Announcement {
+  id: string;
+  title: string;
+  content: string;
+  priority: AnnouncementPriority;
+  publishedAt: string;
+  expiresAt?: string;
+  createdByName?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export type AiTone = 'assertive' | 'polite' | 'custom';

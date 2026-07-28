@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, Cloud, HardDrive, LoaderCircle, RefreshCw, UserRoundCog, WifiOff } from 'lucide-react';
 import {
   AiWritingSettings,
+  Announcement,
   ChildProfile,
   DEFAULT_AI_WRITING_SETTINGS,
   HandoverConfirmation,
@@ -41,6 +42,7 @@ import { upgradeStandardWeekdayTemplate } from './data/weekdayTemplate';
 import { upgradeStandardHolidayTemplate } from './data/holidayTemplate';
 import {
   archiveMorningMeetingTemplate,
+  archiveAnnouncement,
   archiveTemplate,
   closeSupportPlan,
   deleteHandoverConfirmation,
@@ -57,7 +59,9 @@ import {
   saveRecord,
   saveRecords,
   saveAiWritingSettings,
+  saveAnnouncement,
   saveSupportPlan,
+  sendAnnouncementNotification,
   saveTemplate,
   seedDefaultTemplates,
   softDeleteChild,
@@ -74,6 +78,7 @@ import {
   PendingRecordSync,
   removePendingRecordSync,
 } from './utils/offlineQueue';
+import { showAnnouncementNotification } from './utils/deviceNotifications';
 
 export default function App() {
   const auth = useAuth();
@@ -130,6 +135,11 @@ export default function App() {
     return saved ? JSON.parse(saved) : [];
   });
   const [recordDrafts, setRecordDrafts] = useState<RecordDraftSummary[]>([]);
+  const [announcements, setAnnouncements] = useState<Announcement[]>(() => {
+    if (remoteMode) return [];
+    const saved = localStorage.getItem('support_announcements_data');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [activeRecorder, setActiveRecorder] = useState<RecorderProfile | null>(null);
   const [activeDraftKey, setActiveDraftKey] = useState(createRecordDraftKey);
   const [online, setOnline] = useState(() => navigator.onLine);
@@ -141,6 +151,8 @@ export default function App() {
     return saved ? JSON.parse(saved) : [];
   });
   const [currentRecord, setCurrentRecord] = useState<SupportRecord | null>(null);
+  const [correctionTarget, setCorrectionTarget] = useState<{ stepId?: string; issueId?: string } | null>(null);
+  const [readOnlyDraft, setReadOnlyDraft] = useState<{ draftKey: string; ownerName?: string } | null>(null);
   const [formSessionId, setFormSessionId] = useState(0);
   const [assistantRecordPrefill, setAssistantRecordPrefill] = useState<{ childId: string; date: string; requestId: string } | null>(null);
   const [recordFilterChildId, setRecordFilterChildId] = useState<string | null>(null);
@@ -191,6 +203,9 @@ export default function App() {
   useEffect(() => {
     if (!remoteMode) localStorage.setItem('support_ai_writing_settings', JSON.stringify(aiWritingSettings));
   }, [aiWritingSettings, remoteMode]);
+  useEffect(() => {
+    if (!remoteMode) localStorage.setItem('support_announcements_data', JSON.stringify(announcements));
+  }, [announcements, remoteMode]);
 
   const refreshRemoteData = useCallback(async (showLoading = true) => {
     if (!auth.profile) return;
@@ -214,6 +229,7 @@ export default function App() {
       setMorningMeetingConfirmations(workspace.morningMeetingConfirmations);
       setSupportPlans(workspace.supportPlans);
       setAiWritingSettings(workspace.aiWritingSettings);
+      setAnnouncements(workspace.announcements);
       setDataError(null);
     } catch (error) {
       setDataError(error instanceof Error ? error.message : '共有データを取得できませんでした。');
@@ -294,6 +310,13 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'morning_meeting_templates', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'morning_meeting_confirmations', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'record_drafts', filter: `organization_id=eq.${organizationId}` }, () => void refreshRecordDrafts())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'announcements', filter: `organization_id=eq.${organizationId}` }, (payload) => {
+        if (payload.eventType === 'INSERT' && !import.meta.env.VITE_VAPID_PUBLIC_KEY) {
+          const row = payload.new as { id?: string; title?: string; content?: string };
+          void showAnnouncementNotification(row.title || '新しいお知らせ', row.content || '', row.id);
+        }
+        void refreshRemoteData(false);
+      })
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, [auth.profile, refreshRemoteData, refreshRecordDrafts]);
@@ -342,22 +365,6 @@ export default function App() {
       window.removeEventListener('offline', handleOffline);
     };
   }, [syncPendingRecords]);
-
-  useEffect(() => {
-    if (!activeRecorder || auth.profile?.role !== 'staff') return;
-    let timer: number;
-    const lockAfterInactivity = () => {
-      window.clearTimeout(timer);
-      timer = window.setTimeout(() => setActiveRecorder(null), 15 * 60 * 1000);
-    };
-    const events: Array<keyof WindowEventMap> = ['pointerdown', 'keydown', 'touchstart'];
-    events.forEach((eventName) => window.addEventListener(eventName, lockAfterInactivity, { passive: true }));
-    lockAfterInactivity();
-    return () => {
-      window.clearTimeout(timer);
-      events.forEach((eventName) => window.removeEventListener(eventName, lockAfterInactivity));
-    };
-  }, [activeRecorder, auth.profile?.role]);
 
   useEffect(() => {
     if (activeRecorder && !recorderProfiles.some((profile) => profile.id === activeRecorder.id)) {
@@ -468,8 +475,29 @@ export default function App() {
       alert('承認済み記録は保護されています。児発管が「要修正」に変更してから再編集してください。');
       return;
     }
+    setCorrectionTarget(null);
+    setReadOnlyDraft(null);
     setCurrentRecord(record);
     setActiveDraftKey(`record-edit-${record.id}`);
+    setFormSessionId((previous) => previous + 1);
+    setActiveTab('form');
+  };
+
+  const handleCorrectRecord = (record: SupportRecord, issue?: ReviewIssue) => {
+    if (record.approvalStatus !== '要修正') {
+      handleEditRecord(record);
+      return;
+    }
+    const targetIssue = issue || record.reviewIssues?.find((item) => !item.resolved);
+    const inferredStepId = targetIssue?.stepId
+      || (targetIssue?.label.includes('ABC') ? 'abc-special'
+        : targetIssue?.label.includes('出欠') || targetIssue?.label.includes('表情') || targetIssue?.label.includes('おやつ')
+          ? 'attendance'
+          : 'review');
+    setCorrectionTarget({ stepId: inferredStepId, issueId: targetIssue?.id });
+    setReadOnlyDraft(null);
+    setCurrentRecord(record);
+    setActiveDraftKey(`record-correction-${record.id}-${targetIssue?.id || 'general'}`);
     setFormSessionId((previous) => previous + 1);
     setActiveTab('form');
   };
@@ -488,6 +516,8 @@ export default function App() {
       createdAt: now.toISOString(),
       updatedAt: now.toISOString(),
     };
+    setCorrectionTarget(null);
+    setReadOnlyDraft(null);
     setCurrentRecord(duplicated);
     setActiveDraftKey(createRecordDraftKey());
     setFormSessionId((previous) => previous + 1);
@@ -495,6 +525,10 @@ export default function App() {
   };
 
   const handleDeleteRecord = async (recordId: string) => {
+    if (remoteMode && auth.profile?.role === 'staff') {
+      alert('指導員は記録を削除できません。児発管または管理者に依頼してください。');
+      return;
+    }
     const record = records.find((item) => item.id === recordId);
     if (record?.approvalStatus === '確認済み') {
       alert('承認済み記録は削除できません。');
@@ -562,6 +596,33 @@ export default function App() {
     } catch (error) { persistError(error); }
   };
 
+  const handleSaveAnnouncement = async (announcement: Announcement) => {
+    if (!canManageSettings) throw new Error('お知らせを送信する権限がありません。');
+    if (organizationId) {
+      await saveAnnouncement(organizationId, announcement);
+    }
+    setAnnouncements((previous) => [
+      announcement,
+      ...previous.filter((item) => item.id !== announcement.id),
+    ]);
+    if (organizationId) {
+      try {
+        await sendAnnouncementNotification(announcement.id);
+      } catch (error) {
+        setDataError(`お知らせは保存しましたが、端末通知の配信に失敗しました: ${error instanceof Error ? error.message : '配信設定を確認してください。'}`);
+      }
+    } else {
+      await showAnnouncementNotification(announcement.title, announcement.content, announcement.id);
+    }
+  };
+
+  const handleArchiveAnnouncement = async (announcementId: string) => {
+    if (!canManageSettings) return;
+    if (!window.confirm('このお知らせの表示を終了しますか？')) return;
+    if (organizationId) await archiveAnnouncement(organizationId, announcementId);
+    setAnnouncements((previous) => previous.filter((item) => item.id !== announcementId));
+  };
+
   const handleAddChild = async (child: ChildProfile) => {
     try {
       if (organizationId) await saveChild(organizationId, child);
@@ -602,6 +663,8 @@ export default function App() {
 
     if (result.clientAction?.type === 'start_support_record') {
       setCurrentRecord(null);
+      setCorrectionTarget(null);
+      setReadOnlyDraft(null);
       setActiveDraftKey(createRecordDraftKey());
       setAssistantRecordPrefill({
         childId: result.clientAction.childId,
@@ -634,6 +697,8 @@ export default function App() {
 
   const handleNewRecordClick = () => {
     setCurrentRecord(null);
+    setCorrectionTarget(null);
+    setReadOnlyDraft(null);
     setAssistantRecordPrefill(null);
     setActiveDraftKey(createRecordDraftKey());
     setFormSessionId((previous) => previous + 1);
@@ -643,6 +708,8 @@ export default function App() {
   const handleStartRecord = (childId: string, date: string) => {
     const requestId = createRecordDraftKey();
     setCurrentRecord(null);
+    setCorrectionTarget(null);
+    setReadOnlyDraft(null);
     setActiveDraftKey(requestId);
     setAssistantRecordPrefill({ childId, date, requestId });
     setFormSessionId((previous) => previous + 1);
@@ -651,7 +718,19 @@ export default function App() {
 
   const handleResumeDraft = (draftKey: string) => {
     setCurrentRecord(null);
+    setCorrectionTarget(null);
+    setReadOnlyDraft(null);
     setAssistantRecordPrefill(null);
+    setActiveDraftKey(draftKey);
+    setFormSessionId((previous) => previous + 1);
+    setActiveTab('form');
+  };
+
+  const handleViewDraft = (draftKey: string, ownerName?: string) => {
+    setCurrentRecord(null);
+    setCorrectionTarget(null);
+    setAssistantRecordPrefill(null);
+    setReadOnlyDraft({ draftKey, ownerName });
     setActiveDraftKey(draftKey);
     setFormSessionId((previous) => previous + 1);
     setActiveTab('form');
@@ -825,12 +904,14 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100/70 text-slate-900 font-sans antialiased pb-24 md:pb-12">
+    <div className="min-h-screen bg-slate-100/70 text-slate-900 font-sans antialiased pb-24 lg:pb-12">
       <Header
         activeTab={activeTab === 'preview' ? 'records' : activeTab}
         setActiveTab={(tab) => {
           if (tab === 'form') {
             setCurrentRecord(null);
+            setCorrectionTarget(null);
+            setReadOnlyDraft(null);
             setAssistantRecordPrefill(null);
             setActiveDraftKey(createRecordDraftKey());
             setFormSessionId((previous) => previous + 1);
@@ -889,6 +970,7 @@ export default function App() {
         {activeTab === 'home' && (
           <HomeScreen
             records={records}
+            announcements={announcements}
             childrenList={childrenList}
             drafts={recordDrafts}
             recorderProfiles={recorderProfiles}
@@ -908,11 +990,14 @@ export default function App() {
             onNewRecord={handleNewRecordClick}
             onStartRecord={handleStartRecord}
             onResumeDraft={handleResumeDraft}
+            onViewDraft={handleViewDraft}
             onDeleteDraft={(draftKey) => void handleDeleteDraft(draftKey)}
             onOpenRecord={(record) => {
               setCurrentRecord(record);
               setActiveTab('preview');
             }}
+            onSaveAnnouncement={handleSaveAnnouncement}
+            onArchiveAnnouncement={handleArchiveAnnouncement}
             onSaveHandover={handleSaveHandover}
             onHandoverStatusChange={handleHandoverStatusChange}
             onSetHandoverConfirmation={handleSetHandoverConfirmation}
@@ -936,6 +1021,18 @@ export default function App() {
             draftKey={activeDraftKey}
             activeRecorder={activeRecorder || undefined}
             assistantPrefill={assistantRecordPrefill}
+            initialStepId={correctionTarget?.stepId}
+            resolvedIssueId={correctionTarget?.issueId}
+            readOnly={Boolean(readOnlyDraft)}
+            readOnlyOwnerName={readOnlyDraft?.ownerName}
+            lockedChildren={auth.profile?.role === 'staff' && activeRecorder
+              ? Object.fromEntries(recordDrafts
+                  .filter((draft) => draft.recorderId && draft.recorderId !== activeRecorder.id)
+                  .flatMap((draft) => draft.selectedChildIds.map((childId) => [
+                    childId,
+                    draft.recorderName || '別指導員',
+                  ])))
+              : {}}
             onSaveRecords={handleSaveRecords}
             onCreateHandover={handleQuickMemoHandover}
           />
@@ -948,6 +1045,7 @@ export default function App() {
             lockReviewerName={remoteMode}
             organizationId={organizationId}
             onEditRecord={handleEditRecord}
+            onCorrectIssue={handleCorrectRecord}
             onBackToList={() => setActiveTab('records')}
             onUpdateApproval={handleUpdateApproval}
           />
@@ -959,8 +1057,10 @@ export default function App() {
             initialSearchTerm={childrenList.find((child) => child.id === recordFilterChildId)?.name}
             onSelectRecord={(record) => { setCurrentRecord(record); setActiveTab('preview'); }}
             onEditRecord={handleEditRecord}
+            onCorrectRecord={(record) => handleCorrectRecord(record)}
             onDuplicateRecord={handleDuplicateRecord}
             onDeleteRecord={handleDeleteRecord}
+            canDeleteRecords={!remoteMode || auth.profile?.role !== 'staff'}
             onNewRecord={handleNewRecordClick}
           />
         )}

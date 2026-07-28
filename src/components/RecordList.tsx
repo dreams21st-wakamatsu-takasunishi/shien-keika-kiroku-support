@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { SupportRecord, ApprovalStatus } from '../types';
-import { Search, Filter, Calendar, FileText, CheckCircle2, AlertCircle, Clock, Eye, Edit, Copy, Trash2, Download } from 'lucide-react';
+import { Search, FileText, Clock, Eye, Edit, Copy, Trash2, Download, Wrench } from 'lucide-react';
 import { downloadRecordsCsv } from '../utils/recordCsv';
 
 interface RecordListProps {
@@ -8,8 +8,10 @@ interface RecordListProps {
   initialSearchTerm?: string;
   onSelectRecord: (record: SupportRecord) => void;
   onEditRecord: (record: SupportRecord) => void;
+  onCorrectRecord?: (record: SupportRecord) => void;
   onDuplicateRecord: (record: SupportRecord) => void;
   onDeleteRecord: (recordId: string) => void;
+  canDeleteRecords?: boolean;
   onNewRecord: () => void;
 }
 
@@ -18,8 +20,10 @@ export const RecordList: React.FC<RecordListProps> = ({
   initialSearchTerm,
   onSelectRecord,
   onEditRecord,
+  onCorrectRecord,
   onDuplicateRecord,
   onDeleteRecord,
+  canDeleteRecords = true,
   onNewRecord,
 }) => {
   const [searchTerm, setSearchTerm] = useState(initialSearchTerm || '');
@@ -242,6 +246,16 @@ export const RecordList: React.FC<RecordListProps> = ({
                         >
                           <Edit className="w-4 h-4" />
                         </button>
+                        {r.approvalStatus === '要修正' && onCorrectRecord && (
+                          <button
+                            type="button"
+                            onClick={() => onCorrectRecord(r)}
+                            className="inline-flex min-h-8 items-center gap-1 rounded-md bg-rose-600 px-2 text-[11px] font-black text-white hover:bg-rose-500"
+                            title="指摘箇所を修正"
+                          >
+                            <Wrench className="h-3.5 w-3.5" />修正
+                          </button>
+                        )}
                         <button
                           onClick={() => onDuplicateRecord(r)}
                           className="p-1.5 hover:bg-slate-200 text-teal-700 rounded-md"
@@ -249,7 +263,7 @@ export const RecordList: React.FC<RecordListProps> = ({
                         >
                           <Copy className="w-4 h-4" />
                         </button>
-                        <button
+                        {canDeleteRecords && <button
                           onClick={() => {
                             if (confirm('この記録を削除してもよろしいですか？')) {
                               onDeleteRecord(r.id);
@@ -259,7 +273,7 @@ export const RecordList: React.FC<RecordListProps> = ({
                           title="削除"
                         >
                           <Trash2 className="w-4 h-4" />
-                        </button>
+                        </button>}
                       </td>
                     </tr>
                   );

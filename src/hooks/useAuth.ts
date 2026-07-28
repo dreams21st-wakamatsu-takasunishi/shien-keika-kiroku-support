@@ -66,14 +66,30 @@ export function useAuth() {
       setInitialized(true);
     });
 
-    const { data: listener } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, nextSession) => {
       if (!active) return;
-      setSession(nextSession);
+      // Do not discard a usable session because a background refresh or a
+      // temporary connection transition emitted an event without a session.
+      // An actual sign-out still clears it immediately.
+      if (event === 'SIGNED_OUT') {
+        setSession(null);
+      } else if (nextSession) {
+        setSession(nextSession);
+      }
       setInitialized(true);
     });
 
+    const refreshWhenVisible = () => {
+      if (document.visibilityState !== 'visible') return;
+      void supabase.auth.getSession().then(({ data }) => {
+        if (active && data.session) setSession(data.session);
+      });
+    };
+    document.addEventListener('visibilitychange', refreshWhenVisible);
+
     return () => {
       active = false;
+      document.removeEventListener('visibilitychange', refreshWhenVisible);
       listener.subscription.unsubscribe();
     };
   }, []);

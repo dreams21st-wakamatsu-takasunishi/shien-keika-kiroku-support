@@ -72,7 +72,7 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             </button>
 
-            <nav className="hidden md:flex items-center space-x-1">
+            <nav className="desktop-top-navigation items-center space-x-1" aria-label="主要画面">
               {visibleItems.map((item) => {
                 const Icon = item.icon;
                 const selected = activeTab === item.tab;
@@ -124,7 +124,7 @@ export const Header: React.FC<HeaderProps> = ({
         </div>
       </header>
 
-      <nav className="md:hidden fixed inset-x-0 bottom-0 z-40 bg-slate-950/98 border-t border-slate-800 shadow-2xl pb-[env(safe-area-inset-bottom)]">
+      <nav className="mobile-bottom-navigation fixed inset-x-0 bottom-0 z-40 bg-slate-950/98 border-t border-slate-800 shadow-2xl pb-[env(safe-area-inset-bottom)]" aria-label="主要画面">
         <div className="flex items-stretch justify-around min-h-16">
           {visibleItems.map((item) => {
             const Icon = item.icon;

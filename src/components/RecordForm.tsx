@@ -6,6 +6,8 @@ import {
   ChevronRight,
   Circle,
   Cloud,
+  Eye,
+  Info,
   ListChecks,
   LoaderCircle,
   Save,
@@ -32,6 +34,7 @@ import {
 import { summarizeABCWithAI } from '../utils/aiHelper';
 import { deleteRecordDraft, loadRecordDraft, saveRecordDraft } from '../services/dataService';
 import { QuickMemoPad } from './QuickMemoPad';
+import { ChildInfoDialog } from './ChildInfoDialog';
 import {
   FATIGUE_SCALE_OPTIONS,
   formatHandCount,
@@ -66,6 +69,11 @@ interface RecordFormProps {
   draftKey?: string;
   activeRecorder?: RecorderProfile;
   assistantPrefill?: { childId: string; date: string; requestId: string } | null;
+  initialStepId?: string;
+  resolvedIssueId?: string;
+  readOnly?: boolean;
+  readOnlyOwnerName?: string;
+  lockedChildren?: Record<string, string>;
   onSaveRecords: (records: SupportRecord[]) => Promise<void> | void;
   onDraftChanged?: () => void;
   onCreateHandover?: (content: string) => Promise<void> | void;
@@ -111,7 +119,7 @@ interface ChildDraft {
 }
 
 interface WizardDraft {
-  version: 9;
+  version: 10;
   draftCycleKey: string;
   selectedTemplateId: string;
   selectedChildIds: string[];
@@ -645,7 +653,23 @@ function createSectionAnswers(template?: Template, existing?: Record<string, Sec
       subTitleValue: previous?.subTitleValue || (section.hasSubTitleField ? '' : undefined),
       answers,
       detailText: previous?.detailText || '',
-      abcAnalysis: previous?.abcAnalysis || { behavior: '', consequence: '', antecedent: '', summary: previous?.detailText || '' },
+      abcAnalysis: previous?.abcAnalysis
+        ? {
+            inputMode: previous.abcAnalysis.inputMode || 'abc',
+            behavior: previous.abcAnalysis.behavior || '',
+            consequence: previous.abcAnalysis.consequence || '',
+            antecedent: previous.abcAnalysis.antecedent || '',
+            summary: previous.abcAnalysis.summary || '',
+            freeText: previous.abcAnalysis.freeText || '',
+          }
+        : {
+            inputMode: 'abc',
+            behavior: '',
+            consequence: '',
+            antecedent: '',
+            summary: previous?.detailText || '',
+            freeText: '',
+          },
     };
   });
   return next;
@@ -716,7 +740,7 @@ function migrateLegacyHolidayDraft(draft: WizardDraft) {
 function normalizeWizardDraft(value: unknown): WizardDraft | null {
   if (!value || typeof value !== 'object') return null;
   const draft = value as Partial<WizardDraft> & { version?: number };
-  if (![2, 3, 4, 5, 6, 7, 8, 9].includes(draft.version || 0) || !Array.isArray(draft.selectedChildIds) || !draft.childDrafts) return null;
+  if (![2, 3, 4, 5, 6, 7, 8, 9, 10].includes(draft.version || 0) || !Array.isArray(draft.selectedChildIds) || !draft.childDrafts) return null;
   if (!isDraftCurrent(draft.draftCycleKey, draft.updatedAt)) return null;
   const previousStepIndex = draft.currentStepIndex || 0;
   const currentStepIndex = (draft.version || 0) < 4
@@ -724,7 +748,7 @@ function normalizeWizardDraft(value: unknown): WizardDraft | null {
     : previousStepIndex;
   const normalized = {
     ...draft,
-    version: 9,
+    version: 10,
     draftCycleKey: getCurrentDraftCycleKey(),
     recorderId: draft.recorderId || '',
     currentStepIndex,
@@ -744,6 +768,11 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   draftKey: requestedDraftKey,
   activeRecorder,
   assistantPrefill,
+  initialStepId,
+  resolvedIssueId,
+  readOnly = false,
+  readOnlyOwnerName,
+  lockedChildren = {},
   onSaveRecords,
   onDraftChanged,
   onCreateHandover,
@@ -775,7 +804,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         ? recorderProfiles[0]
         : undefined);
     const base: WizardDraft = {
-      version: 9,
+      version: 10,
       draftCycleKey: getCurrentDraftCycleKey(),
       selectedTemplateId: initialTemplate?.id || '',
       selectedChildIds: initialRecord ? [initialRecord.childId] : assistantPrefill ? [assistantPrefill.childId] : [],
@@ -796,6 +825,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
   const createInitialDraft = (): WizardDraft => {
     const base = createBaseDraft();
+    if (readOnly) return base;
     try {
       const local = localStorage.getItem(storageKey);
       if (local) {
@@ -818,12 +848,14 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [summarizingSectionId, setSummarizingSectionId] = useState<string | null>(null);
   const [showChildPicker, setShowChildPicker] = useState(false);
+  const [infoChild, setInfoChild] = useState<ChildProfile | null>(null);
   const [childSearch, setChildSearch] = useState('');
   const [checksAcknowledged, setChecksAcknowledged] = useState(false);
   const draftCleared = useRef(false);
   const skipNextDraftSave = useRef(false);
   const deviceId = useRef(getDeviceId()).current;
   const remoteRevision = useRef<number | null>(null);
+  const initialStepApplied = useRef(false);
 
   const activeTemplate = initialRecord
     ? initialTemplate
@@ -841,15 +873,19 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         remoteRevision.current = remote.revision;
         const restored = normalizeWizardDraft(remote.payload);
         if (!restored) {
-          localStorage.removeItem(storageKey);
-          void deleteRecordDraft(organizationId, draftKey);
+          if (!readOnly) {
+            localStorage.removeItem(storageKey);
+            void deleteRecordDraft(organizationId, draftKey);
+          }
           return;
         }
         const remoteTime = new Date(remote.updatedAt).getTime();
         const localTime = wizard.updatedAt ? new Date(wizard.updatedAt).getTime() : 0;
-        if (remoteTime > localTime) {
+        if (readOnly || remoteTime > localTime) {
           setWizard({ ...restored, updatedAt: remote.updatedAt });
-          localStorage.setItem(storageKey, JSON.stringify({ ...restored, updatedAt: remote.updatedAt }));
+          if (!readOnly) {
+            localStorage.setItem(storageKey, JSON.stringify({ ...restored, updatedAt: remote.updatedAt }));
+          }
           setDraftStatus('restored');
         }
       })
@@ -858,10 +894,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     return () => { alive = false; };
     // The initial local draft is intentionally compared once per form session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [organizationId, userId, draftKey, storageKey]);
+  }, [organizationId, userId, draftKey, storageKey, readOnly]);
 
   useEffect(() => {
-    if (!draftReady || draftCleared.current) return;
+    if (readOnly || !draftReady || draftCleared.current) return;
     if (skipNextDraftSave.current) {
       skipNextDraftSave.current = false;
       return;
@@ -870,7 +906,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     const timer = window.setTimeout(() => {
       const payload: WizardDraft = {
         ...wizard,
-        version: 9,
+        version: 10,
         draftCycleKey: getCurrentDraftCycleKey(),
         updatedAt: new Date().toISOString(),
       };
@@ -899,9 +935,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       }
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [wizard, draftReady, storageKey, organizationId, userId, draftKey, deviceId, onDraftChanged]);
+  }, [wizard, draftReady, storageKey, organizationId, userId, draftKey, deviceId, onDraftChanged, readOnly]);
 
   useEffect(() => {
+    if (readOnly) return;
     let timer: number;
     const scheduleNextReset = () => {
       const now = new Date();
@@ -923,7 +960,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     return () => window.clearTimeout(timer);
     // The form session keeps scheduling its next local 03:00 reset.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draftKey, organizationId, storageKey, onDraftChanged]);
+  }, [draftKey, organizationId, storageKey, onDraftChanged, readOnly]);
 
   useEffect(() => {
     if (activeTemplate || templates.length === 0) return;
@@ -1155,6 +1192,20 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     setWizard((previous) => ({ ...previous, currentStepIndex: Math.max(0, steps.length - 1) }));
   }, [steps.length, wizard.currentStepIndex]);
 
+  useEffect(() => {
+    if (!draftReady || initialStepApplied.current || !initialStepId || steps.length === 0) return;
+    const targetIndex = steps.findIndex((step) => step.id === initialStepId);
+    if (targetIndex < 0) return;
+    initialStepApplied.current = true;
+    setWizard((previous) => ({
+      ...previous,
+      currentStepIndex: targetIndex,
+      childStepIds: previous.activeChildId
+        ? { ...previous.childStepIds, [previous.activeChildId]: initialStepId }
+        : previous.childStepIds,
+    }));
+  }, [draftReady, initialStepId, steps]);
+
   const currentStep = steps[wizard.currentStepIndex];
   const questionTotal = isIntegratedHolidayTemplate(activeTemplate)
     ? 36
@@ -1170,9 +1221,13 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         : 0;
   const isChildStep = currentStep && !['template', 'children', 'date', 'recorder', 'review'].includes(currentStep.kind);
 
-  const updateWizard = (updates: Partial<WizardDraft>) => setWizard((previous) => ({ ...previous, ...updates }));
+  const updateWizard = (updates: Partial<WizardDraft>) => {
+    if (readOnly) return;
+    setWizard((previous) => ({ ...previous, ...updates }));
+  };
 
   const updateChildDraft = (childId: string, updater: (draft: ChildDraft) => ChildDraft) => {
+    if (readOnly) return;
     setWizard((previous) => {
       const current = previous.childDrafts[childId] || createChildDraft(activeTemplate);
       return { ...previous, childDrafts: { ...previous.childDrafts, [childId]: updater(current) } };
@@ -1183,6 +1238,24 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     ...draft,
     skippedQuestionIds: draft.skippedQuestionIds.filter((id) => id !== stepId),
   });
+
+  const setAttendance = (attendance: string) => {
+    if (!wizard.activeChildId || !currentStep) return;
+    updateChildDraft(wizard.activeChildId, (raw) => {
+      const draft = unskip(raw, currentStep.id);
+      if (!attendance.includes('欠席')) return { ...draft, attendance };
+      return {
+        ...draft,
+        attendance,
+        expressions: [],
+        expressionNote: '',
+        snack: '',
+        snackNote: '',
+        sectionAnswers: createSectionAnswers(activeTemplate),
+        skippedQuestionIds: [],
+      };
+    });
+  };
 
   const selectTemplate = (templateId: string) => {
     const template = templates.find((item) => item.id === templateId);
@@ -1199,6 +1272,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
   const toggleChild = (childId: string) => {
     if (initialRecord) return;
+    if (lockedChildren[childId]) {
+      setStepError(`${lockedChildren[childId]}が入力中のため、この児童は選択できません。ホームから入力状況を確認できます。`);
+      return;
+    }
     setWizard((previous) => {
       const selected = previous.selectedChildIds.includes(childId);
       const selectedChildIds = selected
@@ -1254,17 +1331,40 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     });
   };
 
-  const updateABC = (sectionId: string, key: 'behavior' | 'consequence' | 'antecedent' | 'summary', value: string) => {
+  const updateABC = (
+    sectionId: string,
+    key: 'behavior' | 'consequence' | 'antecedent' | 'summary' | 'freeText',
+    value: string,
+  ) => {
     const section = activeChildDraft?.sectionAnswers[sectionId];
     updateSection(sectionId, {
       abcAnalysis: {
+        inputMode: section?.abcAnalysis?.inputMode || 'abc',
         behavior: section?.abcAnalysis?.behavior || '',
         consequence: section?.abcAnalysis?.consequence || '',
         antecedent: section?.abcAnalysis?.antecedent || '',
         summary: section?.abcAnalysis?.summary || '',
+        freeText: section?.abcAnalysis?.freeText || '',
         [key]: value,
       },
-      ...(key === 'summary' ? { detailText: value } : {}),
+      ...(key === 'summary' || key === 'freeText' ? { detailText: value } : {}),
+    });
+  };
+
+  const setABCInputMode = (sectionId: string, inputMode: 'abc' | 'free') => {
+    const section = activeChildDraft?.sectionAnswers[sectionId];
+    updateSection(sectionId, {
+      abcAnalysis: {
+        inputMode,
+        behavior: section?.abcAnalysis?.behavior || '',
+        consequence: section?.abcAnalysis?.consequence || '',
+        antecedent: section?.abcAnalysis?.antecedent || '',
+        summary: section?.abcAnalysis?.summary || '',
+        freeText: section?.abcAnalysis?.freeText || '',
+      },
+      detailText: inputMode === 'free'
+        ? section?.abcAnalysis?.freeText || ''
+        : section?.abcAnalysis?.summary || '',
     });
   };
 
@@ -1283,6 +1383,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   };
 
   const stepIsVisible = (step: WizardStep, childDraft?: ChildDraft) => {
+    if (
+      childDraft?.attendance.includes('欠席')
+      && !['attendance', 'review'].includes(step.kind)
+    ) return false;
     if (step.kind !== 'field') return true;
     const field = fieldForStep(step);
     return field ? fieldIsVisible(field, childDraft, step.sectionId) : false;
@@ -1302,7 +1406,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       case 'abc-consequence': return section?.abcAnalysis?.consequence?.trim() ? 'answered' : 'unanswered';
       case 'abc-antecedent': return section?.abcAnalysis?.antecedent?.trim() ? 'answered' : 'unanswered';
       case 'abc-summary': return section?.abcAnalysis?.summary?.trim() ? 'answered' : 'unanswered';
-      case 'abc-sequence': return section?.abcAnalysis?.summary?.trim() ? 'answered' : 'unanswered';
+      case 'abc-sequence':
+        return section?.abcAnalysis?.inputMode === 'free'
+          ? section.abcAnalysis.freeText?.trim() ? 'answered' : 'unanswered'
+          : section?.abcAnalysis?.summary?.trim() ? 'answered' : 'unanswered';
       default: return 'answered';
     }
   };
@@ -1341,6 +1448,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           detail: '意図してスキップした項目か確認してください。',
         });
       }
+
+      // 欠席時は出欠だけを記録対象とし、以降の必須項目を検査しない。
+      if (draft.attendance.includes('欠席')) return;
 
       activeTemplate?.sections.forEach((section) => {
         const sectionAnswer = draft.sectionAnswers[section.id];
@@ -1447,6 +1557,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         });
 
         const abc = sectionAnswer?.abcAnalysis;
+        if (abc?.inputMode === 'free') return;
         const abcCount = [abc?.antecedent, abc?.behavior, abc?.consequence]
           .filter((value) => value?.trim()).length;
         if (abcCount > 0 && abcCount < 3) {
@@ -1461,30 +1572,6 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         }
       });
 
-      if (draft.attendance.includes('欠席')) {
-        const hasObservation = draft.expressions.length > 0
-          || Boolean(draft.snack)
-          || (Object.values(draft.sectionAnswers) as SectionAnswer[]).some((section) =>
-            Boolean(section.subTitleValue?.trim())
-            || (Object.values(section.answers || {}) as SectionFieldAnswer[]).some((answer) => Boolean(answer.value?.trim() || answer.note?.trim()))
-            || Boolean(
-              section.abcAnalysis?.antecedent?.trim()
-              || section.abcAnalysis?.behavior?.trim()
-              || section.abcAnalysis?.consequence?.trim()
-              || section.abcAnalysis?.summary?.trim()
-            )
-          );
-        if (hasObservation) {
-          checks.push({
-            id: `${childId}-absence-content`,
-            childId,
-            childName,
-            level: 'warning',
-            title: '欠席ですが支援中の内容が入力されています',
-            detail: '出欠選択または活動・おやつ等の入力が正しいか確認してください。',
-          });
-        }
-      }
     });
     return checks;
   };
@@ -1533,7 +1620,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   };
 
   const goNext = () => {
-    const error = validateGlobalStep();
+    const error = readOnly ? null : validateGlobalStep();
     if (error) return setStepError(error);
     const currentChildSteps = childStepsForDraft(activeChildDraft);
     const currentChildStepIndex = currentStep ? currentChildSteps.findIndex((step) => step.id === currentStep.id) : -1;
@@ -1580,6 +1667,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   };
 
   const summarizeABC = async (sectionId: string) => {
+    if (readOnly) return;
     const section = activeChildDraft?.sectionAnswers[sectionId];
     const abc = section?.abcAnalysis;
     if (!abc || (!abc.behavior.trim() && !abc.consequence.trim() && !abc.antecedent.trim())) {
@@ -1728,7 +1816,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
               {displayedChildren.map((child) => {
                 const selected = wizard.selectedChildIds.includes(child.id);
                 const isAdditional = additionalSelected.some((item) => item.id === child.id);
-                return <button key={child.id} type="button" disabled={Boolean(initialRecord)} onClick={() => toggleChild(child.id)} className={`${choiceClass} flex items-center justify-between text-left ${selected ? 'bg-teal-600 border-teal-600 text-white' : 'bg-white border-slate-300 text-slate-700'} disabled:opacity-80`}><span>{child.name}<span className="block text-[11px] font-normal opacity-75">{calculateSchoolGrade(child.birthDate) || child.grade || '学年未設定'}・{isAdditional ? '追加利用' : formatRegularDays(getRegularDaysForDate(child, wizard.date))}</span></span>{selected && <Check className="w-5 h-5" />}</button>;
+                const lockOwner = lockedChildren[child.id];
+                return <button key={child.id} type="button" disabled={Boolean(initialRecord) || Boolean(lockOwner)} onClick={() => toggleChild(child.id)} className={`${choiceClass} flex items-center justify-between text-left ${selected ? 'bg-teal-600 border-teal-600 text-white' : lockOwner ? 'border-amber-300 bg-amber-50 text-amber-900' : 'bg-white border-slate-300 text-slate-700'} disabled:opacity-80`}><span>{child.name}<span className="block text-[11px] font-normal opacity-75">{lockOwner ? `${lockOwner}が入力中` : `${calculateSchoolGrade(child.birthDate) || child.grade || '学年未設定'}・${isAdditional ? '追加利用' : formatRegularDays(getRegularDaysForDate(child, wizard.date))}`}</span></span>{selected && <Check className="w-5 h-5" />}</button>;
               })}
             </div>
             {displayedChildren.length === 0 && <p className="rounded-xl border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">この曜日の定期利用児童は登録されていません。</p>}
@@ -1749,7 +1838,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                     <div className="mt-3 max-h-[55vh] space-y-2 overflow-y-auto">
                       {pickerChildren.map((child) => {
                         const selected = wizard.selectedChildIds.includes(child.id);
-                        return <button key={child.id} type="button" onClick={() => toggleChild(child.id)} className={`w-full min-h-14 rounded-xl border p-3 text-left flex items-center gap-3 ${selected ? 'border-teal-500 bg-teal-50 text-teal-900' : 'border-slate-200 bg-white text-slate-700'}`}><span className={`h-6 w-6 shrink-0 rounded-md border flex items-center justify-center ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300'}`}>{selected && <Check className="w-4 h-4" />}</span><span><strong className="block text-sm">{child.name}</strong><span className="text-[11px] text-slate-500">{calculateSchoolGrade(child.birthDate) || child.grade || '学年未設定'}・{wizard.date}時点の定期利用 {formatRegularDays(getRegularDaysForDate(child, wizard.date))}</span></span></button>;
+                        const lockOwner = lockedChildren[child.id];
+                        return <button key={child.id} type="button" disabled={Boolean(lockOwner)} onClick={() => toggleChild(child.id)} className={`w-full min-h-14 rounded-xl border p-3 text-left flex items-center gap-3 disabled:opacity-80 ${selected ? 'border-teal-500 bg-teal-50 text-teal-900' : lockOwner ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-slate-200 bg-white text-slate-700'}`}><span className={`h-6 w-6 shrink-0 rounded-md border flex items-center justify-center ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300'}`}>{selected && <Check className="w-4 h-4" />}</span><span><strong className="block text-sm">{child.name}</strong><span className="text-[11px] text-slate-500">{lockOwner ? `${lockOwner}が入力中` : `${calculateSchoolGrade(child.birthDate) || child.grade || '学年未設定'}・${wizard.date}時点の定期利用 ${formatRegularDays(getRegularDaysForDate(child, wizard.date))}`}</span></span></button>;
                       })}
                       {pickerChildren.length === 0 && <p className="py-8 text-center text-sm text-slate-400">一致する児童がいません。</p>}
                     </div>
@@ -1811,7 +1901,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         );
       }
       case 'attendance':
-        return <div className="space-y-4"><div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{(wizardQuestions.attendance.options || []).map((item) => <button key={item} type="button" onClick={() => updateChildDraft(wizard.activeChildId, (draft) => ({ ...unskip(draft, currentStep.id), attendance: item }))} className={`${choiceClass} ${activeChildDraft?.attendance === item ? 'bg-teal-600 border-teal-600 text-white' : 'bg-white border-slate-300 text-slate-700'}`}>{activeChildDraft?.attendance === item && <Check className="inline w-4 h-4 mr-1" />}{item}</button>)}</div><label className="block text-sm font-bold text-slate-700">{wizardQuestions.attendance.noteLabel}<textarea rows={3} value={activeChildDraft?.attendanceNote || ''} onChange={(event) => updateChildDraft(wizard.activeChildId, (draft) => ({ ...unskip(draft, currentStep.id), attendanceNote: event.target.value }))} placeholder={wizardQuestions.attendance.notePlaceholder} className={`${inputClass} mt-2`} /></label></div>;
+        return <div className="space-y-4"><div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{(wizardQuestions.attendance.options || []).map((item) => <button key={item} type="button" onClick={() => setAttendance(item)} className={`${choiceClass} ${activeChildDraft?.attendance === item ? 'bg-teal-600 border-teal-600 text-white' : 'bg-white border-slate-300 text-slate-700'}`}>{activeChildDraft?.attendance === item && <Check className="inline w-4 h-4 mr-1" />}{item}</button>)}</div>{activeChildDraft?.attendance.includes('欠席') && <p className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm font-bold leading-relaxed text-sky-900">欠席のため、この後の支援中の質問は省略されます。備考を確認して「次の質問」を押してください。</p>}<label className="block text-sm font-bold text-slate-700">{wizardQuestions.attendance.noteLabel}<textarea rows={3} value={activeChildDraft?.attendanceNote || ''} onChange={(event) => updateChildDraft(wizard.activeChildId, (draft) => ({ ...unskip(draft, currentStep.id), attendanceNote: event.target.value }))} placeholder={wizardQuestions.attendance.notePlaceholder} className={`${inputClass} mt-2`} /></label></div>;
       case 'expression':
         return <div className="space-y-4"><div className={isStructuredWeekdayTemplate(activeTemplate) || isStructuredHolidayTemplate(activeTemplate) ? 'grid gap-2' : 'grid grid-cols-2 gap-2 sm:grid-cols-3'}>{(wizardQuestions.expression.options || []).map((item) => {
           const selected = activeChildDraft?.expressions.includes(item);
@@ -1854,8 +1944,31 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         const consequenceQuestion = renderQuestionText(wizardQuestions.abcConsequence);
         const antecedentQuestion = renderQuestionText(wizardQuestions.abcAntecedent);
         const summaryQuestion = renderQuestionText(wizardQuestions.abcSummary);
+        if (abc?.inputMode === 'free') {
+          return (
+            <div className="space-y-4">
+              <ABCModeSelector mode="free" onChange={(mode) => setABCInputMode(currentStep.sectionId!, mode)} />
+              <label className="block text-sm font-black text-slate-800">
+                児童の様子・特記事項を自由に入力してください。
+                <span className="mt-1 block text-xs font-medium leading-relaxed text-slate-500">
+                  ABCの各要素やAI要約を使わず、この文章をそのまま特記として保存します。
+                </span>
+                <textarea
+                  rows={12}
+                  maxLength={3000}
+                  value={abc.freeText || ''}
+                  onChange={(event) => updateABC(currentStep.sectionId!, 'freeText', event.target.value)}
+                  placeholder="児童の様子、支援内容、その後の結果などを自由に入力"
+                  className={`${inputClass} mt-2`}
+                />
+              </label>
+              <p className="text-right text-[11px] text-slate-400">{abc.freeText?.length || 0} / 3000文字</p>
+            </div>
+          );
+        }
         return (
           <div className="space-y-5">
+            <ABCModeSelector mode="abc" onChange={(mode) => setABCInputMode(currentStep.sectionId!, mode)} />
             <section className={`rounded-2xl border-2 p-4 transition-colors ${behaviorReady ? 'border-emerald-300 bg-emerald-50/70' : 'border-violet-400 bg-violet-50'}`}>
               <div className="mb-2 flex items-center justify-between gap-3">
                 <span className="rounded-full bg-violet-700 px-3 py-1 text-xs font-black text-white">B（行動）</span>
@@ -1882,7 +1995,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                 <label className="block text-sm font-black text-slate-800">
                   {consequenceQuestion.title}
                   <span className="mt-1 block text-xs font-medium leading-relaxed text-slate-500">{consequenceQuestion.help}</span>
-                  <textarea autoFocus={!consequenceReady} rows={5} maxLength={500} value={abc?.consequence || ''} onChange={(event) => updateABC(currentStep.sectionId!, 'consequence', event.target.value)} placeholder={'・職員が選択肢を示すと席へ戻った\n・5分後に課題を再開した'} className={`${inputClass} mt-2 border-sky-300 ring-2 ring-sky-100`} />
+                  <textarea rows={5} maxLength={500} value={abc?.consequence || ''} onChange={(event) => updateABC(currentStep.sectionId!, 'consequence', event.target.value)} placeholder={'・職員が選択肢を示すと席へ戻った\n・5分後に課題を再開した'} className={`${inputClass} mt-2 border-sky-300 ring-2 ring-sky-100`} />
                 </label>
               </section>
             )}
@@ -1898,7 +2011,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                 <label className="block text-sm font-black text-slate-800">
                   {antecedentQuestion.title}
                   <span className="mt-1 block text-xs font-medium leading-relaxed text-slate-500">{antecedentQuestion.help}</span>
-                  <textarea autoFocus={!antecedentReady} rows={5} maxLength={500} value={abc?.antecedent || ''} onChange={(event) => updateABC(currentStep.sectionId!, 'antecedent', event.target.value)} placeholder={'・難しい課題へ切り替わった直後\n・周囲の音が大きくなった'} className={`${inputClass} mt-2 border-amber-300 ring-2 ring-amber-100`} />
+                  <textarea rows={5} maxLength={500} value={abc?.antecedent || ''} onChange={(event) => updateABC(currentStep.sectionId!, 'antecedent', event.target.value)} placeholder={'・難しい課題へ切り替わった直後\n・周囲の音が大きくなった'} className={`${inputClass} mt-2 border-amber-300 ring-2 ring-amber-100`} />
                 </label>
               </section>
             )}
@@ -1932,6 +2045,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    if (readOnly) return;
     setSaveError(null);
     if (
       !activeTemplate ||
@@ -1986,7 +2100,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         skippedQuestionIds: childDraft.skippedQuestionIds,
         approvalStatus: previous?.approvalStatus === '要修正' ? '未確認' : previous?.approvalStatus || '未確認',
         jihatsukanComment: previous?.jihatsukanComment,
-        reviewIssues: previous?.reviewIssues?.map((issue) => ({ ...issue, resolved: true })),
+        reviewIssues: previous?.reviewIssues?.map((issue) => ({
+          ...issue,
+          resolved: resolvedIssueId ? issue.resolved || issue.id === resolvedIssueId : true,
+        })),
         reviewedBy: previous?.reviewedBy,
         reviewedAt: previous?.reviewedAt,
         createdAt: previous?.createdAt || now,
@@ -2016,6 +2133,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   };
 
   const clearCurrentDraft = async () => {
+    if (readOnly) return;
     const actionLabel = initialRecord ? '編集中の変更' : '入力中の記録';
     const confirmed = window.confirm(
       `${actionLabel}をすべて削除しますか？保存済みの支援記録は削除されません。`
@@ -2042,6 +2160,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   };
 
   const resolveDraftConflict = async (preferLocal: boolean) => {
+    if (readOnly) return;
     if (!organizationId || !userId) return;
     try {
       const remote = await loadRecordDraft(organizationId, draftKey);
@@ -2055,7 +2174,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         remoteRevision.current = remote.revision;
         const payload: WizardDraft = {
           ...wizard,
-          version: 9,
+          version: 10,
           draftCycleKey: getCurrentDraftCycleKey(),
           updatedAt: new Date().toISOString(),
         };
@@ -2085,7 +2204,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
   const currentStatus = isChildStep && currentStep ? answerStatus(currentStep, activeChildDraft) : 'answered';
   const currentFieldWarning = currentStep?.kind === 'field' ? fieldForStep(currentStep)?.warningText : undefined;
-  const draftStatusLabel = draftStatus === 'saving'
+  const draftStatusLabel = readOnly
+    ? '閲覧中（自動保存なし）'
+    : draftStatus === 'saving'
     ? '下書き保存中'
     : draftStatus === 'restored'
       ? '下書きを復元しました'
@@ -2101,6 +2222,17 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
   return (
     <form id="record-wizard" onSubmit={handleSubmit} className="max-w-4xl mx-auto space-y-4 scroll-mt-20">
+      {readOnly && (
+        <div className="flex items-start gap-3 rounded-xl border-2 border-sky-300 bg-sky-50 p-4 text-sky-950">
+          <Eye className="mt-0.5 h-5 w-5 shrink-0" />
+          <div>
+            <p className="text-sm font-black">別指導員が入力中・閲覧のみ</p>
+            <p className="mt-1 text-xs leading-relaxed">
+              {readOnlyOwnerName || '別の指導員'}が編集中です。質問間の移動と入力状況の確認はできますが、内容は変更できません。
+            </p>
+          </div>
+        </div>
+      )}
       <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-sm">
           <span className="font-bold text-slate-700">
@@ -2128,14 +2260,14 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           <p className="text-xs leading-relaxed text-slate-600">
             入力内容は自動保存され、毎日午前3時にリセットされます。
           </p>
-          <button
+          {!readOnly && <button
             type="button"
             onClick={() => void clearCurrentDraft()}
             className="flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-rose-300 bg-white px-4 text-sm font-bold text-rose-700 hover:bg-rose-50"
           >
             <Trash2 className="h-4 w-4" />
             入力中の記録を削除
-          </button>
+          </button>}
         </div>
         {draftStatus === 'conflict' && (
           <div className="mt-3 rounded-xl border-2 border-rose-300 bg-rose-50 p-4">
@@ -2169,7 +2301,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             {wizard.selectedChildIds.map((childId) => {
               const child = childrenList.find((item) => item.id === childId);
               const unanswered = unansweredForChild(childId).length;
-              return <button key={childId} type="button" onClick={() => switchChild(childId)} className={`shrink-0 min-h-11 rounded-lg border px-3 text-xs font-bold ${wizard.activeChildId === childId ? 'bg-teal-600 border-teal-600 text-white' : 'bg-white border-slate-300 text-slate-700'}`}>{child?.name || '児童'}<span className={`ml-2 rounded-full px-1.5 py-0.5 text-[10px] ${unanswered === 0 ? 'bg-emerald-100 text-emerald-800' : wizard.activeChildId === childId ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-800'}`}>{unanswered === 0 ? '完了' : `未${unanswered}`}</span></button>;
+              return <div key={childId} className="flex shrink-0 overflow-hidden rounded-lg border border-slate-300"><button type="button" onClick={() => switchChild(childId)} className={`min-h-11 px-3 text-xs font-bold ${wizard.activeChildId === childId ? 'bg-teal-600 text-white' : 'bg-white text-slate-700'}`}>{child?.name || '児童'}<span className={`ml-2 rounded-full px-1.5 py-0.5 text-[10px] ${unanswered === 0 ? 'bg-emerald-100 text-emerald-800' : wizard.activeChildId === childId ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-800'}`}>{unanswered === 0 ? '完了' : `未${unanswered}`}</span></button><button type="button" onClick={() => child && setInfoChild(child)} aria-label={`${child?.name || '児童'}の情報を表示`} className={`flex min-h-11 min-w-11 items-center justify-center border-l ${wizard.activeChildId === childId ? 'border-teal-500 bg-teal-700 text-white' : 'border-slate-300 bg-slate-50 text-slate-600'}`}><Info className="h-4 w-4" /></button></div>;
             })}
           </div>
         </div>
@@ -2177,10 +2309,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
       <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
         <div className="p-5 sm:p-7 border-b border-slate-100">
-          {isChildStep && <p className="text-xs font-bold text-teal-700 mb-2 flex items-center gap-1"><Users className="w-4 h-4" />{activeChild?.name || '児童を選択してください'}の記録</p>}
+          {isChildStep && <div className="mb-2 flex items-center justify-between gap-2"><p className="text-xs font-bold text-teal-700 flex items-center gap-1"><Users className="w-4 h-4" />{activeChild?.name || '児童を選択してください'}の記録</p>{activeChild && <button type="button" onClick={() => setInfoChild(activeChild)} className="flex min-h-10 items-center gap-1 rounded-lg border border-teal-200 bg-teal-50 px-3 text-xs font-black text-teal-800"><Info className="h-4 w-4" />児童情報</button>}</div>}
           <div className="flex items-start gap-3"><div className={`mt-1 h-6 w-6 rounded-full flex items-center justify-center shrink-0 ${currentStatus === 'answered' ? 'bg-emerald-100 text-emerald-700' : currentStatus === 'skipped' ? 'bg-slate-200 text-slate-500' : 'bg-amber-100 text-amber-700'}`}>{currentStatus === 'answered' ? <Check className="w-4 h-4" /> : currentStatus === 'skipped' ? <SkipForward className="w-3.5 h-3.5" /> : <Circle className="w-3.5 h-3.5" />}</div><div><h2 className="text-lg sm:text-xl font-bold text-slate-900 leading-relaxed">{currentStep?.title}</h2>{currentFieldWarning && <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-black leading-relaxed text-rose-700">{currentFieldWarning}</p>}{currentStep?.help && <p className="mt-2 text-sm leading-relaxed text-slate-500">{currentStep.help}</p>}</div></div>
         </div>
-        <div className="p-5 sm:p-7">{renderStep()}{stepError && <div className="mt-4 flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><AlertCircle className="w-5 h-5 shrink-0" />{stepError}</div>}</div>
+        <fieldset disabled={readOnly} className="p-5 sm:p-7 disabled:opacity-80">{renderStep()}{stepError && <div className="mt-4 flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><AlertCircle className="w-5 h-5 shrink-0" />{stepError}</div>}</fieldset>
       </section>
 
       {wizard.selectedChildIds.length > 0 && (
@@ -2200,8 +2332,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
         <button type="button" onClick={goPrevious} disabled={wizard.currentStepIndex === 0} className="min-h-12 rounded-xl border border-slate-300 px-4 text-sm font-bold text-slate-700 disabled:opacity-40 flex items-center justify-center gap-2"><ChevronLeft className="w-4 h-4" />前の質問</button>
         <div className="flex flex-col sm:flex-row gap-2">
-          {isChildStep && <button type="button" onClick={(event) => { event.preventDefault(); skipCurrent(); }} className="min-h-12 rounded-xl border border-slate-300 px-4 text-sm font-bold text-slate-600 flex items-center justify-center gap-2"><SkipForward className="w-4 h-4" />この質問をスキップ</button>}
-          {currentStep?.kind === 'review' ? <button type="submit" disabled={isSaving} className="min-h-12 rounded-xl bg-emerald-600 disabled:bg-slate-400 px-6 text-sm font-bold text-white flex items-center justify-center gap-2"><Save className="w-4 h-4" />{isSaving ? '保存中...' : `${wizard.selectedChildIds.length}名分を保存`}</button> : <button type="button" onClick={(event) => { event.preventDefault(); goNext(); }} className="min-h-12 rounded-xl bg-teal-600 px-6 text-sm font-bold text-white flex items-center justify-center gap-2">次の質問<ChevronRight className="w-4 h-4" /></button>}
+          {isChildStep && !readOnly && <button type="button" onClick={(event) => { event.preventDefault(); skipCurrent(); }} className="min-h-12 rounded-xl border border-slate-300 px-4 text-sm font-bold text-slate-600 flex items-center justify-center gap-2"><SkipForward className="w-4 h-4" />この質問をスキップ</button>}
+          {currentStep?.kind === 'review' ? readOnly ? <span className="flex min-h-12 items-center justify-center rounded-xl bg-sky-100 px-6 text-sm font-black text-sky-900">閲覧モード</span> : <button type="submit" disabled={isSaving} className="min-h-12 rounded-xl bg-emerald-600 disabled:bg-slate-400 px-6 text-sm font-bold text-white flex items-center justify-center gap-2"><Save className="w-4 h-4" />{isSaving ? '保存中...' : `${wizard.selectedChildIds.length}名分を保存`}</button> : <button type="button" onClick={(event) => { event.preventDefault(); goNext(); }} className="min-h-12 rounded-xl bg-teal-600 px-6 text-sm font-bold text-white flex items-center justify-center gap-2">次の質問<ChevronRight className="w-4 h-4" /></button>}
         </div>
       </div>
 
@@ -2211,10 +2343,41 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         recorderId={activeRecorder?.id}
         onCreateHandover={onCreateHandover}
       />
+      <ChildInfoDialog child={infoChild} onClose={() => setInfoChild(null)} />
 
     </form>
   );
 };
+
+function ABCModeSelector({
+  mode,
+  onChange,
+}: {
+  mode: 'abc' | 'free';
+  onChange: (mode: 'abc' | 'free') => void;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+      <p className="mb-2 text-xs font-black text-slate-700">入力方法を選択</p>
+      <div className="grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => onChange('abc')}
+          className={`min-h-12 rounded-xl border-2 px-3 text-sm font-black ${mode === 'abc' ? 'border-violet-500 bg-violet-600 text-white' : 'border-slate-300 bg-white text-slate-700'}`}
+        >
+          ABCで整理
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange('free')}
+          className={`min-h-12 rounded-xl border-2 px-3 text-sm font-black ${mode === 'free' ? 'border-teal-500 bg-teal-600 text-white' : 'border-slate-300 bg-white text-slate-700'}`}
+        >
+          自由記入
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function ReviewAllChildren({
   wizard,
@@ -2309,6 +2472,8 @@ function ReviewAllChildren({
                 <div className="border-b border-slate-200 bg-slate-100 px-3 py-2 text-xs font-black text-slate-700">文章合成プレビュー</div>
                 <pre className="whitespace-pre-wrap bg-white p-4 font-sans text-xs leading-relaxed text-slate-800">{(isStructuredHolidayTemplate(template) ? generateStructuredHolidaySummary : generateStructuredWeekdaySummary)({
                   recorderName: wizard.recorderName,
+                  attendance: draft?.attendance || '',
+                  attendanceNote: draft?.attendanceNote,
                   expressions: draft?.expressions || [],
                   expressionNote: draft?.expressionNote,
                   snack: draft?.snack || '',
@@ -2318,7 +2483,10 @@ function ReviewAllChildren({
               </div>
             ) : <div className="space-y-2">{template?.sections.map((section) => {
               const answer = draft?.sectionAnswers[section.id];
-              return <div key={section.id} className="rounded-lg bg-slate-50 p-3 text-xs"><p className="font-bold mb-1">{section.title}</p>{answer?.abcAnalysis?.summary ? <p className="whitespace-pre-wrap leading-relaxed">{answer.abcAnalysis.summary}</p> : <p className="text-slate-400">ABC要約なし</p>}</div>;
+              const specialText = answer?.abcAnalysis?.inputMode === 'free'
+                ? answer.abcAnalysis.freeText
+                : answer?.abcAnalysis?.summary;
+              return <div key={section.id} className="rounded-lg bg-slate-50 p-3 text-xs"><p className="font-bold mb-1">{section.title}</p>{specialText ? <p className="whitespace-pre-wrap leading-relaxed">{specialText}</p> : <p className="text-slate-400">特記事項なし</p>}</div>;
             })}</div>}
           </article>
         );

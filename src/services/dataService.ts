@@ -1,6 +1,7 @@
 import { supabase } from '../lib/supabase';
 import {
   AiWritingSettings,
+  Announcement,
   ChildProfile,
   DEFAULT_AI_WRITING_SETTINGS,
   ExpressionType,
@@ -38,6 +39,7 @@ export interface WorkspaceData {
   morningMeetingConfirmations: MorningMeetingConfirmation[];
   supportPlans: SupportPlan[];
   aiWritingSettings: AiWritingSettings;
+  announcements: Announcement[];
 }
 
 function assertSupabase() {
@@ -137,6 +139,20 @@ function mapHandoverConfirmation(row: any): HandoverConfirmation {
     userId: row.user_id || undefined,
     confirmerName: row.confirmer_name,
     confirmedAt: row.confirmed_at,
+  };
+}
+
+function mapAnnouncement(row: any): Announcement {
+  return {
+    id: row.id,
+    title: row.title,
+    content: row.content,
+    priority: row.priority || 'normal',
+    publishedAt: row.published_at,
+    expiresAt: row.expires_at || undefined,
+    createdByName: row.created_by_name || undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -242,6 +258,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     morningMeetingConfirmationsResult,
     plansResult,
     aiSettingsResult,
+    announcementsResult,
   ] = await Promise.all([
     client.from('children').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('name'),
     client.from('child_regular_day_schedules').select('*').eq('organization_id', organizationId).order('effective_from'),
@@ -255,6 +272,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     client.from('morning_meeting_confirmations').select('*').eq('organization_id', organizationId).order('confirmed_at', { ascending: false }),
     client.from('support_plans').select('*').eq('organization_id', organizationId).order('valid_from', { ascending: false }),
     client.from('organization_ai_settings').select('*').eq('organization_id', organizationId).maybeSingle(),
+    client.from('announcements').select('*').eq('organization_id', organizationId).is('archived_at', null).order('published_at', { ascending: false }),
   ]);
 
   for (const result of [
@@ -299,7 +317,57 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     morningMeetingConfirmations: (morningMeetingConfirmationsResult.data || []).map(mapMorningMeetingConfirmation),
     supportPlans: (plansResult.data || []).map(mapSupportPlan),
     aiWritingSettings: mapAiWritingSettings(aiSettingsResult.data),
+    announcements: announcementsResult.error ? [] : (announcementsResult.data || []).map(mapAnnouncement),
   };
+}
+
+export async function saveAnnouncement(organizationId: string, announcement: Announcement) {
+  const { error } = await assertSupabase().from('announcements').upsert({
+    organization_id: organizationId,
+    id: announcement.id,
+    title: announcement.title.trim(),
+    content: announcement.content.trim(),
+    priority: announcement.priority,
+    published_at: announcement.publishedAt,
+    expires_at: announcement.expiresAt || null,
+    created_by_name: announcement.createdByName || null,
+    archived_at: null,
+  }, { onConflict: 'organization_id,id' });
+  if (error) throw error;
+}
+
+export async function archiveAnnouncement(organizationId: string, announcementId: string) {
+  const { error } = await assertSupabase()
+    .from('announcements')
+    .update({ archived_at: new Date().toISOString() })
+    .eq('organization_id', organizationId)
+    .eq('id', announcementId);
+  if (error) throw error;
+}
+
+export async function savePushSubscription(
+  organizationId: string,
+  subscription: PushSubscription,
+) {
+  const json = subscription.toJSON();
+  const { error } = await assertSupabase().from('push_subscriptions').upsert({
+    organization_id: organizationId,
+    endpoint: subscription.endpoint,
+    p256dh: json.keys?.p256dh,
+    auth_key: json.keys?.auth,
+    user_agent: navigator.userAgent,
+    last_seen_at: new Date().toISOString(),
+  }, { onConflict: 'endpoint' });
+  if (error) throw error;
+}
+
+export async function sendAnnouncementNotification(announcementId: string) {
+  const { data, error } = await assertSupabase().functions.invoke('send-announcement-notification', {
+    body: { announcementId },
+  });
+  if (error) throw error;
+  if (data?.error) throw new Error(data.error);
+  return data as { sent?: number; failed?: number };
 }
 
 export async function saveChild(organizationId: string, child: ChildProfile) {

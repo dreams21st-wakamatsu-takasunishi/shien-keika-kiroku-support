@@ -1,16 +1,19 @@
 import React, { useMemo, useState } from 'react';
-import { CalendarCheck2, CheckCircle2, Clock3, FileEdit, PlayCircle, Trash2 } from 'lucide-react';
+import { CalendarCheck2, CheckCircle2, Clock3, Eye, FileEdit, Info, PlayCircle, Trash2 } from 'lucide-react';
 import type { ChildProfile, RecordDraftSummary, SupportRecord } from '../types';
 import { getLocalDateString, getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
+import { ChildInfoDialog } from './ChildInfoDialog';
 
 interface DailyOperationsPanelProps {
   childrenList: ChildProfile[];
   records: SupportRecord[];
   drafts: RecordDraftSummary[];
   currentUserId?: string;
+  currentRecorderId?: string;
   canManageDrafts?: boolean;
   onStartRecord: (childId: string, date: string) => void;
   onResumeDraft: (draftKey: string) => void;
+  onViewDraft: (draftKey: string, ownerName?: string) => void;
   onDeleteDraft: (draftKey: string) => void;
   onOpenRecord: (record: SupportRecord) => void;
 }
@@ -20,13 +23,16 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
   records,
   drafts,
   currentUserId,
+  currentRecorderId,
   canManageDrafts = false,
   onStartRecord,
   onResumeDraft,
+  onViewDraft,
   onDeleteDraft,
   onOpenRecord,
 }) => {
   const [targetDate, setTargetDate] = useState(getLocalDateString());
+  const [infoChild, setInfoChild] = useState<ChildProfile | null>(null);
   const weekday = getWeekdayFromDate(targetDate);
 
   const rows = useMemo(() => {
@@ -99,12 +105,20 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
       ) : (
         <div className="divide-y divide-slate-100">
           {rows.map(({ child, record, draft, scheduled, scheduleUnset }) => {
-            const canResumeDraft = !draft?.userId || !currentUserId || draft.userId === currentUserId;
+            const sameAccount = !draft?.userId || !currentUserId || draft.userId === currentUserId;
+            const ownedByAnotherRecorder = Boolean(
+              draft?.recorderId
+              && currentRecorderId
+              && draft.recorderId !== currentRecorderId
+            );
+            const canResumeDraft = sameAccount && !ownedByAnotherRecorder;
             return (
             <article key={child.id} className="p-4 sm:flex sm:items-center sm:gap-4">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h4 className="text-base font-black text-slate-900">{child.name}</h4>
+                  <button type="button" onClick={() => setInfoChild(child)} className="flex min-h-10 items-center gap-1 rounded-lg px-1 text-left text-base font-black text-slate-900 hover:bg-slate-100">
+                    {child.name}<Info className="h-4 w-4 text-teal-700" />
+                  </button>
                   {scheduleUnset ? (
                     <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-700">
                       曜日未設定
@@ -125,7 +139,9 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                       {record.attendance.includes('欠席') ? '欠席登録済み' : record.approvalStatus}
                     </span>
                   ) : draft ? (
-                    <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-800">入力中</span>
+                    <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-800">
+                      {ownedByAnotherRecorder ? '別指導員が入力中' : '入力中'}
+                    </span>
                   ) : (
                     <span className="rounded-full bg-rose-100 px-2 py-1 text-[10px] font-bold text-rose-800">未入力</span>
                   )}
@@ -156,9 +172,13 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                         <FileEdit className="h-4 w-4" />入力を再開
                       </button>
                     ) : (
-                      <span className="flex min-h-11 flex-1 items-center justify-center rounded-xl border border-amber-200 bg-amber-50 px-3 text-center text-[11px] font-bold text-amber-900 sm:flex-none">
-                        別アカウントで入力中
-                      </span>
+                      <button
+                        type="button"
+                        onClick={() => onViewDraft(draft.draftKey, draft.recorderName)}
+                        className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl border border-sky-300 bg-sky-50 px-4 text-xs font-black text-sky-900 sm:flex-none"
+                      >
+                        <Eye className="h-4 w-4" />入力状況を見る
+                      </button>
                     )}
                     {(canResumeDraft || canManageDrafts) && (
                       <button
@@ -199,7 +219,13 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                 .map((id) => childrenList.find((child) => child.id === id)?.name)
                 .filter(Boolean)
                 .join('、');
-              const canResumeDraft = !draft.userId || !currentUserId || draft.userId === currentUserId;
+              const sameAccount = !draft.userId || !currentUserId || draft.userId === currentUserId;
+              const ownedByAnotherRecorder = Boolean(
+                draft.recorderId
+                && currentRecorderId
+                && draft.recorderId !== currentRecorderId
+              );
+              const canResumeDraft = sameAccount && !ownedByAnotherRecorder;
               return (
                 <div key={draft.draftKey} className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-3 sm:flex-row sm:items-center">
                   <div className="min-w-0 flex-1">
@@ -215,9 +241,9 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                         再開
                       </button>
                     ) : (
-                      <span className="flex min-h-10 items-center rounded-lg border border-amber-200 bg-amber-50 px-3 text-[10px] font-bold text-amber-900">
-                        閲覧のみ
-                      </span>
+                      <button type="button" onClick={() => onViewDraft(draft.draftKey, draft.recorderName)} className="flex min-h-10 items-center gap-1 rounded-lg border border-sky-300 bg-sky-50 px-3 text-[10px] font-black text-sky-900">
+                        <Eye className="h-3.5 w-3.5" />入力状況を見る
+                      </button>
                     )}
                     {(canResumeDraft || canManageDrafts) && (
                       <button type="button" onClick={() => onDeleteDraft(draft.draftKey)} className="flex min-h-10 min-w-10 items-center justify-center rounded-lg border border-rose-200 text-rose-700" aria-label="下書きを削除">
@@ -231,6 +257,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
           </div>
         </details>
       )}
+      <ChildInfoDialog child={infoChild} onClose={() => setInfoChild(null)} />
     </section>
   );
 };
