@@ -13,10 +13,13 @@ function periodLines(section: SectionAnswer | undefined, periodLabel: string, mo
   if (selectedMode !== mode) return [];
 
   if (mode === '学習') {
+    const homework = answerText(section.answers[`${prefix}_study_homework`]);
     return [
       `［${periodLabel}］`,
-      `宿題内容：${answerText(section.answers[`${prefix}_study_homework`])}`,
-      `宿題の取り組み：${answerText(section.answers[`${prefix}_study_attitude`])}`,
+      `宿題内容：${homework}`,
+      ...(homework === '宿題無し'
+        ? []
+        : [`宿題の取り組み：${answerText(section.answers[`${prefix}_study_attitude`])}`]),
       `宿題以外の取り組み：${answerText(section.answers[`${prefix}_study_extras`])}`,
       `姿勢：${answerText(section.answers[`${prefix}_study_posture`])}`,
     ];

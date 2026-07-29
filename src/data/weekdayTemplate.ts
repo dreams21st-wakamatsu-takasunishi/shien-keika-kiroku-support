@@ -49,27 +49,22 @@ export const TRANSITION_SCALE_OPTIONS = [
   '5：自分でタイマーに気づき、切り替えられた',
 ];
 
-export const STUDY_POSTURE_OPTIONS = [
+export const POSTURE_BACK_OPTIONS = [
   '背がまっすぐ',
   '背が丸まる',
   '横を向いている',
-  '足が開いている',
-  '足が机から出ている',
-  '顔が机に近い',
-  '貧乏ゆすりあり',
-  'その他',
 ];
 
-export const PC_POSTURE_OPTIONS = [
-  '背がまっすぐ',
-  '背が丸まる',
-  '横を向いている',
+export const POSTURE_LEG_OPTIONS = [
+  '足を閉じている',
   '足が開いている',
+  '足をクロスする',
+  '足を組んでいる',
+  '貧乏ゆすりをしている',
   '足が机から出ている',
-  '顔が画面に近い',
-  '貧乏ゆすりあり',
-  'その他',
 ];
+
+export const POSTURE_CATEGORIES = ['背すじ', '足', 'その他'];
 
 export function createLearningPcFields(
   prefix: string,
@@ -91,6 +86,7 @@ export function createLearningPcFields(
       options,
       defaultValue: '',
       hasNote: true,
+      noteVisibleWhen: 'その他',
       notePlaceholder: '取り組み内容や補足を入力してください。',
       required: true,
     },
@@ -118,6 +114,7 @@ export function createLearningPcFields(
       scaleLowLabel: '1：できなかった',
       scaleHighLabel: '5：自力で完了',
       visibleWhen: visibleWhen('学習'),
+      hiddenWhen: { fieldId: `${prefix}_study_homework`, equals: '宿題無し' },
     },
     {
       id: `${prefix}_study_extras`,
@@ -134,12 +131,11 @@ export function createLearningPcFields(
       id: `${prefix}_study_posture`,
       label: '学習時の姿勢',
       questionTitle: '学習時の姿勢はどうでしたか？',
-      type: 'checkbox',
-      options: STUDY_POSTURE_OPTIONS,
+      type: 'posture_observation',
+      options: POSTURE_CATEGORIES,
       defaultValue: '',
-      hasNote: true,
-      notePlaceholder: '「その他」の内容や、姿勢についての補足を入力してください。',
-      helpText: '当てはまる様子を複数選択できます。',
+      hasNote: false,
+      helpText: '背すじ・足・その他を選び、変化が見られた時にいつでも追記できます。',
       visibleWhen: visibleWhen('学習'),
     },
     {
@@ -168,12 +164,11 @@ export function createLearningPcFields(
       id: `${prefix}_pc_posture`,
       label: '取り組み時の姿勢',
       questionTitle: '取り組み時の姿勢はどうでしたか？',
-      type: 'checkbox',
-      options: PC_POSTURE_OPTIONS,
+      type: 'posture_observation',
+      options: POSTURE_CATEGORIES,
       defaultValue: '',
-      hasNote: true,
-      notePlaceholder: '「その他」の内容や、姿勢についての補足を入力してください。',
-      helpText: '当てはまる様子を複数選択できます。',
+      hasNote: false,
+      helpText: '背すじ・足・その他を選び、変化が見られた時にいつでも追記できます。',
       visibleWhen: visibleWhen('パソコン'),
     },
     {
@@ -206,10 +201,10 @@ export const STANDARD_WEEKDAY_TEMPLATE: Template = {
   name: '支援経過記録 (平日)',
   type: '平日',
   isDefault: true,
-  description: '平日の生活・学習・パソコン学習を、1問ずつ記録する標準フォーマット',
+  description: '平日の生活・学習・パソコン学習を、関連質問ごとにまとめて記録する標準フォーマット',
   wizardQuestions: {
     expression: {
-      title: '来所時の表情はどうですか？',
+      title: '来所時点での表情はどうですか？',
       help: '1が暗い表情、5が笑顔の基準です。最も近い状態を1つ選択してください。',
       options: EXPRESSION_SCALE_OPTIONS,
       noteLabel: '表情の備考（任意）',
@@ -247,7 +242,7 @@ export const STANDARD_WEEKDAY_TEMPLATE: Template = {
         {
           id: 'fatigue',
           label: '疲労感',
-          questionTitle: '来所時の疲労感はどうですか？',
+          questionTitle: '来所時点での疲労感はどうですか？',
           type: 'rating_scale',
           options: FATIGUE_RATING_OPTIONS,
           defaultValue: '',
@@ -341,6 +336,7 @@ export function upgradeStandardWeekdayTemplate(template: Template): Template {
       expression: {
         ...STANDARD_WEEKDAY_TEMPLATE.wizardQuestions?.expression,
         ...currentExpression,
+        title: STANDARD_WEEKDAY_TEMPLATE.wizardQuestions?.expression?.title || '来所時点での表情はどうですか？',
         ...(expressionNeedsDirectionFix ? {
           help: STANDARD_WEEKDAY_TEMPLATE.wizardQuestions?.expression?.help,
           options: [...EXPRESSION_SCALE_OPTIONS],
@@ -350,16 +346,33 @@ export function upgradeStandardWeekdayTemplate(template: Template): Template {
     sections: template.sections.map((section) => ({
       ...section,
       fields: section.fields.map((field) => {
+        const standardField = STANDARD_WEEKDAY_TEMPLATE.sections
+          .find((candidate) => candidate.id === section.id)
+          ?.fields.find((candidate) => candidate.id === field.id);
+        const usesUpdatedLearningInput = /_(type|study_homework|study_attitude|study_posture|pc_posture)$/.test(field.id);
+        if (standardField && usesUpdatedLearningInput) {
+          return {
+            ...field,
+            type: standardField.type,
+            options: standardField.options ? [...standardField.options] : field.options,
+            hasNote: standardField.hasNote,
+            noteVisibleWhen: standardField.noteVisibleWhen,
+            hiddenWhen: standardField.hiddenWhen,
+            helpText: standardField.helpText,
+          };
+        }
         if (section.id === 'life' && field.id === 'fatigue') {
           const fatigueNeedsDirectionFix = !field.options?.length
             || /疲労感は見られなかった|なし/.test(field.options[0] || '');
-          if (!fatigueNeedsDirectionFix) return field;
           return {
             ...field,
-            options: [...FATIGUE_RATING_OPTIONS],
-            helpText: '1が「疲労感が非常に強い」、5が「疲労感なし」の基準です。',
-            scaleLowLabel: '1：疲労感が非常に強い',
-            scaleHighLabel: '5：疲労感なし',
+            questionTitle: '来所時点での疲労感はどうですか？',
+            ...(fatigueNeedsDirectionFix ? {
+              options: [...FATIGUE_RATING_OPTIONS],
+              helpText: '1が「疲労感が非常に強い」、5が「疲労感なし」の基準です。',
+              scaleLowLabel: '1：疲労感が非常に強い',
+              scaleHighLabel: '5：疲労感なし',
+            } : {}),
           };
         }
         return field;

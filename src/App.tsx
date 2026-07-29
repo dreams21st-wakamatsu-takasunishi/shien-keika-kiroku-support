@@ -259,7 +259,13 @@ export default function App() {
         try {
           const payload = JSON.parse(localStorage.getItem(key) || '{}') as Record<string, unknown>;
           const updatedAt = typeof payload.updatedAt === 'string' ? payload.updatedAt : '';
-          if (!isDraftCurrent(typeof payload.draftCycleKey === 'string' ? payload.draftCycleKey : undefined, updatedAt)) {
+          const selectedChildIds = Array.isArray(payload.selectedChildIds)
+            ? payload.selectedChildIds.filter((value): value is string => typeof value === 'string')
+            : [];
+          if (
+            selectedChildIds.length === 0
+            || !isDraftCurrent(typeof payload.draftCycleKey === 'string' ? payload.draftCycleKey : undefined, updatedAt)
+          ) {
             localStorage.removeItem(key);
             return [];
           }
@@ -268,9 +274,7 @@ export default function App() {
             revision: 0,
             recorderId: typeof payload.recorderId === 'string' ? payload.recorderId : undefined,
             recorderName: typeof payload.recorderName === 'string' ? payload.recorderName : undefined,
-            selectedChildIds: Array.isArray(payload.selectedChildIds)
-              ? payload.selectedChildIds.filter((value): value is string => typeof value === 'string')
-              : [],
+            selectedChildIds,
             date: typeof payload.date === 'string' ? payload.date : undefined,
             currentStepIndex: typeof payload.currentStepIndex === 'number' ? payload.currentStepIndex : 0,
             updatedAt,
@@ -284,8 +288,12 @@ export default function App() {
     }
     try {
       const drafts = await listRecordDrafts(organizationId);
-      const current = drafts.filter((draft) => isDraftCurrent(undefined, draft.updatedAt));
-      const expired = drafts.filter((draft) => !isDraftCurrent(undefined, draft.updatedAt));
+      const current = drafts.filter((draft) =>
+        draft.selectedChildIds.length > 0 && isDraftCurrent(undefined, draft.updatedAt)
+      );
+      const expired = drafts.filter((draft) =>
+        draft.selectedChildIds.length === 0 || !isDraftCurrent(undefined, draft.updatedAt)
+      );
       setRecordDrafts(current);
       if (expired.length > 0) {
         await Promise.allSettled(expired.map((draft) => deleteRecordDraft(organizationId, draft.draftKey)));

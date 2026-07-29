@@ -75,6 +75,7 @@ export type FieldType =
   | 'homework_subjects'
   | 'study_extras'
   | 'pc_activities'
+  | 'posture_observation'
   | 'meal_details';
 
 export interface FieldOption {
@@ -91,6 +92,7 @@ export interface TemplateField {
   defaultValue?: string;
   unit?: string; // e.g., '分', '本'
   hasNote?: boolean; // If true, adds a supplementary text input ( )
+  noteVisibleWhen?: string | string[];
   notePlaceholder?: string;
   helpText?: string;
   required?: boolean;
@@ -99,6 +101,13 @@ export interface TemplateField {
   scaleLowLabel?: string;
   scaleHighLabel?: string;
   visibleWhen?: {
+    fieldId: string;
+    equals: string | string[];
+  } | Array<{
+    fieldId: string;
+    equals: string | string[];
+  }>;
+  hiddenWhen?: {
     fieldId: string;
     equals: string | string[];
   } | Array<{

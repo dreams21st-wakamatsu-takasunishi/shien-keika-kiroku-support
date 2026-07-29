@@ -11,10 +11,13 @@ function periodLines(section: SectionAnswer, periodNumber: 1 | 2) {
   const mode = section.answers[`${prefix}_type`]?.value;
   const heading = `［${periodNumber}コマ目：${mode || '未回答'}］`;
   if (mode === '学習') {
+    const homework = answerText(section.answers[`${prefix}_study_homework`]);
     return [
       heading,
-      `宿題内容：${answerText(section.answers[`${prefix}_study_homework`])}`,
-      `宿題の取り組み：${answerText(section.answers[`${prefix}_study_attitude`])}`,
+      `宿題内容：${homework}`,
+      ...(homework === '宿題無し'
+        ? []
+        : [`宿題の取り組み：${answerText(section.answers[`${prefix}_study_attitude`])}`]),
       `宿題以外の取り組み：${answerText(section.answers[`${prefix}_study_extras`])}`,
       `姿勢：${answerText(section.answers[`${prefix}_study_posture`])}`,
     ];
@@ -46,10 +49,13 @@ function workBlockLines(section: SectionAnswer | undefined, blockLabel: string) 
     ];
   }
   if (mode === '学習') {
+    const homework = answerText(section.answers[`${prefix}_study_homework`]);
     return [
       heading,
-      `宿題内容：${answerText(section.answers[`${prefix}_study_homework`])}`,
-      `宿題の取り組み：${answerText(section.answers[`${prefix}_study_attitude`])}`,
+      `宿題内容：${homework}`,
+      ...(homework === '宿題無し'
+        ? []
+        : [`宿題の取り組み：${answerText(section.answers[`${prefix}_study_attitude`])}`]),
       `宿題以外の取り組み：${answerText(section.answers[`${prefix}_study_extras`])}`,
       `姿勢：${answerText(section.answers[`${prefix}_study_posture`])}`,
     ];

@@ -46,6 +46,7 @@ function holidayWorkBlockFields(
       options: ['学習/パソコン', '活動', 'その他'],
       defaultValue: '',
       hasNote: true,
+      noteVisibleWhen: 'その他',
       notePlaceholder: '取り組み内容や補足を入力してください。',
       required: true,
     },
@@ -58,9 +59,8 @@ function holidayWorkBlockFields(
       type: 'radio',
       options: ['漢検', 'パソコン', 'その他'],
       defaultValue: '',
-      hasNote: true,
-      notePlaceholder: '漢検の級、パソコンの取り組み内容、その他の内容などを入力してください。',
-      helpText: '当てはまる取り組みを1つ選び、内容を自由記入欄に入力してください。',
+      hasNote: false,
+      helpText: '取り組みを選ぶと、そのすぐ下に詳しい入力欄が表示されます。',
       visibleWhen: blockCondition,
     },
     {
@@ -94,10 +94,10 @@ export const STANDARD_HOLIDAY_TEMPLATE: Template = {
   name: '支援経過記録 (休日)',
   type: '休日',
   isDefault: true,
-  description: '休日の生活・午前の取り組み・昼食・午後の取り組み・おやつを、1問ずつ記録する標準フォーマット',
+  description: '休日の生活・午前の取り組み・昼食・午後の取り組み・おやつを、関連質問ごとにまとめて記録する標準フォーマット',
   wizardQuestions: {
     expression: {
-      title: '来所時の表情はどうですか？',
+      title: '来所時点での表情はどうですか？',
       help: '1が暗い表情、5が笑顔の基準です。最も近い状態を1つ選択してください。',
       options: EXPRESSION_SCALE_OPTIONS,
       noteLabel: '表情の備考（任意）',
@@ -135,7 +135,7 @@ export const STANDARD_HOLIDAY_TEMPLATE: Template = {
         {
           id: 'fatigue',
           label: '疲労感',
-          questionTitle: '来所時の疲労感はどうですか？',
+          questionTitle: '来所時点での疲労感はどうですか？',
           type: 'rating_scale',
           options: FATIGUE_RATING_OPTIONS,
           defaultValue: '',
@@ -198,7 +198,7 @@ export const STANDARD_HOLIDAY_TEMPLATE: Template = {
           label: '昼食の様子',
           questionTitle: 'お昼ご飯の様子はどうでしたか？',
           type: 'meal_details',
-          options: ['完食', '半量食べた', '1/4食べた'],
+          options: ['完食', '半量食べた', '1/4食べた', '食べていない'],
           defaultValue: '',
           helpText: '食事にかかった時間と食べた量を選び、必要に応じて様子を入力してください。',
         },
@@ -264,5 +264,44 @@ export function upgradeStandardHolidayTemplate(template: Template): Template {
       ),
     };
   }
-  return template;
+  return {
+    ...template,
+    wizardQuestions: {
+      ...template.wizardQuestions,
+      expression: {
+        ...template.wizardQuestions?.expression,
+        title: STANDARD_HOLIDAY_TEMPLATE.wizardQuestions?.expression?.title || '来所時点での表情はどうですか？',
+      },
+    },
+    sections: template.sections.map((section) => ({
+      ...section,
+      fields: section.fields.map((field) => {
+        const standardField = STANDARD_HOLIDAY_TEMPLATE.sections
+          .find((candidate) => candidate.id === section.id)
+          ?.fields.find((candidate) => candidate.id === field.id);
+        if (!standardField) return field;
+        if (section.id === 'life' && field.id === 'fatigue') {
+          return {
+            ...field,
+            questionTitle: standardField.questionTitle,
+          };
+        }
+        if (
+          /_(type|study_homework|study_attitude|study_posture|pc_posture)$/.test(field.id)
+          || field.id === 'lunch_details'
+        ) {
+          return {
+            ...field,
+            type: standardField.type,
+            options: standardField.options ? [...standardField.options] : field.options,
+            hasNote: standardField.hasNote,
+            noteVisibleWhen: standardField.noteVisibleWhen,
+            hiddenWhen: standardField.hiddenWhen,
+            helpText: standardField.helpText,
+          };
+        }
+        return field;
+      }),
+    })),
+  };
 }

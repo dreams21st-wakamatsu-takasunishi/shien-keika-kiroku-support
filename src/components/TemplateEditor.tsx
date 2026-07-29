@@ -84,6 +84,13 @@ const INPUT_TYPE_GUIDES: Array<{
     special: true,
   },
   {
+    type: 'posture_observation',
+    name: '姿勢観察',
+    description: '背すじ・足・その他を分け、各項目の選択肢と備考を開閉して入力します。',
+    example: '背すじ（背がまっすぐ）＋足（足を閉じている）',
+    special: true,
+  },
+  {
     type: 'meal_details',
     name: '食事詳細入力',
     description: '食事時間、食べた量、自由記入欄を1つの質問内にまとめて表示します。',
@@ -174,11 +181,15 @@ function InputTypePreview({ type }: { type: FieldType }) {
     return <div className="space-y-2"><button type="button" className={`${buttonClass} w-full border-teal-600 bg-teal-600 text-left text-white`}><Check className="mr-1 inline h-4 w-4" />Dレッスン（タイピング練習）</button><button type="button" className={`${buttonClass} w-full border-slate-300 bg-white text-left`}>文章入力模擬試験</button><button type="button" className={`${buttonClass} w-full border-slate-300 bg-white text-left`}>その他</button></div>;
   }
 
+  if (type === 'posture_observation') {
+    return <div className="space-y-2">{['背すじ（背がまっすぐ・背が丸まる）', '足（閉じる・開く・組む等）', 'その他（自由記入）'].map((option, index) => <div key={option} className={`rounded-lg border p-3 text-sm font-bold ${index === 0 ? 'border-teal-500 bg-teal-50 text-teal-900' : 'border-slate-300 bg-white text-slate-700'}`}>{option}</div>)}</div>;
+  }
+
   if (type === 'meal_details') {
     return (
       <div className="space-y-3">
         <label className="block text-sm font-bold text-slate-700">食事にかかった時間<div className="mt-2 flex items-center gap-2"><input type="number" value={mealMinutes} onChange={(event) => setMealMinutes(event.target.value)} className="min-h-12 min-w-0 flex-1 rounded-lg border border-slate-300 px-3 text-base" /><span>分</span></div></label>
-        <div className="grid grid-cols-3 gap-2">{['完食', '半量食べた', '1/4食べた'].map((option) => <button key={option} type="button" onClick={() => setMealPortion(option)} className={`${buttonClass} ${mealPortion === option ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300 bg-white'}`}>{mealPortion === option && <Check className="mr-1 inline h-4 w-4" />}{option}</button>)}</div>
+        <div className="grid grid-cols-2 gap-2">{['完食', '半量食べた', '1/4食べた', '食べていない'].map((option) => <button key={option} type="button" onClick={() => setMealPortion(option)} className={`${buttonClass} ${mealPortion === option ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300 bg-white'}`}>{mealPortion === option && <Check className="mr-1 inline h-4 w-4" />}{option}</button>)}</div>
         <textarea rows={2} placeholder="食事中の様子を入力" className="w-full rounded-lg border border-slate-300 p-3 text-base" />
       </div>
     );
@@ -188,7 +199,8 @@ function InputTypePreview({ type }: { type: FieldType }) {
     <div className="space-y-2">
       {HOMEWORK_SUBJECTS.map((subject) => {
         const selected = homeworkSubjects.includes(subject);
-        const expanded = selected && expandedHomework === subject;
+        const noHomework = subject === '宿題無し';
+        const expanded = !noHomework && selected && expandedHomework === subject;
         const academic = ['国語', '算数', '理科', '社会', '英語'].includes(subject);
         const summary = academic
           ? (homeworkMaterials[subject] || []).join('・')
@@ -199,17 +211,18 @@ function InputTypePreview({ type }: { type: FieldType }) {
               type="button"
               onClick={() => {
                 if (!selected) {
-                  setHomeworkSubjects([...homeworkSubjects, subject]);
-                  setExpandedHomework(subject);
+                  setHomeworkSubjects(noHomework ? ['宿題無し'] : [...homeworkSubjects.filter((value) => value !== '宿題無し'), subject]);
+                  setExpandedHomework(noHomework ? null : subject);
                 } else {
-                  setExpandedHomework(expanded ? null : subject);
+                  if (noHomework) setHomeworkSubjects([]);
+                  else setExpandedHomework(expanded ? null : subject);
                 }
               }}
               className="flex min-h-12 w-full items-center gap-2 px-3 text-left"
             >
               <span className={`flex h-6 w-6 items-center justify-center rounded-md border ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300'}`}>{selected && <Check className="h-4 w-4" />}</span>
               <span className="flex-1"><strong>{subject}</strong>{selected && <span className="ml-2 text-xs text-teal-800">{summary || '詳細を入力'}</span>}</span>
-              {selected && <ChevronRight className={`h-4 w-4 ${expanded ? 'rotate-90' : ''}`} />}
+              {selected && !noHomework && <ChevronRight className={`h-4 w-4 ${expanded ? 'rotate-90' : ''}`} />}
             </button>
             {expanded && (
               <div className="space-y-2 border-t border-teal-200 bg-white p-3">
@@ -486,11 +499,22 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
       return;
     }
 
+    if (type === 'posture_observation') {
+      handleUpdateField(sectionId, fieldId, {
+        type,
+        options: ['背すじ', '足', 'その他'],
+        defaultValue: '',
+        hasNote: false,
+        helpText: field.helpText || '背すじ・足・その他を選び、変化が見られた時にいつでも追記できます。',
+      });
+      return;
+    }
+
     if (type === 'meal_details') {
       handleUpdateField(sectionId, fieldId, {
         type,
         label: field.label === '【新規項目】' ? '昼食の様子' : field.label,
-        options: ['完食', '半量食べた', '1/4食べた'],
+        options: ['完食', '半量食べた', '1/4食べた', '食べていない'],
         defaultValue: '',
         hasNote: false,
         helpText: field.helpText || '食事にかかった時間と食べた量を選び、必要に応じて様子を入力してください。',
@@ -945,6 +969,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                             <option value="homework_subjects">教科連動選択（宿題内容）</option>
                             <option value="study_extras">宿題以外の学習（条件入力）</option>
                             <option value="pc_activities">パソコン取り組み（条件入力）</option>
+                            <option value="posture_observation">姿勢観察（背すじ・足・その他）</option>
                             <option value="meal_details">食事詳細（時間・量・備考）</option>
                           </select>
                         </div>
@@ -1009,7 +1034,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
                               type="checkbox"
                               checked={field.hasNote || false}
                               onChange={(e) => handleUpdateField(sec.id, field.id, { hasNote: e.target.checked })}
-                              disabled={['homework_subjects', 'study_extras', 'pc_activities', 'meal_details'].includes(field.type)}
+                              disabled={['homework_subjects', 'study_extras', 'pc_activities', 'posture_observation', 'meal_details'].includes(field.type)}
                               className="rounded-xs text-indigo-600 focus:ring-indigo-500"
                             />
                             <span>備考入力欄を表示</span>
