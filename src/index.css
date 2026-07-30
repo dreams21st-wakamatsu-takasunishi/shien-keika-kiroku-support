@@ -4,20 +4,19 @@ html {
   background: #0f172a;
   -webkit-text-size-adjust: 100%;
   max-width: 100%;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 body {
   min-width: 320px;
   max-width: 100%;
-  overflow-x: hidden;
-  overscroll-behavior-y: none;
+  overflow-x: clip;
 }
 
 #root {
   width: 100%;
   max-width: 100%;
-  overflow-x: hidden;
+  overflow-x: clip;
 }
 
 button,
@@ -37,6 +36,14 @@ fieldset {
 textarea {
   overflow-wrap: anywhere;
   word-break: break-word;
+}
+
+@media (hover: none) and (pointer: coarse) {
+  input,
+  select,
+  textarea {
+    font-size: 16px;
+  }
 }
 
 .desktop-top-navigation {
