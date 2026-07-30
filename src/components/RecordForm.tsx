@@ -149,7 +149,7 @@ interface PreSaveCheck {
   detail: string;
 }
 
-const inputClass = 'w-full min-h-12 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-base sm:text-sm text-slate-900 focus:border-teal-500 focus:ring-2 focus:ring-teal-200 outline-none';
+const inputClass = 'box-border min-w-0 w-full max-w-full min-h-12 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-base sm:text-sm text-slate-900 focus:border-teal-500 focus:ring-2 focus:ring-teal-200 outline-none';
 const choiceClass = 'min-h-12 rounded-xl border px-3 py-2.5 text-sm font-bold transition-colors text-center';
 
 function HomeworkSubjectInput({
@@ -1744,7 +1744,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       const answer = section?.answers?.[step.fieldId || ''];
       summary = [answer?.value, answer?.note].filter(Boolean).join('・');
     }
-    if (summary) return summary;
+    if (summary) return summary.length > 120 ? `${summary.slice(0, 120)}…` : summary;
     return /_(study|pc)_posture$/.test(step.fieldId || '')
       ? '変化があった時にすぐ入力できます'
       : 'タップして入力';
@@ -2186,7 +2186,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     }
     if (step.kind === 'attendance') {
       return (
-        <div className="space-y-3">
+        <div className="min-w-0 max-w-full space-y-3">
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
             {(wizardQuestions.attendance.options || []).map((item) => (
               <button key={item} type="button" onClick={() => setAttendance(item)} className={`${choiceClass} ${activeChildDraft?.attendance === item ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300 bg-white text-slate-700'}`}>
@@ -2258,7 +2258,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
               <section
                 key={step.id}
                 id={`group-question-${step.id}`}
-                className={`overflow-hidden rounded-2xl border-2 shadow-sm ${
+                className={`min-w-0 max-w-full overflow-hidden rounded-2xl border-2 shadow-sm ${
                   postureQuestion
                     ? 'border-teal-400 bg-teal-50/60'
                     : status === 'answered'
@@ -2276,13 +2276,13 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                         <strong className="text-sm leading-relaxed text-slate-900">{step.title}</strong>
                         {postureQuestion && <span className="rounded-full bg-teal-600 px-2 py-0.5 text-[9px] font-black text-white">観察</span>}
                       </span>
-                      <span className={`block truncate text-[11px] ${status === 'answered' ? 'font-bold text-emerald-800' : 'font-medium text-slate-500'}`}>{summary}</span>
+                      <span className={`block max-w-full overflow-hidden break-all text-[11px] leading-relaxed [overflow-wrap:anywhere] ${status === 'answered' ? 'font-bold text-emerald-800' : 'font-medium text-slate-500'}`}>{summary}</span>
                     </span>
                     <ChevronRight className={`h-5 w-5 shrink-0 text-slate-500 transition-transform ${expanded ? 'rotate-90' : ''}`} />
                   </button>
                 </div>
                 {expanded && (
-                  <div className="space-y-3 border-t border-slate-200 bg-white p-3 sm:p-4">
+                  <div className="min-w-0 max-w-full space-y-3 border-t border-slate-200 bg-white p-3 sm:p-4">
                     {field?.warningText && <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-black leading-relaxed text-rose-700">{field.warningText}</p>}
                     {step.help && <p className="text-xs leading-relaxed text-slate-500">{step.help}</p>}
                     {renderGroupedQuestionBody(step)}
@@ -2761,7 +2761,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
               : '下書き自動保存';
 
   return (
-    <form id="record-wizard" onSubmit={handleSubmit} className="max-w-4xl mx-auto space-y-4 scroll-mt-20">
+    <form id="record-wizard" onSubmit={handleSubmit} className="mx-auto w-full min-w-0 max-w-4xl space-y-4 scroll-mt-20">
       {readOnly && (
         <div className="flex items-start gap-3 rounded-xl border-2 border-sky-300 bg-sky-50 p-4 text-sky-950">
           <Eye className="mt-0.5 h-5 w-5 shrink-0" />
@@ -2847,7 +2847,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         </div>
       )}
 
-      <section className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+      <section className="w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="p-5 sm:p-7 border-b border-slate-100">
           {isChildStep && <div className="mb-2 flex items-center justify-between gap-2"><p className="text-xs font-bold text-teal-700 flex items-center gap-1"><Users className="w-4 h-4" />{activeChild?.name || '児童を選択してください'}の記録</p>{activeChild && <button type="button" onClick={() => setInfoChild(activeChild)} className="flex min-h-10 items-center gap-1 rounded-lg border border-teal-200 bg-teal-50 px-3 text-xs font-black text-teal-800"><Info className="h-4 w-4" />児童情報</button>}</div>}
           <div className="flex items-start gap-3">
@@ -2863,7 +2863,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             </div>
           </div>
         </div>
-        <fieldset disabled={readOnly} className="p-5 sm:p-7 disabled:opacity-80">{renderStep()}{stepError && <div className="mt-4 flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><AlertCircle className="w-5 h-5 shrink-0" />{stepError}</div>}</fieldset>
+        <fieldset disabled={readOnly} className="box-border w-full min-w-0 max-w-full overflow-x-hidden p-5 disabled:opacity-80 sm:p-7">{renderStep()}{stepError && <div className="mt-4 flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><AlertCircle className="w-5 h-5 shrink-0" />{stepError}</div>}</fieldset>
       </section>
 
       {wizard.selectedChildIds.length > 0 && (

@@ -3,18 +3,40 @@
 html {
   background: #0f172a;
   -webkit-text-size-adjust: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 body {
   min-width: 320px;
+  max-width: 100%;
+  overflow-x: hidden;
   overscroll-behavior-y: none;
+}
+
+#root {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
 }
 
 button,
 select,
 input,
 textarea {
+  max-width: 100%;
   touch-action: manipulation;
+}
+
+fieldset {
+  min-width: 0;
+  max-width: 100%;
+  min-inline-size: 0;
+}
+
+textarea {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .desktop-top-navigation {
