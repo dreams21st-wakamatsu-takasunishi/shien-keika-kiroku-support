@@ -9,12 +9,14 @@ html {
 
 body {
   min-width: 320px;
+  min-height: 100dvh;
   max-width: 100%;
   overflow-x: clip;
 }
 
 #root {
   width: 100%;
+  min-height: 100dvh;
   max-width: 100%;
   overflow-x: clip;
 }

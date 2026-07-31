@@ -187,6 +187,32 @@ export interface RecorderProfile {
   createdAt?: string;
 }
 
+export type StaffScheduleCategory =
+  | '送迎'
+  | '支援'
+  | '休憩'
+  | '会議'
+  | '事務'
+  | '外出'
+  | 'その他';
+
+export interface StaffScheduleItem {
+  id: string;
+  recorderProfileId: string;
+  recorderName: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  title: string;
+  category: StaffScheduleCategory;
+  location?: string;
+  childIds: string[];
+  note?: string;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface RecordDraftSummary {
   draftKey: string;
   revision: number;

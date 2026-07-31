@@ -17,6 +17,7 @@ import {
   ReviewIssue,
   RegularDaySchedule,
   SnackType,
+  StaffScheduleItem,
   SupportPlan,
   SupportRecord,
   Template,
@@ -42,6 +43,7 @@ export interface WorkspaceData {
   aiWritingSettings: AiWritingSettings;
   announcements: Announcement[];
   announcementConfirmations: AnnouncementConfirmation[];
+  staffScheduleItems: StaffScheduleItem[];
 }
 
 function assertSupabase() {
@@ -172,6 +174,30 @@ function mapAnnouncementConfirmation(row: any): AnnouncementConfirmation {
   };
 }
 
+function mapStaffScheduleItem(
+  row: any,
+  recorderNames?: Map<string, string>,
+): StaffScheduleItem {
+  return {
+    id: row.id,
+    recorderProfileId: row.recorder_profile_id,
+    recorderName: recorderNames?.get(row.recorder_profile_id) || '職員',
+    date: row.service_date,
+    startTime: String(row.start_time || '').slice(0, 5),
+    endTime: String(row.end_time || '').slice(0, 5),
+    title: row.title,
+    category: row.category,
+    location: row.location || undefined,
+    childIds: Array.isArray(row.child_ids)
+      ? row.child_ids.filter((value: unknown): value is string => typeof value === 'string')
+      : [],
+    note: row.note || undefined,
+    createdBy: row.created_by || undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 function mapTemplate(row: any): Template {
   return upgradeStandardHolidayTemplate(upgradeStandardWeekdayTemplate(normalizeTemplateFatigueScale({
     id: row.id,
@@ -276,6 +302,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     aiSettingsResult,
     announcementsResult,
     announcementConfirmationsResult,
+    staffScheduleItemsResult,
   ] = await Promise.all([
     client.from('children').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('name'),
     client.from('child_regular_day_schedules').select('*').eq('organization_id', organizationId).order('effective_from'),
@@ -291,6 +318,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     client.from('organization_ai_settings').select('*').eq('organization_id', organizationId).maybeSingle(),
     client.from('announcements').select('*').eq('organization_id', organizationId).is('archived_at', null).order('published_at', { ascending: false }),
     client.from('announcement_confirmations').select('*').eq('organization_id', organizationId).order('read_at', { ascending: false }),
+    client.from('staff_schedule_items').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }).order('start_time'),
   ]);
 
   for (const result of [
@@ -339,7 +367,45 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     announcementConfirmations: announcementConfirmationsResult.error
       ? []
       : (announcementConfirmationsResult.data || []).map(mapAnnouncementConfirmation),
+    staffScheduleItems: staffScheduleItemsResult.error
+      ? []
+      : (staffScheduleItemsResult.data || []).map((row) => mapStaffScheduleItem(row, recorderNames)),
   };
+}
+
+export async function saveStaffScheduleItem(
+  organizationId: string,
+  item: StaffScheduleItem,
+) {
+  const { error } = await assertSupabase().from('staff_schedule_items').upsert(
+    {
+      organization_id: organizationId,
+      id: item.id,
+      recorder_profile_id: item.recorderProfileId,
+      service_date: item.date,
+      start_time: item.startTime,
+      end_time: item.endTime,
+      title: item.title.trim(),
+      category: item.category,
+      location: item.location?.trim() || null,
+      child_ids: item.childIds,
+      note: item.note?.trim() || null,
+    },
+    { onConflict: 'organization_id,id' }
+  );
+  if (error) throw error;
+}
+
+export async function deleteStaffScheduleItem(
+  organizationId: string,
+  itemId: string,
+) {
+  const { error } = await assertSupabase()
+    .from('staff_schedule_items')
+    .delete()
+    .eq('organization_id', organizationId)
+    .eq('id', itemId);
+  if (error) throw error;
 }
 
 export async function saveAnnouncement(organizationId: string, announcement: Announcement) {

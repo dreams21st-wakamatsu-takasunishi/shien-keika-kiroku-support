@@ -3,6 +3,7 @@ import {
   ArrowRight,
   Bot,
   CalendarDays,
+  ChartGantt,
   CheckCircle2,
   ClipboardPenLine,
   ClipboardList,
@@ -29,6 +30,7 @@ import type {
   MorningMeetingTemplate,
   RecordDraftSummary,
   RecorderProfile,
+  StaffScheduleItem,
   SupportRecord,
   UserProfile,
 } from '../types';
@@ -38,6 +40,7 @@ import { DailyOperationsPanel } from './DailyOperationsPanel';
 import { HandoverPanel } from './HandoverPanel';
 import { MorningMeetingPanel } from './MorningMeetingPanel';
 import { AnnouncementPanel } from './AnnouncementPanel';
+import { StaffSchedulePanel } from './StaffSchedulePanel';
 import { getLocalDateString } from '../utils/weekdays';
 
 interface HomeScreenProps {
@@ -47,6 +50,7 @@ interface HomeScreenProps {
   childrenList: ChildProfile[];
   drafts: RecordDraftSummary[];
   recorderProfiles: RecorderProfile[];
+  staffScheduleItems: StaffScheduleItem[];
   handoverItems: HandoverItem[];
   handoverConfirmations: HandoverConfirmation[];
   morningMeetingRecords: MorningMeetingRecord[];
@@ -75,6 +79,8 @@ interface HomeScreenProps {
   onArchiveMorningMeetingTemplate: (templateId: string) => Promise<void> | void;
   onSetMorningMeetingConfirmation: (confirmation: MorningMeetingConfirmation, confirmed: boolean) => Promise<void> | void;
   onAssistantExecuted: (proposal: HomeAssistantProposal, result: HomeAssistantExecutionResult) => Promise<void> | void;
+  onSaveStaffSchedule: (item: StaffScheduleItem) => Promise<void> | void;
+  onDeleteStaffSchedule: (itemId: string) => Promise<void> | void;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
@@ -84,6 +90,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   childrenList,
   drafts,
   recorderProfiles,
+  staffScheduleItems,
   handoverItems,
   handoverConfirmations,
   morningMeetingRecords,
@@ -112,8 +119,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onArchiveMorningMeetingTemplate,
   onSetMorningMeetingConfirmation,
   onAssistantExecuted,
+  onSaveStaffSchedule,
+  onDeleteStaffSchedule,
 }) => {
-  const [activePanel, setActivePanel] = useState<'operations' | 'morning' | 'handover' | 'assistant'>('operations');
+  const [activePanel, setActivePanel] = useState<'operations' | 'staffSchedule' | 'morning' | 'handover' | 'assistant'>('operations');
   const today = getLocalDateString();
   const todayRecords = records.filter((record) => record.date === today);
   const unapproved = records.filter((record) => record.approvalStatus === '未確認');
@@ -189,13 +198,20 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-        <div className="grid grid-cols-2 gap-1 sm:grid-cols-4" role="tablist" aria-label="ホーム機能">
+        <div className="flex gap-1 overflow-x-auto overscroll-x-contain pb-1" role="tablist" aria-label="ホーム機能">
           <HomePanelButton
             active={activePanel === 'operations'}
             icon={CalendarDays}
             label="本日の運用"
             badge={drafts.length > 0 ? `${drafts.length}件入力中` : undefined}
             onClick={() => setActivePanel('operations')}
+          />
+          <HomePanelButton
+            active={activePanel === 'staffSchedule'}
+            icon={ChartGantt}
+            label="職員配置"
+            badge={staffScheduleItems.some((item) => item.date === today) ? '予定あり' : undefined}
+            onClick={() => setActivePanel('staffSchedule')}
           />
           <HomePanelButton
             active={activePanel === 'morning'}
@@ -235,6 +251,17 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             onTakeOverDraft={onTakeOverDraft}
             onDeleteDraft={onDeleteDraft}
             onOpenRecord={onOpenRecord}
+          />
+        )}
+
+        {activePanel === 'staffSchedule' && (
+          <StaffSchedulePanel
+            items={staffScheduleItems}
+            recorderProfiles={recorderProfiles}
+            childrenList={childrenList}
+            canEdit={canManageSettings}
+            onSave={onSaveStaffSchedule}
+            onDelete={onDeleteStaffSchedule}
           />
         )}
 
@@ -545,7 +572,7 @@ function HomePanelButton({
       role="tab"
       aria-selected={active}
       onClick={onClick}
-      className={`flex min-h-14 flex-col items-center justify-center gap-1 rounded-xl px-2 text-[11px] font-black transition-colors sm:min-h-12 sm:flex-row sm:text-xs ${
+      className={`flex min-h-14 min-w-[7.5rem] flex-1 flex-col items-center justify-center gap-1 rounded-xl px-2 text-[11px] font-black transition-colors sm:min-h-12 sm:flex-row sm:text-xs ${
         active ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
       }`}
     >

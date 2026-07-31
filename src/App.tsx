@@ -17,6 +17,7 @@ import {
   RecordDraftSummary,
   RecorderProfile,
   ReviewIssue,
+  StaffScheduleItem,
   SupportPlan,
   SupportRecord,
   Template,
@@ -49,6 +50,7 @@ import {
   deleteHandoverConfirmation,
   deleteMorningMeetingConfirmation,
   deleteRecordDraft,
+  deleteStaffScheduleItem,
   listRecordDrafts,
   loadWorkspaceData,
   saveChild,
@@ -59,6 +61,7 @@ import {
   saveMorningMeetingTemplate,
   saveRecord,
   saveRecords,
+  saveStaffScheduleItem,
   saveAiWritingSettings,
   saveAnnouncement,
   saveAnnouncementConfirmation,
@@ -138,6 +141,11 @@ export default function App() {
     return saved ? JSON.parse(saved) : [];
   });
   const [recordDrafts, setRecordDrafts] = useState<RecordDraftSummary[]>([]);
+  const [staffScheduleItems, setStaffScheduleItems] = useState<StaffScheduleItem[]>(() => {
+    if (remoteMode) return [];
+    const saved = localStorage.getItem('support_staff_schedule_items_data');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [announcements, setAnnouncements] = useState<Announcement[]>(() => {
     if (remoteMode) return [];
     const saved = localStorage.getItem('support_announcements_data');
@@ -219,6 +227,11 @@ export default function App() {
       localStorage.setItem('support_announcement_confirmations_data', JSON.stringify(announcementConfirmations));
     }
   }, [announcementConfirmations, remoteMode]);
+  useEffect(() => {
+    if (!remoteMode) {
+      localStorage.setItem('support_staff_schedule_items_data', JSON.stringify(staffScheduleItems));
+    }
+  }, [staffScheduleItems, remoteMode]);
 
   const refreshRemoteData = useCallback(async (showLoading = true) => {
     if (!auth.profile) return;
@@ -244,6 +257,7 @@ export default function App() {
       setAiWritingSettings(workspace.aiWritingSettings);
       setAnnouncements(workspace.announcements);
       setAnnouncementConfirmations(workspace.announcementConfirmations);
+      setStaffScheduleItems(workspace.staffScheduleItems);
       setDataError(null);
     } catch (error) {
       setDataError(error instanceof Error ? error.message : '共有データを取得できませんでした。');
@@ -340,6 +354,7 @@ export default function App() {
         void refreshRemoteData(false);
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'announcement_confirmations', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_schedule_items', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, [auth.profile, refreshRemoteData, refreshRecordDrafts]);
@@ -668,6 +683,37 @@ export default function App() {
           || candidate.confirmerKey !== confirmation.confirmerKey
         ),
       ]);
+      setDataError(null);
+    } catch (error) {
+      persistError(error);
+    }
+  };
+
+  const handleSaveStaffSchedule = async (item: StaffScheduleItem) => {
+    if (!canManageSettings) {
+      throw new Error('職員配置を変更できるのは児発管または管理者です。');
+    }
+    try {
+      if (organizationId) await saveStaffScheduleItem(organizationId, item);
+      setStaffScheduleItems((previous) => [
+        ...previous.filter((candidate) => candidate.id !== item.id),
+        item,
+      ].sort((left, right) =>
+        `${left.date}${left.startTime}`.localeCompare(`${right.date}${right.startTime}`)
+      ));
+      setDataError(null);
+    } catch (error) {
+      persistError(error);
+    }
+  };
+
+  const handleDeleteStaffSchedule = async (itemId: string) => {
+    if (!canManageSettings) {
+      throw new Error('職員配置を変更できるのは児発管または管理者です。');
+    }
+    try {
+      if (organizationId) await deleteStaffScheduleItem(organizationId, itemId);
+      setStaffScheduleItems((previous) => previous.filter((item) => item.id !== itemId));
       setDataError(null);
     } catch (error) {
       persistError(error);
@@ -1051,6 +1097,7 @@ export default function App() {
             childrenList={childrenList}
             drafts={recordDrafts}
             recorderProfiles={recorderProfiles}
+            staffScheduleItems={staffScheduleItems}
             handoverItems={handoverItems}
             handoverConfirmations={handoverConfirmations}
             morningMeetingRecords={morningMeetingRecords}
@@ -1085,6 +1132,8 @@ export default function App() {
             onArchiveMorningMeetingTemplate={handleArchiveMorningMeetingTemplate}
             onSetMorningMeetingConfirmation={handleSetMorningMeetingConfirmation}
             onAssistantExecuted={handleAssistantExecuted}
+            onSaveStaffSchedule={handleSaveStaffSchedule}
+            onDeleteStaffSchedule={handleDeleteStaffSchedule}
           />
         )}
         {activeTab === 'form' && (
