@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
+  ArrowLeftRight,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -1083,7 +1084,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
   const [wizard, setWizard] = useState<WizardDraft>(createInitialDraft);
   const [draftReady, setDraftReady] = useState(!organizationId || !userId);
-  const [draftStatus, setDraftStatus] = useState<'restored' | 'saving' | 'saved' | 'deleted' | 'reset' | 'conflict' | 'error' | null>(null);
+  const [draftStatus, setDraftStatus] = useState<'restored' | 'saving' | 'saved' | 'deleted' | 'reset' | 'conflict' | 'locked' | 'taken-over' | 'error' | null>(null);
   const [stepError, setStepError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -1093,6 +1094,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const [childSearch, setChildSearch] = useState('');
   const [checksAcknowledged, setChecksAcknowledged] = useState(false);
   const [expandedGroupStepId, setExpandedGroupStepId] = useState<string | null>(null);
+  const [reorderingChildTabs, setReorderingChildTabs] = useState(false);
+  const draftWriteBlocked = draftStatus === 'locked' || draftStatus === 'taken-over';
+  const editingDisabled = readOnly || draftWriteBlocked;
   const [questionIndexMode, setQuestionIndexMode] = useState<'unanswered' | 'all'>('unanswered');
   const draftCleared = useRef(false);
   const skipNextDraftSave = useRef(false);
@@ -1140,7 +1144,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   }, [organizationId, userId, draftKey, storageKey, readOnly]);
 
   useEffect(() => {
-    if (readOnly || !draftReady || draftCleared.current) return;
+    if (editingDisabled || !draftReady || draftCleared.current) return;
     if (!initialRecord && wizard.selectedChildIds.length === 0) {
       setDraftStatus(null);
       return;
@@ -1175,14 +1179,22 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           })
           .catch((error) => {
             const message = error instanceof Error ? error.message : String(error);
-            setDraftStatus(message.includes('DRAFT_CONFLICT') ? 'conflict' : 'error');
+            setDraftStatus(
+              message.includes('DRAFT_CHILD_LOCKED')
+                ? 'locked'
+                : message.includes('DRAFT_TAKEN_OVER') || message.includes('DRAFT_OWNED_BY_ANOTHER_RECORDER')
+                  ? 'taken-over'
+                  : message.includes('DRAFT_CONFLICT')
+                    ? 'conflict'
+                    : 'error'
+            );
           });
       } else {
         setDraftStatus('saved');
       }
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [wizard, draftReady, storageKey, organizationId, userId, draftKey, deviceId, onDraftChanged, readOnly, initialRecord]);
+  }, [wizard, draftReady, storageKey, organizationId, userId, draftKey, deviceId, onDraftChanged, editingDisabled, initialRecord]);
 
   useEffect(() => {
     if (readOnly) return;
@@ -1469,12 +1481,12 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const isChildStep = currentStep && !['template', 'children', 'date', 'recorder', 'review'].includes(currentStep.kind);
 
   const updateWizard = (updates: Partial<WizardDraft>) => {
-    if (readOnly) return;
+    if (editingDisabled) return;
     setWizard((previous) => ({ ...previous, ...updates }));
   };
 
   const updateChildDraft = (childId: string, updater: (draft: ChildDraft) => ChildDraft) => {
-    if (readOnly) return;
+    if (editingDisabled) return;
     setWizard((previous) => {
       const current = previous.childDrafts[childId] || createChildDraft(activeTemplate);
       return { ...previous, childDrafts: { ...previous.childDrafts, [childId]: updater(current) } };
@@ -1969,6 +1981,23 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     moveToStep(target ? steps.findIndex((step) => step.id === target.id) : wizard.currentStepIndex, childId);
   };
 
+  const moveChildTab = (childId: string, direction: -1 | 1) => {
+    if (editingDisabled) return;
+    setWizard((previous) => {
+      const currentIndex = previous.selectedChildIds.indexOf(childId);
+      const targetIndex = currentIndex + direction;
+      if (currentIndex < 0 || targetIndex < 0 || targetIndex >= previous.selectedChildIds.length) {
+        return previous;
+      }
+      const selectedChildIds = [...previous.selectedChildIds];
+      [selectedChildIds[currentIndex], selectedChildIds[targetIndex]] = [
+        selectedChildIds[targetIndex],
+        selectedChildIds[currentIndex],
+      ];
+      return { ...previous, selectedChildIds };
+    });
+  };
+
   const validateGlobalStep = () => {
     if (currentStep?.kind === 'template' && !activeTemplate) return '記録フォーマットを選択してください。';
     if (currentStep?.kind === 'children' && wizard.selectedChildIds.length === 0) return '対象児童を1名以上選択してください。';
@@ -2047,7 +2076,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   };
 
   const summarizeABC = async (sectionId: string) => {
-    if (readOnly) return;
+    if (editingDisabled) return;
     const section = activeChildDraft?.sectionAnswers[sectionId];
     const abc = section?.abcAnalysis;
     if (!abc || (!abc.behavior.trim() && !abc.consequence.trim() && !abc.antecedent.trim())) {
@@ -2286,7 +2315,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                     {field?.warningText && <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-black leading-relaxed text-rose-700">{field.warningText}</p>}
                     {step.help && <p className="text-xs leading-relaxed text-slate-500">{step.help}</p>}
                     {renderGroupedQuestionBody(step)}
-                    {!readOnly && (
+                    {!editingDisabled && (
                       <div className="flex justify-end border-t border-slate-100 pt-3">
                         <button type="button" onClick={() => toggleStepSkipped(step.id)} className={`min-h-10 rounded-lg border px-3 text-xs font-black ${status === 'skipped' ? 'border-slate-400 bg-slate-100 text-slate-700' : 'border-slate-300 bg-white text-slate-500 hover:bg-slate-50'}`}>
                           {status === 'skipped' ? '回答する項目に戻す' : 'この項目をスキップ'}
@@ -2566,7 +2595,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (readOnly) return;
+    if (editingDisabled) return;
     setSaveError(null);
     if (
       !activeTemplate ||
@@ -2654,7 +2683,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   };
 
   const clearCurrentDraft = async () => {
-    if (readOnly) return;
+    if (editingDisabled) return;
     const actionLabel = initialRecord ? '編集中の変更' : '入力中の記録';
     const confirmed = window.confirm(
       `${actionLabel}をすべて削除しますか？保存済みの支援記録は削除されません。`
@@ -2754,6 +2783,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           ? '午前3時に下書きをリセットしました'
           : draftStatus === 'conflict'
             ? '別端末の更新を検出しました'
+          : draftStatus === 'locked'
+            ? '別の職員が同じ児童を入力中'
+          : draftStatus === 'taken-over'
+            ? '別の職員へ引き継がれました'
           : draftStatus === 'error'
             ? '下書きの共有保存に失敗'
             : wizard.selectedChildIds.length === 0
@@ -2783,7 +2816,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           <span
             aria-live="polite"
             className={`flex items-center gap-1 ${
-              draftStatus === 'error' || draftStatus === 'conflict'
+              draftStatus === 'error' || draftStatus === 'conflict' || draftWriteBlocked
                 ? 'text-rose-600'
                 : draftStatus === 'deleted' || draftStatus === 'reset'
                   ? 'font-bold text-amber-700'
@@ -2800,7 +2833,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
               ? '児童を選択するまでは入力中の記録として保存されません。'
               : '入力内容は自動保存され、毎日午前3時にリセットされます。'}
           </p>
-          {!readOnly && (wizard.selectedChildIds.length > 0 || Boolean(initialRecord)) && <button
+          {!editingDisabled && (wizard.selectedChildIds.length > 0 || Boolean(initialRecord)) && <button
             type="button"
             onClick={() => void clearCurrentDraft()}
             className="flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-rose-300 bg-white px-4 text-sm font-bold text-rose-700 hover:bg-rose-50"
@@ -2833,15 +2866,94 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             </div>
           </div>
         )}
+        {draftWriteBlocked && (
+          <div className="mt-3 rounded-xl border-2 border-amber-400 bg-amber-50 p-4">
+            <p className="text-sm font-black text-amber-950">
+              {draftStatus === 'taken-over'
+                ? 'この記録は別の職員へ引き継がれました'
+                : '選択した児童は別の職員が入力中です'}
+            </p>
+            <p className="mt-1 text-xs leading-relaxed text-amber-900">
+              重複記録を防ぐため、この画面からの入力と共有保存を停止しました。ホームの「本日の運用」から入力状況を確認してください。
+            </p>
+          </div>
+        )}
       </div>
 
       {wizard.selectedChildIds.length > 0 && wizard.currentStepIndex >= 2 && (
         <div className="sticky top-16 z-20 rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur">
+          <div className="mb-2 flex items-center justify-between gap-3 px-1">
+            <p className="text-[11px] font-black text-slate-600">児童切替</p>
+            {wizard.selectedChildIds.length > 1 && !editingDisabled && (
+              <button
+                type="button"
+                aria-pressed={reorderingChildTabs}
+                onClick={() => setReorderingChildTabs((previous) => !previous)}
+                className={`flex min-h-9 items-center gap-1 rounded-lg border px-2.5 text-[11px] font-black ${
+                  reorderingChildTabs
+                    ? 'border-teal-600 bg-teal-50 text-teal-800'
+                    : 'border-slate-300 bg-white text-slate-600'
+                }`}
+              >
+                <ArrowLeftRight className="h-4 w-4" />
+                {reorderingChildTabs ? '並べ替え完了' : '並べ替え'}
+              </button>
+            )}
+          </div>
           <div className="flex gap-2 overflow-x-auto pb-1">
-            {wizard.selectedChildIds.map((childId) => {
+            {wizard.selectedChildIds.map((childId, index) => {
               const child = childrenList.find((item) => item.id === childId);
               const unanswered = unansweredForChild(childId).length;
-              return <button key={childId} type="button" onClick={() => switchChild(childId)} className={`min-h-11 shrink-0 rounded-lg border px-3 text-xs font-bold ${wizard.activeChildId === childId ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300 bg-white text-slate-700'}`}>{child?.name || '児童'}<span className={`ml-2 rounded-full px-1.5 py-0.5 text-[10px] ${unanswered === 0 ? 'bg-emerald-100 text-emerald-800' : wizard.activeChildId === childId ? 'bg-white/20 text-white' : 'bg-amber-100 text-amber-800'}`}>{unanswered === 0 ? '完了' : `未${unanswered}`}</span></button>;
+              const active = wizard.activeChildId === childId;
+              return (
+                <div
+                  key={childId}
+                  className={`flex shrink-0 overflow-hidden rounded-lg border ${
+                    active ? 'border-teal-600' : 'border-slate-300'
+                  }`}
+                >
+                  <button
+                    type="button"
+                    onClick={() => switchChild(childId)}
+                    className={`min-h-11 px-3 text-xs font-bold ${
+                      active ? 'bg-teal-600 text-white' : 'bg-white text-slate-700'
+                    }`}
+                  >
+                    {child?.name || '児童'}
+                    <span className={`ml-2 rounded-full px-1.5 py-0.5 text-[10px] ${
+                      unanswered === 0
+                        ? 'bg-emerald-100 text-emerald-800'
+                        : active
+                          ? 'bg-white/20 text-white'
+                          : 'bg-amber-100 text-amber-800'
+                    }`}>
+                      {unanswered === 0 ? '完了' : `未${unanswered}`}
+                    </span>
+                  </button>
+                  {reorderingChildTabs && (
+                    <div className="flex items-stretch border-l border-slate-200 bg-slate-50">
+                      <button
+                        type="button"
+                        aria-label={`${child?.name || '児童'}を左へ移動`}
+                        disabled={index === 0}
+                        onClick={() => moveChildTab(childId, -1)}
+                        className="flex min-h-11 min-w-10 items-center justify-center text-slate-700 disabled:text-slate-300"
+                      >
+                        <ChevronLeft className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`${child?.name || '児童'}を右へ移動`}
+                        disabled={index === wizard.selectedChildIds.length - 1}
+                        onClick={() => moveChildTab(childId, 1)}
+                        className="flex min-h-11 min-w-10 items-center justify-center border-l border-slate-200 text-slate-700 disabled:text-slate-300"
+                      >
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
             })}
           </div>
         </div>
@@ -2863,7 +2975,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             </div>
           </div>
         </div>
-        <fieldset disabled={readOnly} className="box-border w-full min-w-0 max-w-full overflow-x-hidden p-5 disabled:opacity-80 sm:p-7">{renderStep()}{stepError && <div className="mt-4 flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><AlertCircle className="w-5 h-5 shrink-0" />{stepError}</div>}</fieldset>
+        <fieldset disabled={editingDisabled} className="box-border w-full min-w-0 max-w-full overflow-x-hidden p-5 disabled:opacity-80 sm:p-7">{renderStep()}{stepError && <div className="mt-4 flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><AlertCircle className="w-5 h-5 shrink-0" />{stepError}</div>}</fieldset>
       </section>
 
       {wizard.selectedChildIds.length > 0 && (
@@ -2908,8 +3020,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
         <button type="button" onClick={goPrevious} disabled={wizard.currentStepIndex === 0} className="min-h-12 rounded-xl border border-slate-300 px-4 text-sm font-bold text-slate-700 disabled:opacity-40 flex items-center justify-center gap-2"><ChevronLeft className="w-4 h-4" />前の質問</button>
         <div className="flex flex-col sm:flex-row gap-2">
-          {isChildStep && currentPageSteps.length <= 1 && !readOnly && <button type="button" onClick={(event) => { event.preventDefault(); skipCurrent(); }} className="min-h-12 rounded-xl border border-slate-300 px-4 text-sm font-bold text-slate-600 flex items-center justify-center gap-2"><SkipForward className="w-4 h-4" />この質問をスキップ</button>}
-          {currentStep?.kind === 'review' ? readOnly ? <span className="flex min-h-12 items-center justify-center rounded-xl bg-sky-100 px-6 text-sm font-black text-sky-900">閲覧モード</span> : <button type="submit" disabled={isSaving} className="min-h-12 rounded-xl bg-emerald-600 disabled:bg-slate-400 px-6 text-sm font-bold text-white flex items-center justify-center gap-2"><Save className="w-4 h-4" />{isSaving ? '保存中...' : `${wizard.selectedChildIds.length}名分を保存`}</button> : <button type="button" onClick={(event) => { event.preventDefault(); goNext(); }} className="min-h-12 rounded-xl bg-teal-600 px-6 text-sm font-bold text-white flex items-center justify-center gap-2">次の質問<ChevronRight className="w-4 h-4" /></button>}
+          {isChildStep && currentPageSteps.length <= 1 && !editingDisabled && <button type="button" onClick={(event) => { event.preventDefault(); skipCurrent(); }} className="min-h-12 rounded-xl border border-slate-300 px-4 text-sm font-bold text-slate-600 flex items-center justify-center gap-2"><SkipForward className="w-4 h-4" />この質問をスキップ</button>}
+          {currentStep?.kind === 'review' ? editingDisabled ? <span className="flex min-h-12 items-center justify-center rounded-xl bg-sky-100 px-6 text-sm font-black text-sky-900">{readOnly ? '閲覧モード' : '入力停止中'}</span> : <button type="submit" disabled={isSaving} className="min-h-12 rounded-xl bg-emerald-600 disabled:bg-slate-400 px-6 text-sm font-bold text-white flex items-center justify-center gap-2"><Save className="w-4 h-4" />{isSaving ? '保存中...' : `${wizard.selectedChildIds.length}名分を保存`}</button> : <button type="button" onClick={(event) => { event.preventDefault(); goNext(); }} className="min-h-12 rounded-xl bg-teal-600 px-6 text-sm font-bold text-white flex items-center justify-center gap-2">次の質問<ChevronRight className="w-4 h-4" /></button>}
         </div>
       </div>
 

@@ -68,6 +68,7 @@ import {
   seedDefaultTemplates,
   softDeleteChild,
   softDeleteRecord,
+  takeOverRecordDraft,
   updateHandoverStatus,
 } from './services/dataService';
 import { createRecordDraftKey } from './utils/deviceId';
@@ -786,6 +787,25 @@ export default function App() {
     setActiveTab('form');
   };
 
+  const handleTakeOverDraft = async (draftKey: string, ownerName?: string) => {
+    const nextRecorderName = activeRecorder?.displayName || auth.profile?.displayName || '現在の職員';
+    const confirmed = window.confirm(
+      `${ownerName || '別の職員'}が入力中の記録を、${nextRecorderName}へ引き継ぎます。\n\n`
+      + '引き継ぎ後、元の入力者はこの下書きを編集できなくなります。よろしいですか？'
+    );
+    if (!confirmed) return;
+
+    try {
+      if (organizationId) {
+        await takeOverRecordDraft(organizationId, draftKey, activeRecorder?.id);
+        await refreshRecordDrafts();
+      }
+      handleResumeDraft(draftKey);
+    } catch (error) {
+      persistError(error);
+    }
+  };
+
   const handleDeleteDraft = async (draftKey: string) => {
     if (!window.confirm('この入力中の記録を削除しますか？保存済み記録は削除されません。')) return;
     try {
@@ -1048,6 +1068,7 @@ export default function App() {
             onStartRecord={handleStartRecord}
             onResumeDraft={handleResumeDraft}
             onViewDraft={handleViewDraft}
+            onTakeOverDraft={(draftKey, ownerName) => void handleTakeOverDraft(draftKey, ownerName)}
             onDeleteDraft={(draftKey) => void handleDeleteDraft(draftKey)}
             onOpenRecord={(record) => {
               setCurrentRecord(record);
@@ -1083,14 +1104,12 @@ export default function App() {
             resolvedIssueId={correctionTarget?.issueId}
             readOnly={Boolean(readOnlyDraft)}
             readOnlyOwnerName={readOnlyDraft?.ownerName}
-            lockedChildren={auth.profile?.role === 'staff' && activeRecorder
-              ? Object.fromEntries(recordDrafts
-                  .filter((draft) => draft.recorderId && draft.recorderId !== activeRecorder.id)
-                  .flatMap((draft) => draft.selectedChildIds.map((childId) => [
-                    childId,
-                    draft.recorderName || '別指導員',
-                  ])))
-              : {}}
+            lockedChildren={Object.fromEntries(recordDrafts
+              .filter((draft) => draft.draftKey !== activeDraftKey)
+              .flatMap((draft) => draft.selectedChildIds.map((childId) => [
+                childId,
+                draft.recorderName || '別職員',
+              ])))}
             onSaveRecords={handleSaveRecords}
             onCreateHandover={handleQuickMemoHandover}
           />

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { CalendarCheck2, CheckCircle2, Clock3, Eye, FileEdit, Info, PlayCircle, Trash2 } from 'lucide-react';
+import { CalendarCheck2, CheckCircle2, Clock3, Eye, FileEdit, Info, PlayCircle, Trash2, UserRoundCheck } from 'lucide-react';
 import type { ChildProfile, RecordDraftSummary, SupportRecord } from '../types';
 import { getLocalDateString, getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
 import { ChildInfoDialog } from './ChildInfoDialog';
@@ -14,6 +14,7 @@ interface DailyOperationsPanelProps {
   onStartRecord: (childId: string, date: string) => void;
   onResumeDraft: (draftKey: string) => void;
   onViewDraft: (draftKey: string, ownerName?: string) => void;
+  onTakeOverDraft: (draftKey: string, ownerName?: string) => void;
   onDeleteDraft: (draftKey: string) => void;
   onOpenRecord: (record: SupportRecord) => void;
 }
@@ -28,6 +29,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
   onStartRecord,
   onResumeDraft,
   onViewDraft,
+  onTakeOverDraft,
   onDeleteDraft,
   onOpenRecord,
 }) => {
@@ -112,6 +114,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
               && draft.recorderId !== currentRecorderId
             );
             const canResumeDraft = sameAccount && !ownedByAnotherRecorder;
+            const canTakeOverDraft = Boolean(currentUserId) && !canResumeDraft;
             return (
             <article key={child.id} className="p-4 sm:flex sm:items-center sm:gap-4">
               <div className="min-w-0 flex-1">
@@ -140,7 +143,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                     </span>
                   ) : draft ? (
                     <span className="rounded-full bg-amber-100 px-2 py-1 text-[10px] font-bold text-amber-800">
-                      {ownedByAnotherRecorder ? '別指導員が入力中' : '入力中'}
+                      {canResumeDraft ? '入力中' : '別職員が入力中'}
                     </span>
                   ) : (
                     <span className="rounded-full bg-rose-100 px-2 py-1 text-[10px] font-bold text-rose-800">未入力</span>
@@ -178,6 +181,15 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                         className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl border border-sky-300 bg-sky-50 px-4 text-xs font-black text-sky-900 sm:flex-none"
                       >
                         <Eye className="h-4 w-4" />入力状況を見る
+                      </button>
+                    )}
+                    {canTakeOverDraft && (
+                      <button
+                        type="button"
+                        onClick={() => onTakeOverDraft(draft.draftKey, draft.recorderName)}
+                        className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl border border-amber-400 bg-amber-50 px-4 text-xs font-black text-amber-950 sm:flex-none"
+                      >
+                        <UserRoundCheck className="h-4 w-4" />引き継ぐ
                       </button>
                     )}
                     {(canResumeDraft || canManageDrafts) && (
@@ -226,6 +238,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                 && draft.recorderId !== currentRecorderId
               );
               const canResumeDraft = sameAccount && !ownedByAnotherRecorder;
+              const canTakeOverDraft = Boolean(currentUserId) && !canResumeDraft;
               return (
                 <div key={draft.draftKey} className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-3 sm:flex-row sm:items-center">
                   <div className="min-w-0 flex-1">
@@ -243,6 +256,11 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                     ) : (
                       <button type="button" onClick={() => onViewDraft(draft.draftKey, draft.recorderName)} className="flex min-h-10 items-center gap-1 rounded-lg border border-sky-300 bg-sky-50 px-3 text-[10px] font-black text-sky-900">
                         <Eye className="h-3.5 w-3.5" />入力状況を見る
+                      </button>
+                    )}
+                    {canTakeOverDraft && (
+                      <button type="button" onClick={() => onTakeOverDraft(draft.draftKey, draft.recorderName)} className="flex min-h-10 items-center gap-1 rounded-lg border border-amber-400 bg-amber-50 px-3 text-[10px] font-black text-amber-950">
+                        <UserRoundCheck className="h-3.5 w-3.5" />引き継ぐ
                       </button>
                     )}
                     {(canResumeDraft || canManageDrafts) && (

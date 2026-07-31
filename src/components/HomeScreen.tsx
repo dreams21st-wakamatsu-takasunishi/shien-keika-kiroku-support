@@ -61,6 +61,7 @@ interface HomeScreenProps {
   onStartRecord: (childId: string, date: string) => void;
   onResumeDraft: (draftKey: string) => void;
   onViewDraft: (draftKey: string, ownerName?: string) => void;
+  onTakeOverDraft: (draftKey: string, ownerName?: string) => void;
   onDeleteDraft: (draftKey: string) => void;
   onOpenRecord: (record: SupportRecord) => void;
   onSaveAnnouncement: (announcement: Announcement) => Promise<void> | void;
@@ -97,6 +98,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onStartRecord,
   onResumeDraft,
   onViewDraft,
+  onTakeOverDraft,
   onDeleteDraft,
   onOpenRecord,
   onSaveAnnouncement,
@@ -230,6 +232,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             onStartRecord={onStartRecord}
             onResumeDraft={onResumeDraft}
             onViewDraft={onViewDraft}
+            onTakeOverDraft={onTakeOverDraft}
             onDeleteDraft={onDeleteDraft}
             onOpenRecord={onOpenRecord}
           />

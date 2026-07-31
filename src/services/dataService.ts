@@ -621,6 +621,25 @@ export async function deleteRecordDraft(organizationId: string, draftKey: string
   if (error) throw error;
 }
 
+export async function takeOverRecordDraft(
+  organizationId: string,
+  draftKey: string,
+  recorderId?: string | null,
+) {
+  const { data, error } = await assertSupabase().rpc('take_over_record_draft', {
+    p_organization_id: organizationId,
+    p_draft_key: draftKey,
+    p_recorder_profile_id: recorderId || null,
+  });
+  if (error) throw error;
+  const result = Array.isArray(data) ? data[0] : data;
+  return {
+    revision: Number(result?.new_revision || 1),
+    updatedAt: String(result?.saved_at || new Date().toISOString()),
+    payload: result?.draft_payload as unknown,
+  };
+}
+
 export async function listRecordDrafts(organizationId: string): Promise<RecordDraftSummary[]> {
   const { data, error } = await assertSupabase()
     .from('record_drafts')
