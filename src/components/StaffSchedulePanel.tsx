@@ -38,6 +38,9 @@ interface StaffSchedulePanelProps {
   recorderProfiles: RecorderProfile[];
   childrenList: ChildProfile[];
   canEdit: boolean;
+  selectedDate?: string;
+  onDateChange?: (date: string) => void;
+  onOpenGenerated?: (item: StaffScheduleItem) => void;
   onSave: (item: StaffScheduleItem) => Promise<void> | void;
   onDelete: (itemId: string) => Promise<void> | void;
 }
@@ -66,10 +69,19 @@ export const StaffSchedulePanel: React.FC<StaffSchedulePanelProps> = ({
   recorderProfiles,
   childrenList,
   canEdit,
+  selectedDate: controlledDate,
+  onDateChange,
+  onOpenGenerated,
   onSave,
   onDelete,
 }) => {
-  const [selectedDate, setSelectedDate] = useState(getLocalDateString);
+  const [internalDate, setInternalDate] = useState(getLocalDateString);
+  const selectedDate = controlledDate || internalDate;
+  const setSelectedDate = (value: string | ((date: string) => string)) => {
+    const next = typeof value === 'function' ? value(selectedDate) : value;
+    if (!controlledDate) setInternalDate(next);
+    onDateChange?.(next);
+  };
   const [form, setForm] = useState<ScheduleFormState | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -128,6 +140,10 @@ export const StaffSchedulePanel: React.FC<StaffSchedulePanelProps> = ({
   };
 
   const openExisting = (item: StaffScheduleItem) => {
+    if (item.generated) {
+      onOpenGenerated?.(item);
+      return;
+    }
     setError('');
     setForm({
       id: item.id,

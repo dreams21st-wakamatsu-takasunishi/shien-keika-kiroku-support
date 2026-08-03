@@ -19,6 +19,7 @@ import type {
   HandoverPriority,
   HandoverStatus,
   RecorderProfile,
+  TransportRun,
   UserProfile,
 } from '../types';
 
@@ -27,6 +28,7 @@ interface HandoverPanelProps {
   confirmations: HandoverConfirmation[];
   childrenList: ChildProfile[];
   recorderProfiles: RecorderProfile[];
+  transportRuns?: TransportRun[];
   activeRecorder?: RecorderProfile;
   currentUser?: UserProfile | null;
   onSave: (item: HandoverItem) => Promise<void> | void;
@@ -61,6 +63,7 @@ export const HandoverPanel: React.FC<HandoverPanelProps> = ({
   confirmations,
   childrenList,
   recorderProfiles,
+  transportRuns = [],
   activeRecorder,
   currentUser,
   onSave,
@@ -70,6 +73,7 @@ export const HandoverPanel: React.FC<HandoverPanelProps> = ({
   const [showForm, setShowForm] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [childId, setChildId] = useState('');
+  const [transportRunId, setTransportRunId] = useState('');
   const [category, setCategory] = useState<HandoverCategory>('申し送り');
   const [priority, setPriority] = useState<HandoverPriority>('通常');
   const [content, setContent] = useState('');
@@ -169,6 +173,7 @@ export const HandoverPanel: React.FC<HandoverPanelProps> = ({
           ? crypto.randomUUID()
           : `handover-${Date.now()}`,
         childId: childId || undefined,
+        transportRunId: transportRunId || undefined,
         category,
         content: content.trim(),
         priority,
@@ -182,6 +187,7 @@ export const HandoverPanel: React.FC<HandoverPanelProps> = ({
       });
       setContent('');
       setChildId('');
+      setTransportRunId('');
       setCategory('申し送り');
       setPriority('通常');
       setDueDate('');
@@ -314,12 +320,19 @@ export const HandoverPanel: React.FC<HandoverPanelProps> = ({
           <div className="flex items-center gap-2 text-xs font-black text-indigo-950">
             <ClipboardPlus className="h-4 w-4 text-indigo-600" />新しい申し送り
           </div>
-          <div className="grid gap-3 sm:grid-cols-3">
+          <div className="grid gap-3 sm:grid-cols-4">
             <label className="text-xs font-bold text-slate-700">
               対象児童（任意）
               <select value={childId} onChange={(event) => setChildId(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm">
                 <option value="">事業所全体</option>
                 {childrenList.map((child) => <option key={child.id} value={child.id}>{child.name}</option>)}
+              </select>
+            </label>
+            <label className="text-xs font-bold text-slate-700">
+              関連する送迎便（任意）
+              <select value={transportRunId} onChange={(event) => setTransportRunId(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm">
+                <option value="">関連なし</option>
+                {transportRuns.map((run) => <option key={run.id} value={run.id}>{run.date}・{run.name}</option>)}
               </select>
             </label>
             <label className="text-xs font-bold text-slate-700">
@@ -423,6 +436,7 @@ export const HandoverPanel: React.FC<HandoverPanelProps> = ({
         )}
         {visibleItems.map((item) => {
           const child = childrenList.find((candidate) => candidate.id === item.childId);
+          const relatedRun = transportRuns.find((run) => run.id === item.transportRunId);
           const itemConfirmations = confirmationMap.get(item.id) || [];
           const validConfirmations = itemConfirmations.filter((confirmation) =>
             isConfirmationCurrent(confirmation, item)
@@ -458,6 +472,7 @@ export const HandoverPanel: React.FC<HandoverPanelProps> = ({
                       : 'bg-white text-slate-700'
                 }`}>{item.status}</span>
                 <span className="text-xs font-black text-slate-800">{child?.name || '事業所全体'}</span>
+                {relatedRun && <span className="rounded-full bg-sky-50 px-2 py-1 text-[10px] font-bold text-sky-800">送迎：{relatedRun.name}</span>}
                 {item.dueDate && (
                   <span className={`text-[10px] font-bold ${overdue ? 'text-rose-700' : 'text-slate-500'}`}>
                     {overdue ? '期限超過 ' : '期限 '}{item.dueDate}

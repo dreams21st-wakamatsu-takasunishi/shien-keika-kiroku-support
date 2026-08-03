@@ -3,7 +3,6 @@ import {
   ArrowRight,
   Bot,
   CalendarDays,
-  ChartGantt,
   CheckCircle2,
   ClipboardPenLine,
   ClipboardList,
@@ -20,6 +19,9 @@ import type {
   ChildProfile,
   Announcement,
   AnnouncementConfirmation,
+  AttendanceCorrectionRequest,
+  AttendanceRecord,
+  CalendarEvent,
   HandoverConfirmation,
   HandoverItem,
   HandoverStatus,
@@ -32,7 +34,10 @@ import type {
   RecorderProfile,
   StaffScheduleItem,
   SupportRecord,
+  TransportRun,
+  TransportRunStatus,
   UserProfile,
+  Vehicle,
 } from '../types';
 import type { ActiveTab } from './Header';
 import { executeHomeAssistantProposal, requestHomeAssistantProposal } from '../services/homeAssistantService';
@@ -40,7 +45,7 @@ import { DailyOperationsPanel } from './DailyOperationsPanel';
 import { HandoverPanel } from './HandoverPanel';
 import { MorningMeetingPanel } from './MorningMeetingPanel';
 import { AnnouncementPanel } from './AnnouncementPanel';
-import { StaffSchedulePanel } from './StaffSchedulePanel';
+import { TodayWorkPanel } from './TodayWorkPanel';
 import { getLocalDateString } from '../utils/weekdays';
 
 interface HomeScreenProps {
@@ -51,6 +56,11 @@ interface HomeScreenProps {
   drafts: RecordDraftSummary[];
   recorderProfiles: RecorderProfile[];
   staffScheduleItems: StaffScheduleItem[];
+  calendarEvents: CalendarEvent[];
+  attendanceRecords: AttendanceRecord[];
+  attendanceCorrections: AttendanceCorrectionRequest[];
+  vehicles: Vehicle[];
+  transportRuns: TransportRun[];
   handoverItems: HandoverItem[];
   handoverConfirmations: HandoverConfirmation[];
   morningMeetingRecords: MorningMeetingRecord[];
@@ -81,6 +91,17 @@ interface HomeScreenProps {
   onAssistantExecuted: (proposal: HomeAssistantProposal, result: HomeAssistantExecutionResult) => Promise<void> | void;
   onSaveStaffSchedule: (item: StaffScheduleItem) => Promise<void> | void;
   onDeleteStaffSchedule: (itemId: string) => Promise<void> | void;
+  onSaveCalendarEvent: (event: CalendarEvent) => Promise<void> | void;
+  onDeleteCalendarEvent: (eventId: string) => Promise<void> | void;
+  onSaveAttendance: (record: AttendanceRecord) => Promise<void> | void;
+  onPunchAttendance: (recorder: RecorderProfile, pin: string, action: '出勤' | '退勤' | '休憩開始' | '休憩終了') => Promise<void> | void;
+  onRequestAttendanceCorrection: (record: AttendanceRecord, pin: string, clockIn: string | undefined, clockOut: string | undefined, reason: string) => Promise<void> | void;
+  onReviewAttendanceCorrection: (request: AttendanceCorrectionRequest, approved: boolean, note?: string) => Promise<void> | void;
+  onSaveVehicle: (vehicle: Vehicle) => Promise<void> | void;
+  onDeleteVehicle: (vehicleId: string) => Promise<void> | void;
+  onSaveTransportRun: (run: TransportRun) => Promise<void> | void;
+  onDeleteTransportRun: (runId: string) => Promise<void> | void;
+  onUpdateTransportStatus: (run: TransportRun, recorder: RecorderProfile, pin: string, status: TransportRunStatus) => Promise<void> | void;
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
@@ -91,6 +112,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   drafts,
   recorderProfiles,
   staffScheduleItems,
+  calendarEvents,
+  attendanceRecords,
+  attendanceCorrections,
+  vehicles,
+  transportRuns,
   handoverItems,
   handoverConfirmations,
   morningMeetingRecords,
@@ -121,8 +147,19 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onAssistantExecuted,
   onSaveStaffSchedule,
   onDeleteStaffSchedule,
+  onSaveCalendarEvent,
+  onDeleteCalendarEvent,
+  onSaveAttendance,
+  onPunchAttendance,
+  onRequestAttendanceCorrection,
+  onReviewAttendanceCorrection,
+  onSaveVehicle,
+  onDeleteVehicle,
+  onSaveTransportRun,
+  onDeleteTransportRun,
+  onUpdateTransportStatus,
 }) => {
-  const [activePanel, setActivePanel] = useState<'operations' | 'staffSchedule' | 'morning' | 'handover' | 'assistant'>('operations');
+  const [activePanel, setActivePanel] = useState<'todayWork' | 'operations' | 'morning' | 'handover' | 'assistant'>('todayWork');
   const today = getLocalDateString();
   const todayRecords = records.filter((record) => record.date === today);
   const unapproved = records.filter((record) => record.approvalStatus === '未確認');
@@ -133,6 +170,19 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const hasMorningMeetingRecord = morningMeetingRecords.some(
     (record) => record.date === today && Boolean(record.content.trim())
   );
+  const morningDailySummary = useMemo(() => {
+    const work = attendanceRecords.filter((record) => record.date === today);
+    const runs = transportRuns.filter((run) => run.date === today);
+    const events = calendarEvents.filter((event) => homeEventOccursOn(event, today));
+    const absentStaff = work.filter((record) => ['欠勤', '有給', '公休'].includes(record.status)).map((record) => record.recorderName);
+    const absentChildren = events.filter((event) => event.eventType === '欠席').flatMap((event) => event.childIds).map((id) => childrenList.find((child) => child.id === id)?.name).filter(Boolean);
+    return [
+      `出勤予定 ${work.filter((record) => !['欠勤', '有給', '公休'].includes(record.status)).length}名${absentStaff.length ? `／欠勤・休暇 ${absentStaff.join('、')}` : ''}`,
+      `送迎 ${runs.length}便（${runs.map((run) => run.name).join('、') || 'なし'}）`,
+      `追加利用 ${events.filter((event) => event.eventType === '追加利用').flatMap((event) => event.childIds).length}名／欠席 ${absentChildren.length}名${absentChildren.length ? `（${absentChildren.join('、')}）` : ''}`,
+      `会議・研修・面談・行事 ${events.filter((event) => ['会議', '研修', '保護者面談', '学校行事', '事業所行事'].includes(event.eventType)).length}件`,
+    ];
+  }, [attendanceRecords, calendarEvents, childrenList, today, transportRuns]);
   const correctionAnnouncements = useMemo<Announcement[]>(() => records
     .filter((record) => record.approvalStatus === '要修正')
     .map((record) => {
@@ -198,20 +248,20 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-        <div className="flex gap-1 overflow-x-auto overscroll-x-contain pb-1" role="tablist" aria-label="ホーム機能">
+        <div className="grid grid-cols-5 gap-1" role="tablist" aria-label="ホーム機能">
           <HomePanelButton
-            active={activePanel === 'operations'}
+            active={activePanel === 'todayWork'}
             icon={CalendarDays}
-            label="本日の運用"
-            badge={drafts.length > 0 ? `${drafts.length}件入力中` : undefined}
-            onClick={() => setActivePanel('operations')}
+            label="本日の業務"
+            badge={staffScheduleItems.some((item) => item.date === today) || transportRuns.some((run) => run.date === today) ? '予定あり' : undefined}
+            onClick={() => setActivePanel('todayWork')}
           />
           <HomePanelButton
-            active={activePanel === 'staffSchedule'}
-            icon={ChartGantt}
-            label="職員配置"
-            badge={staffScheduleItems.some((item) => item.date === today) ? '予定あり' : undefined}
-            onClick={() => setActivePanel('staffSchedule')}
+            active={activePanel === 'operations'}
+            icon={ClipboardList}
+            label="記録状況"
+            badge={drafts.length > 0 ? `${drafts.length}件入力中` : undefined}
+            onClick={() => setActivePanel('operations')}
           />
           <HomePanelButton
             active={activePanel === 'morning'}
@@ -237,6 +287,34 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       </section>
 
       <div role="tabpanel">
+        {activePanel === 'todayWork' && (
+          <TodayWorkPanel
+            staffScheduleItems={staffScheduleItems}
+            calendarEvents={calendarEvents}
+            attendanceRecords={attendanceRecords}
+            attendanceCorrections={attendanceCorrections}
+            vehicles={vehicles}
+            transportRuns={transportRuns}
+            recorderProfiles={recorderProfiles}
+            childrenList={childrenList}
+            activeRecorder={activeRecorder}
+            canManage={canManageSettings}
+            onSaveStaffSchedule={onSaveStaffSchedule}
+            onDeleteStaffSchedule={onDeleteStaffSchedule}
+            onSaveCalendarEvent={onSaveCalendarEvent}
+            onDeleteCalendarEvent={onDeleteCalendarEvent}
+            onSaveAttendance={onSaveAttendance}
+            onPunchAttendance={onPunchAttendance}
+            onRequestAttendanceCorrection={onRequestAttendanceCorrection}
+            onReviewAttendanceCorrection={onReviewAttendanceCorrection}
+            onSaveVehicle={onSaveVehicle}
+            onDeleteVehicle={onDeleteVehicle}
+            onSaveTransportRun={onSaveTransportRun}
+            onDeleteTransportRun={onDeleteTransportRun}
+            onUpdateTransportStatus={onUpdateTransportStatus}
+          />
+        )}
+
         {activePanel === 'operations' && (
           <DailyOperationsPanel
             childrenList={childrenList}
@@ -254,23 +332,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           />
         )}
 
-        {activePanel === 'staffSchedule' && (
-          <StaffSchedulePanel
-            items={staffScheduleItems}
-            recorderProfiles={recorderProfiles}
-            childrenList={childrenList}
-            canEdit={canManageSettings}
-            onSave={onSaveStaffSchedule}
-            onDelete={onDeleteStaffSchedule}
-          />
-        )}
-
         {activePanel === 'handover' && (
           <HandoverPanel
             items={handoverItems}
             confirmations={handoverConfirmations}
             childrenList={childrenList}
             recorderProfiles={recorderProfiles}
+            transportRuns={transportRuns}
             activeRecorder={activeRecorder}
             currentUser={currentUser}
             onSave={onSaveHandover}
@@ -289,6 +357,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             activeRecorder={activeRecorder}
             currentUser={currentUser}
             canManageTemplates={canManageSettings}
+            dailySummary={morningDailySummary}
             onSave={onSaveMorningMeeting}
             onSaveTemplate={onSaveMorningMeetingTemplate}
             onArchiveTemplate={onArchiveMorningMeetingTemplate}
@@ -572,7 +641,7 @@ function HomePanelButton({
       role="tab"
       aria-selected={active}
       onClick={onClick}
-      className={`flex min-h-14 min-w-[7.5rem] flex-1 flex-col items-center justify-center gap-1 rounded-xl px-2 text-[11px] font-black transition-colors sm:min-h-12 sm:flex-row sm:text-xs ${
+      className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 text-[10px] font-black transition-colors sm:min-h-12 sm:flex-row sm:px-2 sm:text-xs ${
         active ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
       }`}
     >
@@ -585,4 +654,17 @@ function HomePanelButton({
       )}
     </button>
   );
+}
+
+function homeEventOccursOn(event: CalendarEvent, date: string) {
+  if (event.recurrence === 'なし') return event.endDate
+    ? event.date <= date && event.endDate >= date
+    : event.date === date;
+  if (date < event.date || (event.endDate && date > event.endDate)) return false;
+  if (event.recurrence === '毎日') return true;
+  const start = new Date(`${event.date}T00:00:00`);
+  const target = new Date(`${date}T00:00:00`);
+  return event.recurrence === '毎週'
+    ? start.getDay() === target.getDay()
+    : start.getDate() === target.getDate();
 }

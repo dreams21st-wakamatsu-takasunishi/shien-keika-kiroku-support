@@ -39,6 +39,7 @@ interface MorningMeetingPanelProps {
   activeRecorder?: RecorderProfile;
   currentUser?: UserProfile | null;
   canManageTemplates: boolean;
+  dailySummary?: string[];
   onSave: (record: MorningMeetingRecord) => Promise<void> | void;
   onSaveTemplate: (template: MorningMeetingTemplate) => Promise<void> | void;
   onArchiveTemplate: (templateId: string) => Promise<void> | void;
@@ -205,6 +206,7 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
   activeRecorder,
   currentUser,
   canManageTemplates,
+  dailySummary = [],
   onSave,
   onSaveTemplate,
   onArchiveTemplate,
@@ -793,8 +795,17 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
           </div>
         </div>
 
+        {dailySummary.length > 0 && (
+          <section className="order-2 rounded-xl border border-teal-200 bg-teal-50 p-3">
+            <h4 className="text-xs font-black text-teal-900">本日の業務から自動表示</h4>
+            <div className="mt-2 grid gap-1 text-xs text-teal-950 sm:grid-cols-2">
+              {dailySummary.map((summary) => <p key={summary} className="rounded-lg bg-white/80 px-3 py-2">{summary}</p>)}
+            </div>
+          </section>
+        )}
+
         {showPreparation && (
-        <section className="order-2 rounded-xl border border-sky-100 bg-sky-50/60 p-3">
+        <section className="order-3 rounded-xl border border-sky-100 bg-sky-50/60 p-3">
           <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
             <label className="min-w-0">
               <span className="mb-1 block text-[10px] font-bold text-sky-900">朝礼テンプレート</span>

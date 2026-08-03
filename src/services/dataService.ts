@@ -3,6 +3,9 @@ import {
   AiWritingSettings,
   Announcement,
   AnnouncementConfirmation,
+  AttendanceCorrectionRequest,
+  AttendanceRecord,
+  CalendarEvent,
   ChildProfile,
   DEFAULT_AI_WRITING_SETTINGS,
   ExpressionType,
@@ -21,6 +24,8 @@ import {
   SupportPlan,
   SupportRecord,
   Template,
+  TransportRun,
+  Vehicle,
   Weekday,
 } from '../types';
 import { normalizeTemplateFatigueScale } from '../utils/templateNormalizer';
@@ -44,6 +49,11 @@ export interface WorkspaceData {
   announcements: Announcement[];
   announcementConfirmations: AnnouncementConfirmation[];
   staffScheduleItems: StaffScheduleItem[];
+  calendarEvents: CalendarEvent[];
+  attendanceRecords: AttendanceRecord[];
+  attendanceCorrectionRequests: AttendanceCorrectionRequest[];
+  vehicles: Vehicle[];
+  transportRuns: TransportRun[];
 }
 
 function assertSupabase() {
@@ -61,6 +71,9 @@ function mapChild(row: any): ChildProfile {
     regularDays: Array.isArray(row.regular_days) ? row.regular_days as Weekday[] : [],
     regularDaysEffectiveFrom: row.regular_days_effective_from || undefined,
     careType: row.care_type || undefined,
+    transportationRequired: row.transportation_required === true,
+    pickupLocation: row.pickup_location || undefined,
+    dropoffLocation: row.dropoff_location || undefined,
     notes: row.notes || undefined,
   };
 }
@@ -88,6 +101,7 @@ function mapHandoverItem(row: any, recorderNames?: Map<string, string>): Handove
   return {
     id: row.id,
     childId: row.child_id || undefined,
+    transportRunId: row.transport_run_id || undefined,
     category: row.category,
     content: row.content,
     priority: row.priority,
@@ -198,6 +212,122 @@ function mapStaffScheduleItem(
   };
 }
 
+function stringArray(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
+}
+
+function mapCalendarEvent(row: any): CalendarEvent {
+  return {
+    id: row.id,
+    title: row.title,
+    eventType: row.event_type,
+    date: row.event_date,
+    endDate: row.end_date || undefined,
+    allDay: row.all_day === true,
+    startTime: row.start_time ? String(row.start_time).slice(0, 5) : undefined,
+    endTime: row.end_time ? String(row.end_time).slice(0, 5) : undefined,
+    location: row.location || undefined,
+    recorderProfileIds: stringArray(row.recorder_profile_ids),
+    childIds: stringArray(row.child_ids),
+    note: row.note || undefined,
+    notificationEnabled: row.notification_enabled === true,
+    visibility: row.visibility || '全体',
+    color: row.color || '#0f766e',
+    recurrence: row.recurrence || 'なし',
+    createdBy: row.created_by || undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapAttendanceRecord(row: any, recorderNames?: Map<string, string>): AttendanceRecord {
+  return {
+    id: row.id,
+    recorderProfileId: row.recorder_profile_id,
+    recorderName: recorderNames?.get(row.recorder_profile_id) || '職員',
+    date: row.work_date,
+    scheduledStartTime: row.scheduled_start_time ? String(row.scheduled_start_time).slice(0, 5) : undefined,
+    scheduledEndTime: row.scheduled_end_time ? String(row.scheduled_end_time).slice(0, 5) : undefined,
+    status: row.status,
+    clockInAt: row.clock_in_at || undefined,
+    clockOutAt: row.clock_out_at || undefined,
+    breakPeriods: Array.isArray(row.break_periods) ? row.break_periods : [],
+    note: row.note || undefined,
+    deviceId: row.device_id || undefined,
+    lastActionByRecorderId: row.last_action_by_recorder_id || undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapAttendanceCorrection(
+  row: any,
+  recorderNames?: Map<string, string>,
+): AttendanceCorrectionRequest {
+  return {
+    id: row.id,
+    attendanceRecordId: row.attendance_record_id,
+    recorderProfileId: row.recorder_profile_id,
+    recorderName: recorderNames?.get(row.recorder_profile_id) || '職員',
+    requestedClockInAt: row.requested_clock_in_at || undefined,
+    requestedClockOutAt: row.requested_clock_out_at || undefined,
+    reason: row.reason,
+    status: row.status,
+    reviewedByName: row.reviewed_by_name || undefined,
+    reviewedAt: row.reviewed_at || undefined,
+    reviewNote: row.review_note || undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapVehicle(row: any): Vehicle {
+  return {
+    id: row.id,
+    name: row.name,
+    registrationNumber: row.registration_number || undefined,
+    capacity: Number(row.capacity || 1),
+    wheelchairAccessible: row.wheelchair_accessible === true,
+    inspectionDueDate: row.inspection_due_date || undefined,
+    available: row.available !== false,
+    note: row.note || undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapTransportRun(
+  row: any,
+  recorderNames?: Map<string, string>,
+  vehicleNames?: Map<string, string>,
+): TransportRun {
+  return {
+    id: row.id,
+    date: row.service_date,
+    name: row.name,
+    direction: row.direction,
+    startTime: String(row.start_time || '').slice(0, 5),
+    endTime: String(row.end_time || '').slice(0, 5),
+    driverRecorderProfileId: row.driver_recorder_profile_id || undefined,
+    driverName: row.driver_recorder_profile_id
+      ? recorderNames?.get(row.driver_recorder_profile_id)
+      : undefined,
+    assistantRecorderProfileIds: stringArray(row.assistant_recorder_profile_ids),
+    vehicleId: row.vehicle_id || undefined,
+    vehicleName: row.vehicle_id ? vehicleNames?.get(row.vehicle_id) : undefined,
+    stops: Array.isArray(row.stops) ? row.stops : [],
+    guardianNote: row.guardian_note || undefined,
+    operationNote: row.operation_note || undefined,
+    status: row.status || '未出発',
+    statusUpdatedAt: row.status_updated_at || undefined,
+    statusUpdatedByRecorderId: row.status_updated_by_recorder_id || undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
 function mapTemplate(row: any): Template {
   return upgradeStandardHolidayTemplate(upgradeStandardWeekdayTemplate(normalizeTemplateFatigueScale({
     id: row.id,
@@ -303,6 +433,11 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     announcementsResult,
     announcementConfirmationsResult,
     staffScheduleItemsResult,
+    calendarEventsResult,
+    attendanceRecordsResult,
+    attendanceCorrectionsResult,
+    vehiclesResult,
+    transportRunsResult,
   ] = await Promise.all([
     client.from('children').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('name'),
     client.from('child_regular_day_schedules').select('*').eq('organization_id', organizationId).order('effective_from'),
@@ -319,6 +454,11 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     client.from('announcements').select('*').eq('organization_id', organizationId).is('archived_at', null).order('published_at', { ascending: false }),
     client.from('announcement_confirmations').select('*').eq('organization_id', organizationId).order('read_at', { ascending: false }),
     client.from('staff_schedule_items').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }).order('start_time'),
+    client.from('calendar_events').select('*').eq('organization_id', organizationId).order('event_date', { ascending: false }).order('start_time'),
+    client.from('attendance_records').select('*').eq('organization_id', organizationId).order('work_date', { ascending: false }),
+    client.from('attendance_correction_requests').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }),
+    client.from('vehicles').select('*').eq('organization_id', organizationId).order('name'),
+    client.from('transport_runs').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }).order('start_time'),
   ]);
 
   for (const result of [
@@ -347,6 +487,8 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
 
   const recorderProfiles = (recorderProfilesResult.data || []).map(mapRecorderProfile);
   const recorderNames = new Map(recorderProfiles.map((profile) => [profile.id, profile.displayName]));
+  const vehicles = vehiclesResult.error ? [] : (vehiclesResult.data || []).map(mapVehicle);
+  const vehicleNames = new Map(vehicles.map((vehicle) => [vehicle.id, vehicle.name]));
 
   return {
     children: (childrenResult.data || []).map((row) => ({
@@ -370,6 +512,17 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     staffScheduleItems: staffScheduleItemsResult.error
       ? []
       : (staffScheduleItemsResult.data || []).map((row) => mapStaffScheduleItem(row, recorderNames)),
+    calendarEvents: calendarEventsResult.error ? [] : (calendarEventsResult.data || []).map(mapCalendarEvent),
+    attendanceRecords: attendanceRecordsResult.error
+      ? []
+      : (attendanceRecordsResult.data || []).map((row) => mapAttendanceRecord(row, recorderNames)),
+    attendanceCorrectionRequests: attendanceCorrectionsResult.error
+      ? []
+      : (attendanceCorrectionsResult.data || []).map((row) => mapAttendanceCorrection(row, recorderNames)),
+    vehicles,
+    transportRuns: transportRunsResult.error
+      ? []
+      : (transportRunsResult.data || []).map((row) => mapTransportRun(row, recorderNames, vehicleNames)),
   };
 }
 
@@ -405,6 +558,173 @@ export async function deleteStaffScheduleItem(
     .delete()
     .eq('organization_id', organizationId)
     .eq('id', itemId);
+  if (error) throw error;
+}
+
+export async function saveCalendarEvent(organizationId: string, event: CalendarEvent) {
+  const { error } = await assertSupabase().from('calendar_events').upsert({
+    organization_id: organizationId,
+    id: event.id,
+    title: event.title.trim(),
+    event_type: event.eventType,
+    event_date: event.date,
+    end_date: event.endDate || null,
+    all_day: event.allDay,
+    start_time: event.allDay ? null : event.startTime || null,
+    end_time: event.allDay ? null : event.endTime || null,
+    location: event.location?.trim() || null,
+    recorder_profile_ids: event.recorderProfileIds,
+    child_ids: event.childIds,
+    note: event.note?.trim() || null,
+    notification_enabled: event.notificationEnabled,
+    visibility: event.visibility,
+    color: event.color,
+    recurrence: event.recurrence,
+  }, { onConflict: 'organization_id,id' });
+  if (error) throw error;
+}
+
+export async function deleteCalendarEvent(organizationId: string, eventId: string) {
+  const { error } = await assertSupabase().from('calendar_events').delete()
+    .eq('organization_id', organizationId).eq('id', eventId);
+  if (error) throw error;
+}
+
+export async function saveAttendanceRecord(organizationId: string, record: AttendanceRecord) {
+  const { error } = await assertSupabase().from('attendance_records').upsert({
+    organization_id: organizationId,
+    id: record.id,
+    recorder_profile_id: record.recorderProfileId,
+    work_date: record.date,
+    scheduled_start_time: record.scheduledStartTime || null,
+    scheduled_end_time: record.scheduledEndTime || null,
+    status: record.status,
+    clock_in_at: record.clockInAt || null,
+    clock_out_at: record.clockOutAt || null,
+    break_periods: record.breakPeriods,
+    note: record.note?.trim() || null,
+  }, { onConflict: 'organization_id,id' });
+  if (error) throw error;
+}
+
+export async function punchAttendance(
+  organizationId: string,
+  recorderProfileId: string,
+  recorderName: string,
+  pin: string,
+  action: '出勤' | '退勤' | '休憩開始' | '休憩終了',
+  deviceId: string,
+) {
+  const { data, error } = await assertSupabase().rpc('punch_attendance', {
+    p_organization_id: organizationId,
+    p_recorder_profile_id: recorderProfileId,
+    p_pin: pin,
+    p_action: action,
+    p_device_id: deviceId,
+  });
+  if (error) throw error;
+  const row = Array.isArray(data) ? data[0] : data;
+  return mapAttendanceRecord(row, new Map([[recorderProfileId, recorderName]]));
+}
+
+export async function requestAttendanceCorrection(
+  organizationId: string,
+  recordId: string,
+  recorderProfileId: string,
+  pin: string,
+  requestedClockInAt: string | undefined,
+  requestedClockOutAt: string | undefined,
+  reason: string,
+) {
+  const { data, error } = await assertSupabase().rpc('request_attendance_correction', {
+    p_organization_id: organizationId,
+    p_attendance_record_id: recordId,
+    p_recorder_profile_id: recorderProfileId,
+    p_pin: pin,
+    p_clock_in_at: requestedClockInAt || null,
+    p_clock_out_at: requestedClockOutAt || null,
+    p_reason: reason.trim(),
+  });
+  if (error) throw error;
+  return String(data || '');
+}
+
+export async function reviewAttendanceCorrection(
+  organizationId: string,
+  requestId: string,
+  approved: boolean,
+  reviewNote?: string,
+) {
+  const { error } = await assertSupabase().rpc('review_attendance_correction', {
+    p_organization_id: organizationId,
+    p_request_id: requestId,
+    p_approved: approved,
+    p_review_note: reviewNote?.trim() || null,
+  });
+  if (error) throw error;
+}
+
+export async function saveVehicle(organizationId: string, vehicle: Vehicle) {
+  const { error } = await assertSupabase().from('vehicles').upsert({
+    organization_id: organizationId,
+    id: vehicle.id,
+    name: vehicle.name.trim(),
+    registration_number: vehicle.registrationNumber?.trim() || null,
+    capacity: vehicle.capacity,
+    wheelchair_accessible: vehicle.wheelchairAccessible,
+    inspection_due_date: vehicle.inspectionDueDate || null,
+    available: vehicle.available,
+    note: vehicle.note?.trim() || null,
+  }, { onConflict: 'organization_id,id' });
+  if (error) throw error;
+}
+
+export async function deleteVehicle(organizationId: string, vehicleId: string) {
+  const { error } = await assertSupabase().from('vehicles').delete()
+    .eq('organization_id', organizationId).eq('id', vehicleId);
+  if (error) throw error;
+}
+
+export async function saveTransportRun(organizationId: string, run: TransportRun) {
+  const { error } = await assertSupabase().from('transport_runs').upsert({
+    organization_id: organizationId,
+    id: run.id,
+    service_date: run.date,
+    name: run.name.trim(),
+    direction: run.direction,
+    start_time: run.startTime,
+    end_time: run.endTime,
+    driver_recorder_profile_id: run.driverRecorderProfileId || null,
+    assistant_recorder_profile_ids: run.assistantRecorderProfileIds,
+    vehicle_id: run.vehicleId || null,
+    stops: run.stops,
+    guardian_note: run.guardianNote?.trim() || null,
+    operation_note: run.operationNote?.trim() || null,
+    status: run.status,
+  }, { onConflict: 'organization_id,id' });
+  if (error) throw error;
+}
+
+export async function deleteTransportRun(organizationId: string, runId: string) {
+  const { error } = await assertSupabase().from('transport_runs').delete()
+    .eq('organization_id', organizationId).eq('id', runId);
+  if (error) throw error;
+}
+
+export async function updateTransportRunStatus(
+  organizationId: string,
+  runId: string,
+  recorderProfileId: string,
+  pin: string,
+  status: TransportRun['status'],
+) {
+  const { error } = await assertSupabase().rpc('update_transport_run_status', {
+    p_organization_id: organizationId,
+    p_transport_run_id: runId,
+    p_recorder_profile_id: recorderProfileId,
+    p_pin: pin,
+    p_status: status,
+  });
   if (error) throw error;
 }
 
@@ -490,6 +810,9 @@ export async function saveChild(organizationId: string, child: ChildProfile) {
       regular_days: child.regularDays || [],
       regular_days_effective_from: getLocalDateString(),
       care_type: child.careType || null,
+      transportation_required: child.transportationRequired === true,
+      pickup_location: child.pickupLocation?.trim() || null,
+      dropoff_location: child.dropoffLocation?.trim() || null,
       notes: child.notes || null,
       deleted_at: null,
     },
@@ -790,6 +1113,7 @@ export async function saveHandoverItem(organizationId: string, item: HandoverIte
     id: item.id,
     organization_id: organizationId,
     child_id: item.childId || null,
+    transport_run_id: item.transportRunId || null,
     category: item.category,
     content: item.content.trim(),
     priority: item.priority,

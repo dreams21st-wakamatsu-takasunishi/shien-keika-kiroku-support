@@ -146,6 +146,9 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   const [grade, setGrade] = useState('小学3年生');
   const [regularDays, setRegularDays] = useState<Weekday[]>([]);
   const [careType, setCareType] = useState<'児童発達支援' | '放課後等デイサービス'>('放課後等デイサービス');
+  const [transportationRequired, setTransportationRequired] = useState(false);
+  const [pickupLocation, setPickupLocation] = useState('');
+  const [dropoffLocation, setDropoffLocation] = useState('');
   const [notes, setNotes] = useState('');
   const today = getLocalDateString();
 
@@ -165,6 +168,9 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setGrade('未就学');
     setRegularDays([]);
     setCareType('放課後等デイサービス');
+    setTransportationRequired(false);
+    setPickupLocation('');
+    setDropoffLocation('');
     setNotes('');
     setIsModalOpen(true);
   };
@@ -177,6 +183,9 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setGrade(child.grade || '小学3年生');
     setRegularDays(getRegularDaysForDate(child, today));
     setCareType(child.careType || '放課後等デイサービス');
+    setTransportationRequired(Boolean(child.transportationRequired));
+    setPickupLocation(child.pickupLocation || '');
+    setDropoffLocation(child.dropoffLocation || '');
     setNotes(child.notes || '');
     setIsModalOpen(true);
   };
@@ -196,6 +205,9 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         regularDays,
         regularDaysEffectiveFrom: today,
         careType,
+        transportationRequired,
+        pickupLocation: pickupLocation.trim() || undefined,
+        dropoffLocation: dropoffLocation.trim() || undefined,
         notes: notes.trim(),
       });
     } else {
@@ -208,6 +220,9 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         regularDays,
         regularDaysEffectiveFrom: today,
         careType,
+        transportationRequired,
+        pickupLocation: pickupLocation.trim() || undefined,
+        dropoffLocation: dropoffLocation.trim() || undefined,
         notes: notes.trim(),
       });
     }
@@ -760,6 +775,19 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                   })}
                 </div>
                 <p className="mt-1.5 text-[10px] text-slate-500">複数曜日を選択できます。未設定の児童は全曜日の候補に表示されます。</p>
+              </fieldset>
+
+              <fieldset className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                <legend className="px-1 font-bold text-slate-700">送迎情報</legend>
+                <label className="flex min-h-10 items-center gap-2 font-bold text-slate-700">
+                  <input type="checkbox" checked={transportationRequired} onChange={(event) => setTransportationRequired(event.target.checked)} className="h-4 w-4" />送迎を利用する
+                </label>
+                {transportationRequired && (
+                  <div className="mt-2 grid gap-2">
+                    <label className="font-bold text-slate-700">迎え先<input value={pickupLocation} onChange={(event) => setPickupLocation(event.target.value)} placeholder="例：○○小学校 正門" className="mt-1 w-full rounded-md border border-slate-300 bg-white p-2" /></label>
+                    <label className="font-bold text-slate-700">送り先<input value={dropoffLocation} onChange={(event) => setDropoffLocation(event.target.value)} placeholder="例：自宅（住所は必要最小限）" className="mt-1 w-full rounded-md border border-slate-300 bg-white p-2" /></label>
+                  </div>
+                )}
               </fieldset>
 
               <div>

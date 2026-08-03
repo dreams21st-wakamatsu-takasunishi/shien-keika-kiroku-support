@@ -4,6 +4,9 @@ import {
   AiWritingSettings,
   Announcement,
   AnnouncementConfirmation,
+  AttendanceCorrectionRequest,
+  AttendanceRecord,
+  CalendarEvent,
   ChildProfile,
   DEFAULT_AI_WRITING_SETTINGS,
   HandoverConfirmation,
@@ -21,6 +24,9 @@ import {
   SupportPlan,
   SupportRecord,
   Template,
+  TransportRun,
+  TransportRunStatus,
+  Vehicle,
 } from './types';
 import { defaultTemplates } from './data/defaultTemplates';
 import { sampleRecords, sampleChildren, sampleRecorderProfiles } from './data/sampleData';
@@ -47,12 +53,18 @@ import {
   archiveAnnouncement,
   archiveTemplate,
   closeSupportPlan,
+  deleteCalendarEvent,
   deleteHandoverConfirmation,
   deleteMorningMeetingConfirmation,
   deleteRecordDraft,
   deleteStaffScheduleItem,
+  deleteTransportRun,
+  deleteVehicle,
   listRecordDrafts,
   loadWorkspaceData,
+  punchAttendance,
+  requestAttendanceCorrection,
+  reviewAttendanceCorrection,
   saveChild,
   saveHandoverConfirmation,
   saveHandoverItem,
@@ -65,16 +77,21 @@ import {
   saveAiWritingSettings,
   saveAnnouncement,
   saveAnnouncementConfirmation,
+  saveAttendanceRecord,
+  saveCalendarEvent,
   saveSupportPlan,
   sendAnnouncementNotification,
   saveTemplate,
+  saveTransportRun,
+  saveVehicle,
   seedDefaultTemplates,
   softDeleteChild,
   softDeleteRecord,
   takeOverRecordDraftChild,
   updateHandoverStatus,
+  updateTransportRunStatus,
 } from './services/dataService';
-import { createRecordDraftKey } from './utils/deviceId';
+import { createRecordDraftKey, getDeviceId } from './utils/deviceId';
 import { isDraftCurrent } from './utils/draftExpiry';
 import {
   enqueueRecordSync,
@@ -144,6 +161,31 @@ export default function App() {
   const [staffScheduleItems, setStaffScheduleItems] = useState<StaffScheduleItem[]>(() => {
     if (remoteMode) return [];
     const saved = localStorage.getItem('support_staff_schedule_items_data');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>(() => {
+    if (remoteMode) return [];
+    const saved = localStorage.getItem('support_calendar_events_data');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(() => {
+    if (remoteMode) return [];
+    const saved = localStorage.getItem('support_attendance_records_data');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [attendanceCorrections, setAttendanceCorrections] = useState<AttendanceCorrectionRequest[]>(() => {
+    if (remoteMode) return [];
+    const saved = localStorage.getItem('support_attendance_corrections_data');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [vehicles, setVehicles] = useState<Vehicle[]>(() => {
+    if (remoteMode) return [];
+    const saved = localStorage.getItem('support_vehicles_data');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [transportRuns, setTransportRuns] = useState<TransportRun[]>(() => {
+    if (remoteMode) return [];
+    const saved = localStorage.getItem('support_transport_runs_data');
     return saved ? JSON.parse(saved) : [];
   });
   const [announcements, setAnnouncements] = useState<Announcement[]>(() => {
@@ -232,6 +274,21 @@ export default function App() {
       localStorage.setItem('support_staff_schedule_items_data', JSON.stringify(staffScheduleItems));
     }
   }, [staffScheduleItems, remoteMode]);
+  useEffect(() => {
+    if (!remoteMode) localStorage.setItem('support_calendar_events_data', JSON.stringify(calendarEvents));
+  }, [calendarEvents, remoteMode]);
+  useEffect(() => {
+    if (!remoteMode) localStorage.setItem('support_attendance_records_data', JSON.stringify(attendanceRecords));
+  }, [attendanceRecords, remoteMode]);
+  useEffect(() => {
+    if (!remoteMode) localStorage.setItem('support_attendance_corrections_data', JSON.stringify(attendanceCorrections));
+  }, [attendanceCorrections, remoteMode]);
+  useEffect(() => {
+    if (!remoteMode) localStorage.setItem('support_vehicles_data', JSON.stringify(vehicles));
+  }, [vehicles, remoteMode]);
+  useEffect(() => {
+    if (!remoteMode) localStorage.setItem('support_transport_runs_data', JSON.stringify(transportRuns));
+  }, [transportRuns, remoteMode]);
 
   const refreshRemoteData = useCallback(async (showLoading = true) => {
     if (!auth.profile) return;
@@ -258,6 +315,11 @@ export default function App() {
       setAnnouncements(workspace.announcements);
       setAnnouncementConfirmations(workspace.announcementConfirmations);
       setStaffScheduleItems(workspace.staffScheduleItems);
+      setCalendarEvents(workspace.calendarEvents);
+      setAttendanceRecords(workspace.attendanceRecords);
+      setAttendanceCorrections(workspace.attendanceCorrectionRequests);
+      setVehicles(workspace.vehicles);
+      setTransportRuns(workspace.transportRuns);
       setDataError(null);
     } catch (error) {
       setDataError(error instanceof Error ? error.message : '共有データを取得できませんでした。');
@@ -355,6 +417,11 @@ export default function App() {
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'announcement_confirmations', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_schedule_items', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'calendar_events', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_records', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_correction_requests', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_runs', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, [auth.profile, refreshRemoteData, refreshRecordDrafts]);
@@ -453,6 +520,12 @@ export default function App() {
 
   const canReview = !remoteMode || auth.profile?.role === 'manager' || auth.profile?.role === 'admin';
   const canManageSettings = !remoteMode || auth.profile?.role === 'manager' || auth.profile?.role === 'admin';
+  const calendarEventsForCurrentUser = canManageSettings
+    ? calendarEvents
+    : calendarEvents.filter((event) =>
+        event.visibility === '全体'
+        || (event.visibility === '関係者のみ' && Boolean(activeRecorder && event.recorderProfileIds.includes(activeRecorder.id)))
+      );
   const unapprovedCount = records.filter((record) => record.approvalStatus === '未確認').length;
 
   const persistError = (error: unknown) => {
@@ -723,6 +796,135 @@ export default function App() {
     } catch (error) {
       persistError(error);
     }
+  };
+
+  const handleSaveCalendarEvent = async (event: CalendarEvent) => {
+    if (!canManageSettings) throw new Error('カレンダーを変更できるのは児発管または管理者です。');
+    try {
+      if (organizationId) await saveCalendarEvent(organizationId, event);
+      setCalendarEvents((previous) => [event, ...previous.filter((candidate) => candidate.id !== event.id)]);
+      setDataError(null);
+    } catch (error) { persistError(error); }
+  };
+
+  const handleDeleteCalendarEvent = async (eventId: string) => {
+    if (!canManageSettings) throw new Error('カレンダーを変更できるのは児発管または管理者です。');
+    try {
+      if (organizationId) await deleteCalendarEvent(organizationId, eventId);
+      setCalendarEvents((previous) => previous.filter((event) => event.id !== eventId));
+    } catch (error) { persistError(error); }
+  };
+
+  const handleSaveAttendance = async (record: AttendanceRecord) => {
+    if (!canManageSettings) throw new Error('勤務予定を変更できるのは児発管または管理者です。');
+    try {
+      if (organizationId) await saveAttendanceRecord(organizationId, record);
+      setAttendanceRecords((previous) => [record, ...previous.filter((candidate) => candidate.id !== record.id)]);
+    } catch (error) { persistError(error); }
+  };
+
+  const handlePunchAttendance = async (
+    recorder: RecorderProfile,
+    pin: string,
+    action: '出勤' | '退勤' | '休憩開始' | '休憩終了',
+  ) => {
+    try {
+      if (organizationId) {
+        const updated = await punchAttendance(organizationId, recorder.id, recorder.displayName, pin, action, getDeviceId());
+        setAttendanceRecords((previous) => [updated, ...previous.filter((record) => record.id !== updated.id)]);
+        return;
+      }
+      const now = new Date();
+      const date = now.toLocaleDateString('sv-SE');
+      const timestamp = now.toISOString();
+      const existing = attendanceRecords.find((record) => record.date === date && record.recorderProfileId === recorder.id);
+      const base: AttendanceRecord = existing || {
+        id: typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `attendance-${Date.now()}`,
+        recorderProfileId: recorder.id,
+        recorderName: recorder.displayName,
+        date,
+        status: '勤務予定',
+        breakPeriods: [],
+        createdAt: timestamp,
+        updatedAt: timestamp,
+      };
+      let updated = { ...base, breakPeriods: [...base.breakPeriods], deviceId: getDeviceId(), lastActionByRecorderId: recorder.id, updatedAt: timestamp };
+      if (action === '出勤') updated = { ...updated, status: '出勤中', clockInAt: timestamp };
+      if (action === '退勤') updated = { ...updated, status: '退勤済み', clockOutAt: timestamp };
+      if (action === '休憩開始') updated = { ...updated, status: '休憩中', breakPeriods: [...updated.breakPeriods, { startedAt: timestamp }] };
+      if (action === '休憩終了') updated = { ...updated, status: '出勤中', breakPeriods: updated.breakPeriods.map((period, index) => index === updated.breakPeriods.length - 1 ? { ...period, endedAt: timestamp } : period) };
+      setAttendanceRecords((previous) => [updated, ...previous.filter((record) => record.id !== updated.id)]);
+    } catch (error) { persistError(error); }
+  };
+
+  const handleRequestAttendanceCorrection = async (
+    record: AttendanceRecord,
+    pin: string,
+    clockIn: string | undefined,
+    clockOut: string | undefined,
+    reason: string,
+  ) => {
+    try {
+      const id = organizationId
+        ? await requestAttendanceCorrection(organizationId, record.id, record.recorderProfileId, pin, clockIn, clockOut, reason)
+        : (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `correction-${Date.now()}`);
+      const now = new Date().toISOString();
+      setAttendanceCorrections((previous) => [{ id, attendanceRecordId: record.id, recorderProfileId: record.recorderProfileId, recorderName: record.recorderName, requestedClockInAt: clockIn, requestedClockOutAt: clockOut, reason, status: '申請中', createdAt: now, updatedAt: now }, ...previous]);
+    } catch (error) { persistError(error); }
+  };
+
+  const handleReviewAttendanceCorrection = async (request: AttendanceCorrectionRequest, approved: boolean, note?: string) => {
+    if (!canManageSettings) throw new Error('打刻修正を承認できるのは児発管または管理者です。');
+    try {
+      if (organizationId) {
+        await reviewAttendanceCorrection(organizationId, request.id, approved, note);
+        await refreshRemoteData(false);
+        return;
+      }
+      const now = new Date().toISOString();
+      setAttendanceCorrections((previous) => previous.map((candidate) => candidate.id === request.id ? { ...candidate, status: approved ? '承認' : '却下', reviewedAt: now, reviewedByName: auth.profile?.displayName || '管理者', reviewNote: note, updatedAt: now } : candidate));
+      if (approved) setAttendanceRecords((previous) => previous.map((record) => record.id === request.attendanceRecordId ? { ...record, clockInAt: request.requestedClockInAt, clockOutAt: request.requestedClockOutAt, updatedAt: now } : record));
+    } catch (error) { persistError(error); }
+  };
+
+  const handleSaveVehicle = async (vehicle: Vehicle) => {
+    if (!canManageSettings) throw new Error('車両を変更できるのは児発管または管理者です。');
+    try {
+      if (organizationId) await saveVehicle(organizationId, vehicle);
+      setVehicles((previous) => [vehicle, ...previous.filter((candidate) => candidate.id !== vehicle.id)]);
+    } catch (error) { persistError(error); }
+  };
+
+  const handleDeleteVehicle = async (vehicleId: string) => {
+    if (!canManageSettings) throw new Error('車両を変更できるのは児発管または管理者です。');
+    try {
+      if (organizationId) await deleteVehicle(organizationId, vehicleId);
+      setVehicles((previous) => previous.filter((vehicle) => vehicle.id !== vehicleId));
+    } catch (error) { persistError(error); }
+  };
+
+  const handleSaveTransportRun = async (run: TransportRun) => {
+    if (!canManageSettings) throw new Error('送迎便を変更できるのは児発管または管理者です。');
+    try {
+      if (organizationId) await saveTransportRun(organizationId, run);
+      setTransportRuns((previous) => [run, ...previous.filter((candidate) => candidate.id !== run.id)]);
+    } catch (error) { persistError(error); }
+  };
+
+  const handleDeleteTransportRun = async (runId: string) => {
+    if (!canManageSettings) throw new Error('送迎便を変更できるのは児発管または管理者です。');
+    try {
+      if (organizationId) await deleteTransportRun(organizationId, runId);
+      setTransportRuns((previous) => previous.filter((run) => run.id !== runId));
+    } catch (error) { persistError(error); }
+  };
+
+  const handleUpdateTransportStatus = async (run: TransportRun, recorder: RecorderProfile, pin: string, status: TransportRunStatus) => {
+    try {
+      if (organizationId) await updateTransportRunStatus(organizationId, run.id, recorder.id, pin, status);
+      const now = new Date().toISOString();
+      setTransportRuns((previous) => previous.map((candidate) => candidate.id === run.id ? { ...candidate, status, statusUpdatedAt: now, statusUpdatedByRecorderId: recorder.id, updatedAt: now } : candidate));
+    } catch (error) { persistError(error); }
   };
 
   const handleAddChild = async (child: ChildProfile) => {
@@ -1111,6 +1313,11 @@ export default function App() {
             drafts={recordDrafts}
             recorderProfiles={recorderProfiles}
             staffScheduleItems={staffScheduleItems}
+            calendarEvents={calendarEventsForCurrentUser}
+            attendanceRecords={attendanceRecords}
+            attendanceCorrections={attendanceCorrections}
+            vehicles={vehicles}
+            transportRuns={transportRuns}
             handoverItems={handoverItems}
             handoverConfirmations={handoverConfirmations}
             morningMeetingRecords={morningMeetingRecords}
@@ -1147,6 +1354,17 @@ export default function App() {
             onAssistantExecuted={handleAssistantExecuted}
             onSaveStaffSchedule={handleSaveStaffSchedule}
             onDeleteStaffSchedule={handleDeleteStaffSchedule}
+            onSaveCalendarEvent={handleSaveCalendarEvent}
+            onDeleteCalendarEvent={handleDeleteCalendarEvent}
+            onSaveAttendance={handleSaveAttendance}
+            onPunchAttendance={handlePunchAttendance}
+            onRequestAttendanceCorrection={handleRequestAttendanceCorrection}
+            onReviewAttendanceCorrection={handleReviewAttendanceCorrection}
+            onSaveVehicle={handleSaveVehicle}
+            onDeleteVehicle={handleDeleteVehicle}
+            onSaveTransportRun={handleSaveTransportRun}
+            onDeleteTransportRun={handleDeleteTransportRun}
+            onUpdateTransportStatus={handleUpdateTransportStatus}
           />
         )}
         {activeTab === 'form' && (
@@ -1154,6 +1372,7 @@ export default function App() {
             key={`${currentRecord?.id || activeDraftKey}-${formSessionId}`}
             templates={templates}
             childrenList={childrenList}
+            calendarEvents={calendarEventsForCurrentUser}
             recorderProfiles={recorderProfiles}
             initialRecord={currentRecord}
             organizationId={organizationId}

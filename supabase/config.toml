@@ -382,6 +382,10 @@ inspector_port = 8083
 # The Deno major version to use.
 deno_version = 2
 
+# Invoked by Supabase Cron with the x-cron-secret header instead of a user JWT.
+[functions.send-calendar-reminders]
+verify_jwt = false
+
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 

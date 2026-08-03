@@ -167,6 +167,9 @@ export interface ChildProfile {
   regularDaysEffectiveFrom?: string;
   regularDaySchedules?: RegularDaySchedule[];
   careType?: '児童発達支援' | '放課後等デイサービス';
+  transportationRequired?: boolean;
+  pickupLocation?: string;
+  dropoffLocation?: string;
   notes?: string;
 }
 
@@ -211,6 +214,157 @@ export interface StaffScheduleItem {
   createdBy?: string;
   createdAt: string;
   updatedAt: string;
+  sourceType?: 'manual' | 'calendar' | 'attendance' | 'transport';
+  sourceId?: string;
+  generated?: boolean;
+}
+
+export type CalendarEventType =
+  | '通常利用'
+  | '追加利用'
+  | '欠席'
+  | '勤務予定'
+  | '会議'
+  | '朝礼'
+  | '研修'
+  | '保護者面談'
+  | '学校行事'
+  | '事業所行事'
+  | '送迎予定'
+  | '提出期限'
+  | 'その他';
+
+export type CalendarVisibility = '全体' | '関係者のみ' | '管理者のみ';
+export type CalendarRecurrence = 'なし' | '毎日' | '毎週' | '毎月';
+
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  eventType: CalendarEventType;
+  date: string;
+  endDate?: string;
+  allDay: boolean;
+  startTime?: string;
+  endTime?: string;
+  location?: string;
+  recorderProfileIds: string[];
+  childIds: string[];
+  note?: string;
+  notificationEnabled: boolean;
+  visibility: CalendarVisibility;
+  color: string;
+  recurrence: CalendarRecurrence;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type AttendanceStatus =
+  | '勤務予定'
+  | '出勤中'
+  | '休憩中'
+  | '退勤済み'
+  | '遅刻'
+  | '早退'
+  | '欠勤'
+  | '有給'
+  | '公休'
+  | '研修';
+
+export interface AttendanceBreakPeriod {
+  startedAt: string;
+  endedAt?: string;
+}
+
+export interface AttendanceRecord {
+  id: string;
+  recorderProfileId: string;
+  recorderName: string;
+  date: string;
+  scheduledStartTime?: string;
+  scheduledEndTime?: string;
+  status: AttendanceStatus;
+  clockInAt?: string;
+  clockOutAt?: string;
+  breakPeriods: AttendanceBreakPeriod[];
+  note?: string;
+  deviceId?: string;
+  lastActionByRecorderId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type AttendanceCorrectionStatus = '申請中' | '承認' | '却下';
+
+export interface AttendanceCorrectionRequest {
+  id: string;
+  attendanceRecordId: string;
+  recorderProfileId: string;
+  recorderName: string;
+  requestedClockInAt?: string;
+  requestedClockOutAt?: string;
+  reason: string;
+  status: AttendanceCorrectionStatus;
+  reviewedByName?: string;
+  reviewedAt?: string;
+  reviewNote?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Vehicle {
+  id: string;
+  name: string;
+  registrationNumber?: string;
+  capacity: number;
+  wheelchairAccessible: boolean;
+  inspectionDueDate?: string;
+  available: boolean;
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type TransportDirection = '迎え' | '送り';
+export type TransportRunStatus =
+  | '未出発'
+  | '出発済み'
+  | '乗車済み'
+  | '事業所到着'
+  | '降車済み'
+  | '帰着';
+
+export interface TransportStop {
+  id: string;
+  childId?: string;
+  childName?: string;
+  locationType: '学校' | '自宅' | '事業所' | 'その他';
+  location: string;
+  plannedTime?: string;
+  order: number;
+  note?: string;
+}
+
+export interface TransportRun {
+  id: string;
+  date: string;
+  name: string;
+  direction: TransportDirection;
+  startTime: string;
+  endTime: string;
+  driverRecorderProfileId?: string;
+  driverName?: string;
+  assistantRecorderProfileIds: string[];
+  vehicleId?: string;
+  vehicleName?: string;
+  stops: TransportStop[];
+  guardianNote?: string;
+  operationNote?: string;
+  status: TransportRunStatus;
+  statusUpdatedAt?: string;
+  statusUpdatedByRecorderId?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface RecordDraftSummary {
@@ -251,6 +405,7 @@ export type HandoverStatus = '未対応' | '対応中' | '完了';
 export interface HandoverItem {
   id: string;
   childId?: string;
+  transportRunId?: string;
   category: HandoverCategory;
   content: string;
   priority: HandoverPriority;
