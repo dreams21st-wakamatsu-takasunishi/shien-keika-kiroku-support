@@ -65,7 +65,7 @@ interface HomeScreenProps {
   onStartRecord: (childId: string, date: string) => void;
   onResumeDraft: (draftKey: string) => void;
   onViewDraft: (draftKey: string, ownerName?: string) => void;
-  onTakeOverDraft: (draftKey: string, ownerName?: string) => void;
+  onTakeOverDraft: (draftKey: string, ownerName: string | undefined, childId: string) => void;
   onDeleteDraft: (draftKey: string) => void;
   onOpenRecord: (record: SupportRecord) => void;
   onSaveAnnouncement: (announcement: Announcement) => Promise<void> | void;

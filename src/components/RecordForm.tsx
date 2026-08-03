@@ -80,7 +80,10 @@ interface RecordFormProps {
   readOnly?: boolean;
   readOnlyOwnerName?: string;
   lockedChildren?: Record<string, string>;
-  onSaveRecords: (records: SupportRecord[]) => Promise<void> | void;
+  onSaveRecords: (
+    records: SupportRecord[],
+    options?: { keepFormOpen?: boolean },
+  ) => Promise<void> | void;
   onDraftChanged?: () => void;
   onCreateHandover?: (content: string) => Promise<void> | void;
 }
@@ -148,6 +151,7 @@ interface PreSaveCheck {
   level: 'error' | 'warning' | 'info';
   title: string;
   detail: string;
+  stepId?: string;
 }
 
 const inputClass = 'box-border min-w-0 w-full max-w-full min-h-12 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-base sm:text-sm text-slate-900 focus:border-teal-500 focus:ring-2 focus:ring-teal-200 outline-none';
@@ -352,6 +356,37 @@ function detailArray(details: Record<string, string | string[]> | undefined, key
   return Array.isArray(value) ? value : [];
 }
 
+interface MockExamAttempt {
+  characterCount: string;
+  pastRound: string;
+}
+
+function getMockExamAttempts(details: Record<string, string | string[]>): MockExamAttempt[] {
+  const counts = detailArray(details, 'mockCharacterCounts');
+  const rounds = detailArray(details, 'mockPastRounds');
+  const legacyCount = String(details.mockCharacterCount || '');
+  const legacyRound = String(details.mockPastRound || '');
+  const count = Math.max(counts.length, rounds.length, legacyCount || legacyRound ? 1 : 0, 1);
+  return Array.from({ length: count }, (_, index) => ({
+    characterCount: String(counts[index] ?? (index === 0 ? legacyCount : '')),
+    pastRound: String(rounds[index] ?? (index === 0 ? legacyRound : '')),
+  }));
+}
+
+function withMockExamAttempts(
+  details: Record<string, string | string[]>,
+  attempts: MockExamAttempt[],
+) {
+  const next: Record<string, string | string[]> = {
+    ...details,
+    mockCharacterCounts: attempts.map((attempt) => attempt.characterCount),
+    mockPastRounds: attempts.map((attempt) => attempt.pastRound),
+  };
+  delete next.mockCharacterCount;
+  delete next.mockPastRound;
+  return next;
+}
+
 function clampHandCount(value: string) {
   if (!value) return '';
   const parsed = Number.parseInt(value, 10);
@@ -371,6 +406,7 @@ function MealDetailsInput({
   const details = answer.nestedDetails || {};
   const minutes = String(details.minutes || '');
   const portion = String(details.portion || '');
+  const didNotEat = portion === '食べていない';
   const commit = (
     nextMinutes: string,
     nextPortion: string,
@@ -390,22 +426,28 @@ function MealDetailsInput({
 
   return (
     <div className="space-y-4">
-      <label className="block rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm font-black text-slate-700">
-        食事にかかった時間
-        <div className="mt-2 flex items-center gap-3">
-          <input
-            aria-label="昼食にかかった時間"
-            type="number"
-            min="0"
-            max="180"
-            inputMode="numeric"
-            value={minutes}
-            onChange={(event) => commit(event.target.value, portion)}
-            className={inputClass}
-          />
-          <span className="shrink-0 font-bold">分</span>
-        </div>
-      </label>
+      {didNotEat ? (
+        <p className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold text-slate-600">
+          「食べていない」のため、食事時間の入力は不要です。
+        </p>
+      ) : (
+        <label className="block rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm font-black text-slate-700">
+          食事にかかった時間
+          <div className="mt-2 flex items-center gap-3">
+            <input
+              aria-label="昼食にかかった時間"
+              type="number"
+              min="0"
+              max="180"
+              inputMode="numeric"
+              value={minutes}
+              onChange={(event) => commit(event.target.value, portion)}
+              className={inputClass}
+            />
+            <span className="shrink-0 font-bold">分</span>
+          </div>
+        </label>
+      )}
       <div>
         <p className="mb-2 text-sm font-black text-slate-700">食べた量</p>
         <div className="grid gap-2 sm:grid-cols-3">
@@ -415,7 +457,7 @@ function MealDetailsInput({
               <button
                 key={option}
                 type="button"
-                onClick={() => commit(minutes, option)}
+                onClick={() => commit(option === '食べていない' ? '' : minutes, option)}
                 className={`${choiceClass} ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300 bg-white text-slate-700'}`}
               >
                 {selected && <Check className="mr-1 inline h-4 w-4" />}
@@ -430,7 +472,7 @@ function MealDetailsInput({
         <textarea
           rows={3}
           value={answer.note || ''}
-          onChange={(event) => commit(minutes, portion, event.target.value)}
+          onChange={(event) => commit(didNotEat ? '' : minutes, portion, event.target.value)}
           placeholder="食事中の様子、食べにくかった物、必要だった声掛けなどを入力してください。"
           className={`${inputClass} mt-2`}
         />
@@ -560,10 +602,17 @@ function PcActivitiesInput({
         return activities.length ? `Dレッスン（${activities.join('・')}）` : 'Dレッスン';
       }
       if (selection === '文章入力模擬試験') {
-        const count = String(nextDetails.mockCharacterCount || '').trim();
-        const round = String(nextDetails.mockPastRound || '').trim();
-        const values = [count && `${count}文字`, round && `第${round}回過去問`].filter(Boolean);
-        return values.length ? `文章入力模擬試験（${values.join('・')}）` : '文章入力模擬試験';
+        const attempts = getMockExamAttempts(nextDetails);
+        const values = attempts
+          .map((attempt, index) => {
+            const detail = [
+              attempt.characterCount.trim() && `${attempt.characterCount.trim()}文字`,
+              attempt.pastRound.trim() && `第${attempt.pastRound.trim()}回過去問`,
+            ].filter(Boolean).join('・');
+            return detail ? `${index + 1}回目：${detail}` : '';
+          })
+          .filter(Boolean);
+        return values.length ? `文章入力模擬試験（${values.join('／')}）` : '文章入力模擬試験';
       }
       const note = String(nextDetails.otherNote || '').trim();
       return note ? `その他（${note}）` : 'その他';
@@ -586,6 +635,8 @@ function PcActivitiesInput({
     if (selection === '文章入力模擬試験') {
       delete next.mockCharacterCount;
       delete next.mockPastRound;
+      delete next.mockCharacterCounts;
+      delete next.mockPastRounds;
     }
     if (selection === 'その他') delete next.otherNote;
     commit(next);
@@ -600,7 +651,13 @@ function PcActivitiesInput({
         const summary = selection === 'Dレッスン'
           ? detailArray(details, 'dLessonActivities').join('・')
           : selection === '文章入力模擬試験'
-            ? [details.mockCharacterCount && `${details.mockCharacterCount}文字`, details.mockPastRound && `第${details.mockPastRound}回過去問`].filter(Boolean).join('・')
+            ? getMockExamAttempts(details).map((attempt, index) => {
+                const values = [
+                  attempt.characterCount && `${attempt.characterCount}文字`,
+                  attempt.pastRound && `第${attempt.pastRound}回過去問`,
+                ].filter(Boolean).join('・');
+                return values ? `${index + 1}回目：${values}` : '';
+              }).filter(Boolean).join('／')
             : String(details.otherNote || '');
         return (
           <div key={selection} className={`overflow-hidden rounded-2xl border-2 ${selected ? 'border-teal-500 bg-teal-50' : 'border-slate-200 bg-white'}`}>
@@ -618,9 +675,34 @@ function PcActivitiesInput({
                   })}</div></div>
                 )}
                 {selection === '文章入力模擬試験' && (
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <label className="text-sm font-bold text-slate-700">入力文字数<div className="mt-2 flex items-center gap-2"><input type="number" min="0" inputMode="numeric" value={String(details.mockCharacterCount || '')} onChange={(event) => commit({ ...details, mockCharacterCount: event.target.value })} className={inputClass} /><span>文字</span></div></label>
-                    <label className="text-sm font-bold text-slate-700">過去問<div className="mt-2 flex items-center gap-2"><span>第</span><input type="number" min="1" inputMode="numeric" value={String(details.mockPastRound || '')} onChange={(event) => commit({ ...details, mockPastRound: event.target.value })} className={inputClass} /><span>回</span></div></label>
+                  <div className="space-y-3">
+                    {getMockExamAttempts(details).map((attempt, index, attempts) => (
+                      <div key={index} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                        <div className="mb-2 flex items-center justify-between gap-3">
+                          <p className="text-sm font-black text-slate-800">{index + 1}回目</p>
+                          {attempts.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => commit(withMockExamAttempts(details, attempts.filter((_, attemptIndex) => attemptIndex !== index)))}
+                              className="min-h-9 rounded-lg border border-rose-200 bg-white px-3 text-xs font-bold text-rose-700"
+                            >
+                              この回を削除
+                            </button>
+                          )}
+                        </div>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <label className="text-sm font-bold text-slate-700">入力文字数<div className="mt-2 flex items-center gap-2"><input type="number" min="0" inputMode="numeric" value={attempt.characterCount} onChange={(event) => commit(withMockExamAttempts(details, attempts.map((item, attemptIndex) => attemptIndex === index ? { ...item, characterCount: event.target.value } : item)))} className={inputClass} /><span>文字</span></div></label>
+                          <label className="text-sm font-bold text-slate-700">過去問<div className="mt-2 flex items-center gap-2"><span>第</span><input type="number" min="1" inputMode="numeric" value={attempt.pastRound} onChange={(event) => commit(withMockExamAttempts(details, attempts.map((item, attemptIndex) => attemptIndex === index ? { ...item, pastRound: event.target.value } : item)))} className={inputClass} /><span>回</span></div></label>
+                        </div>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => commit(withMockExamAttempts(details, [...getMockExamAttempts(details), { characterCount: '', pastRound: '' }]))}
+                      className="min-h-12 w-full rounded-xl border-2 border-dashed border-teal-400 bg-teal-50 px-4 text-sm font-black text-teal-800"
+                    >
+                      ＋ 取り組みを追加
+                    </button>
                   </div>
                 )}
                 {selection === 'その他' && <textarea rows={3} value={String(details.otherNote || '')} onChange={(event) => commit({ ...details, otherNote: event.target.value })} placeholder="取り組み内容を簡潔に入力" className={inputClass} />}
@@ -1088,6 +1170,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const [stepError, setStepError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [savingChildId, setSavingChildId] = useState<string | null>(null);
   const [summarizingSectionId, setSummarizingSectionId] = useState<string | null>(null);
   const [showChildPicker, setShowChildPicker] = useState(false);
   const [infoChild, setInfoChild] = useState<ChildProfile | null>(null);
@@ -1666,6 +1749,49 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     return field ? fieldIsVisible(field, childDraft, step.sectionId) : false;
   };
 
+  const fieldAnswerIsComplete = (field: TemplateField, answer?: SectionFieldAnswer) => {
+    if (!answer?.value?.trim()) return false;
+    if (field.type === 'homework_subjects') {
+      const homework = normalizeHomeworkDetails(answer.homeworkDetails, answer.value);
+      return homework.subjects.length > 0 && homework.subjects.every((subject) =>
+        subject === '宿題無し'
+          ? true
+          : HOMEWORK_ACADEMIC_SUBJECTS.includes(subject as (typeof HOMEWORK_ACADEMIC_SUBJECTS)[number])
+            ? (homework.materials[subject] || []).length > 0
+            : Boolean(homework.notes[subject]?.trim())
+      );
+    }
+    if (field.type === 'study_extras') {
+      const details = answer.nestedDetails || {};
+      const selections = detailArray(details, 'selections');
+      return selections.length > 0
+        && (!selections.includes('漢検') || Boolean(String(details.kankenGrade || '').trim()))
+        && (!selections.includes('エジソン') || detailArray(details, 'edisonActivities').length > 0)
+        && (!selections.includes('その他') || Boolean(String(details.otherNote || '').trim()));
+    }
+    if (field.type === 'pc_activities') {
+      const details = answer.nestedDetails || {};
+      const selections = detailArray(details, 'selections');
+      const attempts = getMockExamAttempts(details);
+      return selections.length > 0
+        && (!selections.includes('Dレッスン') || detailArray(details, 'dLessonActivities').length > 0)
+        && (!selections.includes('文章入力模擬試験') || attempts.every((attempt) =>
+          Boolean(attempt.characterCount.trim()) && Boolean(attempt.pastRound.trim())
+        ))
+        && (!selections.includes('その他') || Boolean(String(details.otherNote || '').trim()));
+    }
+    if (field.type === 'meal_details') {
+      const details = answer.nestedDetails || {};
+      const portion = String(details.portion || '').trim();
+      return Boolean(portion) && (portion === '食べていない' || Boolean(String(details.minutes || '').trim()));
+    }
+    if (field.type === 'hand_count' && answer.value !== 'タイピング練習に取り組んでいない') {
+      const counts = parseHandCount(answer.value);
+      return Boolean(counts.left) && Boolean(counts.right);
+    }
+    return true;
+  };
+
   const answerStatus = (step: WizardStep, childDraft?: ChildDraft): AnswerStatus => {
     if (!childDraft) return 'unanswered';
     if (childDraft.skippedQuestionIds.includes(step.id)) return 'skipped';
@@ -1675,7 +1801,12 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       case 'expression': return childDraft.expressions.length > 0 ? 'answered' : 'unanswered';
       case 'snack': return childDraft.snack ? 'answered' : 'unanswered';
       case 'section-subtitle': return section?.subTitleValue?.trim() ? 'answered' : 'unanswered';
-      case 'field': return section?.answers?.[step.fieldId || '']?.value?.trim() ? 'answered' : 'unanswered';
+      case 'field': {
+        const field = fieldForStep(step);
+        return field && fieldAnswerIsComplete(field, section?.answers?.[step.fieldId || ''])
+          ? 'answered'
+          : 'unanswered';
+      }
       case 'abc-behavior': return section?.abcAnalysis?.behavior?.trim() ? 'answered' : 'unanswered';
       case 'abc-consequence': return section?.abcAnalysis?.consequence?.trim() ? 'answered' : 'unanswered';
       case 'abc-antecedent': return section?.abcAnalysis?.antecedent?.trim() ? 'answered' : 'unanswered';
@@ -1796,9 +1927,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     }),
   }));
 
-  const getPreSaveChecks = (): PreSaveCheck[] => {
+  const getPreSaveChecks = (childIds = wizard.selectedChildIds): PreSaveCheck[] => {
     const checks: PreSaveCheck[] = [];
-    wizard.selectedChildIds.forEach((childId) => {
+    childIds.forEach((childId) => {
       const childName = childrenList.find((child) => child.id === childId)?.name || '児童';
       const draft = wizard.childDrafts[childId] || createChildDraft(activeTemplate);
       const unanswered = unansweredForChild(childId);
@@ -1812,6 +1943,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           level: 'warning',
           title: `未回答が${unanswered.length}件あります`,
           detail: '回答漏れでないか、質問一覧から確認してください。',
+          stepId: unanswered[0]?.id,
         });
       }
       if (skipped.length > 0) {
@@ -1822,6 +1954,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           level: 'info',
           title: `スキップが${skipped.length}件あります`,
           detail: '意図してスキップした項目か確認してください。',
+          stepId: skipped[0]?.id,
         });
       }
 
@@ -1842,6 +1975,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
               level: 'error',
               title: `${section.title}：${field.label}は必須です`,
               detail: '入力してから保存してください。',
+              stepId,
             });
           }
           if (field.type === 'homework_subjects' && answer?.homeworkDetails) {
@@ -1862,6 +1996,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                 level: 'warning',
                 title: `${incomplete.join('・')}の詳しい内容が未入力です`,
                 detail: '教科を選択した直下の教材または自由記入欄を確認してください。',
+                stepId,
               });
             }
           }
@@ -1881,6 +2016,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                 level: 'warning',
                 title: `${incomplete.join('・')}が未入力です`,
                 detail: '選択した項目のすぐ下に表示される詳細欄を確認してください。',
+                stepId,
               });
             }
           }
@@ -1889,7 +2025,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             const selections = detailArray(details, 'selections');
             const incomplete = [
               selections.includes('Dレッスン') && detailArray(details, 'dLessonActivities').length === 0 ? 'Dレッスンの練習内容' : '',
-              selections.includes('文章入力模擬試験') && (!String(details.mockCharacterCount || '').trim() || !String(details.mockPastRound || '').trim()) ? '模擬試験の文字数または過去問回' : '',
+              selections.includes('文章入力模擬試験') && getMockExamAttempts(details).some((attempt) => !attempt.characterCount.trim() || !attempt.pastRound.trim()) ? '模擬試験の文字数または過去問回' : '',
               selections.includes('その他') && !String(details.otherNote || '').trim() ? 'その他の内容' : '',
             ].filter(Boolean);
             if (incomplete.length) {
@@ -1900,14 +2036,16 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                 level: 'warning',
                 title: `${incomplete.join('・')}が未入力です`,
                 detail: '選択した項目のすぐ下に表示される詳細欄を確認してください。',
+                stepId,
               });
             }
           }
           if (field.type === 'meal_details') {
             const details = answer?.nestedDetails || {};
+            const portion = String(details.portion || '').trim();
             const missing = [
-              !String(details.minutes || '').trim() ? '食事時間' : '',
-              !String(details.portion || '').trim() ? '食べた量' : '',
+              portion !== '食べていない' && !String(details.minutes || '').trim() ? '食事時間' : '',
+              !portion ? '食べた量' : '',
             ].filter(Boolean);
             if (missing.length > 0) {
               checks.push({
@@ -1916,7 +2054,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                 childName,
                 level: 'warning',
                 title: `${missing.join('・')}が未入力です`,
-                detail: '昼食の時間と食べた量を確認してください。',
+                detail: portion === '食べていない'
+                  ? '食べた量を確認してください。食事時間は入力不要です。'
+                  : '昼食の時間と食べた量を確認してください。',
+                stepId,
               });
             }
           }
@@ -1930,6 +2071,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                 level: 'warning',
                 title: '左右どちらかの指本数が未入力です',
                 detail: '左・右の両方を0～5本で入力するか、「タイピング練習に取り組んでいない」を選択してください。',
+                stepId,
               });
             }
           }
@@ -1947,6 +2089,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             level: 'warning',
             title: `${section.title}のABC記録が一部のみ入力されています`,
             detail: 'A（きっかけ）・B（行動）・C（結果）の3要素を確認してください。',
+            stepId: allPerChildSteps.find((step) => step.sectionId === section.id && step.kind.startsWith('abc'))?.id,
           });
         }
       });
@@ -2042,6 +2185,12 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       targetIndex += 1;
     }
     moveToStep(targetIndex);
+  };
+
+  const goToReview = () => {
+    const reviewIndex = steps.findIndex((step) => step.kind === 'review');
+    if (reviewIndex < 0) return;
+    moveToStep(reviewIndex);
   };
 
   const goPrevious = () => {
@@ -2587,9 +2736,117 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             checksAcknowledged={checksAcknowledged}
             onChecksAcknowledged={setChecksAcknowledged}
             onJump={(childId, stepId) => moveToStep(steps.findIndex((step) => step.id === stepId), childId)}
+            onSaveChild={(childId) => void saveChildRecord(childId)}
+            savingChildId={savingChildId}
+            saveDisabled={editingDisabled || isSaving}
           />
         );
       default: return null;
+    }
+  };
+
+  const buildRecordForChild = (childId: string, now: string): SupportRecord => {
+    if (!activeTemplate) throw new Error('テンプレートを確認してください。');
+    const child = childrenList.find((item) => item.id === childId);
+    const childDraft = wizard.childDrafts[childId] || createChildDraft(activeTemplate);
+    const previous = initialRecord?.childId === childId ? initialRecord : undefined;
+    const record = {
+      id: childDraft.recordId,
+      templateId: activeTemplate.id,
+      templateName: activeTemplate.name,
+      templateType: activeTemplate.type,
+      templateSectionsSnapshot: activeTemplate.sections,
+      childId,
+      childName: child?.name || previous?.childName || '名称未記入',
+      date: wizard.date,
+      attendance: childDraft.attendance,
+      attendanceNote: childDraft.attendanceNote || undefined,
+      expressions: childDraft.expressions,
+      expressionNote: childDraft.expressionNote || undefined,
+      snack: childDraft.snack,
+      snackNote: childDraft.snackNote || undefined,
+      recorderId: wizard.recorderId || undefined,
+      recorderName: wizard.recorderName.trim(),
+      serviceStartTime: previous?.serviceStartTime,
+      serviceEndTime: previous?.serviceEndTime,
+      transportation: previous?.transportation,
+      supportPlanId: previous?.supportPlanId,
+      fiveDomains: previous?.fiveDomains,
+      goalProgress: previous?.goalProgress,
+      sectionAnswers: childDraft.sectionAnswers,
+      skippedQuestionIds: childDraft.skippedQuestionIds,
+      approvalStatus: previous?.approvalStatus === '要修正' ? '未確認' : previous?.approvalStatus || '未確認',
+      jihatsukanComment: previous?.jihatsukanComment,
+      reviewIssues: previous?.reviewIssues?.map((issue) => ({
+        ...issue,
+        resolved: resolvedIssueId ? issue.resolved || issue.id === resolvedIssueId : true,
+      })),
+      reviewedBy: previous?.reviewedBy,
+      reviewedAt: previous?.reviewedAt,
+      createdAt: previous?.createdAt || now,
+      updatedAt: now,
+    } satisfies SupportRecord;
+    return isStructuredWeekdayTemplate(activeTemplate)
+      ? { ...record, synthesizedSummary: generateStructuredWeekdaySummary(record) }
+      : isStructuredHolidayTemplate(activeTemplate)
+        ? { ...record, synthesizedSummary: generateStructuredHolidaySummary(record) }
+        : record;
+  };
+
+  const saveChildRecord = async (childId: string) => {
+    if (editingDisabled || !activeTemplate || savingChildId) return;
+    setSaveError(null);
+    if (!wizard.date || !wizard.recorderName.trim()) {
+      setSaveError('日付と記録者を確認してください。');
+      return;
+    }
+    const checks = getPreSaveChecks([childId]);
+    const errors = checks.filter((check) => check.level === 'error');
+    const notices = checks.filter((check) => check.level !== 'error');
+    if (errors.length > 0) {
+      setSaveError(`この児童に保存できない項目が${errors.length}件あります。赤色の点検結果を修正してください。`);
+      return;
+    }
+    if (notices.length > 0 && !checksAcknowledged) {
+      setSaveError('この児童の注意事項を確認し、「点検結果を確認しました」にチェックしてください。');
+      return;
+    }
+
+    const remainingChildIds = wizard.selectedChildIds.filter((id) => id !== childId);
+    setSavingChildId(childId);
+    try {
+      await onSaveRecords(
+        [buildRecordForChild(childId, new Date().toISOString())],
+        { keepFormOpen: remainingChildIds.length > 0 },
+      );
+      if (remainingChildIds.length === 0) {
+        draftCleared.current = true;
+        remoteRevision.current = null;
+        localStorage.removeItem(storageKey);
+        if (organizationId) await deleteRecordDraft(organizationId, draftKey);
+        onDraftChanged?.();
+        return;
+      }
+      setWizard((previous) => {
+        const childDrafts = { ...previous.childDrafts };
+        const childStepIds = { ...previous.childStepIds };
+        delete childDrafts[childId];
+        delete childStepIds[childId];
+        return {
+          ...previous,
+          selectedChildIds: previous.selectedChildIds.filter((id) => id !== childId),
+          activeChildId: previous.activeChildId === childId ? remainingChildIds[0] : previous.activeChildId,
+          childDrafts,
+          childStepIds,
+          updatedAt: new Date().toISOString(),
+        };
+      });
+      setChecksAcknowledged(false);
+      setSaveError(null);
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : '保存できませんでした。');
+    } finally {
+      setSavingChildId(null);
     }
   };
 
@@ -2619,52 +2876,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     }
 
     const now = new Date().toISOString();
-    const records = wizard.selectedChildIds.map((childId) => {
-      const child = childrenList.find((item) => item.id === childId);
-      const childDraft = wizard.childDrafts[childId] || createChildDraft(activeTemplate);
-      const previous = initialRecord?.childId === childId ? initialRecord : undefined;
-      const record = {
-        id: childDraft.recordId,
-        templateId: activeTemplate.id,
-        templateName: activeTemplate.name,
-        templateType: activeTemplate.type,
-        templateSectionsSnapshot: activeTemplate.sections,
-        childId,
-        childName: child?.name || previous?.childName || '名称未記入',
-        date: wizard.date,
-        attendance: childDraft.attendance,
-        attendanceNote: childDraft.attendanceNote || undefined,
-        expressions: childDraft.expressions,
-        expressionNote: childDraft.expressionNote || undefined,
-        snack: childDraft.snack,
-        snackNote: childDraft.snackNote || undefined,
-        recorderId: wizard.recorderId || undefined,
-        recorderName: wizard.recorderName.trim(),
-        serviceStartTime: previous?.serviceStartTime,
-        serviceEndTime: previous?.serviceEndTime,
-        transportation: previous?.transportation,
-        supportPlanId: previous?.supportPlanId,
-        fiveDomains: previous?.fiveDomains,
-        goalProgress: previous?.goalProgress,
-        sectionAnswers: childDraft.sectionAnswers,
-        skippedQuestionIds: childDraft.skippedQuestionIds,
-        approvalStatus: previous?.approvalStatus === '要修正' ? '未確認' : previous?.approvalStatus || '未確認',
-        jihatsukanComment: previous?.jihatsukanComment,
-        reviewIssues: previous?.reviewIssues?.map((issue) => ({
-          ...issue,
-          resolved: resolvedIssueId ? issue.resolved || issue.id === resolvedIssueId : true,
-        })),
-        reviewedBy: previous?.reviewedBy,
-        reviewedAt: previous?.reviewedAt,
-        createdAt: previous?.createdAt || now,
-        updatedAt: now,
-      } satisfies SupportRecord;
-      return isStructuredWeekdayTemplate(activeTemplate)
-        ? { ...record, synthesizedSummary: generateStructuredWeekdaySummary(record) }
-        : isStructuredHolidayTemplate(activeTemplate)
-          ? { ...record, synthesizedSummary: generateStructuredHolidaySummary(record) }
-        : record;
-    });
+    const records = wizard.selectedChildIds.map((childId) => buildRecordForChild(childId, now));
 
     setIsSaving(true);
     try {
@@ -3021,6 +3233,15 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         <button type="button" onClick={goPrevious} disabled={wizard.currentStepIndex === 0} className="min-h-12 rounded-xl border border-slate-300 px-4 text-sm font-bold text-slate-700 disabled:opacity-40 flex items-center justify-center gap-2"><ChevronLeft className="w-4 h-4" />前の質問</button>
         <div className="flex flex-col sm:flex-row gap-2">
           {isChildStep && currentPageSteps.length <= 1 && !editingDisabled && <button type="button" onClick={(event) => { event.preventDefault(); skipCurrent(); }} className="min-h-12 rounded-xl border border-slate-300 px-4 text-sm font-bold text-slate-600 flex items-center justify-center gap-2"><SkipForward className="w-4 h-4" />この質問をスキップ</button>}
+          {isChildStep && currentStep?.kind !== 'review' && !editingDisabled && (
+            <button
+              type="button"
+              onClick={(event) => { event.preventDefault(); goToReview(); }}
+              className="min-h-12 rounded-xl border-2 border-emerald-500 bg-emerald-50 px-5 text-sm font-black text-emerald-800"
+            >
+              入力を終えて確認
+            </button>
+          )}
           {currentStep?.kind === 'review' ? editingDisabled ? <span className="flex min-h-12 items-center justify-center rounded-xl bg-sky-100 px-6 text-sm font-black text-sky-900">{readOnly ? '閲覧モード' : '入力停止中'}</span> : <button type="submit" disabled={isSaving} className="min-h-12 rounded-xl bg-emerald-600 disabled:bg-slate-400 px-6 text-sm font-bold text-white flex items-center justify-center gap-2"><Save className="w-4 h-4" />{isSaving ? '保存中...' : `${wizard.selectedChildIds.length}名分を保存`}</button> : <button type="button" onClick={(event) => { event.preventDefault(); goNext(); }} className="min-h-12 rounded-xl bg-teal-600 px-6 text-sm font-bold text-white flex items-center justify-center gap-2">次の質問<ChevronRight className="w-4 h-4" /></button>}
         </div>
       </div>
@@ -3077,6 +3298,9 @@ function ReviewAllChildren({
   checksAcknowledged,
   onChecksAcknowledged,
   onJump,
+  onSaveChild,
+  savingChildId,
+  saveDisabled,
 }: {
   wizard: WizardDraft;
   childrenList: ChildProfile[];
@@ -3087,6 +3311,9 @@ function ReviewAllChildren({
   checksAcknowledged: boolean;
   onChecksAcknowledged: (checked: boolean) => void;
   onJump: (childId: string, stepId: string) => void;
+  onSaveChild: (childId: string) => void;
+  savingChildId: string | null;
+  saveDisabled: boolean;
 }) {
   const errors = checks.filter((check) => check.level === 'error');
   const notices = checks.filter((check) => check.level !== 'error');
@@ -3127,10 +3354,19 @@ function ReviewAllChildren({
                   </p>
                   <p className="mt-1 text-sm font-bold text-slate-900">{check.title}</p>
                   <p className="mt-0.5 text-xs leading-relaxed text-slate-600">{check.detail}</p>
+                  {check.stepId && (
+                    <button
+                      type="button"
+                      onClick={() => onJump(check.childId, check.stepId!)}
+                      className="mt-2 min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-xs font-black text-slate-800"
+                    >
+                      未入力箇所へ移動
+                    </button>
+                  )}
                 </div>
               ))}
             </div>
-            {errors.length === 0 && notices.length > 0 && (
+            {notices.length > 0 && (
               <label className="mt-3 flex min-h-12 cursor-pointer items-center gap-3 rounded-xl border border-amber-300 bg-white px-4 text-sm font-black text-amber-950">
                 <input
                   type="checkbox"
@@ -3156,8 +3392,10 @@ function ReviewAllChildren({
             <p className="text-xs text-slate-600">出欠：{draft?.attendance || '未回答'}{draft?.attendanceNote ? `（${draft.attendanceNote}）` : ''} ／ 表情：{draft?.expressions.join('、') || '未回答'} ／ おやつ：{draft?.snack || '未回答'}</p>
             {unanswered.length > 0 && <div className="rounded-lg bg-amber-50 p-3"><p className="text-xs font-bold text-amber-900 mb-2">未回答の質問</p><div className="flex flex-wrap gap-2">{unanswered.map((step) => <button key={step.id} type="button" onClick={() => onJump(childId, step.id)} className="rounded-md border border-amber-300 bg-white px-2 py-1 text-[11px] text-amber-900">{step.title}</button>)}</div></div>}
             {template && (isStructuredWeekdayTemplate(template) || isStructuredHolidayTemplate(template)) ? (
-              <div className="overflow-hidden rounded-xl border border-slate-300">
-                <div className="border-b border-slate-200 bg-slate-100 px-3 py-2 text-xs font-black text-slate-700">文章合成プレビュー</div>
+              <details className="overflow-hidden rounded-xl border border-slate-300">
+                <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 bg-slate-100 px-3 py-2 text-xs font-black text-slate-700">
+                  <span>文章合成プレビュー</span><span className="text-[10px] text-slate-500">タップして表示</span>
+                </summary>
                 <pre className="whitespace-pre-wrap bg-white p-4 font-sans text-xs leading-relaxed text-slate-800">{(isStructuredHolidayTemplate(template) ? generateStructuredHolidaySummary : generateStructuredWeekdaySummary)({
                   recorderName: wizard.recorderName,
                   attendance: draft?.attendance || '',
@@ -3168,14 +3406,23 @@ function ReviewAllChildren({
                   snackNote: draft?.snackNote,
                   sectionAnswers: draft?.sectionAnswers || {},
                 })}</pre>
-              </div>
-            ) : <div className="space-y-2">{template?.sections.map((section) => {
+              </details>
+            ) : <details className="overflow-hidden rounded-xl border border-slate-300"><summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 bg-slate-100 px-3 py-2 text-xs font-black text-slate-700"><span>入力内容プレビュー</span><span className="text-[10px] text-slate-500">タップして表示</span></summary><div className="space-y-2 p-3">{template?.sections.map((section) => {
               const answer = draft?.sectionAnswers[section.id];
               const specialText = answer?.abcAnalysis?.inputMode === 'free'
                 ? answer.abcAnalysis.freeText
                 : answer?.abcAnalysis?.summary;
               return <div key={section.id} className="rounded-lg bg-slate-50 p-3 text-xs"><p className="font-bold mb-1">{section.title}</p>{specialText ? <p className="whitespace-pre-wrap leading-relaxed">{specialText}</p> : <p className="text-slate-400">特記事項なし</p>}</div>;
-            })}</div>}
+            })}</div></details>}
+            <button
+              type="button"
+              disabled={saveDisabled || savingChildId !== null}
+              onClick={() => onSaveChild(childId)}
+              className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border-2 border-emerald-500 bg-emerald-50 px-4 text-sm font-black text-emerald-800 disabled:border-slate-300 disabled:bg-slate-100 disabled:text-slate-400"
+            >
+              {savingChildId === childId ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              {savingChildId === childId ? 'この児童を保存中...' : 'この児童だけ保存'}
+            </button>
           </article>
         );
       })}

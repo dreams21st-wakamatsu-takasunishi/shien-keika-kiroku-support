@@ -706,6 +706,29 @@ export async function takeOverRecordDraft(
   };
 }
 
+export async function takeOverRecordDraftChild(
+  organizationId: string,
+  sourceDraftKey: string,
+  childId: string,
+  targetDraftKey: string,
+  recorderId?: string | null,
+) {
+  const { data, error } = await assertSupabase().rpc('take_over_record_draft_child', {
+    p_organization_id: organizationId,
+    p_source_draft_key: sourceDraftKey,
+    p_child_id: childId,
+    p_target_draft_key: targetDraftKey,
+    p_recorder_profile_id: recorderId || null,
+  });
+  if (error) throw error;
+  const result = Array.isArray(data) ? data[0] : data;
+  return {
+    revision: Number(result?.new_revision || 1),
+    updatedAt: String(result?.saved_at || new Date().toISOString()),
+    payload: result?.draft_payload as unknown,
+  };
+}
+
 export async function listRecordDrafts(organizationId: string): Promise<RecordDraftSummary[]> {
   const { data, error } = await assertSupabase()
     .from('record_drafts')

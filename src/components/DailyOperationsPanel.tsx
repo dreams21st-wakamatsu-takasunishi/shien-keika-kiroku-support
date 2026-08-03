@@ -14,7 +14,7 @@ interface DailyOperationsPanelProps {
   onStartRecord: (childId: string, date: string) => void;
   onResumeDraft: (draftKey: string) => void;
   onViewDraft: (draftKey: string, ownerName?: string) => void;
-  onTakeOverDraft: (draftKey: string, ownerName?: string) => void;
+  onTakeOverDraft: (draftKey: string, ownerName: string | undefined, childId: string) => void;
   onDeleteDraft: (draftKey: string) => void;
   onOpenRecord: (record: SupportRecord) => void;
 }
@@ -186,7 +186,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                     {canTakeOverDraft && (
                       <button
                         type="button"
-                        onClick={() => onTakeOverDraft(draft.draftKey, draft.recorderName)}
+                        onClick={() => onTakeOverDraft(draft.draftKey, draft.recorderName, child.id)}
                         className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl border border-amber-400 bg-amber-50 px-4 text-xs font-black text-amber-950 sm:flex-none"
                       >
                         <UserRoundCheck className="h-4 w-4" />引き継ぐ
@@ -248,7 +248,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                       {new Date(draft.updatedAt).toLocaleString('ja-JP')}更新
                     </p>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     {canResumeDraft ? (
                       <button type="button" onClick={() => onResumeDraft(draft.draftKey)} className="min-h-10 flex-1 rounded-lg bg-amber-500 px-3 text-xs font-black text-slate-950 sm:flex-none">
                         再開
@@ -258,11 +258,20 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                         <Eye className="h-3.5 w-3.5" />入力状況を見る
                       </button>
                     )}
-                    {canTakeOverDraft && (
-                      <button type="button" onClick={() => onTakeOverDraft(draft.draftKey, draft.recorderName)} className="flex min-h-10 items-center gap-1 rounded-lg border border-amber-400 bg-amber-50 px-3 text-[10px] font-black text-amber-950">
-                        <UserRoundCheck className="h-3.5 w-3.5" />引き継ぐ
-                      </button>
-                    )}
+                    {canTakeOverDraft && draft.selectedChildIds.map((childId) => {
+                      const childName = childrenList.find((child) => child.id === childId)?.name || '児童';
+                      return (
+                        <button
+                          key={childId}
+                          type="button"
+                          onClick={() => onTakeOverDraft(draft.draftKey, draft.recorderName, childId)}
+                          className="flex min-h-10 items-center gap-1 rounded-lg border border-amber-400 bg-amber-50 px-3 text-[10px] font-black text-amber-950"
+                        >
+                          <UserRoundCheck className="h-3.5 w-3.5" />
+                          {draft.selectedChildIds.length > 1 ? `${childName}だけ引き継ぐ` : '引き継ぐ'}
+                        </button>
+                      );
+                    })}
                     {(canResumeDraft || canManageDrafts) && (
                       <button type="button" onClick={() => onDeleteDraft(draft.draftKey)} className="flex min-h-10 min-w-10 items-center justify-center rounded-lg border border-rose-200 text-rose-700" aria-label="下書きを削除">
                         <Trash2 className="h-4 w-4" />

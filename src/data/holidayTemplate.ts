@@ -200,7 +200,7 @@ export const STANDARD_HOLIDAY_TEMPLATE: Template = {
           type: 'meal_details',
           options: ['完食', '半量食べた', '1/4食べた', '食べていない'],
           defaultValue: '',
-          helpText: '食事にかかった時間と食べた量を選び、必要に応じて様子を入力してください。',
+          helpText: '食事にかかった時間と食べた量を選び、必要に応じて様子を入力してください。「食べていない」の場合、時間入力は不要です。',
         },
       ],
     },

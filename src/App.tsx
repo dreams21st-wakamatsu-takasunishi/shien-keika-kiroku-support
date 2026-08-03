@@ -71,7 +71,7 @@ import {
   seedDefaultTemplates,
   softDeleteChild,
   softDeleteRecord,
-  takeOverRecordDraft,
+  takeOverRecordDraftChild,
   updateHandoverStatus,
 } from './services/dataService';
 import { createRecordDraftKey } from './utils/deviceId';
@@ -490,14 +490,19 @@ export default function App() {
     } catch (error) { persistError(error); }
   };
 
-  const handleSaveRecords = async (savedRecords: SupportRecord[]) => {
+  const handleSaveRecords = async (
+    savedRecords: SupportRecord[],
+    options?: { keepFormOpen?: boolean },
+  ) => {
     try {
       await saveRecordsOrQueue(savedRecords);
       setRecords((previous) => {
         const savedIds = new Set(savedRecords.map((record) => record.id));
         return [...savedRecords, ...previous.filter((record) => !savedIds.has(record.id))];
       });
-      if (savedRecords.length === 1 && currentRecord?.id === savedRecords[0].id) {
+      if (options?.keepFormOpen) {
+        setCurrentRecord(null);
+      } else if (savedRecords.length === 1 && currentRecord?.id === savedRecords[0].id) {
         setCurrentRecord(savedRecords[0]);
         setActiveTab('preview');
       } else {
@@ -833,20 +838,28 @@ export default function App() {
     setActiveTab('form');
   };
 
-  const handleTakeOverDraft = async (draftKey: string, ownerName?: string) => {
+  const handleTakeOverDraft = async (draftKey: string, ownerName: string | undefined, childId: string) => {
     const nextRecorderName = activeRecorder?.displayName || auth.profile?.displayName || '現在の職員';
+    const childName = childrenList.find((child) => child.id === childId)?.name || '選択した児童';
     const confirmed = window.confirm(
-      `${ownerName || '別の職員'}が入力中の記録を、${nextRecorderName}へ引き継ぎます。\n\n`
-      + '引き継ぎ後、元の入力者はこの下書きを編集できなくなります。よろしいですか？'
+      `${ownerName || '別の職員'}が入力中の「${childName}」の記録だけを、${nextRecorderName}へ引き継ぎます。\n\n`
+      + '同じ下書きに含まれる他児童の記録は、元の入力者に残ります。よろしいですか？'
     );
     if (!confirmed) return;
 
     try {
+      const targetDraftKey = createRecordDraftKey();
       if (organizationId) {
-        await takeOverRecordDraft(organizationId, draftKey, activeRecorder?.id);
+        await takeOverRecordDraftChild(
+          organizationId,
+          draftKey,
+          childId,
+          targetDraftKey,
+          activeRecorder?.id,
+        );
         await refreshRecordDrafts();
       }
-      handleResumeDraft(draftKey);
+      handleResumeDraft(targetDraftKey);
     } catch (error) {
       persistError(error);
     }
@@ -1115,7 +1128,7 @@ export default function App() {
             onStartRecord={handleStartRecord}
             onResumeDraft={handleResumeDraft}
             onViewDraft={handleViewDraft}
-            onTakeOverDraft={(draftKey, ownerName) => void handleTakeOverDraft(draftKey, ownerName)}
+            onTakeOverDraft={(draftKey, ownerName, childId) => void handleTakeOverDraft(draftKey, ownerName, childId)}
             onDeleteDraft={(draftKey) => void handleDeleteDraft(draftKey)}
             onOpenRecord={(record) => {
               setCurrentRecord(record);
