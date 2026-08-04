@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ChildProfile,
   ChildTransportLocation,
+  ChildTransportSchedule,
   TransportDirection,
   TransportLocationType,
   Weekday,
@@ -27,6 +28,7 @@ import {
 } from 'lucide-react';
 import { calculateSchoolGrade, formatBirthDate } from '../utils/schoolGrade';
 import { formatJapaneseDate, formatRegularDays, getLocalDateString, getRegularDaysForDate, WEEKDAYS } from '../utils/weekdays';
+import { updateTransportSchedule } from '../utils/transportSchedule';
 
 interface ChildrenManagerProps {
   childrenList: ChildProfile[];
@@ -166,6 +168,9 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   const [regularDays, setRegularDays] = useState<Weekday[]>([]);
   const [careType, setCareType] = useState<'児童発達支援' | '放課後等デイサービス'>('放課後等デイサービス');
   const [transportationRequired, setTransportationRequired] = useState(false);
+  const [schoolName, setSchoolName] = useState('');
+  const [siblingGroup, setSiblingGroup] = useState('');
+  const [transportSchedule, setTransportSchedule] = useState<ChildTransportSchedule[]>([]);
   const [pickupLocation, setPickupLocation] = useState('');
   const [dropoffLocation, setDropoffLocation] = useState('');
   const [transportLocations, setTransportLocations] = useState<ChildTransportLocation[]>([]);
@@ -191,6 +196,9 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setRegularDays([]);
     setCareType('放課後等デイサービス');
     setTransportationRequired(false);
+    setSchoolName('');
+    setSiblingGroup('');
+    setTransportSchedule([]);
     setPickupLocation('');
     setDropoffLocation('');
     setTransportLocations([]);
@@ -209,6 +217,9 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setRegularDays(getRegularDaysForDate(child, today));
     setCareType(child.careType || '放課後等デイサービス');
     setTransportationRequired(Boolean(child.transportationRequired));
+    setSchoolName(child.schoolName || '');
+    setSiblingGroup(child.siblingGroup || '');
+    setTransportSchedule((child.transportSchedule || []).map((schedule) => ({ ...schedule })));
     setPickupLocation(child.pickupLocation || '');
     setDropoffLocation(child.dropoffLocation || '');
     setTransportLocations((child.transportLocations || []).map((location) => ({
@@ -264,6 +275,9 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         regularDaysEffectiveFrom: today,
         careType,
         transportationRequired,
+        schoolName: schoolName.trim() || undefined,
+        siblingGroup: siblingGroup.trim() || undefined,
+        transportSchedule,
         pickupLocation: pickupLocation.trim() || undefined,
         dropoffLocation: dropoffLocation.trim() || undefined,
         transportLocations: normalizedTransportLocations,
@@ -280,6 +294,9 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         regularDaysEffectiveFrom: today,
         careType,
         transportationRequired,
+        schoolName: schoolName.trim() || undefined,
+        siblingGroup: siblingGroup.trim() || undefined,
+        transportSchedule,
         pickupLocation: pickupLocation.trim() || undefined,
         dropoffLocation: dropoffLocation.trim() || undefined,
         transportLocations: normalizedTransportLocations,
@@ -865,6 +882,34 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                 </label>
                 {transportationRequired && (
                   <div className="mt-2 space-y-3">
+                    <section className="rounded-xl border border-sky-200 bg-sky-50/70 p-3">
+                      <div>
+                        <p className="text-sm font-black text-slate-800">配車の自動振り分け情報</p>
+                        <p className="mt-0.5 text-[10px] leading-relaxed text-slate-500">学校・兄弟・曜日別時刻を基に、当日の迎え便と送り便を提案します。提案後も手動で変更できます。</p>
+                      </div>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        <label className="text-xs font-bold text-slate-700">学校・主な迎え施設<input value={schoolName} onChange={(event) => setSchoolName(event.target.value)} placeholder="例：○○小学校" className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm" /></label>
+                        <label className="text-xs font-bold text-slate-700">兄弟グループ<input value={siblingGroup} onChange={(event) => setSiblingGroup(event.target.value)} placeholder="例：山田家（兄弟で同じ文字）" className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm" /><span className="mt-1 block text-[9px] font-normal text-slate-500">同じ文字の児童を、定員内で同じ便にまとめます。</span></label>
+                      </div>
+                      <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white">
+                        <div className="grid grid-cols-[2.5rem_repeat(3,minmax(0,1fr))] gap-px bg-slate-200 text-center text-[9px] font-black text-slate-600">
+                          <span className="bg-slate-50 px-1 py-2">曜日</span><span className="bg-slate-50 px-1 py-2">下校</span><span className="bg-slate-50 px-1 py-2">迎え</span><span className="bg-slate-50 px-1 py-2">送り</span>
+                        </div>
+                        {WEEKDAYS.map((day) => {
+                          const schedule = transportSchedule.find((item) => item.weekday === day);
+                          const regular = regularDays.includes(day);
+                          return (
+                            <div key={day} className={`grid grid-cols-[2.5rem_repeat(3,minmax(0,1fr))] items-center gap-px border-t border-slate-100 ${regular ? 'bg-teal-50' : 'bg-white'}`}>
+                              <strong className={`text-center text-xs ${regular ? 'text-teal-800' : 'text-slate-400'}`}>{day}</strong>
+                              <input aria-label={`${day}曜日の下校時刻`} type="time" value={schedule?.schoolEndTime || ''} onChange={(event) => setTransportSchedule((current) => updateTransportSchedule(current, day, { schoolEndTime: event.target.value || undefined }))} className="min-h-10 min-w-0 border-0 bg-transparent px-1 text-center text-[11px] font-bold" />
+                              <input aria-label={`${day}曜日の迎え予定時刻`} type="time" value={schedule?.pickupTime || ''} onChange={(event) => setTransportSchedule((current) => updateTransportSchedule(current, day, { pickupTime: event.target.value || undefined }))} className="min-h-10 min-w-0 border-0 bg-transparent px-1 text-center text-[11px] font-bold" />
+                              <input aria-label={`${day}曜日の送り希望時刻`} type="time" value={schedule?.dropoffTime || ''} onChange={(event) => setTransportSchedule((current) => updateTransportSchedule(current, day, { dropoffTime: event.target.value || undefined }))} className="min-h-10 min-w-0 border-0 bg-transparent px-1 text-center text-[11px] font-bold" />
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <p className="mt-2 text-[9px] leading-relaxed text-slate-500">下校は学校終了時刻、迎えは乗車予定の目安、送りは自宅等への到着希望時刻です。定期利用曜日は色付きで表示します。</p>
+                    </section>
                     <div className="grid gap-2 sm:grid-cols-2">
                       <label className="font-bold text-slate-700">通常の迎え先<input value={pickupLocation} onChange={(event) => setPickupLocation(event.target.value)} placeholder="例：○○小学校 正門・住所" className="mt-1 w-full rounded-md border border-slate-300 bg-white p-2" /></label>
                       <label className="font-bold text-slate-700">通常の送り先<input value={dropoffLocation} onChange={(event) => setDropoffLocation(event.target.value)} placeholder="例：自宅・住所" className="mt-1 w-full rounded-md border border-slate-300 bg-white p-2" /></label>

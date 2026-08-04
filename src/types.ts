@@ -190,10 +190,20 @@ export interface ChildProfile {
   regularDaySchedules?: RegularDaySchedule[];
   careType?: '児童発達支援' | '放課後等デイサービス';
   transportationRequired?: boolean;
+  schoolName?: string;
+  siblingGroup?: string;
+  transportSchedule?: ChildTransportSchedule[];
   pickupLocation?: string;
   dropoffLocation?: string;
   transportLocations?: ChildTransportLocation[];
   notes?: string;
+}
+
+export interface ChildTransportSchedule {
+  weekday: Weekday;
+  schoolEndTime?: string;
+  pickupTime?: string;
+  dropoffTime?: string;
 }
 
 export interface UserProfile {
