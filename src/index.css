@@ -1,5 +1,12 @@
 @import "tailwindcss";
 
+:root {
+  --app-safe-area-top: env(safe-area-inset-top, 0px);
+  --app-safe-area-right: env(safe-area-inset-right, 0px);
+  --app-safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --app-safe-area-left: env(safe-area-inset-left, 0px);
+}
+
 html {
   background: #0f172a;
   -webkit-text-size-adjust: 100%;
@@ -19,6 +26,24 @@ body {
   min-height: 100dvh;
   max-width: 100%;
   overflow-x: clip;
+}
+
+/* Keep navigation and full-screen tools outside iPhone/installed-PWA system UI. */
+.app-safe-top {
+  padding-top: var(--app-safe-area-top);
+  padding-right: var(--app-safe-area-right);
+  padding-left: var(--app-safe-area-left);
+}
+
+.app-safe-block {
+  padding-top: var(--app-safe-area-top);
+  padding-right: var(--app-safe-area-right);
+  padding-bottom: var(--app-safe-area-bottom);
+  padding-left: var(--app-safe-area-left);
+}
+
+.app-sticky-below-header {
+  top: calc(4rem + var(--app-safe-area-top));
 }
 
 .app-background {

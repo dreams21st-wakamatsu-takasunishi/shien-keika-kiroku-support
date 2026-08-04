@@ -73,7 +73,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   return (
     <>
-      <header className="sticky top-0 z-30 border-b border-slate-800 bg-slate-950 text-white shadow-md">
+      <header className="app-safe-top sticky top-0 z-30 border-b border-slate-800 bg-slate-950 text-white shadow-md">
         <div className="mx-auto flex h-14 max-w-7xl items-center gap-2 px-2 sm:h-16 sm:px-5">
           <button
             type="button"
@@ -112,7 +112,7 @@ export const Header: React.FC<HeaderProps> = ({
       {menuOpen && (
         <div className="fixed inset-0 z-[120] ui-fade-in" role="presentation">
           <button type="button" aria-label="画面メニューを閉じる" onClick={() => setMenuOpen(false)} className="absolute inset-0 h-full w-full bg-slate-950/60 backdrop-blur-[2px]" />
-          <aside role="dialog" aria-modal="true" aria-label="画面メニュー" className="ui-slide-in-left absolute inset-y-0 left-0 flex w-[min(88vw,22rem)] flex-col bg-white shadow-2xl">
+          <aside role="dialog" aria-modal="true" aria-label="画面メニュー" className="app-safe-block ui-slide-in-left absolute inset-y-0 left-0 flex w-[min(88vw,22rem)] flex-col bg-white shadow-2xl">
             <header className="bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 p-4 text-white">
               <div className="flex items-center justify-between">
                 <div>

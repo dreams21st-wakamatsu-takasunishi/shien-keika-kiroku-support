@@ -26,7 +26,7 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
   if (page !== 'menu') {
     return (
       <div className="space-y-4">
-        <div className="sticky top-16 z-20 rounded-xl border border-slate-200 bg-slate-100/95 p-1.5 backdrop-blur">
+        <div className="app-sticky-below-header sticky z-20 rounded-xl border border-slate-200 bg-slate-100/95 p-1.5 backdrop-blur">
           <button type="button" onClick={() => setPage('menu')} className="flex min-h-10 items-center gap-2 rounded-lg bg-white px-3 text-xs font-bold text-slate-700 shadow-sm">
             <ArrowLeft className="w-4 h-4" />設定メニュー
           </button>

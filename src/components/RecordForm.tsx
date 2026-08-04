@@ -3121,7 +3121,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       </div>
 
       {wizard.selectedChildIds.length > 0 && wizard.currentStepIndex >= 2 && (
-        <div className="sticky top-16 z-20 rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur">
+        <div className="app-sticky-below-header sticky z-20 rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur">
           <div className="mb-2 flex items-center justify-between gap-3 px-1">
             <p className="text-[11px] font-black text-slate-600">児童切替</p>
             {wizard.selectedChildIds.length > 1 && !editingDisabled && (
