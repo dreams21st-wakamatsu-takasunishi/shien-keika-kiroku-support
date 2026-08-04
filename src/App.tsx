@@ -9,6 +9,7 @@ import {
   CalendarEvent,
   ChildProfile,
   DEFAULT_AI_WRITING_SETTINGS,
+  DEFAULT_TRANSPORT_ROUTE_SETTINGS,
   HandoverConfirmation,
   HandoverItem,
   HandoverStatus,
@@ -25,6 +26,7 @@ import {
   SupportRecord,
   Template,
   TransportRun,
+  TransportRouteSettings,
   TransportRunStatus,
   Vehicle,
 } from './types';
@@ -83,6 +85,7 @@ import {
   sendAnnouncementNotification,
   saveTemplate,
   saveTransportRun,
+  saveTransportRouteSettings,
   saveVehicle,
   seedDefaultTemplates,
   softDeleteChild,
@@ -188,6 +191,11 @@ export default function App() {
     const saved = localStorage.getItem('support_transport_runs_data');
     return saved ? JSON.parse(saved) : [];
   });
+  const [transportRouteSettings, setTransportRouteSettings] = useState<TransportRouteSettings>(() => {
+    if (remoteMode) return DEFAULT_TRANSPORT_ROUTE_SETTINGS;
+    const saved = localStorage.getItem('support_transport_route_settings_data');
+    return saved ? JSON.parse(saved) : DEFAULT_TRANSPORT_ROUTE_SETTINGS;
+  });
   const [announcements, setAnnouncements] = useState<Announcement[]>(() => {
     if (remoteMode) return [];
     const saved = localStorage.getItem('support_announcements_data');
@@ -289,6 +297,9 @@ export default function App() {
   useEffect(() => {
     if (!remoteMode) localStorage.setItem('support_transport_runs_data', JSON.stringify(transportRuns));
   }, [transportRuns, remoteMode]);
+  useEffect(() => {
+    if (!remoteMode) localStorage.setItem('support_transport_route_settings_data', JSON.stringify(transportRouteSettings));
+  }, [transportRouteSettings, remoteMode]);
 
   const refreshRemoteData = useCallback(async (showLoading = true) => {
     if (!auth.profile) return;
@@ -320,6 +331,7 @@ export default function App() {
       setAttendanceCorrections(workspace.attendanceCorrectionRequests);
       setVehicles(workspace.vehicles);
       setTransportRuns(workspace.transportRuns);
+      setTransportRouteSettings(workspace.transportRouteSettings);
       setDataError(null);
     } catch (error) {
       setDataError(error instanceof Error ? error.message : '共有データを取得できませんでした。');
@@ -422,6 +434,7 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_correction_requests', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_runs', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_route_settings', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
   }, [auth.profile, refreshRemoteData, refreshRecordDrafts]);
@@ -919,6 +932,17 @@ export default function App() {
     } catch (error) { persistError(error); }
   };
 
+  const handleSaveTransportRouteSettings = async (settings: TransportRouteSettings) => {
+    if (!canManageSettings) throw new Error('経路設定を変更できるのは児発管または管理者です。');
+    try {
+      if (organizationId) await saveTransportRouteSettings(organizationId, settings);
+      setTransportRouteSettings({ ...settings, updatedAt: new Date().toISOString() });
+    } catch (error) {
+      persistError(error);
+      throw error;
+    }
+  };
+
   const handleUpdateTransportStatus = async (run: TransportRun, recorder: RecorderProfile, pin: string, status: TransportRunStatus) => {
     try {
       if (organizationId) await updateTransportRunStatus(organizationId, run.id, recorder.id, pin, status);
@@ -1318,6 +1342,7 @@ export default function App() {
             attendanceCorrections={attendanceCorrections}
             vehicles={vehicles}
             transportRuns={transportRuns}
+            transportRouteSettings={transportRouteSettings}
             handoverItems={handoverItems}
             handoverConfirmations={handoverConfirmations}
             morningMeetingRecords={morningMeetingRecords}
@@ -1364,6 +1389,7 @@ export default function App() {
             onDeleteVehicle={handleDeleteVehicle}
             onSaveTransportRun={handleSaveTransportRun}
             onDeleteTransportRun={handleDeleteTransportRun}
+            onSaveTransportRouteSettings={handleSaveTransportRouteSettings}
             onUpdateTransportStatus={handleUpdateTransportStatus}
           />
         )}

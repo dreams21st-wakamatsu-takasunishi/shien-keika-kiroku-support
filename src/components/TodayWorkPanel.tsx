@@ -19,6 +19,7 @@ import type {
   RecorderProfile,
   StaffScheduleItem,
   TransportRun,
+  TransportRouteSettings,
   TransportRunStatus,
   Vehicle,
 } from '../types';
@@ -37,6 +38,7 @@ interface TodayWorkPanelProps {
   attendanceCorrections: AttendanceCorrectionRequest[];
   vehicles: Vehicle[];
   transportRuns: TransportRun[];
+  transportRouteSettings: TransportRouteSettings;
   recorderProfiles: RecorderProfile[];
   childrenList: ChildProfile[];
   activeRecorder?: RecorderProfile;
@@ -53,6 +55,7 @@ interface TodayWorkPanelProps {
   onDeleteVehicle: (vehicleId: string) => Promise<void> | void;
   onSaveTransportRun: (run: TransportRun) => Promise<void> | void;
   onDeleteTransportRun: (runId: string) => Promise<void> | void;
+  onSaveTransportRouteSettings: (settings: TransportRouteSettings) => Promise<void> | void;
   onUpdateTransportStatus: (run: TransportRun, recorder: RecorderProfile, pin: string, status: TransportRunStatus) => Promise<void> | void;
 }
 
@@ -63,6 +66,7 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
   attendanceCorrections,
   vehicles,
   transportRuns,
+  transportRouteSettings,
   recorderProfiles,
   childrenList,
   activeRecorder,
@@ -79,6 +83,7 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
   onDeleteVehicle,
   onSaveTransportRun,
   onDeleteTransportRun,
+  onSaveTransportRouteSettings,
   onUpdateTransportStatus,
 }) => {
   const [selectedDate, setSelectedDate] = useState(getLocalDateString);
@@ -169,7 +174,7 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
       )}
       {view === 'calendar' && <CalendarPanel events={calendarEvents} recorderProfiles={recorderProfiles} childrenList={childrenList} selectedDate={selectedDate} onDateChange={setSelectedDate} canEdit={canManage} onSave={onSaveCalendarEvent} onDelete={onDeleteCalendarEvent} />}
       {view === 'attendance' && <AttendancePanel records={attendanceRecords} corrections={attendanceCorrections} recorderProfiles={recorderProfiles} selectedDate={selectedDate} activeRecorder={activeRecorder} canManage={canManage} onSaveRecord={onSaveAttendance} onPunch={onPunchAttendance} onRequestCorrection={onRequestAttendanceCorrection} onReviewCorrection={onReviewAttendanceCorrection} />}
-      {view === 'transport' && <TransportPanel runs={transportRuns} vehicles={vehicles} recorderProfiles={recorderProfiles} childrenList={childrenList} selectedDate={selectedDate} canManage={canManage} activeRecorder={activeRecorder} warningsByRunId={warningsByRunId} focusRunId={focusRunId} onSaveRun={onSaveTransportRun} onDeleteRun={onDeleteTransportRun} onSaveVehicle={onSaveVehicle} onDeleteVehicle={onDeleteVehicle} onUpdateStatus={onUpdateTransportStatus} />}
+      {view === 'transport' && <TransportPanel runs={transportRuns} vehicles={vehicles} routeSettings={transportRouteSettings} recorderProfiles={recorderProfiles} childrenList={childrenList} selectedDate={selectedDate} canManage={canManage} activeRecorder={activeRecorder} warningsByRunId={warningsByRunId} focusRunId={focusRunId} onSaveRun={onSaveTransportRun} onDeleteRun={onDeleteTransportRun} onSaveVehicle={onSaveVehicle} onDeleteVehicle={onDeleteVehicle} onSaveRouteSettings={onSaveTransportRouteSettings} onUpdateStatus={onUpdateTransportStatus} />}
     </div>
   );
 };

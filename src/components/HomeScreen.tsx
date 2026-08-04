@@ -35,6 +35,7 @@ import type {
   StaffScheduleItem,
   SupportRecord,
   TransportRun,
+  TransportRouteSettings,
   TransportRunStatus,
   UserProfile,
   Vehicle,
@@ -61,6 +62,7 @@ interface HomeScreenProps {
   attendanceCorrections: AttendanceCorrectionRequest[];
   vehicles: Vehicle[];
   transportRuns: TransportRun[];
+  transportRouteSettings: TransportRouteSettings;
   handoverItems: HandoverItem[];
   handoverConfirmations: HandoverConfirmation[];
   morningMeetingRecords: MorningMeetingRecord[];
@@ -101,6 +103,7 @@ interface HomeScreenProps {
   onDeleteVehicle: (vehicleId: string) => Promise<void> | void;
   onSaveTransportRun: (run: TransportRun) => Promise<void> | void;
   onDeleteTransportRun: (runId: string) => Promise<void> | void;
+  onSaveTransportRouteSettings: (settings: TransportRouteSettings) => Promise<void> | void;
   onUpdateTransportStatus: (run: TransportRun, recorder: RecorderProfile, pin: string, status: TransportRunStatus) => Promise<void> | void;
 }
 
@@ -117,6 +120,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   attendanceCorrections,
   vehicles,
   transportRuns,
+  transportRouteSettings,
   handoverItems,
   handoverConfirmations,
   morningMeetingRecords,
@@ -157,6 +161,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onDeleteVehicle,
   onSaveTransportRun,
   onDeleteTransportRun,
+  onSaveTransportRouteSettings,
   onUpdateTransportStatus,
 }) => {
   const [activePanel, setActivePanel] = useState<'todayWork' | 'operations' | 'morning' | 'handover' | 'assistant'>('todayWork');
@@ -295,6 +300,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             attendanceCorrections={attendanceCorrections}
             vehicles={vehicles}
             transportRuns={transportRuns}
+            transportRouteSettings={transportRouteSettings}
             recorderProfiles={recorderProfiles}
             childrenList={childrenList}
             activeRecorder={activeRecorder}
@@ -311,6 +317,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             onDeleteVehicle={onDeleteVehicle}
             onSaveTransportRun={onSaveTransportRun}
             onDeleteTransportRun={onDeleteTransportRun}
+            onSaveTransportRouteSettings={onSaveTransportRouteSettings}
             onUpdateTransportStatus={onUpdateTransportStatus}
           />
         )}

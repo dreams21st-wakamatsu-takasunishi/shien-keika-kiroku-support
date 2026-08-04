@@ -25,6 +25,9 @@ import {
   SupportRecord,
   Template,
   TransportRun,
+  TransportRouteOptimizationRequest,
+  TransportRouteOptimizationResult,
+  TransportRouteSettings,
   Vehicle,
   Weekday,
 } from '../types';
@@ -54,6 +57,7 @@ export interface WorkspaceData {
   attendanceCorrectionRequests: AttendanceCorrectionRequest[];
   vehicles: Vehicle[];
   transportRuns: TransportRun[];
+  transportRouteSettings: TransportRouteSettings;
 }
 
 function assertSupabase() {
@@ -320,11 +324,24 @@ function mapTransportRun(
     stops: Array.isArray(row.stops) ? row.stops : [],
     guardianNote: row.guardian_note || undefined,
     operationNote: row.operation_note || undefined,
+    routeOrigin: row.route_origin || undefined,
+    routeDestination: row.route_destination || undefined,
+    routeOptimizedAt: row.route_optimized_at || undefined,
     status: row.status || '未出発',
     statusUpdatedAt: row.status_updated_at || undefined,
     statusUpdatedByRecorderId: row.status_updated_by_recorder_id || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function mapTransportRouteSettings(row: any): TransportRouteSettings {
+  return {
+    facilityAddress: row?.facility_address || '',
+    stopDurationMinutes: Math.max(0, Math.min(30, Number(row?.stop_duration_minutes) || 5)),
+    avoidTolls: row?.avoid_tolls === true,
+    avoidHighways: row?.avoid_highways === true,
+    updatedAt: row?.updated_at || undefined,
   };
 }
 
@@ -438,6 +455,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     attendanceCorrectionsResult,
     vehiclesResult,
     transportRunsResult,
+    transportRouteSettingsResult,
   ] = await Promise.all([
     client.from('children').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('name'),
     client.from('child_regular_day_schedules').select('*').eq('organization_id', organizationId).order('effective_from'),
@@ -459,6 +477,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     client.from('attendance_correction_requests').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }),
     client.from('vehicles').select('*').eq('organization_id', organizationId).order('name'),
     client.from('transport_runs').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }).order('start_time'),
+    client.from('transport_route_settings').select('*').eq('organization_id', organizationId).eq('id', 'default').maybeSingle(),
   ]);
 
   for (const result of [
@@ -523,6 +542,9 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     transportRuns: transportRunsResult.error
       ? []
       : (transportRunsResult.data || []).map((row) => mapTransportRun(row, recorderNames, vehicleNames)),
+    transportRouteSettings: transportRouteSettingsResult.error
+      ? mapTransportRouteSettings(null)
+      : mapTransportRouteSettings(transportRouteSettingsResult.data),
   };
 }
 
@@ -700,6 +722,9 @@ export async function saveTransportRun(organizationId: string, run: TransportRun
     stops: run.stops,
     guardian_note: run.guardianNote?.trim() || null,
     operation_note: run.operationNote?.trim() || null,
+    route_origin: run.routeOrigin?.trim() || null,
+    route_destination: run.routeDestination?.trim() || null,
+    route_optimized_at: run.routeOptimizedAt || null,
     status: run.status,
   }, { onConflict: 'organization_id,id' });
   if (error) throw error;
@@ -726,6 +751,40 @@ export async function updateTransportRunStatus(
     p_status: status,
   });
   if (error) throw error;
+}
+
+export async function saveTransportRouteSettings(
+  organizationId: string,
+  settings: TransportRouteSettings,
+) {
+  const { error } = await assertSupabase().from('transport_route_settings').upsert({
+    organization_id: organizationId,
+    id: 'default',
+    facility_address: settings.facilityAddress.trim(),
+    stop_duration_minutes: Math.max(0, Math.min(30, Math.round(settings.stopDurationMinutes))),
+    avoid_tolls: settings.avoidTolls,
+    avoid_highways: settings.avoidHighways,
+  }, { onConflict: 'organization_id,id' });
+  if (error) throw error;
+}
+
+export async function optimizeTransportRoute(
+  request: TransportRouteOptimizationRequest,
+): Promise<TransportRouteOptimizationResult> {
+  const { data, error } = await assertSupabase().functions.invoke('optimize-transport-route', {
+    body: request,
+  });
+  if (error) {
+    const context = (error as unknown as { context?: Response }).context;
+    if (context) {
+      const payload = await context.clone().json().catch(() => null) as { error?: string } | null;
+      if (payload?.error) throw new Error(payload.error);
+    }
+    throw error;
+  }
+  if (!data || typeof data !== 'object') throw new Error('経路候補を取得できませんでした。');
+  if (typeof data.error === 'string') throw new Error(data.error);
+  return data as TransportRouteOptimizationResult;
 }
 
 export async function saveAnnouncement(organizationId: string, announcement: Announcement) {

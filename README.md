@@ -66,7 +66,17 @@ npx.cmd supabase secrets set GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
 npx.cmd supabase functions deploy polish-record
 npx.cmd supabase functions deploy invite-member
 npx.cmd supabase functions deploy manage-member
+npx.cmd supabase functions deploy optimize-transport-route
 ```
+
+送迎経路最適化を利用する場合は、Google Cloudで課金を有効にしたプロジェクトにRoutes APIを追加し、Routes APIだけに制限したサーバー用APIキーをSupabase Secretへ登録します。APIキーを`.env.local`やGitHub Actionsへ登録しないでください。
+
+```powershell
+npx.cmd supabase secrets set GOOGLE_MAPS_API_KEY="YOUR_SERVER_SIDE_ROUTES_API_KEY"
+npx.cmd supabase functions deploy optimize-transport-route
+```
+
+経路候補は管理者・児発管が明示的に実行したときだけ作成します。児童名や支援記録はGoogleへ送らず、出発地点・終着地点・乗降場所だけを経路計算へ使用します。提案された経路は必ず運転者が安全性と当日の道路状況を確認してください。
 
 AIへ児童氏名は送信されません。選択項目と職員メモだけが送信され、生成前後の内容は事業所内の監査用ログへ保存されます。利用する生成AIサービスの契約・データ利用条件は、事業所の個人情報保護規程に照らして別途確認してください。
 

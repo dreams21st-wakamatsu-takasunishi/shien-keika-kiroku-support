@@ -6,10 +6,15 @@ import {
   BusFront,
   CarFront,
   CheckCircle2,
+  ExternalLink,
   GripVertical,
+  LoaderCircle,
   MapPin,
+  Navigation,
   PencilLine,
   Plus,
+  Route,
+  Settings2,
   Trash2,
   UserRoundCheck,
   X,
@@ -19,14 +24,18 @@ import type {
   RecorderProfile,
   TransportDirection,
   TransportRun,
+  TransportRouteOptimizationResult,
+  TransportRouteSettings,
   TransportRunStatus,
   TransportStop,
   Vehicle,
 } from "../types";
+import { optimizeTransportRoute } from "../services/dataService";
 
 interface TransportPanelProps {
   runs: TransportRun[];
   vehicles: Vehicle[];
+  routeSettings: TransportRouteSettings;
   recorderProfiles: RecorderProfile[];
   childrenList: ChildProfile[];
   selectedDate: string;
@@ -38,6 +47,7 @@ interface TransportPanelProps {
   onDeleteRun: (runId: string) => Promise<void> | void;
   onSaveVehicle: (vehicle: Vehicle) => Promise<void> | void;
   onDeleteVehicle: (vehicleId: string) => Promise<void> | void;
+  onSaveRouteSettings: (settings: TransportRouteSettings) => Promise<void> | void;
   onUpdateStatus: (
     run: TransportRun,
     recorder: RecorderProfile,
@@ -51,6 +61,7 @@ type ViewMode = "runs" | "vehicles";
 export const TransportPanel: React.FC<TransportPanelProps> = ({
   runs,
   vehicles,
+  routeSettings,
   recorderProfiles,
   childrenList,
   selectedDate,
@@ -62,6 +73,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
   onDeleteRun,
   onSaveVehicle,
   onDeleteVehicle,
+  onSaveRouteSettings,
   onUpdateStatus,
 }) => {
   const [view, setView] = useState<ViewMode>("runs");
@@ -73,6 +85,13 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
   );
   const [statusPin, setStatusPin] = useState("");
   const [error, setError] = useState("");
+  const [routeSettingsForm, setRouteSettingsForm] = useState<TransportRouteSettings | null>(null);
+  const [routeOrigin, setRouteOrigin] = useState("");
+  const [routeDestination, setRouteDestination] = useState("");
+  const [routePreview, setRoutePreview] = useState<TransportRouteOptimizationResult | null>(null);
+  const [optimizingRoute, setOptimizingRoute] = useState(false);
+  const [savingRouteSettings, setSavingRouteSettings] = useState(false);
+  const [routeMessage, setRouteMessage] = useState("");
   const activeRecorders = useMemo(
     () => recorderProfiles.filter((profile) => profile.active),
     [recorderProfiles],
@@ -88,6 +107,10 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
   const openNewRun = () => {
     const now = new Date().toISOString();
     setError("");
+    setRouteOrigin(routeSettings.facilityAddress);
+    setRouteDestination(routeSettings.facilityAddress);
+    setRoutePreview(null);
+    setRouteMessage("");
     setRunForm({
       id: createUuid(),
       date: selectedDate,
@@ -101,6 +124,18 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
       createdAt: now,
       updatedAt: now,
     });
+  };
+
+  const openRunEditor = (run: TransportRun) => {
+    setRunForm({
+      ...run,
+      stops: run.stops.map((stop) => ({ ...stop })),
+    });
+    setRouteOrigin(run.routeOrigin || routeSettings.facilityAddress);
+    setRouteDestination(run.routeDestination || routeSettings.facilityAddress);
+    setRoutePreview(null);
+    setRouteMessage("");
+    setError("");
   };
 
   const saveRun = async () => {
@@ -120,9 +155,12 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
         ...stop,
         order: index + 1,
       })),
+      routeOrigin: routeOrigin.trim() || undefined,
+      routeDestination: routeDestination.trim() || undefined,
       updatedAt: new Date().toISOString(),
     });
     setRunForm(null);
+    setRoutePreview(null);
   };
 
   const addStop = () => {
@@ -170,6 +208,92 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
       updatedAt: new Date().toISOString(),
     });
     setVehicleForm(null);
+  };
+
+  const saveRouteSettings = async () => {
+    if (!routeSettingsForm) return;
+    if (!routeSettingsForm.facilityAddress.trim()) return setError("事業所住所を入力してください。");
+    setSavingRouteSettings(true);
+    setError("");
+    try {
+      await onSaveRouteSettings({
+        ...routeSettingsForm,
+        facilityAddress: routeSettingsForm.facilityAddress.trim(),
+        stopDurationMinutes: Math.max(0, Math.min(30, Math.round(routeSettingsForm.stopDurationMinutes))),
+      });
+      setRouteOrigin(routeSettingsForm.facilityAddress.trim());
+      setRouteDestination(routeSettingsForm.facilityAddress.trim());
+      setRouteSettingsForm(null);
+    } catch (settingsError) {
+      setError(settingsError instanceof Error ? settingsError.message : "経路設定を保存できませんでした。");
+    } finally {
+      setSavingRouteSettings(false);
+    }
+  };
+
+  const requestRouteOptimization = async () => {
+    if (!runForm) return;
+    if (!routeOrigin.trim() || !routeDestination.trim()) return setError("出発地点と終着地点を入力してください。");
+    if (runForm.stops.length === 0) return setError("乗降場所を1件以上登録してください。");
+    if (runForm.stops.length > 10) return setError("費用管理のため、自動最適化は1便10地点までです。");
+    if (runForm.stops.some((stop) => !stop.location.trim())) return setError("乗降場所が未入力の地点があります。");
+    setOptimizingRoute(true);
+    setRoutePreview(null);
+    setRouteMessage("");
+    setError("");
+    try {
+      const result = await optimizeTransportRoute({
+        transportRunId: runForm.id,
+        serviceDate: runForm.date,
+        departureTime: runForm.startTime,
+        origin: routeOrigin.trim(),
+        destination: routeDestination.trim(),
+        stops: runForm.stops.map((stop) => ({
+          id: stop.id,
+          label: stop.childName || stop.locationType,
+          location: stop.location.trim(),
+        })),
+        avoidTolls: routeSettings.avoidTolls,
+        avoidHighways: routeSettings.avoidHighways,
+      });
+      setRoutePreview(result);
+    } catch (optimizationError) {
+      setError(optimizationError instanceof Error ? optimizationError.message : "経路候補を作成できませんでした。");
+    } finally {
+      setOptimizingRoute(false);
+    }
+  };
+
+  const applyOptimizedRoute = () => {
+    if (!runForm || !routePreview) return;
+    const currentStops = new Map(runForm.stops.map((stop) => [stop.id, stop]));
+    const orderedStops = routePreview.optimizedStopIds
+      .map((id) => currentStops.get(id))
+      .filter((stop): stop is TransportStop => Boolean(stop));
+    if (orderedStops.length !== runForm.stops.length) return setError("経路候補と現在の乗降地点が一致しません。もう一度候補を作成してください。");
+    let elapsedSeconds = 0;
+    const stops = orderedStops.map((stop, index) => {
+      if (index > 0) elapsedSeconds += routeSettings.stopDurationMinutes * 60;
+      elapsedSeconds += routePreview.legs[index]?.durationSeconds || 0;
+      return {
+        ...stop,
+        order: index + 1,
+        plannedTime: addMinutesToTime(runForm.startTime, Math.round(elapsedSeconds / 60)),
+      };
+    });
+    const totalMinutes = Math.round(routePreview.totalDurationSeconds / 60)
+      + routeSettings.stopDurationMinutes * orderedStops.length;
+    setRunForm({
+      ...runForm,
+      stops,
+      endTime: addMinutesToTime(runForm.startTime, totalMinutes),
+      routeOrigin: routeOrigin.trim(),
+      routeDestination: routeDestination.trim(),
+      routeOptimizedAt: new Date().toISOString(),
+    });
+    setRoutePreview(null);
+    setRouteMessage("最適化した順番と到着予定時刻を反映しました。最後に「送迎便を保存」を押してください。");
+    setError("");
   };
 
   const submitStatus = async (status: TransportRunStatus) => {
@@ -220,14 +344,27 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
               </p>
             </div>
             {canManage && (
-              <button
-                type="button"
-                onClick={openNewRun}
-                className="flex min-h-11 items-center gap-2 rounded-xl bg-teal-600 px-4 text-sm font-black text-white"
-              >
-                <Plus className="h-5 w-5" />
-                便を追加
-              </button>
+              <div className="flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRouteSettingsForm({ ...routeSettings });
+                    setError("");
+                  }}
+                  className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-sm font-black text-slate-700"
+                >
+                  <Settings2 className="h-4 w-4" />
+                  経路設定
+                </button>
+                <button
+                  type="button"
+                  onClick={openNewRun}
+                  className="flex min-h-11 items-center gap-2 rounded-xl bg-teal-600 px-4 text-sm font-black text-white"
+                >
+                  <Plus className="h-5 w-5" />
+                  便を追加
+                </button>
+              </div>
             )}
           </div>
           {dayRuns.length === 0 ? (
@@ -318,6 +455,23 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
                       </div>
                     )}
                     <div className="mt-3 flex flex-wrap gap-2">
+                      {(run.routeOrigin || routeSettings.facilityAddress)
+                        && (run.routeDestination || routeSettings.facilityAddress)
+                        && run.stops.length > 0 && (
+                        <a
+                          href={buildGoogleMapsUrl(
+                            run.routeOrigin || routeSettings.facilityAddress,
+                            run.routeDestination || routeSettings.facilityAddress,
+                            run.stops.map((stop) => stop.location).filter(Boolean),
+                          )}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex min-h-10 items-center rounded-xl border border-sky-200 bg-sky-50 px-3 text-xs font-black text-sky-800"
+                        >
+                          <Navigation className="mr-1 h-4 w-4" />
+                          地図で確認
+                        </a>
+                      )}
                       {(assigned || canManage) &&
                         run.status !== "帰着" &&
                         run.status !== "事業所到着" && (
@@ -341,13 +495,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
                       {canManage && (
                         <button
                           type="button"
-                          onClick={() => {
-                            setRunForm({
-                              ...run,
-                              stops: run.stops.map((stop) => ({ ...stop })),
-                            });
-                            setError("");
-                          }}
+                          onClick={() => openRunEditor(run)}
                           className="min-h-10 rounded-xl border border-slate-300 px-3 text-xs font-bold"
                         >
                           <PencilLine className="mr-1 inline h-4 w-4" />
@@ -726,6 +874,80 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
               ))}
             </div>
           </section>
+          <section className="rounded-xl border border-sky-200 bg-sky-50/70 p-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h4 className="flex items-center gap-2 font-black text-sky-950"><Route className="h-5 w-5" />経路最適化</h4>
+                <p className="mt-1 text-xs leading-relaxed text-sky-900">Google Routes APIで移動時間を基準に乗降順を提案します。候補を確認するまでは現在の順番を変更しません。</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setRouteOrigin(routeSettings.facilityAddress);
+                  setRouteDestination(routeSettings.facilityAddress);
+                }}
+                className="min-h-10 shrink-0 rounded-lg border border-sky-300 bg-white px-3 text-xs font-black text-sky-900"
+              >
+                  事業所住所を反映
+              </button>
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-2">
+              <label className="text-xs font-bold text-slate-700">出発地点
+                <input value={routeOrigin} onChange={(event) => { setRouteOrigin(event.target.value); setRoutePreview(null); }} placeholder="例：福岡県北九州市…" className="mt-1 min-h-11 w-full rounded-lg border border-sky-200 bg-white px-3 text-sm" />
+              </label>
+              <label className="text-xs font-bold text-slate-700">終着地点
+                <input value={routeDestination} onChange={(event) => { setRouteDestination(event.target.value); setRoutePreview(null); }} placeholder="通常は事業所住所" className="mt-1 min-h-11 w-full rounded-lg border border-sky-200 bg-white px-3 text-sm" />
+              </label>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] font-bold text-slate-600">
+              <span className="rounded-full bg-white px-3 py-1.5">停車時間 {routeSettings.stopDurationMinutes}分</span>
+              {routeSettings.avoidTolls && <span className="rounded-full bg-white px-3 py-1.5">有料道路を避ける</span>}
+              {routeSettings.avoidHighways && <span className="rounded-full bg-white px-3 py-1.5">高速道路を避ける</span>}
+              <span>1便10地点まで・実行時のみAPIを使用</span>
+            </div>
+            <button
+              type="button"
+              disabled={optimizingRoute || runForm.stops.length === 0}
+              onClick={() => void requestRouteOptimization()}
+              className="mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-sky-700 px-4 text-sm font-black text-white disabled:opacity-50"
+            >
+              {optimizingRoute ? <LoaderCircle className="h-5 w-5 animate-spin" /> : <Route className="h-5 w-5" />}
+              {optimizingRoute ? "経路を計算中…" : "経路候補を作成"}
+            </button>
+            {routePreview && (
+              <div className="mt-3 rounded-xl border border-sky-200 bg-white p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-[10px] font-black text-sky-700">最適化候補</p>
+                    <p className="mt-1 font-black text-slate-950">{formatDistance(routePreview.totalDistanceMeters)}・走行約{formatDuration(routePreview.totalDurationSeconds)}</p>
+                    <p className="mt-1 text-[10px] text-slate-500">停車時間は含みません。</p>
+                  </div>
+                  <a
+                    href={buildGoogleMapsUrl(
+                      routeOrigin,
+                      routeDestination,
+                      routePreview.optimizedStopIds.map((id) => runForm.stops.find((stop) => stop.id === id)?.location || "").filter(Boolean),
+                    )}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex min-h-10 items-center rounded-lg border border-sky-200 px-3 text-xs font-black text-sky-800"
+                  >
+                    <ExternalLink className="mr-1 h-4 w-4" />Googleマップ
+                  </a>
+                </div>
+                <ol className="mt-3 grid gap-2 sm:grid-cols-2">
+                  {routePreview.optimizedStopIds.map((id, index) => {
+                    const stop = runForm.stops.find((candidate) => candidate.id === id);
+                    return <li key={id} className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 text-xs"><span className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-sky-700 font-black text-white">{index + 1}</span><span className="min-w-0"><strong className="block truncate">{stop?.childName || stop?.locationType || "乗降地点"}</strong><span className="block truncate text-slate-500">{stop?.location}</span></span></li>;
+                  })}
+                </ol>
+                {routePreview.warnings.map((warning) => <p key={warning} className="mt-2 text-[10px] font-bold text-amber-800">※ {warning}</p>)}
+                <button type="button" onClick={applyOptimizedRoute} className="mt-3 min-h-12 w-full rounded-xl bg-teal-600 px-4 text-sm font-black text-white">この順番と予定時刻を反映</button>
+              </div>
+            )}
+            {routeMessage && <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold leading-relaxed text-emerald-900">{routeMessage}</p>}
+            <p className="mt-3 text-[10px] leading-relaxed text-slate-500">住所は経路計算時にGoogleへ送信されます。児童名・連絡事項・支援記録は送信しません。住所は正確性を確認してから運行してください。</p>
+          </section>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-sm font-bold">
               保護者への連絡事項
@@ -756,6 +978,25 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
           >
             送迎便を保存
           </button>
+        </Modal>
+      )}
+
+      {routeSettingsForm && (
+        <Modal title="送迎経路設定" onClose={() => setRouteSettingsForm(null)}>
+          <label className="block text-sm font-bold">事業所住所
+            <input value={routeSettingsForm.facilityAddress} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, facilityAddress: event.target.value })} placeholder="都道府県・市区町村・番地まで入力" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3" />
+          </label>
+          <label className="block text-sm font-bold">1地点あたりの停車時間（分）
+            <input type="number" min="0" max="30" value={routeSettingsForm.stopDurationMinutes} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, stopDurationMinutes: Number(event.target.value) })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3" />
+            <span className="mt-1 block text-[10px] font-normal text-slate-500">到着予定時刻の計算に使用します。乗降・確認に必要な平均時間を設定してください。</span>
+          </label>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-300 px-3 text-sm font-bold"><input type="checkbox" checked={routeSettingsForm.avoidTolls} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, avoidTolls: event.target.checked })} />有料道路を避ける</label>
+            <label className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-300 px-3 text-sm font-bold"><input type="checkbox" checked={routeSettingsForm.avoidHighways} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, avoidHighways: event.target.checked })} />高速道路を避ける</label>
+          </div>
+          <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-900">経路は安全性、道路規制、当日の交通状況を保証するものではありません。運転者が最終確認してください。</p>
+          {error && <ErrorMessage text={error} />}
+          <button type="button" disabled={savingRouteSettings} onClick={() => void saveRouteSettings()} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-teal-600 font-black text-white disabled:opacity-60">{savingRouteSettings && <LoaderCircle className="h-5 w-5 animate-spin" />}{savingRouteSettings ? "保存中…" : "経路設定を保存"}</button>
         </Modal>
       )}
 
@@ -941,6 +1182,7 @@ const Modal = ({
         <button
           type="button"
           onClick={onClose}
+          aria-label="閉じる"
           className="grid h-10 w-10 place-items-center rounded-full bg-slate-100"
         >
           <X className="h-5 w-5" />
@@ -983,6 +1225,33 @@ function getNextStatuses(run: TransportRun): TransportRunStatus[] {
   if (run.status === "乗車済み") return ["事業所到着"];
   if (run.status === "降車済み") return ["帰着"];
   return [];
+}
+function addMinutesToTime(value: string, minutes: number) {
+  const [hour, minute] = value.split(":").map(Number);
+  if (!Number.isFinite(hour) || !Number.isFinite(minute)) return value;
+  const total = (hour * 60 + minute + Math.max(0, minutes)) % (24 * 60);
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+function formatDistance(meters: number) {
+  if (meters < 1000) return `${Math.max(0, Math.round(meters))}m`;
+  return `${(meters / 1000).toFixed(meters >= 10000 ? 0 : 1)}km`;
+}
+function formatDuration(seconds: number) {
+  const minutes = Math.max(1, Math.round(seconds / 60));
+  if (minutes < 60) return `${minutes}分`;
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder ? `${hours}時間${remainder}分` : `${hours}時間`;
+}
+function buildGoogleMapsUrl(origin: string, destination: string, waypoints: string[]) {
+  const parameters = new URLSearchParams({
+    api: "1",
+    origin,
+    destination,
+    travelmode: "driving",
+  });
+  if (waypoints.length > 0) parameters.set("waypoints", waypoints.join("|"));
+  return `https://www.google.com/maps/dir/?${parameters.toString()}`;
 }
 function createUuid() {
   return typeof crypto !== "undefined" && "randomUUID" in crypto

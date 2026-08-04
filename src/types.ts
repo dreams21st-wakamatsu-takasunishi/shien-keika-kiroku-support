@@ -360,11 +360,56 @@ export interface TransportRun {
   stops: TransportStop[];
   guardianNote?: string;
   operationNote?: string;
+  routeOrigin?: string;
+  routeDestination?: string;
+  routeOptimizedAt?: string;
   status: TransportRunStatus;
   statusUpdatedAt?: string;
   statusUpdatedByRecorderId?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface TransportRouteSettings {
+  facilityAddress: string;
+  stopDurationMinutes: number;
+  avoidTolls: boolean;
+  avoidHighways: boolean;
+  updatedAt?: string;
+}
+
+export const DEFAULT_TRANSPORT_ROUTE_SETTINGS: TransportRouteSettings = {
+  facilityAddress: '',
+  stopDurationMinutes: 5,
+  avoidTolls: false,
+  avoidHighways: false,
+};
+
+export interface TransportRouteLeg {
+  fromLabel: string;
+  toLabel: string;
+  distanceMeters: number;
+  durationSeconds: number;
+}
+
+export interface TransportRouteOptimizationResult {
+  provider: 'google_routes';
+  optimizedStopIds: string[];
+  totalDistanceMeters: number;
+  totalDurationSeconds: number;
+  legs: TransportRouteLeg[];
+  warnings: string[];
+}
+
+export interface TransportRouteOptimizationRequest {
+  transportRunId: string;
+  serviceDate: string;
+  departureTime: string;
+  origin: string;
+  destination: string;
+  stops: Array<{ id: string; label: string; location: string }>;
+  avoidTolls: boolean;
+  avoidHighways: boolean;
 }
 
 export interface RecordDraftSummary {
