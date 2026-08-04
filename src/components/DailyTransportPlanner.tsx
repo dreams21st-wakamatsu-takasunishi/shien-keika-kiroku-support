@@ -1,15 +1,20 @@
 import React, { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   DndContext,
-  PointerSensor,
+  DragOverlay,
+  MouseSensor,
   TouchSensor,
+  pointerWithin,
+  rectIntersection,
   useDraggable,
   useDroppable,
   useSensor,
   useSensors,
+  type CollisionDetection,
   type DragEndEvent,
+  type DragStartEvent,
 } from '@dnd-kit/core';
-import { CSS } from '@dnd-kit/utilities';
 import {
   ArrowDown,
   ArrowUp,
@@ -55,6 +60,11 @@ interface DragChildData {
   sourceRunId?: string;
   sourceStopId?: string;
 }
+
+const transportCollisionDetection: CollisionDetection = (args) => {
+  const pointerCollisions = pointerWithin(args);
+  return pointerCollisions.length > 0 ? pointerCollisions : rectIntersection(args);
+};
 
 const LOCATION_TYPES: TransportLocationType[] = ['自宅', '学校', '学童', '習い事', '親族宅', '事業所', 'その他'];
 const createUuid = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -115,32 +125,26 @@ function adjustRunTimes(run: TransportRun): TransportRun {
   };
 }
 
-const DraggableChildCard: React.FC<{
+const ChildCardContent: React.FC<{
   child: ChildProfile;
   date: string;
-  data: DragChildData;
   pickupAssigned: boolean;
   dropoffAssigned: boolean;
   compact?: boolean;
+  preview?: boolean;
 }> = ({
   child,
   date,
-  data,
   pickupAssigned,
   dropoffAssigned,
   compact = false,
+  preview = false,
 }) => {
-  const dragId = data.sourceStopId ? `stop-${data.sourceStopId}` : `pool-${child.id}`;
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: dragId, data });
   const schedule = getTransportScheduleForDate(child, date);
   return (
-    <article
-      ref={setNodeRef}
-      style={{ transform: CSS.Translate.toString(transform) }}
-      className={`relative min-w-0 rounded-xl border bg-white shadow-sm transition ${isDragging ? 'z-50 opacity-60 ring-2 ring-teal-400' : 'border-slate-200'} ${compact ? 'p-2' : 'p-2.5'}`}
-    >
+    <>
       <div className="flex min-w-0 items-start gap-1.5">
-        <button type="button" aria-label={`${child.name}をドラッグ`} {...attributes} {...listeners} className="grid h-9 w-8 shrink-0 touch-none place-items-center rounded-lg bg-slate-100 text-slate-500 active:bg-teal-100"><GripVertical className="h-4 w-4" /></button>
+        <span className={`grid h-9 w-8 shrink-0 place-items-center rounded-lg ${preview ? 'bg-teal-100 text-teal-700' : 'bg-slate-100 text-slate-500'}`}><GripVertical className="h-4 w-4" /></span>
         <div className="min-w-0 flex-1">
           <strong className="block truncate text-xs text-slate-900">{child.name}</strong>
           <span className="block truncate text-[9px] font-bold text-slate-500">{child.schoolName || child.pickupLocation || '学校・迎え先未登録'}</span>
@@ -154,9 +158,49 @@ const DraggableChildCard: React.FC<{
           {child.siblingGroup && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-amber-800">兄弟 {child.siblingGroup}</span>}
         </div>
       )}
+    </>
+  );
+};
+
+const DraggableChildCard: React.FC<{
+  child: ChildProfile;
+  date: string;
+  data: DragChildData;
+  pickupAssigned: boolean;
+  dropoffAssigned: boolean;
+  compact?: boolean;
+}> = ({ child, date, data, pickupAssigned, dropoffAssigned, compact = false }) => {
+  const dragId = data.sourceStopId ? `stop-${data.sourceStopId}` : `pool-${child.id}`;
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: dragId, data });
+  return (
+    <article
+      ref={setNodeRef}
+      aria-label={`${child.name}の配車カード`}
+      className={`relative min-w-0 rounded-xl border bg-white shadow-sm transition-[opacity,box-shadow,border-color] duration-150 ${isDragging ? 'border-teal-300 opacity-30 shadow-none' : 'border-slate-200'} ${compact ? 'p-2' : 'p-2.5'}`}
+    >
+      <button
+        type="button"
+        aria-label={`${child.name}をドラッグ`}
+        aria-pressed={isDragging}
+        {...attributes}
+        {...listeners}
+        className="absolute left-0 top-0 z-10 h-12 w-12 touch-none rounded-xl opacity-0"
+      />
+      <ChildCardContent child={child} date={date} pickupAssigned={pickupAssigned} dropoffAssigned={dropoffAssigned} compact={compact} />
     </article>
   );
 };
+
+const DraggedChildPreview: React.FC<{
+  child: ChildProfile;
+  date: string;
+  pickupAssigned: boolean;
+  dropoffAssigned: boolean;
+}> = ({ child, date, pickupAssigned, dropoffAssigned }) => (
+  <article className="pointer-events-none min-w-0 rotate-[0.4deg] rounded-xl border-2 border-teal-400 bg-white p-2.5 shadow-[0_18px_45px_rgba(15,23,42,0.24)]">
+    <ChildCardContent child={child} date={date} pickupAssigned={pickupAssigned} dropoffAssigned={dropoffAssigned} compact preview />
+  </article>
+);
 
 const TransportRunLane: React.FC<{
   run: TransportRun;
@@ -210,8 +254,9 @@ const TransportRunLane: React.FC<{
         ref={setNodeRef}
         role="group"
         aria-label={`${run.name}の配車先`}
-        className={`min-h-24 space-y-1.5 p-2 transition-colors ${isOver ? 'bg-teal-100 ring-2 ring-inset ring-teal-400' : 'bg-slate-50'}`}
+        className={`relative min-h-24 space-y-1.5 p-2 transition-[background-color,box-shadow] duration-150 ${isOver ? 'bg-teal-50 shadow-[inset_0_0_0_2px_rgb(45_212_191)]' : 'bg-slate-50'}`}
       >
+        {isOver && <span className="pointer-events-none absolute right-2 top-2 z-10 rounded-full bg-teal-600 px-2 py-1 text-[9px] font-black text-white shadow-sm">ここに配置</span>}
         {run.stops.length === 0 && <p className="flex min-h-20 items-center justify-center rounded-lg border-2 border-dashed border-slate-300 px-2 text-center text-[10px] font-bold text-slate-400">ここへ児童をドラッグ</p>}
         {run.stops.map((stop, index) => {
           const child = childrenList.find((candidate) => candidate.id === stop.childId);
@@ -263,11 +308,12 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
   const [childPickerOpen, setChildPickerOpen] = useState(false);
   const [childSearch, setChildSearch] = useState('');
   const [expandedStopId, setExpandedStopId] = useState<string>();
+  const [activeDragData, setActiveDragData] = useState<DragChildData>();
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 8 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 120, tolerance: 10 } }),
   );
   const activeRecorders = useMemo(() => recorderProfiles.filter((profile) => profile.active), [recorderProfiles]);
   const boardVehicles = useMemo(() => vehicles.filter((vehicle) => vehicle.available || drafts.some((run) => run.vehicleId === vehicle.id)), [drafts, vehicles]);
@@ -281,6 +327,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
   const poolChildren = useMemo(() => childrenList.filter((child) => scheduledChildren.some((scheduled) => scheduled.id === child.id) || additionalChildIds.includes(child.id) || assignedChildIds.has(child.id)), [additionalChildIds, assignedChildIds, childrenList, scheduledChildren]);
   const pickupAssignedIds = useMemo(() => new Set(drafts.filter((run) => run.direction === '迎え').flatMap((run) => run.stops.map((stop) => stop.childId).filter((id): id is string => Boolean(id)))), [drafts]);
   const dropoffAssignedIds = useMemo(() => new Set(drafts.filter((run) => run.direction === '送り').flatMap((run) => run.stops.map((stop) => stop.childId).filter((id): id is string => Boolean(id)))), [drafts]);
+  const activeDragChild = useMemo(() => childrenList.find((child) => child.id === activeDragData?.childId), [activeDragData?.childId, childrenList]);
 
   const updateRun = (runId: string, patch: Partial<TransportRun>) => setDrafts((current) => current.map((run) => run.id === runId ? { ...run, ...patch, routeOptimizedAt: undefined } : run));
   const updateStop = (runId: string, stopId: string, patch: Partial<TransportStop>) => setDrafts((current) => current.map((run) => run.id === runId ? { ...run, routeOptimizedAt: undefined, stops: run.stops.map((stop) => stop.id === stopId ? { ...stop, ...patch } : stop) } : run));
@@ -318,7 +365,12 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
     }));
   };
 
+  const handleDragStart = ({ active }: DragStartEvent) => {
+    setActiveDragData(active.data.current as DragChildData | undefined);
+  };
+
   const handleDragEnd = ({ active, over }: DragEndEvent) => {
+    setActiveDragData(undefined);
     if (!over) return;
     const data = active.data.current as DragChildData | undefined;
     const targetRunId = over.data.current?.runId as string | undefined;
@@ -441,7 +493,13 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         <button type="button" onClick={() => setChildPickerOpen(true)} className="flex min-h-10 items-center gap-1 rounded-xl border border-teal-300 bg-teal-50 px-3 text-xs font-black text-teal-800"><UserPlus className="h-4 w-4" />児童を追加</button>
         <p className="min-w-0 flex-1 text-[10px] font-bold leading-relaxed text-slate-500">児童カードを車両の便へドラッグして配車します。自動振り分け後も移動・順番変更・送迎先編集ができます。</p>
       </div>
-      <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={transportCollisionDetection}
+        onDragStart={handleDragStart}
+        onDragCancel={() => setActiveDragData(undefined)}
+        onDragEnd={handleDragEnd}
+      >
         <div className="ui-scrollbar flex-1 overflow-y-auto p-2 sm:p-3">
           <div className="mx-auto grid max-w-[1600px] items-start gap-2 md:grid-cols-[180px_minmax(0,1fr)_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)_minmax(0,1fr)]">
             <aside className="min-w-0 rounded-2xl border border-emerald-300 bg-emerald-50/70 p-2 md:sticky md:top-0">
@@ -455,6 +513,23 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
             {renderDirection('送り')}
           </div>
         </div>
+        {createPortal(
+          <DragOverlay
+            adjustScale={false}
+            dropAnimation={{ duration: 180, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' }}
+            zIndex={150}
+          >
+            {activeDragChild ? (
+              <DraggedChildPreview
+                child={activeDragChild}
+                date={date}
+                pickupAssigned={pickupAssignedIds.has(activeDragChild.id)}
+                dropoffAssigned={dropoffAssignedIds.has(activeDragChild.id)}
+              />
+            ) : null}
+          </DragOverlay>,
+          document.body,
+        )}
       </DndContext>
       <footer className="shrink-0 border-t border-slate-200 bg-white p-3 shadow-[0_-8px_30px_rgba(15,23,42,0.08)]">
         <div className="mx-auto flex max-w-[1600px] flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between"><div className="min-h-5 text-xs font-bold text-rose-700">{error}</div><div className="grid shrink-0 grid-cols-2 gap-2 sm:flex"><button type="button" onClick={onClose} className="min-h-11 rounded-xl border border-slate-300 px-5 text-sm font-black text-slate-600">キャンセル</button><button type="button" disabled={saving} onClick={() => void saveAll()} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-teal-600 px-6 text-sm font-black text-white disabled:opacity-50">{saving ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" /> : <Save className="h-5 w-5" />}{saving ? '保存中…' : '配車を保存'}</button></div></div>
