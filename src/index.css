@@ -21,6 +21,12 @@ body {
   overflow-x: clip;
 }
 
+.app-background {
+  background:
+    radial-gradient(circle at 15% 0%, rgba(20, 184, 166, 0.08), transparent 30rem),
+    linear-gradient(180deg, #eef4f4 0%, #f8fafc 42%, #eef2f7 100%);
+}
+
 button,
 select,
 input,

@@ -79,33 +79,63 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             </button>
 
-            <nav className="desktop-top-navigation items-center space-x-1" aria-label="主要画面">
-              {visibleItems.map((item) => {
-                const Icon = item.icon;
-                const selected = activeTab === item.tab;
-                return (
+            <div className="relative hidden lg:block">
+              <nav className="desktop-top-navigation items-center space-x-1" aria-label="主要画面">
+                {primaryMobileItems.map((item) => {
+                  const Icon = item.icon;
+                  const selected = activeTab === item.tab;
+                  return (
+                    <button
+                      key={item.tab}
+                      type="button"
+                      onClick={() => openTab(item.tab)}
+                      aria-current={selected ? 'page' : undefined}
+                      className={`relative flex items-center gap-2 px-3 py-2 rounded-md text-xs font-semibold transition-colors ${
+                        selected
+                          ? 'bg-teal-600 text-white shadow-sm'
+                          : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                      }`}
+                    >
+                      <Icon className="w-4 h-4" />
+                      {item.desktopLabel}
+                      {item.tab === 'records' && unapprovedCount > 0 && (
+                        <span className="bg-amber-500 text-slate-950 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                          {unapprovedCount}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+                {managementItems.length > 0 && (
                   <button
-                    key={item.tab}
                     type="button"
-                    onClick={() => openTab(item.tab)}
-                    aria-current={selected ? 'page' : undefined}
-                    className={`relative flex items-center gap-2 px-3 py-2 rounded-md text-xs font-semibold transition-colors ${
-                      selected
-                        ? 'bg-teal-600 text-white shadow-sm'
-                        : 'text-slate-300 hover:bg-slate-800 hover:text-white'
-                    }`}
+                    onClick={() => setManagementOpen((open) => !open)}
+                    aria-expanded={managementOpen}
+                    className={`flex items-center gap-2 rounded-md px-3 py-2 text-xs font-semibold transition-colors ${managementItems.some((item) => item.tab === activeTab) || managementOpen ? 'bg-teal-600 text-white shadow-sm' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}`}
                   >
-                    <Icon className="w-4 h-4" />
-                    {item.desktopLabel}
-                    {item.tab === 'records' && unapprovedCount > 0 && (
-                      <span className="bg-amber-500 text-slate-950 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
-                        {unapprovedCount}
-                      </span>
-                    )}
+                    <Menu className="h-4 w-4" />管理
                   </button>
-                );
-              })}
-            </nav>
+                )}
+              </nav>
+              {managementOpen && managementItems.length > 0 && (
+                <section className="absolute right-0 top-[calc(100%+0.75rem)] z-50 w-72 overflow-hidden rounded-2xl border border-slate-200 bg-white p-2 text-slate-900 shadow-2xl" aria-label="デスクトップ管理メニュー">
+                  <div className="flex items-center justify-between px-2 pb-2 pt-1">
+                    <strong className="text-xs">管理メニュー</strong>
+                    <button type="button" onClick={() => setManagementOpen(false)} aria-label="管理メニューを閉じる" className="grid h-8 w-8 place-items-center rounded-lg bg-slate-100 text-slate-500"><X className="h-4 w-4" /></button>
+                  </div>
+                  {managementItems.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <button key={item.tab} type="button" onClick={() => openTab(item.tab)} className="flex min-h-14 w-full items-center gap-3 rounded-xl px-3 text-left hover:bg-teal-50">
+                        <span className="grid h-9 w-9 place-items-center rounded-xl bg-teal-50 text-teal-700"><Icon className="h-4 w-4" /></span>
+                        <span className="min-w-0 flex-1"><strong className="block text-sm">{item.desktopLabel}</strong><span className="text-[10px] text-slate-500">{item.tab === 'templates' ? 'AI文章と記録フォーマット' : 'ログイン職員と記録者'}</span></span>
+                        <ChevronRight className="h-4 w-4 text-slate-300" />
+                      </button>
+                    );
+                  })}
+                </section>
+              )}
+            </div>
 
             <div className="flex items-center gap-1.5 shrink-0">
               {currentUser && (

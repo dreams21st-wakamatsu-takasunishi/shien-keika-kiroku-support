@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, ChevronRight, Cloud, HardDrive, House, LoaderCircle, RefreshCw, UserRoundCog, WifiOff } from 'lucide-react';
+import { AlertTriangle, ChevronRight, HardDrive, House, LoaderCircle, RefreshCw, UserRoundCog, WifiOff } from 'lucide-react';
 import {
   AiWritingSettings,
   Announcement,
@@ -1259,7 +1259,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-100/70 text-slate-900 font-sans antialiased pb-24 lg:pb-12">
+    <div className="app-background min-h-screen text-slate-900 font-sans antialiased pb-24 lg:pb-12">
       <Header
         activeTab={activeTab === 'preview' ? 'records' : activeTab}
         setActiveTab={(tab) => {
@@ -1281,22 +1281,18 @@ export default function App() {
       />
 
       <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-3 sm:pt-6">
+        {(!online || !remoteMode || pendingSyncs.length > 0 || activeRecorder) && (
         <div className={`mb-3 rounded-xl border px-3 py-2 text-[11px] sm:mb-4 sm:px-4 sm:text-xs ${
           !online
             ? 'border-amber-300 bg-amber-50 text-amber-900'
-            : remoteMode
-              ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-              : 'border-amber-200 bg-amber-50 text-amber-900'
+            : !remoteMode
+              ? 'border-amber-200 bg-amber-50 text-amber-900'
+              : 'border-slate-200 bg-white text-slate-700'
         }`}>
           <div className="flex flex-wrap items-center gap-2">
-            {!online ? <WifiOff className="h-4 w-4" /> : remoteMode ? <Cloud className="h-4 w-4" /> : <HardDrive className="h-4 w-4" />}
-            <span className="min-w-0 flex-1">
-              {!online
-                ? 'オフラインです。入力は端末に保持され、通信復旧後に送信されます。'
-                : remoteMode
-                  ? `${auth.profile?.organizationName || '事業所'}の共有データベースに接続中`
-                  : 'ローカル試用モード：データはこのブラウザだけに保存されます。実運用にはSupabase設定が必要です。'}
-            </span>
+            {!online && <><WifiOff className="h-4 w-4" /><span className="min-w-0 flex-1">オフラインです。入力は端末に保持され、通信復旧後に送信されます。</span></>}
+            {online && !remoteMode && <><HardDrive className="h-4 w-4" /><span className="min-w-0 flex-1">ローカル試用モード：データはこのブラウザだけに保存されます。</span></>}
+            {online && remoteMode && pendingSyncs.length === 0 && activeRecorder && <span className="min-w-0 flex-1 text-slate-500">現在の記録者</span>}
             {pendingSyncs.length > 0 && (
               <button
                 type="button"
@@ -1320,6 +1316,7 @@ export default function App() {
             )}
           </div>
         </div>
+        )}
         {dataError && <div className="mb-4 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-lg p-3">{dataError}</div>}
         {activeTab !== 'home' && (
           <ScreenContextBar

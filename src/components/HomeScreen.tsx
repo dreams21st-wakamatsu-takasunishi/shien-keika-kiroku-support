@@ -1,19 +1,19 @@
 import React, { useMemo, useState } from 'react';
 import {
-  ArrowRight,
+  ArrowLeft,
+  Bell,
   Bot,
   CalendarDays,
   CheckCircle2,
+  ChevronRight,
   ClipboardPenLine,
   ClipboardList,
-  History,
   LoaderCircle,
+  MessageSquareText,
   PlusCircle,
   RotateCcw,
-  Settings,
   ShieldCheck,
   Sparkles,
-  Users,
 } from 'lucide-react';
 import type {
   ChildProfile,
@@ -107,6 +107,9 @@ interface HomeScreenProps {
   onUpdateTransportStatus: (run: TransportRun, recorder: RecorderProfile, pin: string, status: TransportRunStatus) => Promise<void> | void;
 }
 
+type HomeWorkspace = 'menu' | 'todayWork' | 'operations' | 'communication' | 'assistant';
+type CommunicationView = 'announcements' | 'morning' | 'handover';
+
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   records,
   announcements,
@@ -164,13 +167,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onSaveTransportRouteSettings,
   onUpdateTransportStatus,
 }) => {
-  const [activePanel, setActivePanel] = useState<'todayWork' | 'operations' | 'morning' | 'handover' | 'assistant'>('todayWork');
+  const [activePanel, setActivePanel] = useState<HomeWorkspace>('menu');
+  const [communicationView, setCommunicationView] = useState<CommunicationView>('announcements');
   const today = getLocalDateString();
   const todayRecords = records.filter((record) => record.date === today);
   const unapproved = records.filter((record) => record.approvalStatus === '未確認');
-  const recentRecords = [...records]
-    .sort((a, b) => `${b.date}${b.updatedAt}`.localeCompare(`${a.date}${a.updatedAt}`))
-    .slice(0, 3);
   const openHandovers = handoverItems.filter((item) => item.status !== '完了').length;
   const hasMorningMeetingRecord = morningMeetingRecords.some(
     (record) => record.date === today && Boolean(record.content.trim())
@@ -214,92 +215,60 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       .sort((left, right) => right.publishedAt.localeCompare(left.publishedAt)),
     [announcements, correctionAnnouncements]
   );
+  const todayWorkCount = staffScheduleItems.filter((item) => item.date === today).length
+    + transportRuns.filter((run) => run.date === today).length
+    + calendarEvents.filter((event) => homeEventOccursOn(event, today)).length;
+  const attentionCount = drafts.length + unapproved.length + openHandovers;
 
   return (
     <div className="max-w-6xl mx-auto space-y-4">
-      <AnnouncementPanel
-        announcements={visibleAnnouncements}
-        confirmations={announcementConfirmations}
-        recorderProfiles={recorderProfiles}
-        organizationId={organizationId}
-        activeRecorder={activeRecorder}
-        currentUser={currentUser}
-        canCreate={!organizationId || Boolean(currentUser)}
-        canArchive={canManageSettings}
-        onOpenRecord={(recordId) => {
-          const record = records.find((candidate) => candidate.id === recordId);
-          if (record) onOpenRecord(record);
-        }}
-        onSave={onSaveAnnouncement}
-        onArchive={onArchiveAnnouncement}
-        onSaveConfirmation={onSaveAnnouncementConfirmation}
-      />
-      <section className="overflow-hidden rounded-2xl bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 text-white shadow-sm">
-        <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-teal-300">今日のホーム</p>
-            <h2 className="mt-1 text-lg font-black sm:text-xl">{activeRecorder?.displayName || currentUser?.displayName || '職員'}さん、お疲れさまです。</h2>
-            <p className="mt-1 text-xs text-slate-300">記録と本日の業務をここから確認できます。</p>
-          </div>
-          <button type="button" onClick={onNewRecord} className="flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-teal-400 px-5 text-sm font-black text-slate-950 shadow-lg shadow-slate-950/20 hover:bg-teal-300">
-            <PlusCircle className="w-5 h-5" />新しい記録を作成
-          </button>
-        </div>
-        <div className="grid grid-cols-4 border-t border-white/10 bg-white/[0.04]">
-          <StatusCard icon={CalendarDays} label="本日記録" value={`${todayRecords.length}件`} tone="teal" />
-          <StatusCard icon={Users} label="登録児童" value={`${childrenList.length}名`} tone="blue" />
-          <StatusCard icon={ClipboardList} label="未確認" value={`${unapproved.length}件`} tone="amber" />
-          <StatusCard icon={CheckCircle2} label="確認済" value={`${records.filter((record) => record.approvalStatus === '確認済み').length}件`} tone="emerald" />
-        </div>
-      </section>
+      {activePanel === 'menu' ? (
+        <>
+          <section className="rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 p-5 text-white shadow-lg sm:p-7">
+            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-teal-300">{today.replaceAll('-', '/')}・ホーム</p>
+            <h2 className="mt-2 text-xl font-black sm:text-2xl">{activeRecorder?.displayName || currentUser?.displayName || '職員'}さん、何をしますか？</h2>
+            <p className="mt-1 text-xs text-slate-300">必要な機能を選ぶまで、詳しい内容は表示しません。</p>
+            <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+              <button type="button" onClick={onNewRecord} className="flex min-h-14 flex-1 items-center justify-center gap-2 rounded-2xl bg-teal-400 px-5 text-base font-black text-slate-950 shadow-lg shadow-slate-950/20 hover:bg-teal-300">
+                <PlusCircle className="h-6 w-6" />記録を始める
+              </button>
+              <button type="button" onClick={() => onNavigate('records')} className="flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-5 text-sm font-bold text-white hover:bg-white/15">
+                <ClipboardList className="h-5 w-5" />記録一覧
+              </button>
+            </div>
+          </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-        <div className="flex items-center justify-between px-2 pb-2 pt-1">
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-teal-700">業務メニュー</p>
-            <p className="mt-0.5 text-[10px] text-slate-500">目的を選ぶと内容が切り替わります</p>
-          </div>
-          <span className="hidden text-[10px] font-bold text-slate-400 sm:block">機能はここに集約されています</span>
-        </div>
-        <div className="grid grid-cols-3 gap-1 sm:grid-cols-5" role="tablist" aria-label="ホーム機能">
-          <HomePanelButton
-            active={activePanel === 'todayWork'}
-            icon={CalendarDays}
-            label="本日の業務"
-            badge={staffScheduleItems.some((item) => item.date === today) || transportRuns.some((run) => run.date === today) ? '予定あり' : undefined}
-            onClick={() => setActivePanel('todayWork')}
-          />
-          <HomePanelButton
-            active={activePanel === 'operations'}
-            icon={ClipboardList}
-            label="記録状況"
-            badge={drafts.length > 0 ? `${drafts.length}件入力中` : undefined}
-            onClick={() => setActivePanel('operations')}
-          />
-          <HomePanelButton
-            active={activePanel === 'morning'}
-            icon={ClipboardPenLine}
-            label="朝礼記録"
-            badge={hasMorningMeetingRecord ? '入力あり' : undefined}
-            onClick={() => setActivePanel('morning')}
-          />
-          <HomePanelButton
-            active={activePanel === 'handover'}
-            icon={ClipboardList}
-            label="申し送り"
-            badge={openHandovers > 0 ? `${openHandovers}件` : undefined}
-            onClick={() => setActivePanel('handover')}
-          />
-          <HomePanelButton
-            active={activePanel === 'assistant'}
-            icon={Bot}
-            label="AIアシスタント"
-            onClick={() => setActivePanel('assistant')}
-          />
-        </div>
-      </section>
+          {attentionCount > 0 && (
+            <section className="rounded-2xl border border-amber-200 bg-amber-50 p-3" aria-label="確認が必要な項目">
+              <div className="flex items-center gap-2 px-1 text-xs font-black text-amber-950"><Bell className="h-4 w-4" />確認が必要です</div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {drafts.length > 0 && <AttentionButton label={`入力中 ${drafts.length}件`} onClick={() => setActivePanel('operations')} />}
+                {unapproved.length > 0 && <AttentionButton label={`未確認記録 ${unapproved.length}件`} onClick={() => onNavigate('records')} />}
+                {openHandovers > 0 && <AttentionButton label={`未完了の申し送り ${openHandovers}件`} onClick={() => { setCommunicationView('handover'); setActivePanel('communication'); }} />}
+              </div>
+            </section>
+          )}
 
-      <div role="tabpanel">
+          <section>
+            <div className="mb-3 px-1">
+              <h3 className="text-base font-black text-slate-950">確認したい内容を選ぶ</h3>
+              <p className="mt-0.5 text-xs text-slate-500">選んだ内容だけを次の画面に表示します。</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <WorkspaceCard icon={CalendarDays} title="本日の業務" description="職員配置・予定・出勤・送迎" meta={todayWorkCount > 0 ? `${todayWorkCount}件の予定` : '予定を確認'} tone="teal" onClick={() => setActivePanel('todayWork')} />
+              <WorkspaceCard icon={ClipboardList} title="記録状況" description="利用児童・入力中・保存済み" meta={`本日 ${todayRecords.length}件／入力中 ${drafts.length}件`} tone="sky" onClick={() => setActivePanel('operations')} />
+              <WorkspaceCard icon={MessageSquareText} title="共有・連絡" description="お知らせ・朝礼・申し送り" meta={`${visibleAnnouncements.length + openHandovers}件を確認`} tone="amber" onClick={() => setActivePanel('communication')} />
+              <WorkspaceCard icon={Bot} title="AIアシスタント" description="児童情報の変更や記録の整理" meta="実行前に内容を確認" tone="indigo" onClick={() => setActivePanel('assistant')} />
+            </div>
+          </section>
+        </>
+      ) : (
+        <>
+          <WorkspaceBackBar
+            title={activePanel === 'todayWork' ? '本日の業務' : activePanel === 'operations' ? '記録状況' : activePanel === 'communication' ? '共有・連絡' : 'AIアシスタント'}
+            onBack={() => setActivePanel('menu')}
+          />
+          <div role="region" aria-label={activePanel === 'todayWork' ? '本日の業務' : activePanel === 'operations' ? '記録状況' : activePanel === 'communication' ? '共有・連絡' : 'AIアシスタント'}>
         {activePanel === 'todayWork' && (
           <TodayWorkPanel
             staffScheduleItems={staffScheduleItems}
@@ -347,65 +316,74 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           />
         )}
 
-        {activePanel === 'handover' && (
-          <HandoverPanel
-            items={handoverItems}
-            confirmations={handoverConfirmations}
-            childrenList={childrenList}
-            recorderProfiles={recorderProfiles}
-            transportRuns={transportRuns}
-            activeRecorder={activeRecorder}
-            currentUser={currentUser}
-            onSave={onSaveHandover}
-            onStatusChange={onHandoverStatusChange}
-            onSetConfirmation={onSetHandoverConfirmation}
-          />
-        )}
-
-        {activePanel === 'morning' && (
-          <MorningMeetingPanel
-            records={morningMeetingRecords}
-            templates={morningMeetingTemplates}
-            confirmations={morningMeetingConfirmations}
-            recorderProfiles={recorderProfiles}
-            organizationId={organizationId}
-            activeRecorder={activeRecorder}
-            currentUser={currentUser}
-            canManageTemplates={canManageSettings}
-            dailySummary={morningDailySummary}
-            onSave={onSaveMorningMeeting}
-            onSaveTemplate={onSaveMorningMeetingTemplate}
-            onArchiveTemplate={onArchiveMorningMeetingTemplate}
-            onSetConfirmation={onSetMorningMeetingConfirmation}
-          />
+        {activePanel === 'communication' && (
+          <div className="space-y-3">
+            <nav className="grid grid-cols-3 gap-1 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm" aria-label="共有・連絡メニュー">
+              <CommunicationTab active={communicationView === 'announcements'} icon={Bell} label="お知らせ" badge={visibleAnnouncements.length} onClick={() => setCommunicationView('announcements')} />
+              <CommunicationTab active={communicationView === 'morning'} icon={ClipboardPenLine} label="朝礼" badge={hasMorningMeetingRecord ? 1 : 0} onClick={() => setCommunicationView('morning')} />
+              <CommunicationTab active={communicationView === 'handover'} icon={MessageSquareText} label="申し送り" badge={openHandovers} onClick={() => setCommunicationView('handover')} />
+            </nav>
+            <div role="tabpanel">
+              {communicationView === 'announcements' && (
+                <AnnouncementPanel
+                  announcements={visibleAnnouncements}
+                  confirmations={announcementConfirmations}
+                  recorderProfiles={recorderProfiles}
+                  organizationId={organizationId}
+                  activeRecorder={activeRecorder}
+                  currentUser={currentUser}
+                  canCreate={!organizationId || Boolean(currentUser)}
+                  canArchive={canManageSettings}
+                  onOpenRecord={(recordId) => {
+                    const record = records.find((candidate) => candidate.id === recordId);
+                    if (record) onOpenRecord(record);
+                  }}
+                  onSave={onSaveAnnouncement}
+                  onArchive={onArchiveAnnouncement}
+                  onSaveConfirmation={onSaveAnnouncementConfirmation}
+                />
+              )}
+              {communicationView === 'morning' && (
+                <MorningMeetingPanel
+                  records={morningMeetingRecords}
+                  templates={morningMeetingTemplates}
+                  confirmations={morningMeetingConfirmations}
+                  recorderProfiles={recorderProfiles}
+                  organizationId={organizationId}
+                  activeRecorder={activeRecorder}
+                  currentUser={currentUser}
+                  canManageTemplates={canManageSettings}
+                  dailySummary={morningDailySummary}
+                  onSave={onSaveMorningMeeting}
+                  onSaveTemplate={onSaveMorningMeetingTemplate}
+                  onArchiveTemplate={onArchiveMorningMeetingTemplate}
+                  onSetConfirmation={onSetMorningMeetingConfirmation}
+                />
+              )}
+              {communicationView === 'handover' && (
+                <HandoverPanel
+                  items={handoverItems}
+                  confirmations={handoverConfirmations}
+                  childrenList={childrenList}
+                  recorderProfiles={recorderProfiles}
+                  transportRuns={transportRuns}
+                  activeRecorder={activeRecorder}
+                  currentUser={currentUser}
+                  onSave={onSaveHandover}
+                  onStatusChange={onHandoverStatusChange}
+                  onSetConfirmation={onSetHandoverConfirmation}
+                />
+              )}
+            </div>
+          </div>
         )}
 
         {activePanel === 'assistant' && (
           <HomeAssistantPanel childrenList={childrenList} onExecuted={onAssistantExecuted} />
         )}
-      </div>
-
-      <details className="group rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
-          <span className="flex items-center gap-2 font-bold text-slate-900"><History className="w-5 h-5 text-teal-600" />最近の記録</span>
-          <span className="flex items-center gap-2 text-xs font-bold text-teal-700">{recentRecords.length}件を表示<ArrowRight className="h-4 w-4 transition-transform group-open:rotate-90" /></span>
-        </summary>
-        <div className="border-t border-slate-100 p-4">
-          <div className="flex items-center justify-between gap-3">
-            <p className="text-xs text-slate-500">直近に更新された支援記録です。</p>
-            <button type="button" onClick={() => onNavigate('records')} className="text-xs font-bold text-teal-700 flex items-center gap-1">一覧を見る<ArrowRight className="w-4 h-4" /></button>
           </div>
-          <div className="mt-2 divide-y divide-slate-100">
-            {recentRecords.length === 0 && <p className="py-5 text-center text-sm text-slate-400">まだ記録がありません。</p>}
-            {recentRecords.map((record) => (
-              <button key={record.id} type="button" onClick={() => onNavigate('records')} className="flex w-full items-center justify-between gap-3 py-2.5 text-left">
-                <span><strong className="block text-sm text-slate-900">{record.childName}</strong><span className="text-xs text-slate-500">{record.date}・{record.templateName}</span></span>
-                <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-bold ${record.approvalStatus === '確認済み' ? 'bg-emerald-100 text-emerald-800' : record.approvalStatus === '要修正' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-800'}`}>{record.approvalStatus}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      </details>
+        </>
+      )}
     </div>
   );
 };
@@ -622,41 +600,65 @@ function getAssistantActionLabel(actionType: HomeAssistantProposal['actionType']
   return labels[actionType];
 }
 
-function StatusCard({ icon: Icon, label, value, tone }: { icon: React.ElementType; label: string; value: string; tone: 'teal' | 'blue' | 'amber' | 'emerald' }) {
-  const tones = { teal: 'text-teal-300', blue: 'text-sky-300', amber: 'text-amber-300', emerald: 'text-emerald-300' };
-  return <div className="flex min-w-0 items-center justify-center gap-2 border-r border-white/10 px-1 py-2.5 last:border-r-0 sm:px-3"><Icon className={`hidden h-4 w-4 shrink-0 sm:block ${tones[tone]}`} /><div className="min-w-0 text-center sm:text-left"><p className="truncate text-[9px] font-bold text-slate-400 sm:text-[10px]">{label}</p><p className="text-sm font-black leading-tight text-white sm:text-base">{value}</p></div></div>;
+function WorkspaceBackBar({ title, onBack }: { title: string; onBack: () => void }) {
+  return (
+    <div className="flex min-h-14 items-center gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
+      <button type="button" onClick={onBack} className="flex min-h-10 items-center gap-2 rounded-xl px-3 text-xs font-black text-teal-800 hover:bg-teal-50">
+        <ArrowLeft className="h-4 w-4" />機能を選び直す
+      </button>
+      <span className="h-6 w-px bg-slate-200" />
+      <strong className="min-w-0 truncate text-sm text-slate-900">{title}</strong>
+    </div>
+  );
 }
 
-function HomePanelButton({
-  active,
+function WorkspaceCard({
   icon: Icon,
-  label,
-  badge,
+  title,
+  description,
+  meta,
+  tone,
   onClick,
 }: {
-  active: boolean;
   icon: React.ElementType;
-  label: string;
-  badge?: string;
+  title: string;
+  description: string;
+  meta: string;
+  tone: 'teal' | 'sky' | 'amber' | 'indigo';
   onClick: () => void;
 }) {
+  const tones = {
+    teal: 'bg-teal-50 text-teal-700 group-hover:bg-teal-100',
+    sky: 'bg-sky-50 text-sky-700 group-hover:bg-sky-100',
+    amber: 'bg-amber-50 text-amber-700 group-hover:bg-amber-100',
+    indigo: 'bg-indigo-50 text-indigo-700 group-hover:bg-indigo-100',
+  };
   return (
     <button
       type="button"
-      role="tab"
-      aria-selected={active}
       onClick={onClick}
-      className={`flex min-h-12 min-w-0 items-center justify-center gap-1.5 rounded-xl px-1 text-[10px] font-black transition-colors sm:gap-2 sm:px-2 sm:text-xs ${
-        active ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
-      }`}
+      className="group flex min-h-28 w-full items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-teal-300 hover:shadow-md"
     >
-      <Icon className={`h-4 w-4 ${active ? 'text-teal-300' : 'text-teal-600'}`} />
-      <span className="whitespace-nowrap">{label}</span>
-      {badge && (
-        <span className={`hidden rounded-full px-1.5 py-0.5 text-[9px] sm:inline-flex ${active ? 'bg-white/15 text-white' : 'bg-amber-100 text-amber-800'}`}>
-          {badge}
-        </span>
-      )}
+      <span className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl transition-colors ${tones[tone]}`}><Icon className="h-6 w-6" /></span>
+      <span className="min-w-0 flex-1">
+        <strong className="block text-base text-slate-950">{title}</strong>
+        <span className="mt-1 block text-xs text-slate-500">{description}</span>
+        <span className="mt-2 block text-[10px] font-black text-teal-700">{meta}</span>
+      </span>
+      <ChevronRight className="h-5 w-5 shrink-0 text-slate-300 transition-transform group-hover:translate-x-0.5" />
+    </button>
+  );
+}
+
+function AttentionButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return <button type="button" onClick={onClick} className="flex min-h-9 items-center gap-1 rounded-xl border border-amber-300 bg-white px-3 text-xs font-black text-amber-900 hover:bg-amber-100">{label}<ChevronRight className="h-3.5 w-3.5" /></button>;
+}
+
+function CommunicationTab({ active, icon: Icon, label, badge, onClick }: { active: boolean; icon: React.ElementType; label: string; badge: number; onClick: () => void }) {
+  return (
+    <button type="button" onClick={onClick} aria-pressed={active} className={`relative flex min-h-12 items-center justify-center gap-1.5 rounded-xl px-2 text-xs font-black ${active ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}>
+      <Icon className={`h-4 w-4 ${active ? 'text-teal-300' : 'text-teal-600'}`} />{label}
+      {badge > 0 && <span className={`rounded-full px-1.5 py-0.5 text-[9px] ${active ? 'bg-white/15 text-white' : 'bg-amber-100 text-amber-800'}`}>{badge}</span>}
     </button>
   );
 }
