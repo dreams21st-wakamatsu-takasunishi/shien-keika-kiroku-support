@@ -1,5 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ChildProfile, Weekday } from '../types';
+import {
+  ChildProfile,
+  ChildTransportLocation,
+  TransportDirection,
+  TransportLocationType,
+  Weekday,
+} from '../types';
 import {
   ArrowDown,
   ArrowUp,
@@ -10,6 +16,8 @@ import {
   GraduationCap,
   LayoutGrid,
   List,
+  MapPin,
+  Plus,
   RotateCcw,
   Save,
   Search,
@@ -55,6 +63,17 @@ const SORT_FIELD_OPTIONS: Array<{ value: SortField; label: string }> = [
 ];
 
 const DEFAULT_SORT_RULES: SortRule[] = [{ id: 'sort-kana', field: 'kana', direction: 'asc' }];
+const TRANSPORT_LOCATION_TYPES: TransportLocationType[] = ['自宅', '学校', '学童', '習い事', '親族宅', '事業所', 'その他'];
+
+const createTransportLocation = (): ChildTransportLocation => ({
+  id: typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : `transport-location-${Date.now()}`,
+  name: '',
+  type: 'その他',
+  address: '',
+  directions: ['迎え', '送り'],
+  weekdays: [],
+  autoSelect: false,
+});
 
 const normalizeSearchText = (value: string) =>
   value.normalize('NFKC').toLocaleLowerCase('ja').replace(/\s+/g, '');
@@ -149,6 +168,9 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   const [transportationRequired, setTransportationRequired] = useState(false);
   const [pickupLocation, setPickupLocation] = useState('');
   const [dropoffLocation, setDropoffLocation] = useState('');
+  const [transportLocations, setTransportLocations] = useState<ChildTransportLocation[]>([]);
+  const [expandedTransportLocationId, setExpandedTransportLocationId] = useState<string>();
+  const [formError, setFormError] = useState('');
   const [notes, setNotes] = useState('');
   const today = getLocalDateString();
 
@@ -171,6 +193,9 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setTransportationRequired(false);
     setPickupLocation('');
     setDropoffLocation('');
+    setTransportLocations([]);
+    setExpandedTransportLocationId(undefined);
+    setFormError('');
     setNotes('');
     setIsModalOpen(true);
   };
@@ -186,6 +211,13 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setTransportationRequired(Boolean(child.transportationRequired));
     setPickupLocation(child.pickupLocation || '');
     setDropoffLocation(child.dropoffLocation || '');
+    setTransportLocations((child.transportLocations || []).map((location) => ({
+      ...location,
+      directions: [...location.directions],
+      weekdays: [...(location.weekdays || [])],
+    })));
+    setExpandedTransportLocationId(undefined);
+    setFormError('');
     setNotes(child.notes || '');
     setIsModalOpen(true);
   };
@@ -193,6 +225,32 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   const handleSaveChild = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
+
+    const incompleteLocation = transportationRequired && transportLocations.find(
+      (location) => !location.name.trim() || !location.address.trim() || location.directions.length === 0
+    );
+    if (incompleteLocation) {
+      setFormError('追加送迎先は、名称・住所・利用区分をすべて入力してください。');
+      return;
+    }
+    const invalidDateRange = transportationRequired && transportLocations.find(
+      (location) => location.validFrom && location.validTo && location.validFrom > location.validTo
+    );
+    if (invalidDateRange) {
+      setFormError('追加送迎先の終了日は、開始日以降にしてください。');
+      return;
+    }
+    const normalizedTransportLocations = transportLocations
+      .filter((location) => location.name.trim() && location.address.trim() && location.directions.length > 0)
+      .map((location) => ({
+      ...location,
+      name: location.name.trim(),
+      address: location.address.trim(),
+      note: location.note?.trim() || undefined,
+      weekdays: location.weekdays || [],
+      validFrom: location.validFrom || undefined,
+      validTo: location.validTo || undefined,
+      }));
 
     const savedGrade = calculateSchoolGrade(birthDate) || grade;
     if (editingChild) {
@@ -208,6 +266,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         transportationRequired,
         pickupLocation: pickupLocation.trim() || undefined,
         dropoffLocation: dropoffLocation.trim() || undefined,
+        transportLocations: normalizedTransportLocations,
         notes: notes.trim(),
       });
     } else {
@@ -223,11 +282,33 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         transportationRequired,
         pickupLocation: pickupLocation.trim() || undefined,
         dropoffLocation: dropoffLocation.trim() || undefined,
+        transportLocations: normalizedTransportLocations,
         notes: notes.trim(),
       });
     }
 
     setIsModalOpen(false);
+  };
+
+  const updateTransportLocation = (
+    id: string,
+    patch: Partial<ChildTransportLocation>,
+  ) => {
+    setTransportLocations((previous) =>
+      previous.map((location) =>
+        location.id === id ? { ...location, ...patch } : location
+      )
+    );
+    setFormError('');
+  };
+
+  const setTransportDirection = (
+    id: string,
+    value: 'both' | TransportDirection,
+  ) => {
+    updateTransportLocation(id, {
+      directions: value === 'both' ? ['迎え', '送り'] : [value],
+    });
   };
 
   const gradeOptions = useMemo(
@@ -669,8 +750,8 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
 
       {/* Add / Edit Child Modal */}
       {isModalOpen && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl max-w-md w-full p-6 shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/60 p-0 backdrop-blur-xs sm:items-center sm:p-4">
+          <div className="max-h-[94dvh] w-full max-w-2xl space-y-4 overflow-y-auto rounded-t-2xl bg-white p-4 shadow-2xl sm:rounded-xl sm:p-6">
             <h3 className="font-bold text-sm text-slate-900 border-b pb-2">
               {editingChild ? '児童情報の編集' : '新規児童の登録'}
             </h3>
@@ -783,9 +864,91 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                   <input type="checkbox" checked={transportationRequired} onChange={(event) => setTransportationRequired(event.target.checked)} className="h-4 w-4" />送迎を利用する
                 </label>
                 {transportationRequired && (
-                  <div className="mt-2 grid gap-2">
-                    <label className="font-bold text-slate-700">迎え先<input value={pickupLocation} onChange={(event) => setPickupLocation(event.target.value)} placeholder="例：○○小学校 正門" className="mt-1 w-full rounded-md border border-slate-300 bg-white p-2" /></label>
-                    <label className="font-bold text-slate-700">送り先<input value={dropoffLocation} onChange={(event) => setDropoffLocation(event.target.value)} placeholder="例：自宅（住所は必要最小限）" className="mt-1 w-full rounded-md border border-slate-300 bg-white p-2" /></label>
+                  <div className="mt-2 space-y-3">
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <label className="font-bold text-slate-700">通常の迎え先<input value={pickupLocation} onChange={(event) => setPickupLocation(event.target.value)} placeholder="例：○○小学校 正門・住所" className="mt-1 w-full rounded-md border border-slate-300 bg-white p-2" /></label>
+                      <label className="font-bold text-slate-700">通常の送り先<input value={dropoffLocation} onChange={(event) => setDropoffLocation(event.target.value)} placeholder="例：自宅・住所" className="mt-1 w-full rounded-md border border-slate-300 bg-white p-2" /></label>
+                    </div>
+
+                    <section className="rounded-xl border border-slate-200 bg-white p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <p className="flex items-center gap-1.5 text-sm font-black text-slate-800"><MapPin className="h-4 w-4 text-teal-600" />追加送迎先</p>
+                          <p className="mt-0.5 text-[10px] leading-relaxed text-slate-500">長期休暇中の自宅、祖母宅、学童、習い事などを登録できます。</p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const location = createTransportLocation();
+                            setTransportLocations((previous) => [...previous, location]);
+                            setExpandedTransportLocationId(location.id);
+                          }}
+                          className="flex min-h-10 shrink-0 items-center gap-1 rounded-lg bg-teal-600 px-3 text-xs font-black text-white"
+                        >
+                          <Plus className="h-4 w-4" />追加
+                        </button>
+                      </div>
+
+                      <div className="mt-3 space-y-2">
+                        {transportLocations.map((location) => {
+                          const expanded = expandedTransportLocationId === location.id;
+                          const directionLabel = location.directions.length === 2 ? '迎え・送り' : `${location.directions[0] || '区分未設定'}のみ`;
+                          return (
+                            <article key={location.id} className="overflow-hidden rounded-xl border border-slate-200 bg-slate-50">
+                              <div className="flex items-center gap-2 p-2.5">
+                                <button
+                                  type="button"
+                                  onClick={() => setExpandedTransportLocationId(expanded ? undefined : location.id)}
+                                  className="min-w-0 flex-1 text-left"
+                                >
+                                  <strong className="block truncate text-sm text-slate-900">{location.name || '新しい送迎先'}</strong>
+                                  <span className="block truncate text-[10px] text-slate-500">{location.type}・{directionLabel}{location.autoSelect ? '・該当日に自動提案' : '・手動選択'}</span>
+                                </button>
+                                <button type="button" onClick={() => setExpandedTransportLocationId(expanded ? undefined : location.id)} aria-label={expanded ? '閉じる' : '編集する'} className="grid h-9 w-9 place-items-center rounded-lg bg-white">
+                                  {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setTransportLocations((previous) => previous.filter((item) => item.id !== location.id));
+                                    if (expanded) setExpandedTransportLocationId(undefined);
+                                  }}
+                                  aria-label="送迎先を削除"
+                                  className="grid h-9 w-9 place-items-center rounded-lg bg-white text-rose-600"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </button>
+                              </div>
+
+                              {expanded && (
+                                <div className="space-y-3 border-t border-slate-200 bg-white p-3">
+                                  <div className="grid gap-2 sm:grid-cols-2">
+                                    <label className="text-xs font-bold text-slate-700">名称<input value={location.name} onChange={(event) => updateTransportLocation(location.id, { name: event.target.value })} placeholder="例：長期休暇・自宅／祖母宅" className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3 text-sm" /></label>
+                                    <label className="text-xs font-bold text-slate-700">種類<select value={location.type} onChange={(event) => updateTransportLocation(location.id, { type: event.target.value as TransportLocationType })} className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3 text-sm">{TRANSPORT_LOCATION_TYPES.map((type) => <option key={type}>{type}</option>)}</select></label>
+                                  </div>
+                                  <label className="block text-xs font-bold text-slate-700">住所・乗降場所<input value={location.address} onChange={(event) => updateTransportLocation(location.id, { address: event.target.value })} placeholder="都道府県・市区町村・番地、入口など" className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3 text-sm" /></label>
+                                  <div className="grid gap-2 sm:grid-cols-2">
+                                    <label className="text-xs font-bold text-slate-700">利用区分<select value={location.directions.length === 2 ? 'both' : location.directions[0] || 'both'} onChange={(event) => setTransportDirection(location.id, event.target.value as 'both' | TransportDirection)} className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"><option value="both">迎え・送り両方</option><option value="迎え">迎えのみ</option><option value="送り">送りのみ</option></select></label>
+                                    <label className="flex min-h-10 items-center gap-2 self-end rounded-lg border border-slate-300 px-3 text-xs font-bold text-slate-700"><input type="checkbox" checked={Boolean(location.autoSelect)} onChange={(event) => updateTransportLocation(location.id, { autoSelect: event.target.checked })} />条件に合う日は自動提案</label>
+                                  </div>
+                                  <fieldset>
+                                    <legend className="text-xs font-bold text-slate-700">利用曜日（未選択は全曜日）</legend>
+                                    <div className="mt-1 grid grid-cols-7 gap-1">{WEEKDAYS.map((day) => { const selected = location.weekdays?.includes(day); return <button key={day} type="button" aria-pressed={selected} onClick={() => updateTransportLocation(location.id, { weekdays: selected ? (location.weekdays || []).filter((item) => item !== day) : [...(location.weekdays || []), day] })} className={`min-h-9 rounded-md border text-[11px] font-black ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300 bg-white text-slate-600'}`}>{day}</button>; })}</div>
+                                  </fieldset>
+                                  <div className="grid gap-2 sm:grid-cols-2">
+                                    <label className="text-xs font-bold text-slate-700">開始日（任意）<input type="date" value={location.validFrom || ''} onChange={(event) => updateTransportLocation(location.id, { validFrom: event.target.value || undefined })} className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3 text-sm" /></label>
+                                    <label className="text-xs font-bold text-slate-700">終了日（任意）<input type="date" value={location.validTo || ''} onChange={(event) => updateTransportLocation(location.id, { validTo: event.target.value || undefined })} className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3 text-sm" /></label>
+                                  </div>
+                                  <label className="block text-xs font-bold text-slate-700">乗降時の注意（任意）<textarea value={location.note || ''} onChange={(event) => updateTransportLocation(location.id, { note: event.target.value })} placeholder="例：到着前に祖母へ電話、北側入口で乗降" className="mt-1 min-h-20 w-full rounded-lg border border-slate-300 p-3 text-sm" /></label>
+                                </div>
+                              )}
+                            </article>
+                          );
+                        })}
+                        {transportLocations.length === 0 && <p className="rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">追加送迎先は未登録です。通常と異なる送迎先がある場合だけ追加してください。</p>}
+                      </div>
+                    </section>
+                    {formError && <p className="rounded-lg border border-rose-200 bg-rose-50 p-2 text-xs font-bold text-rose-700">{formError}</p>}
                   </div>
                 )}
               </fieldset>

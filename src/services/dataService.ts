@@ -78,6 +78,9 @@ function mapChild(row: any): ChildProfile {
     transportationRequired: row.transportation_required === true,
     pickupLocation: row.pickup_location || undefined,
     dropoffLocation: row.dropoff_location || undefined,
+    transportLocations: Array.isArray(row.transport_locations)
+      ? row.transport_locations
+      : [],
     notes: row.notes || undefined,
   };
 }
@@ -872,6 +875,7 @@ export async function saveChild(organizationId: string, child: ChildProfile) {
       transportation_required: child.transportationRequired === true,
       pickup_location: child.pickupLocation?.trim() || null,
       dropoff_location: child.dropoffLocation?.trim() || null,
+      transport_locations: child.transportLocations || [],
       notes: child.notes || null,
       deleted_at: null,
     },

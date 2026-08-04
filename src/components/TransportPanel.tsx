@@ -27,10 +27,25 @@ import type {
   TransportRouteOptimizationResult,
   TransportRouteSettings,
   TransportRunStatus,
+  TransportLocationType,
   TransportStop,
   Vehicle,
 } from "../types";
 import { optimizeTransportRoute } from "../services/dataService";
+import {
+  getSuggestedTransportLocation,
+  getTransportLocationOptions,
+} from "../utils/transportLocations";
+
+const TRANSPORT_LOCATION_TYPES: TransportLocationType[] = [
+  "自宅",
+  "学校",
+  "学童",
+  "習い事",
+  "親族宅",
+  "事業所",
+  "その他",
+];
 
 interface TransportPanelProps {
   runs: TransportRun[];
@@ -143,6 +158,10 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
     if (!runForm.name.trim()) return setError("便名を入力してください。");
     if (runForm.startTime >= runForm.endTime)
       return setError("終了時刻は開始時刻より後にしてください。");
+    if (runForm.stops.some((stop) => !stop.childId))
+      return setError("児童が未選択の乗降地点があります。");
+    if (runForm.stops.some((stop) => !stop.location.trim()))
+      return setError("乗降場所が未入力の児童がいます。");
     await onSaveRun({
       ...runForm,
       name: runForm.name.trim(),
@@ -183,10 +202,90 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
     if (!runForm) return;
     setRunForm({
       ...runForm,
+      routeOptimizedAt: undefined,
       stops: runForm.stops.map((stop, current) =>
         current === index ? { ...stop, ...patch } : stop,
       ),
     });
+    setRoutePreview(null);
+    setRouteMessage("");
+  };
+
+  const selectStopChild = (index: number, childId: string) => {
+    if (!runForm) return;
+    const child = childrenList.find((candidate) => candidate.id === childId);
+    const suggestion = child
+      ? getSuggestedTransportLocation(child, runForm.direction, runForm.date)
+      : undefined;
+    updateStop(index, {
+      childId: child?.id,
+      childName: child?.name,
+      locationProfileId: suggestion?.id,
+      locationName: suggestion?.name,
+      locationType:
+        suggestion?.type || (runForm.direction === "迎え" ? "学校" : "自宅"),
+      location: suggestion?.address || "",
+      note: suggestion?.note,
+    });
+  };
+
+  const selectStopLocation = (index: number, locationId: string) => {
+    if (!runForm) return;
+    const stop = runForm.stops[index];
+    if (locationId === "one-time") {
+      updateStop(index, {
+        locationProfileId: undefined,
+        locationName: "今回のみの送迎先",
+        location: "",
+        note: undefined,
+      });
+      return;
+    }
+    const child = childrenList.find((candidate) => candidate.id === stop.childId);
+    const location = child
+      ? getTransportLocationOptions(child, runForm.direction, runForm.date).find(
+          (option) => option.id === locationId,
+        )
+      : undefined;
+    if (!location) return;
+    updateStop(index, {
+      locationProfileId: location.id,
+      locationName: location.name,
+      locationType: location.type,
+      location: location.address,
+      note: location.note,
+    });
+  };
+
+  const changeDirection = (direction: TransportDirection) => {
+    if (!runForm) return;
+    setRunForm({
+      ...runForm,
+      direction,
+      name:
+        runForm.name === "迎え便" || runForm.name === "送り便"
+          ? `${direction}便`
+          : runForm.name,
+      stops: runForm.stops.map((stop) => {
+        const child = childrenList.find(
+          (candidate) => candidate.id === stop.childId,
+        );
+        const suggestion = child
+          ? getSuggestedTransportLocation(child, direction, runForm.date)
+          : undefined;
+        return {
+          ...stop,
+          locationProfileId: suggestion?.id,
+          locationName: suggestion?.name,
+          locationType:
+            suggestion?.type || (direction === "迎え" ? "学校" : "自宅"),
+          location: suggestion?.address || "",
+          note: suggestion?.note,
+        };
+      }),
+    });
+    setRoutePreview(null);
+    setRouteMessage("");
   };
 
   const moveStop = (from: number, to: number) => {
@@ -437,9 +536,19 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
                               {stop.plannedTime || "時刻未定"}{" "}
                               {stop.childName || stop.locationType}
                             </strong>
+                            {stop.locationName && (
+                              <span className="ml-1 text-[10px] font-bold text-teal-700">
+                                {stop.locationName}
+                              </span>
+                            )}
                             <span className="block text-xs text-slate-500">
                               {stop.location || "場所未登録"}
                             </span>
+                            {stop.note && (
+                              <span className="block text-[10px] font-bold text-amber-700">
+                                注意：{stop.note}
+                              </span>
+                            )}
                           </span>
                         </li>
                       ))}
@@ -629,10 +738,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
               <select
                 value={runForm.direction}
                 onChange={(event) =>
-                  setRunForm({
-                    ...runForm,
-                    direction: event.target.value as TransportDirection,
-                  })
+                  changeDirection(event.target.value as TransportDirection)
                 }
                 className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3"
               >
@@ -761,117 +867,113 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
               </button>
             </div>
             <div className="mt-3 space-y-3">
-              {runForm.stops.map((stop, index) => (
-                <div
-                  key={stop.id}
-                  draggable
-                  onDragStart={(event) =>
-                    event.dataTransfer.setData("text/plain", String(index))
-                  }
-                  onDragOver={(event) => event.preventDefault()}
-                  onDrop={(event) =>
-                    moveStop(
-                      Number(event.dataTransfer.getData("text/plain")),
-                      index,
+              {runForm.stops.map((stop, index) => {
+                const child = childrenList.find(
+                  (candidate) => candidate.id === stop.childId,
+                );
+                const locationOptions = child
+                  ? getTransportLocationOptions(
+                      child,
+                      runForm.direction,
+                      runForm.date,
                     )
-                  }
-                  className="rounded-xl bg-slate-50 p-3"
-                >
-                  <div className="mb-2 flex items-center gap-2">
-                    <GripVertical className="h-5 w-5 text-slate-400" />
-                    <strong className="mr-auto text-sm">{index + 1}番目</strong>
-                    <button
-                      type="button"
-                      onClick={() => moveStop(index, index - 1)}
-                      className="grid h-9 w-9 place-items-center rounded-lg bg-white"
-                    >
-                      <ArrowUp className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => moveStop(index, index + 1)}
-                      className="grid h-9 w-9 place-items-center rounded-lg bg-white"
-                    >
-                      <ArrowDown className="h-4 w-4" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setRunForm({
-                          ...runForm,
-                          stops: runForm.stops.filter(
-                            (_, current) => current !== index,
-                          ),
-                        })
-                      }
-                      className="grid h-9 w-9 place-items-center rounded-lg bg-white text-rose-600"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+                  : [];
+                const selectedLocation =
+                  locationOptions.find(
+                    (option) => option.id === stop.locationProfileId,
+                  ) ||
+                  locationOptions.find(
+                    (option) => option.address === stop.location,
+                  );
+                return (
+                  <div
+                    key={stop.id}
+                    draggable
+                    onDragStart={(event) =>
+                      event.dataTransfer.setData("text/plain", String(index))
+                    }
+                    onDragOver={(event) => event.preventDefault()}
+                    onDrop={(event) =>
+                      moveStop(
+                        Number(event.dataTransfer.getData("text/plain")),
+                        index,
+                      )
+                    }
+                    className="rounded-xl bg-slate-50 p-3"
+                  >
+                    <div className="mb-2 flex items-center gap-2">
+                      <GripVertical className="h-5 w-5 text-slate-400" />
+                      <strong className="mr-auto text-sm">{index + 1}番目</strong>
+                      <button type="button" onClick={() => moveStop(index, index - 1)} className="grid h-9 w-9 place-items-center rounded-lg bg-white" aria-label="一つ上へ">
+                        <ArrowUp className="h-4 w-4" />
+                      </button>
+                      <button type="button" onClick={() => moveStop(index, index + 1)} className="grid h-9 w-9 place-items-center rounded-lg bg-white" aria-label="一つ下へ">
+                        <ArrowDown className="h-4 w-4" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setRunForm({
+                            ...runForm,
+                            routeOptimizedAt: undefined,
+                            stops: runForm.stops.filter(
+                              (_, current) => current !== index,
+                            ),
+                          })
+                        }
+                        className="grid h-9 w-9 place-items-center rounded-lg bg-white text-rose-600"
+                        aria-label="乗降地点を削除"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      <label className="text-[10px] font-black text-slate-500">児童
+                        <select value={stop.childId || ""} onChange={(event) => selectStopChild(index, event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-900">
+                          <option value="">児童を選択</option>
+                          {childrenList.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
+                        </select>
+                      </label>
+                      <label className="text-[10px] font-black text-slate-500">予定時刻
+                        <input type="time" value={stop.plannedTime || ""} onChange={(event) => updateStop(index, { plannedTime: event.target.value })} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-900" />
+                      </label>
+                      <label className="text-[10px] font-black text-slate-500">場所の種類
+                        <select value={stop.locationType} onChange={(event) => updateStop(index, { locationType: event.target.value as TransportStop["locationType"] })} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-900">
+                          {TRANSPORT_LOCATION_TYPES.map((type) => <option key={type}>{type}</option>)}
+                        </select>
+                      </label>
+                    </div>
+
+                    {child && (
+                      <label className="mt-2 block text-xs font-bold">
+                        この便の送迎先
+                        <select
+                          value={selectedLocation?.id || "one-time"}
+                          onChange={(event) => selectStopLocation(index, event.target.value)}
+                          className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3"
+                        >
+                          {locationOptions.map((option) => (
+                            <option key={option.id} value={option.id}>
+                              {option.recommended ? "★ " : ""}{option.name}{!option.activeOnDate ? "（設定期間外・手動）" : ""}
+                            </option>
+                          ))}
+                          <option value="one-time">今回のみ別の場所を入力</option>
+                        </select>
+                        {selectedLocation?.recommended && <span className="mt-1 block text-[10px] font-bold text-teal-700">選択日・曜日・利用区分から自動提案しました。</span>}
+                      </label>
+                    )}
+
+                    <label className="mt-2 block text-xs font-bold">
+                      住所・乗降場所
+                      <input value={stop.location} onChange={(event) => updateStop(index, { locationProfileId: undefined, locationName: "今回のみの送迎先", location: event.target.value })} placeholder="都道府県・市区町村・番地、入口など" className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3" />
+                    </label>
+                    <label className="mt-2 block text-xs font-bold">
+                      乗降時の注意（任意）
+                      <input value={stop.note || ""} onChange={(event) => updateStop(index, { note: event.target.value })} placeholder="例：到着前に連絡、北側入口で乗降" className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3" />
+                    </label>
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-3">
-                    <select
-                      value={stop.childId || ""}
-                      onChange={(event) => {
-                        const child = childrenList.find(
-                          (candidate) => candidate.id === event.target.value,
-                        );
-                        updateStop(index, {
-                          childId: child?.id,
-                          childName: child?.name,
-                          location:
-                            stop.location ||
-                            (runForm.direction === "迎え"
-                              ? child?.pickupLocation
-                              : child?.dropoffLocation) ||
-                            "",
-                        });
-                      }}
-                      className="min-h-11 rounded-lg border border-slate-300 px-2"
-                    >
-                      <option value="">児童を選択</option>
-                              {childrenList.map((child) => (
-                          <option key={child.id} value={child.id}>
-                            {child.name}
-                          </option>
-                        ))}
-                    </select>
-                    <input
-                      type="time"
-                      value={stop.plannedTime || ""}
-                      onChange={(event) =>
-                        updateStop(index, { plannedTime: event.target.value })
-                      }
-                      className="min-h-11 rounded-lg border border-slate-300 px-2"
-                    />
-                    <select
-                      value={stop.locationType}
-                      onChange={(event) =>
-                        updateStop(index, {
-                          locationType: event.target
-                            .value as TransportStop["locationType"],
-                        })
-                      }
-                      className="min-h-11 rounded-lg border border-slate-300 px-2"
-                    >
-                      <option>学校</option>
-                      <option>自宅</option>
-                      <option>事業所</option>
-                      <option>その他</option>
-                    </select>
-                  </div>
-                  <label className="mt-2 block text-xs font-bold">
-                    乗降場所
-                    <input
-                      value={stop.location}
-                      onChange={(event) =>
-                        updateStop(index, { location: event.target.value })
-                      }
-                      className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3"
-                    />
-                  </label>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </section>
           <section className="rounded-xl border border-sky-200 bg-sky-50/70 p-3">

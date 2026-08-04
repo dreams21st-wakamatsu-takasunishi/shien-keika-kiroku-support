@@ -19,6 +19,28 @@ export interface RegularDaySchedule {
   createdAt?: string;
 }
 
+export type TransportLocationType =
+  | '自宅'
+  | '学校'
+  | '学童'
+  | '習い事'
+  | '親族宅'
+  | '事業所'
+  | 'その他';
+
+export interface ChildTransportLocation {
+  id: string;
+  name: string;
+  type: TransportLocationType;
+  address: string;
+  directions: Array<'迎え' | '送り'>;
+  weekdays?: Weekday[];
+  validFrom?: string;
+  validTo?: string;
+  autoSelect?: boolean;
+  note?: string;
+}
+
 export type HomeAssistantActionType =
   | 'schedule_regular_days'
   | 'update_child_profile'
@@ -170,6 +192,7 @@ export interface ChildProfile {
   transportationRequired?: boolean;
   pickupLocation?: string;
   dropoffLocation?: string;
+  transportLocations?: ChildTransportLocation[];
   notes?: string;
 }
 
@@ -338,7 +361,9 @@ export interface TransportStop {
   id: string;
   childId?: string;
   childName?: string;
-  locationType: '学校' | '自宅' | '事業所' | 'その他';
+  locationProfileId?: string;
+  locationName?: string;
+  locationType: TransportLocationType;
   location: string;
   plannedTime?: string;
   order: number;
