@@ -234,26 +234,34 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         onArchive={onArchiveAnnouncement}
         onSaveConfirmation={onSaveAnnouncementConfirmation}
       />
-      <section className="flex flex-col gap-3 overflow-hidden rounded-2xl bg-gradient-to-br from-slate-900 via-slate-900 to-teal-950 p-4 text-white shadow-sm sm:flex-row sm:items-center sm:justify-between sm:px-5">
-        <div>
-          <p className="text-[11px] font-bold text-teal-300">支援経過記録サポート</p>
-          <h2 className="mt-1 text-lg font-black sm:text-xl">{activeRecorder?.displayName || currentUser?.displayName || '職員'}さん、お疲れさまです。</h2>
-          <p className="mt-1 text-xs text-slate-300">児童の様子を、その場で迷わず記録できます。</p>
+      <section className="overflow-hidden rounded-2xl bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 text-white shadow-sm">
+        <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-teal-300">今日のホーム</p>
+            <h2 className="mt-1 text-lg font-black sm:text-xl">{activeRecorder?.displayName || currentUser?.displayName || '職員'}さん、お疲れさまです。</h2>
+            <p className="mt-1 text-xs text-slate-300">記録と本日の業務をここから確認できます。</p>
+          </div>
+          <button type="button" onClick={onNewRecord} className="flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-teal-400 px-5 text-sm font-black text-slate-950 shadow-lg shadow-slate-950/20 hover:bg-teal-300">
+            <PlusCircle className="w-5 h-5" />新しい記録を作成
+          </button>
         </div>
-        <button type="button" onClick={onNewRecord} className="flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-teal-500 px-5 text-sm font-black text-slate-950 shadow-lg shadow-teal-950/30">
-          <PlusCircle className="w-5 h-5" />新しい記録を作成
-        </button>
-      </section>
-
-      <section className="grid grid-cols-2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm lg:grid-cols-4">
-        <StatusCard icon={CalendarDays} label="本日の記録" value={`${todayRecords.length}件`} tone="teal" />
-        <StatusCard icon={Users} label="登録児童" value={`${childrenList.length}名`} tone="blue" />
-        <StatusCard icon={ClipboardList} label="未確認" value={`${unapproved.length}件`} tone="amber" />
-        <StatusCard icon={CheckCircle2} label="確認済み" value={`${records.filter((record) => record.approvalStatus === '確認済み').length}件`} tone="emerald" />
+        <div className="grid grid-cols-4 border-t border-white/10 bg-white/[0.04]">
+          <StatusCard icon={CalendarDays} label="本日記録" value={`${todayRecords.length}件`} tone="teal" />
+          <StatusCard icon={Users} label="登録児童" value={`${childrenList.length}名`} tone="blue" />
+          <StatusCard icon={ClipboardList} label="未確認" value={`${unapproved.length}件`} tone="amber" />
+          <StatusCard icon={CheckCircle2} label="確認済" value={`${records.filter((record) => record.approvalStatus === '確認済み').length}件`} tone="emerald" />
+        </div>
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-        <div className="grid grid-cols-5 gap-1" role="tablist" aria-label="ホーム機能">
+        <div className="flex items-center justify-between px-2 pb-2 pt-1">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-teal-700">業務メニュー</p>
+            <p className="mt-0.5 text-[10px] text-slate-500">目的を選ぶと内容が切り替わります</p>
+          </div>
+          <span className="hidden text-[10px] font-bold text-slate-400 sm:block">機能はここに集約されています</span>
+        </div>
+        <div className="grid grid-cols-3 gap-1 sm:grid-cols-5" role="tablist" aria-label="ホーム機能">
           <HomePanelButton
             active={activePanel === 'todayWork'}
             icon={CalendarDays}
@@ -377,10 +385,14 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         )}
       </div>
 
-      <section className="grid gap-3 lg:grid-cols-[1.5fr_1fr]">
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <details className="group rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
+          <span className="flex items-center gap-2 font-bold text-slate-900"><History className="w-5 h-5 text-teal-600" />最近の記録</span>
+          <span className="flex items-center gap-2 text-xs font-bold text-teal-700">{recentRecords.length}件を表示<ArrowRight className="h-4 w-4 transition-transform group-open:rotate-90" /></span>
+        </summary>
+        <div className="border-t border-slate-100 p-4">
           <div className="flex items-center justify-between gap-3">
-            <h3 className="font-bold text-slate-900 flex items-center gap-2"><History className="w-5 h-5 text-teal-600" />最近の記録</h3>
+            <p className="text-xs text-slate-500">直近に更新された支援記録です。</p>
             <button type="button" onClick={() => onNavigate('records')} className="text-xs font-bold text-teal-700 flex items-center gap-1">一覧を見る<ArrowRight className="w-4 h-4" /></button>
           </div>
           <div className="mt-2 divide-y divide-slate-100">
@@ -393,17 +405,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             ))}
           </div>
         </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-          <h3 className="font-bold text-slate-900">よく使うメニュー</h3>
-          <div className="mt-2 grid grid-cols-2 gap-2 lg:grid-cols-1">
-            <QuickLink icon={PlusCircle} label="記録を作成する" onClick={onNewRecord} />
-            <QuickLink icon={Users} label="児童名簿を開く" onClick={() => onNavigate('children')} />
-            <QuickLink icon={History} label="記録一覧を開く" onClick={() => onNavigate('records')} />
-            {canManageSettings && <QuickLink icon={Settings} label="設定を開く" onClick={() => onNavigate('templates')} />}
-          </div>
-        </div>
-      </section>
+      </details>
     </div>
   );
 };
@@ -621,12 +623,8 @@ function getAssistantActionLabel(actionType: HomeAssistantProposal['actionType']
 }
 
 function StatusCard({ icon: Icon, label, value, tone }: { icon: React.ElementType; label: string; value: string; tone: 'teal' | 'blue' | 'amber' | 'emerald' }) {
-  const tones = { teal: 'bg-teal-50 text-teal-700', blue: 'bg-sky-50 text-sky-700', amber: 'bg-amber-50 text-amber-700', emerald: 'bg-emerald-50 text-emerald-700' };
-  return <div className="flex items-center gap-3 border-b border-r border-slate-100 p-3 sm:p-4"><div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${tones[tone]}`}><Icon className="h-4 w-4" /></div><div className="min-w-0"><p className="text-[10px] font-bold text-slate-500">{label}</p><p className="text-lg font-black leading-tight text-slate-900">{value}</p></div></div>;
-}
-
-function QuickLink({ icon: Icon, label, onClick }: { icon: React.ElementType; label: string; onClick: () => void }) {
-  return <button type="button" onClick={onClick} className="flex min-h-10 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 text-left text-xs font-bold text-slate-700 hover:border-teal-300 hover:bg-teal-50"><Icon className="h-4 w-4 shrink-0 text-teal-600" /><span className="min-w-0 flex-1">{label}</span><ArrowRight className="h-3.5 w-3.5 shrink-0 text-slate-400" /></button>;
+  const tones = { teal: 'text-teal-300', blue: 'text-sky-300', amber: 'text-amber-300', emerald: 'text-emerald-300' };
+  return <div className="flex min-w-0 items-center justify-center gap-2 border-r border-white/10 px-1 py-2.5 last:border-r-0 sm:px-3"><Icon className={`hidden h-4 w-4 shrink-0 sm:block ${tones[tone]}`} /><div className="min-w-0 text-center sm:text-left"><p className="truncate text-[9px] font-bold text-slate-400 sm:text-[10px]">{label}</p><p className="text-sm font-black leading-tight text-white sm:text-base">{value}</p></div></div>;
 }
 
 function HomePanelButton({
@@ -648,14 +646,14 @@ function HomePanelButton({
       role="tab"
       aria-selected={active}
       onClick={onClick}
-      className={`flex min-h-14 min-w-0 flex-col items-center justify-center gap-1 rounded-xl px-1 text-[10px] font-black transition-colors sm:min-h-12 sm:flex-row sm:px-2 sm:text-xs ${
+      className={`flex min-h-12 min-w-0 items-center justify-center gap-1.5 rounded-xl px-1 text-[10px] font-black transition-colors sm:gap-2 sm:px-2 sm:text-xs ${
         active ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
       }`}
     >
       <Icon className={`h-4 w-4 ${active ? 'text-teal-300' : 'text-teal-600'}`} />
-      <span>{label}</span>
+      <span className="whitespace-nowrap">{label}</span>
       {badge && (
-        <span className={`rounded-full px-1.5 py-0.5 text-[9px] ${active ? 'bg-white/15 text-white' : 'bg-amber-100 text-amber-800'}`}>
+        <span className={`hidden rounded-full px-1.5 py-0.5 text-[9px] sm:inline-flex ${active ? 'bg-white/15 text-white' : 'bg-amber-100 text-amber-800'}`}>
           {badge}
         </span>
       )}

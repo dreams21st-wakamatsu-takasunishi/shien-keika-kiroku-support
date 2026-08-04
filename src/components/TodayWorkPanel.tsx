@@ -119,19 +119,29 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
           <div><p className="text-xs font-black text-teal-700">本日の業務</p><h2 className="mt-1 text-xl font-black text-slate-950">勤務・予定・送迎を一画面で確認</h2><p className="mt-1 text-xs text-slate-500">自動生成された配置は、元の勤務・予定・送迎から編集します。</p></div>
           <label className="flex items-center gap-2 text-sm font-black text-slate-700"><CalendarDays className="h-5 w-5 text-teal-600" /><input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-3" /></label>
         </div>
-        <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-5">
+        <div className="ui-scrollbar mt-3 flex gap-2 overflow-x-auto pb-1 lg:grid lg:grid-cols-5 lg:overflow-visible">
           <SummaryCard icon={UserRoundCheck} label="出勤中" value={`${working.length}名`} tone="emerald" />
           <SummaryCard icon={Clock3} label="未出勤・休暇" value={`${Math.max(0, recorderProfiles.filter((profile) => profile.active).length - working.length)}名`} detail={absent.length ? `休暇等 ${absent.length}名` : undefined} tone="amber" />
           <SummaryCard icon={UsersRound} label="利用予定児童" value={`${scheduledChildren.length}名`} tone="blue" />
           <SummaryCard icon={BusFront} label="送迎便" value={`${dayRuns.length}便`} detail={`${dayRuns.filter((run) => run.status !== '未出発').length}便 運行開始`} tone="violet" />
           <SummaryCard icon={AlertTriangle} label="要確認" value={`${new Set(allWarnings).size}件`} tone={allWarnings.length ? 'rose' : 'slate'} />
         </div>
-        <div className="mt-3 grid grid-cols-3 gap-2 lg:hidden">
-          <QuickButton label="打刻" icon={Clock3} onClick={() => setView('attendance')} />
-          <QuickButton label="自分の予定" icon={ChartGantt} onClick={() => setView('placement')} />
-          <QuickButton label="担当送迎" icon={BusFront} onClick={() => setView('transport')} />
-        </div>
+        <nav className="mt-3 border-t border-slate-100 pt-3" aria-label="本日の業務メニュー">
+          <div className="grid grid-cols-4 gap-1">
+            <WorkTab active={view === 'placement'} icon={ChartGantt} label="職員配置" onClick={() => setView('placement')} />
+            <WorkTab active={view === 'calendar'} icon={CalendarDays} label="予定" onClick={() => setView('calendar')} />
+            <WorkTab active={view === 'attendance'} icon={Clock3} label="出勤" onClick={() => setView('attendance')} />
+            <WorkTab active={view === 'transport'} icon={BusFront} label="送迎" onClick={() => setView('transport')} />
+          </div>
+        </nav>
       </section>
+
+      {allWarnings.length > 0 && (
+        <details className="rounded-2xl border border-amber-300 bg-amber-50 p-4">
+          <summary className="cursor-pointer font-black text-amber-950">配置・配車の確認事項（{new Set(allWarnings).size}件）</summary>
+          <ul className="mt-3 space-y-1 text-sm text-amber-900">{[...new Set(allWarnings)].map((warning) => <li key={warning} className="flex gap-2"><AlertTriangle className="h-4 w-4 shrink-0" />{warning}</li>)}</ul>
+        </details>
+      )}
 
       {canManage && (
         <OperationsAssistant
@@ -146,22 +156,6 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
           onSaveTransportRun={onSaveTransportRun}
         />
       )}
-
-      {allWarnings.length > 0 && (
-        <details className="rounded-2xl border border-amber-300 bg-amber-50 p-4">
-          <summary className="cursor-pointer font-black text-amber-950">配置・配車の確認事項（{new Set(allWarnings).size}件）</summary>
-          <ul className="mt-3 space-y-1 text-sm text-amber-900">{[...new Set(allWarnings)].map((warning) => <li key={warning} className="flex gap-2"><AlertTriangle className="h-4 w-4 shrink-0" />{warning}</li>)}</ul>
-        </details>
-      )}
-
-      <nav className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm" aria-label="本日の業務メニュー">
-        <div className="grid grid-cols-4 gap-1">
-          <WorkTab active={view === 'placement'} icon={ChartGantt} label="職員配置" onClick={() => setView('placement')} />
-          <WorkTab active={view === 'calendar'} icon={CalendarDays} label="カレンダー" onClick={() => setView('calendar')} />
-          <WorkTab active={view === 'attendance'} icon={Clock3} label="出勤管理" onClick={() => setView('attendance')} />
-          <WorkTab active={view === 'transport'} icon={BusFront} label="送迎配車" onClick={() => setView('transport')} />
-        </div>
-      </nav>
 
       {view === 'placement' && (
         <>
@@ -179,9 +173,8 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
   );
 };
 
-const WorkTab = ({ active, icon: Icon, label, onClick }: { active: boolean; icon: React.ElementType; label: string; onClick: () => void }) => <button type="button" onClick={onClick} className={`flex min-h-12 flex-col items-center justify-center gap-1 rounded-xl px-1 text-[10px] font-black sm:flex-row sm:text-sm ${active ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-50'}`}><Icon className="h-5 w-5" />{label}</button>;
-const QuickButton = ({ label, icon: Icon, onClick }: { label: string; icon: React.ElementType; onClick: () => void }) => <button type="button" onClick={onClick} className="flex min-h-12 min-w-0 items-center justify-center gap-1 rounded-xl border border-slate-300 bg-white px-2 text-xs font-black sm:gap-2 sm:text-sm"><Icon className="h-5 w-5 shrink-0 text-teal-600" />{label}</button>;
-const SummaryCard = ({ icon: Icon, label, value, detail, tone }: { icon: React.ElementType; label: string; value: string; detail?: string; tone: string }) => <div className={`rounded-xl border p-3 ${tone === 'emerald' ? 'border-emerald-200 bg-emerald-50' : tone === 'amber' ? 'border-amber-200 bg-amber-50' : tone === 'blue' ? 'border-sky-200 bg-sky-50' : tone === 'violet' ? 'border-violet-200 bg-violet-50' : tone === 'rose' ? 'border-rose-200 bg-rose-50' : 'border-slate-200 bg-slate-50'}`}><span className="flex items-center gap-1 text-[10px] font-bold text-slate-500"><Icon className="h-4 w-4" />{label}</span><strong className="mt-1 block text-xl text-slate-950">{value}</strong>{detail && <span className="text-[10px] text-slate-500">{detail}</span>}</div>;
+const WorkTab = ({ active, icon: Icon, label, onClick }: { active: boolean; icon: React.ElementType; label: string; onClick: () => void }) => <button type="button" onClick={onClick} aria-pressed={active} className={`flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-xl px-1 text-[10px] font-black sm:flex-row sm:gap-2 sm:text-sm ${active ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}><Icon className="h-4 w-4 sm:h-5 sm:w-5" />{label}</button>;
+const SummaryCard = ({ icon: Icon, label, value, detail, tone }: { icon: React.ElementType; label: string; value: string; detail?: string; tone: string }) => <div className={`min-w-[8.5rem] rounded-xl border px-3 py-2.5 lg:min-w-0 ${tone === 'emerald' ? 'border-emerald-200 bg-emerald-50' : tone === 'amber' ? 'border-amber-200 bg-amber-50' : tone === 'blue' ? 'border-sky-200 bg-sky-50' : tone === 'violet' ? 'border-violet-200 bg-violet-50' : tone === 'rose' ? 'border-rose-200 bg-rose-50' : 'border-slate-200 bg-slate-50'}`}><span className="flex items-center gap-1 text-[10px] font-bold text-slate-500"><Icon className="h-3.5 w-3.5" />{label}</span><strong className="mt-0.5 block text-lg text-slate-950">{value}</strong>{detail && <span className="block truncate text-[9px] text-slate-500">{detail}</span>}</div>;
 
 interface OperationsProposal {
   summary: string;
