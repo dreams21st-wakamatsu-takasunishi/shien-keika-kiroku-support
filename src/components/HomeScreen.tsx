@@ -224,17 +224,21 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     <div className="max-w-6xl mx-auto space-y-4">
       {activePanel === 'menu' ? (
         <>
-          <section className="rounded-3xl bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 p-5 text-white shadow-lg sm:p-7">
-            <p className="text-[10px] font-black uppercase tracking-[0.18em] text-teal-300">{today.replaceAll('-', '/')}・ホーム</p>
-            <h2 className="mt-2 text-xl font-black sm:text-2xl">{activeRecorder?.displayName || currentUser?.displayName || '職員'}さん、何をしますか？</h2>
-            <p className="mt-1 text-xs text-slate-300">必要な機能を選ぶまで、詳しい内容は表示しません。</p>
-            <div className="mt-5 flex flex-col gap-2 sm:flex-row">
-              <button type="button" onClick={onNewRecord} className="flex min-h-14 flex-1 items-center justify-center gap-2 rounded-2xl bg-teal-400 px-5 text-base font-black text-slate-950 shadow-lg shadow-slate-950/20 hover:bg-teal-300">
-                <PlusCircle className="h-6 w-6" />記録を始める
-              </button>
-              <button type="button" onClick={() => onNavigate('records')} className="flex min-h-12 items-center justify-center gap-2 rounded-2xl border border-white/20 bg-white/10 px-5 text-sm font-bold text-white hover:bg-white/15">
-                <ClipboardList className="h-5 w-5" />記録一覧
-              </button>
+          <section className="rounded-2xl bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 p-4 text-white shadow-lg sm:p-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-teal-300">{today.replaceAll('-', '/')}・ホーム</p>
+                <h2 className="mt-1 text-lg font-black sm:text-xl">今日の業務を選択</h2>
+                <p className="mt-1 text-[10px] font-bold text-slate-300">操作担当は画面右上でいつでも確認・切替できます。</p>
+              </div>
+              <div className="grid shrink-0 grid-cols-2 gap-2 sm:flex">
+                <button type="button" onClick={onNewRecord} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-teal-400 px-4 text-sm font-black text-slate-950 shadow-md hover:bg-teal-300">
+                  <PlusCircle className="h-5 w-5" />記録を始める
+                </button>
+                <button type="button" onClick={() => onNavigate('records')} className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 text-sm font-bold text-white hover:bg-white/15">
+                  <ClipboardList className="h-5 w-5" />記録一覧
+                </button>
+              </div>
             </div>
           </section>
 
@@ -268,7 +272,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             title={activePanel === 'todayWork' ? '本日の業務' : activePanel === 'operations' ? '記録状況' : activePanel === 'communication' ? '共有・連絡' : 'AIアシスタント'}
             onBack={() => setActivePanel('menu')}
           />
-          <div role="region" aria-label={activePanel === 'todayWork' ? '本日の業務' : activePanel === 'operations' ? '記録状況' : activePanel === 'communication' ? '共有・連絡' : 'AIアシスタント'}>
+          <div key={activePanel} className="ui-panel-enter" role="region" aria-label={activePanel === 'todayWork' ? '本日の業務' : activePanel === 'operations' ? '記録状況' : activePanel === 'communication' ? '共有・連絡' : 'AIアシスタント'}>
         {activePanel === 'todayWork' && (
           <TodayWorkPanel
             staffScheduleItems={staffScheduleItems}

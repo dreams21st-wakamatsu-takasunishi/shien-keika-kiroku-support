@@ -5,12 +5,14 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  ClipboardCopy,
   Circle,
   Cloud,
   Eye,
   Info,
   ListChecks,
   LoaderCircle,
+  MessageSquareText,
   Save,
   Search,
   SkipForward,
@@ -25,6 +27,7 @@ import {
   CalendarEvent,
   ChildProfile,
   ExpressionType,
+  HandoverItem,
   RecorderProfile,
   SectionAnswer,
   SectionFieldAnswer,
@@ -88,6 +91,7 @@ interface RecordFormProps {
   ) => Promise<void> | void;
   onDraftChanged?: () => void;
   onCreateHandover?: (content: string) => Promise<void> | void;
+  handoverItems?: HandoverItem[];
 }
 
 type StepKind =
@@ -787,63 +791,61 @@ function PostureObservationInput({
   };
 
   return (
-    <div className="space-y-2">
-      {POSTURE_CATEGORIES.map((category) => {
-        const expanded = expandedCategory === category;
-        const summary = categorySummary(category);
-        return (
-          <section key={category} className={`overflow-hidden rounded-xl border ${summary ? 'border-teal-400 bg-teal-50/60' : 'border-slate-200 bg-white'}`}>
+    <div className="min-w-0 space-y-2">
+      <div className="grid grid-cols-3 gap-1.5 rounded-xl bg-slate-100 p-1.5">
+        {POSTURE_CATEGORIES.map((category) => {
+          const selected = expandedCategory === category;
+          const summary = categorySummary(category);
+          return (
             <button
+              key={category}
               type="button"
-              aria-expanded={expanded}
-              onClick={() => setExpandedCategory(expanded ? null : category)}
-              className="flex min-h-12 w-full items-center gap-3 px-3 py-2 text-left"
+              aria-expanded={selected}
+              onClick={() => setExpandedCategory(selected ? null : category)}
+              className={`min-h-11 min-w-0 rounded-lg px-2 text-xs font-black transition-colors ${selected ? 'bg-teal-600 text-white shadow-sm' : summary ? 'bg-white text-teal-800 ring-1 ring-teal-300' : 'bg-white text-slate-600'}`}
             >
-              <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-md ${summary ? 'bg-teal-600 text-white' : 'bg-slate-100 text-slate-500'}`}>
-                {summary ? <Check className="h-4 w-4" /> : <Circle className="h-3.5 w-3.5" />}
-              </span>
-              <span className="min-w-0 flex-1">
-                <strong className="block text-sm text-slate-900">{category}</strong>
-                <span className="block truncate text-[11px] text-slate-500">{summary || 'タップして入力'}</span>
-              </span>
-              <ChevronRight className={`h-4 w-4 text-slate-500 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+              <span className="flex items-center justify-center gap-1 truncate">{summary && <Check className="h-3.5 w-3.5 shrink-0" />}{category}</span>
             </button>
-            {expanded && (
-              <div className="space-y-3 border-t border-slate-200 bg-white p-3">
-                {category === '背すじ' && (
-                  <div className="grid gap-2 sm:grid-cols-3">
-                    {POSTURE_BACK_OPTIONS.map((option) => {
-                      const selected = backSelections.includes(option);
-                      return <button key={option} type="button" onClick={() => toggleOption('backSelections', option)} className={`${choiceClass} text-left ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300 bg-white text-slate-700'}`}>{selected && <Check className="mr-1 inline h-4 w-4" />}{option}</button>;
-                    })}
-                  </div>
-                )}
-                {category === '足' && (
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    {POSTURE_LEG_OPTIONS.map((option) => {
-                      const selected = legSelections.includes(option);
-                      return <button key={option} type="button" onClick={() => toggleOption('legSelections', option)} className={`${choiceClass} text-left ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300 bg-white text-slate-700'}`}>{selected && <Check className="mr-1 inline h-4 w-4" />}{option}</button>;
-                    })}
-                  </div>
-                )}
-                <label className="block text-xs font-bold text-slate-700">
-                  {category === 'その他' ? 'その他の様子' : `${category}の備考（任意）`}
-                  <textarea
-                    rows={2}
-                    value={String(details[category === '背すじ' ? 'backNote' : category === '足' ? 'legNote' : 'otherNote'] || '')}
-                    onChange={(event) => commit({
-                      ...details,
-                      [category === '背すじ' ? 'backNote' : category === '足' ? 'legNote' : 'otherNote']: event.target.value,
-                    })}
-                    placeholder={category === 'その他' ? '顔の位置や姿勢の変化などを入力' : '変化した時刻や具体的な様子を入力'}
-                    className={`${inputClass} mt-1`}
-                  />
-                </label>
-              </div>
-            )}
-          </section>
-        );
-      })}
+          );
+        })}
+      </div>
+      {expandedCategory && (
+        <section className="ui-panel-enter min-w-0 space-y-3 rounded-xl border border-teal-200 bg-white p-3 shadow-sm">
+          <div className="flex items-center justify-between gap-2">
+            <strong className="text-sm text-slate-900">{expandedCategory}を入力</strong>
+            <button type="button" onClick={() => setExpandedCategory(null)} className="min-h-9 rounded-lg bg-slate-100 px-3 text-xs font-black text-slate-600">閉じる</button>
+          </div>
+          {expandedCategory === '背すじ' && (
+            <div className="grid gap-2 sm:grid-cols-3">
+              {POSTURE_BACK_OPTIONS.map((option) => {
+                const selected = backSelections.includes(option);
+                return <button key={option} type="button" onClick={() => toggleOption('backSelections', option)} className={`${choiceClass} text-left ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300 bg-white text-slate-700'}`}>{selected && <Check className="mr-1 inline h-4 w-4" />}{option}</button>;
+              })}
+            </div>
+          )}
+          {expandedCategory === '足' && (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {POSTURE_LEG_OPTIONS.map((option) => {
+                const selected = legSelections.includes(option);
+                return <button key={option} type="button" onClick={() => toggleOption('legSelections', option)} className={`${choiceClass} text-left ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300 bg-white text-slate-700'}`}>{selected && <Check className="mr-1 inline h-4 w-4" />}{option}</button>;
+              })}
+            </div>
+          )}
+          <label className="block text-xs font-bold text-slate-700">
+            {expandedCategory === 'その他' ? 'その他の様子' : `${expandedCategory}の備考（任意）`}
+            <textarea
+              rows={2}
+              value={String(details[expandedCategory === '背すじ' ? 'backNote' : expandedCategory === '足' ? 'legNote' : 'otherNote'] || '')}
+              onChange={(event) => commit({
+                ...details,
+                [expandedCategory === '背すじ' ? 'backNote' : expandedCategory === '足' ? 'legNote' : 'otherNote']: event.target.value,
+              })}
+              placeholder={expandedCategory === 'その他' ? '顔の位置や姿勢の変化などを入力' : '変化した時刻や具体的な様子を入力'}
+              className={`${inputClass} mt-1`}
+            />
+          </label>
+        </section>
+      )}
     </div>
   );
 }
@@ -1103,6 +1105,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   onSaveRecords,
   onDraftChanged,
   onCreateHandover,
+  handoverItems = [],
 }) => {
   const storedTemplate = templates.find((template) => template.id === initialRecord?.templateId) || templates[0];
   const initialTemplate = initialRecord?.templateSectionsSnapshot?.length
@@ -1177,6 +1180,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const [summarizingSectionId, setSummarizingSectionId] = useState<string | null>(null);
   const [showChildPicker, setShowChildPicker] = useState(false);
   const [infoChild, setInfoChild] = useState<ChildProfile | null>(null);
+  const [handoverReferenceOpen, setHandoverReferenceOpen] = useState(false);
+  const [copiedHandoverId, setCopiedHandoverId] = useState<string | null>(null);
   const [childSearch, setChildSearch] = useState('');
   const [checksAcknowledged, setChecksAcknowledged] = useState(false);
   const [expandedGroupStepId, setExpandedGroupStepId] = useState<string | null>(null);
@@ -1196,6 +1201,12 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const wizardQuestions = getWizardQuestions(activeTemplate);
   const activeChild = childrenList.find((child) => child.id === wizard.activeChildId);
   const activeChildDraft = wizard.childDrafts[wizard.activeChildId];
+  const relevantHandovers = useMemo(() => handoverItems
+    .filter((item) => item.status !== '完了' && (!item.childId || item.childId === activeChild?.id))
+    .sort((left, right) => {
+      const rank = { 緊急: 0, 重要: 1, 通常: 2 };
+      return rank[left.priority] - rank[right.priority] || right.updatedAt.localeCompare(left.updatedAt);
+    }), [activeChild?.id, handoverItems]);
 
   useEffect(() => {
     if (!organizationId || !userId) return;
@@ -2435,14 +2446,26 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             const postureQuestion = step.kind === 'field' && /_(study|pc)_posture$/.test(step.fieldId || '');
             const expanded = expandedGroupStepId === step.id;
             const summary = groupedStepSummary(step, status);
+            if (postureQuestion) {
+              return (
+                <section key={step.id} id={`group-question-${step.id}`} className="min-w-0 max-w-full rounded-2xl border-2 border-teal-400 bg-teal-50/60 p-3 shadow-sm sm:p-4">
+                  <div className="mb-3 flex min-w-0 items-start gap-2">
+                    <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${status === 'answered' ? 'bg-emerald-600 text-white' : 'bg-teal-600 text-white'}`}>{status === 'answered' ? <Check className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="flex flex-wrap items-center gap-1.5"><strong className="text-sm leading-relaxed text-slate-900">{step.title}</strong><span className="rounded-full bg-teal-600 px-2 py-0.5 text-[9px] font-black text-white">常時入力</span></span>
+                      <span className={`block max-w-full overflow-hidden break-all text-[11px] leading-relaxed [overflow-wrap:anywhere] ${status === 'answered' ? 'font-bold text-emerald-800' : 'font-medium text-slate-500'}`}>{summary}</span>
+                    </span>
+                  </div>
+                  {renderGroupedQuestionBody(step)}
+                </section>
+              );
+            }
             return (
               <section
                 key={step.id}
                 id={`group-question-${step.id}`}
                 className={`min-w-0 max-w-full overflow-hidden rounded-2xl border-2 shadow-sm ${
-                  postureQuestion
-                    ? 'border-teal-400 bg-teal-50/60'
-                    : status === 'answered'
+                  status === 'answered'
                       ? 'border-emerald-300 bg-emerald-50/40'
                       : status === 'skipped'
                         ? 'border-slate-300 bg-slate-50'
@@ -2451,11 +2474,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
               >
                 <div className="flex items-stretch">
                   <button type="button" aria-expanded={expanded} onClick={() => setExpandedGroupStepId(expanded ? null : step.id)} className="flex min-h-14 min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left">
-                    <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${status === 'answered' ? 'bg-emerald-600 text-white' : status === 'skipped' ? 'bg-slate-400 text-white' : postureQuestion ? 'bg-teal-600 text-white' : 'bg-slate-100 text-slate-500'}`}>{status === 'answered' ? <Check className="h-4 w-4" /> : status === 'skipped' ? <SkipForward className="h-3.5 w-3.5" /> : <Circle className="h-3.5 w-3.5" />}</span>
+                    <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${status === 'answered' ? 'bg-emerald-600 text-white' : status === 'skipped' ? 'bg-slate-400 text-white' : 'bg-slate-100 text-slate-500'}`}>{status === 'answered' ? <Check className="h-4 w-4" /> : status === 'skipped' ? <SkipForward className="h-3.5 w-3.5" /> : <Circle className="h-3.5 w-3.5" />}</span>
                     <span className="min-w-0 flex-1">
                       <span className="flex flex-wrap items-center gap-1.5">
                         <strong className="text-sm leading-relaxed text-slate-900">{step.title}</strong>
-                        {postureQuestion && <span className="rounded-full bg-teal-600 px-2 py-0.5 text-[9px] font-black text-white">観察</span>}
                       </span>
                       <span className={`block max-w-full overflow-hidden break-all text-[11px] leading-relaxed [overflow-wrap:anywhere] ${status === 'answered' ? 'font-bold text-emerald-800' : 'font-medium text-slate-500'}`}>{summary}</span>
                     </span>
@@ -3179,7 +3201,17 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
       <section className="w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="p-5 sm:p-7 border-b border-slate-100">
-          {isChildStep && <div className="mb-2 flex items-center justify-between gap-2"><p className="text-xs font-bold text-teal-700 flex items-center gap-1"><Users className="w-4 h-4" />{activeChild?.name || '児童を選択してください'}の記録</p>{activeChild && <button type="button" onClick={() => setInfoChild(activeChild)} className="flex min-h-10 items-center gap-1 rounded-lg border border-teal-200 bg-teal-50 px-3 text-xs font-black text-teal-800"><Info className="h-4 w-4" />児童情報</button>}</div>}
+          {isChildStep && (
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <p className="flex items-center gap-1 text-xs font-bold text-teal-700"><Users className="h-4 w-4" />{activeChild?.name || '児童を選択してください'}の記録</p>
+              {activeChild && (
+                <div className="flex flex-wrap justify-end gap-1.5">
+                  <button type="button" onClick={() => setHandoverReferenceOpen(true)} className="flex min-h-10 items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-3 text-xs font-black text-amber-900"><MessageSquareText className="h-4 w-4" />申し送り {relevantHandovers.length > 0 && <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] text-white">{relevantHandovers.length}</span>}</button>
+                  <button type="button" onClick={() => setInfoChild(activeChild)} className="flex min-h-10 items-center gap-1 rounded-lg border border-teal-200 bg-teal-50 px-3 text-xs font-black text-teal-800"><Info className="h-4 w-4" />児童情報</button>
+                </div>
+              )}
+            </div>
+          )}
           <div className="flex items-start gap-3">
             <div className={`mt-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${currentStatus === 'answered' ? 'bg-emerald-100 text-emerald-700' : currentStatus === 'skipped' ? 'bg-slate-200 text-slate-500' : 'bg-amber-100 text-amber-700'}`}>{currentStatus === 'answered' ? <Check className="h-4 w-4" /> : currentStatus === 'skipped' ? <SkipForward className="h-3.5 w-3.5" /> : <Circle className="h-3.5 w-3.5" />}</div>
             <div className="min-w-0 flex-1">
@@ -3187,7 +3219,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                 <h2 className="text-lg font-bold leading-relaxed text-slate-900 sm:text-xl">{pageTitle(currentStep)}</h2>
                 {currentPageSteps.length > 1 && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black text-slate-600">{currentPageStatuses.filter((status) => status === 'answered').length} / {currentPageSteps.length} 回答</span>}
               </div>
-              {currentPageSteps.length > 1 && <p className="mt-1 text-xs font-medium text-slate-500">項目をタップして入力してください。開く項目は一度に1つです。</p>}
+              {currentPageSteps.length > 1 && <p className="mt-1 text-xs font-medium text-slate-500">姿勢は上部からいつでも入力できます。ほかの項目はタップして1つずつ開きます。</p>}
               {currentFieldWarning && <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-black leading-relaxed text-rose-700">{currentFieldWarning}</p>}
               {currentPageSteps.length <= 1 && currentStep?.help && <p className="mt-2 text-sm leading-relaxed text-slate-500">{currentStep.help}</p>}
             </div>
@@ -3259,6 +3291,50 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         onCreateHandover={onCreateHandover}
       />
       <ChildInfoDialog child={infoChild} onClose={() => setInfoChild(null)} />
+      {handoverReferenceOpen && (
+        <div className="ui-fade-in fixed inset-0 z-[105] flex items-end justify-end bg-slate-950/50 sm:p-4" role="dialog" aria-modal="true" aria-label="申し送りを確認">
+          <button type="button" aria-label="申し送りを閉じる" onClick={() => setHandoverReferenceOpen(false)} className="absolute inset-0 h-full w-full" />
+          <aside className="ui-panel-enter relative flex max-h-[88dvh] w-full flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:max-w-xl sm:rounded-3xl">
+            <header className="flex items-center justify-between gap-3 border-b border-slate-200 bg-amber-50 p-4">
+              <div className="min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-[0.15em] text-amber-700">入力しながら参照</p>
+                <h3 className="truncate text-lg font-black text-slate-950">{activeChild?.name}さんの申し送り</h3>
+                <p className="mt-0.5 text-[10px] text-slate-600">「コピー」後、入力欄を長押しして貼り付けできます。</p>
+              </div>
+              <button type="button" onClick={() => setHandoverReferenceOpen(false)} aria-label="閉じる" className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white text-slate-600 shadow-sm"><X className="h-5 w-5" /></button>
+            </header>
+            <div className="ui-scrollbar flex-1 space-y-2 overflow-y-auto p-3 sm:p-4">
+              {relevantHandovers.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-slate-300 p-8 text-center text-sm font-bold text-slate-400">未完了の申し送りはありません。</div>
+              ) : relevantHandovers.map((item) => (
+                <article key={item.id} className={`rounded-2xl border p-3 ${item.priority === '緊急' ? 'border-rose-300 bg-rose-50' : item.priority === '重要' ? 'border-amber-300 bg-amber-50/70' : 'border-slate-200 bg-white'}`}>
+                  <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-black">
+                    <span className="rounded-full bg-slate-900 px-2 py-1 text-white">{item.category}</span>
+                    <span className={`rounded-full px-2 py-1 ${item.priority === '緊急' ? 'bg-rose-600 text-white' : item.priority === '重要' ? 'bg-amber-400 text-amber-950' : 'bg-slate-100 text-slate-600'}`}>{item.priority}</span>
+                    <span className="rounded-full bg-white/80 px-2 py-1 text-slate-600">{item.status}</span>
+                  </div>
+                  <p className="mt-2 whitespace-pre-wrap break-words text-sm font-medium leading-relaxed text-slate-800">{item.content}</p>
+                  <div className="mt-3 flex items-center justify-between gap-2">
+                    <span className="truncate text-[10px] text-slate-500">{item.createdByRecorderName || '作成者未設定'}{item.dueDate ? `・期限 ${item.dueDate}` : ''}</span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await navigator.clipboard.writeText(item.content);
+                        setCopiedHandoverId(item.id);
+                        window.setTimeout(() => setCopiedHandoverId((current) => current === item.id ? null : current), 1800);
+                      }}
+                      className="flex min-h-10 shrink-0 items-center gap-1 rounded-xl bg-slate-900 px-3 text-xs font-black text-white"
+                    >
+                      {copiedHandoverId === item.id ? <Check className="h-4 w-4" /> : <ClipboardCopy className="h-4 w-4" />}{copiedHandoverId === item.id ? 'コピー済み' : 'コピー'}
+                    </button>
+                  </div>
+                </article>
+              ))}
+            </div>
+            <div className="border-t border-slate-200 p-3"><button type="button" onClick={() => setHandoverReferenceOpen(false)} className="min-h-12 w-full rounded-xl bg-teal-600 text-sm font-black text-white">入力画面へ戻る</button></div>
+          </aside>
+        </div>
+      )}
 
     </form>
   );

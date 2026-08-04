@@ -296,15 +296,15 @@ export const StaffSchedulePanel: React.FC<StaffSchedulePanelProps> = ({
       </div>
 
       <div className="hidden min-w-0 md:block">
-        <div className="overflow-x-auto overscroll-x-contain" aria-label="職員配置時間軸">
-          <div className="min-w-[1040px]">
-            <div className="grid grid-cols-[160px_1fr] border-b border-slate-200 bg-slate-50">
-              <div className="sticky left-0 z-30 flex min-h-11 items-center border-r border-slate-200 bg-slate-50 px-4 text-xs font-black text-slate-700">
+        <div className="min-w-0 overflow-hidden" aria-label="職員配置時間軸">
+          <div className="w-full min-w-0">
+            <div className="grid border-b border-slate-200 bg-slate-50" style={{ gridTemplateColumns: 'clamp(96px, 14vw, 148px) minmax(0, 1fr)' }}>
+              <div className="flex min-h-11 items-center border-r border-slate-200 bg-slate-50 px-2 text-[10px] font-black text-slate-700 lg:px-3 lg:text-xs">
                 職員
               </div>
               <div className="grid" style={{ gridTemplateColumns: `repeat(${END_HOUR - START_HOUR}, minmax(0, 1fr))` }}>
                 {Array.from({ length: END_HOUR - START_HOUR }, (_, index) => (
-                  <div key={index} className="border-r border-slate-200 px-1 py-3 text-center text-[10px] font-bold text-slate-500">
+                  <div key={index} className="border-r border-slate-200 px-0.5 py-3 text-center text-[8px] font-bold text-slate-500 lg:text-[10px]">
                     {String(START_HOUR + index).padStart(2, '0')}:00
                   </div>
                 ))}
@@ -312,16 +312,16 @@ export const StaffSchedulePanel: React.FC<StaffSchedulePanelProps> = ({
             </div>
 
             {rows.map(({ recorder, placed, laneCount }) => {
-              const rowHeight = Math.max(64, 14 + laneCount * 38);
+              const rowHeight = Math.max(54, 12 + laneCount * 32);
               return (
                 <div
                   key={recorder.id}
-                  className="grid grid-cols-[160px_1fr] border-b border-slate-100 last:border-b-0"
-                  style={{ minHeight: rowHeight }}
+                  className="grid border-b border-slate-100 last:border-b-0"
+                  style={{ minHeight: rowHeight, gridTemplateColumns: 'clamp(96px, 14vw, 148px) minmax(0, 1fr)' }}
                 >
-                  <div className="sticky left-0 z-20 flex items-center border-r border-slate-200 bg-white px-4">
+                  <div className="flex min-w-0 items-center border-r border-slate-200 bg-white px-2 lg:px-3">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-black text-slate-900">{recorder.displayName}</p>
+                      <p className="truncate text-[11px] font-black text-slate-900 lg:text-sm">{recorder.displayName}</p>
                       <p className="mt-0.5 text-[9px] font-bold text-slate-400">
                         {placed.length > 0 ? `${placed.length}件` : '予定なし'}
                       </p>
@@ -344,16 +344,16 @@ export const StaffSchedulePanel: React.FC<StaffSchedulePanelProps> = ({
                           type="button"
                           onClick={() => openExisting(item)}
                           title={`${item.startTime}〜${item.endTime} ${item.title}`}
-                          className={`absolute overflow-hidden rounded-lg border px-2 text-left shadow-sm transition hover:brightness-105 focus:z-10 focus:outline-none focus:ring-2 focus:ring-teal-300 ${CATEGORY_STYLES[item.category]}`}
+                          className={`absolute overflow-hidden rounded-md border px-1 text-left shadow-sm transition hover:z-10 hover:brightness-105 focus:z-10 focus:outline-none focus:ring-2 focus:ring-teal-300 lg:px-2 ${CATEGORY_STYLES[item.category]}`}
                           style={{
                             left: `${left}%`,
                             width: `${width}%`,
-                            top: 8 + lane * 38,
-                            height: 32,
+                            top: 6 + lane * 32,
+                            height: 27,
                           }}
                         >
-                          <span className="block truncate text-[10px] font-black">{item.title}</span>
-                          <span className="block truncate text-[8px] font-bold opacity-90">{item.startTime}–{item.endTime}</span>
+                          <span className="block truncate text-[8px] font-black lg:text-[10px]">{item.title}</span>
+                          <span className="hidden truncate text-[8px] font-bold opacity-90 lg:block">{item.startTime}–{item.endTime}</span>
                         </button>
                       );
                     })}

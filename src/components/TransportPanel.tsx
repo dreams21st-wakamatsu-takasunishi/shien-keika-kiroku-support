@@ -36,6 +36,7 @@ import {
   getSuggestedTransportLocation,
   getTransportLocationOptions,
 } from "../utils/transportLocations";
+import { DailyTransportPlanner } from "./DailyTransportPlanner";
 
 const TRANSPORT_LOCATION_TYPES: TransportLocationType[] = [
   "自宅",
@@ -93,6 +94,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
 }) => {
   const [view, setView] = useState<ViewMode>("runs");
   const [runForm, setRunForm] = useState<TransportRun | null>(null);
+  const [dayPlannerOpen, setDayPlannerOpen] = useState(false);
   const [vehicleForm, setVehicleForm] = useState<Vehicle | null>(null);
   const [statusRun, setStatusRun] = useState<TransportRun | null>(null);
   const [statusRecorderId, setStatusRecorderId] = useState(
@@ -118,28 +120,6 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
         .sort((left, right) => left.startTime.localeCompare(right.startTime)),
     [runs, selectedDate],
   );
-
-  const openNewRun = () => {
-    const now = new Date().toISOString();
-    setError("");
-    setRouteOrigin(routeSettings.facilityAddress);
-    setRouteDestination(routeSettings.facilityAddress);
-    setRoutePreview(null);
-    setRouteMessage("");
-    setRunForm({
-      id: createUuid(),
-      date: selectedDate,
-      name: "迎え便",
-      direction: "迎え",
-      startTime: "13:00",
-      endTime: "14:00",
-      assistantRecorderProfileIds: [],
-      stops: [],
-      status: "未出発",
-      createdAt: now,
-      updatedAt: now,
-    });
-  };
 
   const openRunEditor = (run: TransportRun) => {
     setRunForm({
@@ -457,11 +437,11 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={openNewRun}
+                  onClick={() => setDayPlannerOpen(true)}
                   className="flex min-h-11 items-center gap-2 rounded-xl bg-teal-600 px-4 text-sm font-black text-white"
                 >
                   <Plus className="h-5 w-5" />
-                  便を追加
+                  一日の送迎を組む
                 </button>
               </div>
             )}
@@ -608,7 +588,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
                           className="min-h-10 rounded-xl border border-slate-300 px-3 text-xs font-bold"
                         >
                           <PencilLine className="mr-1 inline h-4 w-4" />
-                          編集
+                          詳細・経路
                         </button>
                       )}
                       {canManage && (
@@ -1255,6 +1235,18 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
             ))}
           </div>
         </Modal>
+      )}
+      {dayPlannerOpen && (
+        <DailyTransportPlanner
+          date={selectedDate}
+          runs={dayRuns}
+          vehicles={vehicles}
+          recorderProfiles={recorderProfiles}
+          childrenList={childrenList}
+          onSaveRun={onSaveRun}
+          onDeleteRun={onDeleteRun}
+          onClose={() => setDayPlannerOpen(false)}
+        />
       )}
     </div>
   );

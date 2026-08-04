@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, ChevronRight, HardDrive, House, LoaderCircle, RefreshCw, UserRoundCog, WifiOff } from 'lucide-react';
+import { AlertTriangle, ChevronRight, HardDrive, House, LoaderCircle, RefreshCw, WifiOff } from 'lucide-react';
 import {
   AiWritingSettings,
   Announcement,
@@ -1259,7 +1259,7 @@ export default function App() {
   };
 
   return (
-    <div className="app-background min-h-screen text-slate-900 font-sans antialiased pb-24 lg:pb-12">
+    <div className="app-background min-h-screen pb-8 font-sans text-slate-900 antialiased sm:pb-12">
       <Header
         activeTab={activeTab === 'preview' ? 'records' : activeTab}
         setActiveTab={(tab) => {
@@ -1277,11 +1277,13 @@ export default function App() {
         unapprovedCount={unapprovedCount}
         onNewRecord={handleNewRecordClick}
         currentUser={auth.profile}
+        activeRecorder={activeRecorder}
+        onChangeRecorder={() => setActiveRecorder(null)}
         onSignOut={remoteMode ? auth.signOut : undefined}
       />
 
       <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-3 sm:pt-6">
-        {(!online || !remoteMode || pendingSyncs.length > 0 || activeRecorder) && (
+        {(!online || !remoteMode || pendingSyncs.length > 0) && (
         <div className={`mb-3 rounded-xl border px-3 py-2 text-[11px] sm:mb-4 sm:px-4 sm:text-xs ${
           !online
             ? 'border-amber-300 bg-amber-50 text-amber-900'
@@ -1292,7 +1294,6 @@ export default function App() {
           <div className="flex flex-wrap items-center gap-2">
             {!online && <><WifiOff className="h-4 w-4" /><span className="min-w-0 flex-1">オフラインです。入力は端末に保持され、通信復旧後に送信されます。</span></>}
             {online && !remoteMode && <><HardDrive className="h-4 w-4" /><span className="min-w-0 flex-1">ローカル試用モード：データはこのブラウザだけに保存されます。</span></>}
-            {online && remoteMode && pendingSyncs.length === 0 && activeRecorder && <span className="min-w-0 flex-1 text-slate-500">現在の記録者</span>}
             {pendingSyncs.length > 0 && (
               <button
                 type="button"
@@ -1302,16 +1303,6 @@ export default function App() {
               >
                 <RefreshCw className={`h-3.5 w-3.5 ${syncing ? 'animate-spin' : ''}`} />
                 未送信 {pendingSyncs.reduce((sum, item) => sum + item.records.length, 0)}件
-              </button>
-            )}
-            {activeRecorder && (
-              <button
-                type="button"
-                onClick={() => setActiveRecorder(null)}
-                className="flex min-h-9 items-center gap-1 rounded-lg border border-teal-300 bg-white px-2 font-bold text-teal-800"
-              >
-                <UserRoundCog className="h-3.5 w-3.5" />
-                {activeRecorder.displayName}・切替
               </button>
             )}
           </div>
@@ -1325,6 +1316,7 @@ export default function App() {
           />
         )}
 
+        <div key={activeTab} className="ui-screen-enter">
         {activeTab === 'home' && (
           <HomeScreen
             records={records}
@@ -1416,6 +1408,7 @@ export default function App() {
               ])))}
             onSaveRecords={handleSaveRecords}
             onCreateHandover={handleQuickMemoHandover}
+            handoverItems={handoverItems}
           />
         )}
         {activeTab === 'preview' && currentRecord && (
@@ -1461,6 +1454,7 @@ export default function App() {
           />
         )}
         {activeTab === 'team' && auth.profile && canReview && <TeamManager currentUser={auth.profile} />}
+        </div>
       </main>
     </div>
   );

@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { SupportRecord, ApprovalStatus } from '../types';
 import { Search, FileText, Clock, Eye, Edit, Copy, Trash2, Download, Wrench, SlidersHorizontal, X } from 'lucide-react';
 import { downloadRecordsCsv } from '../utils/recordCsv';
+import { getLocalDateString } from '../utils/weekdays';
 
 interface RecordListProps {
   records: SupportRecord[];
@@ -29,8 +30,11 @@ export const RecordList: React.FC<RecordListProps> = ({
   const [searchTerm, setSearchTerm] = useState(initialSearchTerm || '');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [templateFilter, setTemplateFilter] = useState<string>('all');
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const today = getLocalDateString();
+  const [dateMode, setDateMode] = useState<'day' | 'range'>('day');
+  const [selectedDate, setSelectedDate] = useState(today);
+  const [dateFrom, setDateFrom] = useState(today);
+  const [dateTo, setDateTo] = useState(today);
   const [filtersOpen, setFiltersOpen] = useState(false);
 
   // Filter records
@@ -45,7 +49,9 @@ export const RecordList: React.FC<RecordListProps> = ({
 
     const matchesTemplate =
       templateFilter === 'all' || r.templateType === templateFilter;
-    const matchesDate = (!dateFrom || r.date >= dateFrom) && (!dateTo || r.date <= dateTo);
+    const matchesDate = dateMode === 'day'
+      ? r.date === selectedDate
+      : (!dateFrom || r.date >= dateFrom) && (!dateTo || r.date <= dateTo);
 
     return matchesSearch && matchesStatus && matchesTemplate && matchesDate;
   });
@@ -55,15 +61,15 @@ export const RecordList: React.FC<RecordListProps> = ({
     Boolean(searchTerm.trim()),
     statusFilter !== 'all',
     templateFilter !== 'all',
-    Boolean(dateFrom),
-    Boolean(dateTo),
   ].filter(Boolean).length;
   const clearFilters = () => {
     setSearchTerm('');
     setStatusFilter('all');
     setTemplateFilter('all');
-    setDateFrom('');
-    setDateTo('');
+    setDateMode('day');
+    setSelectedDate(today);
+    setDateFrom(today);
+    setDateTo(today);
   };
 
   return (
@@ -104,6 +110,25 @@ export const RecordList: React.FC<RecordListProps> = ({
 
       {/* Search & Filter Bar */}
       <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+        <div className="mb-3 flex flex-col gap-2 rounded-xl bg-slate-50 p-2 sm:flex-row sm:items-center">
+          <div className="grid grid-cols-2 rounded-lg bg-white p-1 shadow-sm sm:w-52">
+            <button type="button" onClick={() => setDateMode('day')} className={`min-h-9 rounded-md px-3 text-xs font-black ${dateMode === 'day' ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>1日表示</button>
+            <button type="button" onClick={() => setDateMode('range')} className={`min-h-9 rounded-md px-3 text-xs font-black ${dateMode === 'range' ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>期間表示</button>
+          </div>
+          {dateMode === 'day' ? (
+            <label className="flex min-w-0 flex-1 items-center gap-2 text-xs font-black text-slate-600">
+              対象日
+              <input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} className="min-h-10 min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2 font-bold sm:max-w-48" />
+            </label>
+          ) : (
+            <div className="grid min-w-0 flex-1 grid-cols-[1fr_auto_1fr] items-center gap-2">
+              <input aria-label="開始日" type="date" value={dateFrom} onChange={(event) => setDateFrom(event.target.value)} className="min-h-10 min-w-0 rounded-lg border border-slate-300 bg-white px-2 text-xs font-bold" />
+              <span className="text-xs font-bold text-slate-400">〜</span>
+              <input aria-label="終了日" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} className="min-h-10 min-w-0 rounded-lg border border-slate-300 bg-white px-2 text-xs font-bold" />
+            </div>
+          )}
+          <span className="shrink-0 rounded-lg bg-teal-100 px-3 py-2 text-center text-xs font-black text-teal-800">{filteredRecords.length}件</span>
+        </div>
         <button
           type="button"
           onClick={() => setFiltersOpen((current) => !current)}
@@ -116,7 +141,7 @@ export const RecordList: React.FC<RecordListProps> = ({
           </span>
         </button>
         <div className={`${filtersOpen ? 'block' : 'hidden'} space-y-3 border-t border-slate-100 pt-3 lg:block lg:border-0 lg:pt-0`}>
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {/* Search Box */}
           <div className="relative">
             <input
@@ -140,25 +165,6 @@ export const RecordList: React.FC<RecordListProps> = ({
             <option value="確認済み">確認済み (承認完了)</option>
             <option value="要修正">要修正</option>
           </select>
-
-          <label className="text-[10px] font-bold text-slate-500">
-            開始日
-            <input
-              type="date"
-              value={dateFrom}
-              onChange={(event) => setDateFrom(event.target.value)}
-              className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-slate-50 px-2 text-xs font-medium"
-            />
-          </label>
-          <label className="text-[10px] font-bold text-slate-500">
-            終了日
-            <input
-              type="date"
-              value={dateTo}
-              onChange={(event) => setDateTo(event.target.value)}
-              className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-slate-50 px-2 text-xs font-medium"
-            />
-          </label>
 
           {/* Template Filter */}
           <select
