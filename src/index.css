@@ -46,6 +46,32 @@ body {
   top: calc(4rem + var(--app-safe-area-top));
 }
 
+.quick-memo-sheet {
+  bottom: calc(9rem + var(--app-safe-area-bottom));
+}
+
+.quick-memo-trigger {
+  right: calc(1rem + var(--app-safe-area-right));
+  bottom: calc(5rem + var(--app-safe-area-bottom));
+}
+
+@media (min-width: 640px) {
+  .quick-memo-sheet {
+    right: calc(1.25rem + var(--app-safe-area-right));
+  }
+}
+
+@media (min-width: 768px) {
+  .quick-memo-sheet {
+    bottom: calc(6rem + var(--app-safe-area-bottom));
+  }
+
+  .quick-memo-trigger {
+    right: calc(1.5rem + var(--app-safe-area-right));
+    bottom: calc(1.5rem + var(--app-safe-area-bottom));
+  }
+}
+
 .app-background {
   background:
     radial-gradient(circle at 15% 0%, rgba(20, 184, 166, 0.08), transparent 30rem),

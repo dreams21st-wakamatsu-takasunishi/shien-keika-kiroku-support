@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Check, Cloud, Send, StickyNote, Trash2, X } from 'lucide-react';
 import { deleteRecordDraft, loadRecordDraft, saveRecordDraft } from '../services/dataService';
 import { getCurrentDraftCycleKey, getNextDraftResetAt, isDraftCurrent } from '../utils/draftExpiry';
@@ -200,12 +201,12 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
           ? '端末には保存済み・共有保存に失敗'
           : '入力すると自動保存';
 
-  return (
+  return createPortal(
     <>
       <section
         aria-label="クイックメモ"
         aria-hidden={!open}
-        className={`fixed inset-x-3 bottom-36 z-50 max-h-[min(68vh,34rem)] origin-bottom-right overflow-hidden rounded-2xl border border-amber-200 bg-amber-50 shadow-2xl transition-all duration-300 ease-out sm:inset-x-auto sm:right-5 sm:w-96 md:bottom-24 ${
+        className={`quick-memo-sheet fixed inset-x-3 z-50 max-h-[min(68vh,34rem)] origin-bottom-right overflow-hidden rounded-2xl border border-amber-200 bg-amber-50 shadow-2xl transition-all duration-300 ease-out sm:inset-x-auto sm:w-96 ${
           open ? 'pointer-events-auto translate-y-0 scale-100 opacity-100' : 'pointer-events-none translate-y-5 scale-90 opacity-0'
         }`}
       >
@@ -274,7 +275,7 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
         onClick={() => setOpen((current) => !current)}
         aria-expanded={open}
         aria-label={open ? 'メモ帳をしまう' : 'クイックメモを開く'}
-        className={`fixed bottom-20 right-4 z-50 flex h-14 w-14 items-center justify-center rounded-full border-2 shadow-xl transition-all duration-300 active:scale-95 md:bottom-6 md:right-6 ${
+        className={`quick-memo-trigger fixed z-50 flex h-14 w-14 items-center justify-center rounded-full border-2 shadow-xl transition-all duration-300 active:scale-95 ${
           open
             ? 'rotate-6 border-amber-300 bg-amber-100 text-amber-950'
             : 'border-amber-300 bg-amber-400 text-amber-950 hover:-translate-y-1 hover:bg-amber-300'
@@ -283,6 +284,7 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
         {open ? <X className="h-6 w-6" /> : <StickyNote className="h-6 w-6" />}
         {!open && content && <span className="absolute -right-0.5 -top-0.5 h-3.5 w-3.5 rounded-full border-2 border-white bg-emerald-500" aria-label="保存済みメモあり" />}
       </button>
-    </>
+    </>,
+    document.body,
   );
 };
