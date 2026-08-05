@@ -28,6 +28,7 @@ import {
   ChildProfile,
   ExpressionType,
   HandoverItem,
+  RecordDraftSummary,
   RecorderProfile,
   SectionAnswer,
   SectionFieldAnswer,
@@ -84,6 +85,10 @@ interface RecordFormProps {
   resolvedIssueId?: string;
   readOnly?: boolean;
   readOnlyOwnerName?: string;
+  readOnlyInitialChildId?: string;
+  readOnlyDrafts?: RecordDraftSummary[];
+  onReadOnlyDraftChange?: (draftKey: string, ownerName?: string, childId?: string) => void;
+  onBackToRecordStatus?: () => void;
   lockedChildren?: Record<string, string>;
   onSaveRecords: (
     records: SupportRecord[],
@@ -181,6 +186,13 @@ interface DraftPreviewChild {
   total: number;
 }
 
+interface DraftPreviewNavigationChild {
+  childId: string;
+  childName: string;
+  draftKey: string;
+  ownerName?: string;
+}
+
 const DraftProgressOverview: React.FC<{
   loading: boolean;
   ownerName?: string;
@@ -189,13 +201,35 @@ const DraftProgressOverview: React.FC<{
   recorderName?: string;
   updatedAt?: string;
   children: DraftPreviewChild[];
-}> = ({ loading, ownerName, date, templateName, recorderName, updatedAt, children }) => {
+  initialChildId?: string;
+  currentDraftKey: string;
+  navigationChildren?: DraftPreviewNavigationChild[];
+  onSelectNavigationChild?: (item: DraftPreviewNavigationChild) => void;
+  onBack?: () => void;
+}> = ({
+  loading,
+  ownerName,
+  date,
+  templateName,
+  recorderName,
+  updatedAt,
+  children,
+  initialChildId,
+  currentDraftKey,
+  navigationChildren = [],
+  onSelectNavigationChild,
+  onBack,
+}) => {
   const [activeChildId, setActiveChildId] = useState('');
 
   useEffect(() => {
+    if (initialChildId && children.some((child) => child.id === initialChildId)) {
+      if (activeChildId !== initialChildId) setActiveChildId(initialChildId);
+      return;
+    }
     if (children.some((child) => child.id === activeChildId)) return;
     setActiveChildId(children[0]?.id || '');
-  }, [activeChildId, children]);
+  }, [activeChildId, children, initialChildId]);
 
   if (loading) {
     return (
@@ -210,9 +244,26 @@ const DraftProgressOverview: React.FC<{
   const completion = activeChild?.total
     ? Math.round(((activeChild.answered + activeChild.skipped) / activeChild.total) * 100)
     : 0;
+  const availableChildren = navigationChildren.length > 0
+    ? navigationChildren
+    : children.map((child) => ({
+        childId: child.id,
+        childName: child.name,
+        draftKey: currentDraftKey,
+        ownerName: recorderName,
+      }));
 
   return (
     <section className="mx-auto w-full max-w-5xl space-y-4" aria-label="入力中の記録プレビュー">
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-300 bg-white px-4 text-sm font-black text-slate-800 shadow-sm hover:bg-slate-50"
+        >
+          <ChevronLeft className="h-4 w-4" />本日の運用状況へ戻る
+        </button>
+      )}
       <header className="overflow-hidden rounded-2xl border border-sky-200 bg-white shadow-sm">
         <div className="flex flex-col gap-3 bg-gradient-to-r from-sky-700 to-teal-700 p-4 text-white sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">
@@ -236,14 +287,26 @@ const DraftProgressOverview: React.FC<{
         <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-sm font-bold text-slate-500">閲覧できる児童の入力内容がありません。</div>
       ) : (
         <>
-          <nav className="ui-scrollbar flex gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-sm" aria-label="閲覧する児童">
-            {children.map((child) => {
-              const selected = child.id === activeChild.id;
-              const remaining = Math.max(0, child.total - child.answered - child.skipped);
+          <nav className="ui-scrollbar flex gap-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white p-2 shadow-sm" aria-label="同日の入力中児童">
+            {availableChildren.map((item) => {
+              const child = children.find((candidate) => candidate.id === item.childId);
+              const selected = item.draftKey === currentDraftKey && item.childId === activeChild.id;
+              const remaining = child ? Math.max(0, child.total - child.answered - child.skipped) : null;
               return (
-                <button key={child.id} type="button" onClick={() => setActiveChildId(child.id)} aria-pressed={selected} className={`min-h-12 shrink-0 rounded-xl border px-3 text-left transition-colors ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-200 bg-white text-slate-800'}`}>
-                  <strong className="block text-sm">{child.name}</strong>
-                  <span className={`text-[10px] font-bold ${selected ? 'text-teal-50' : remaining ? 'text-amber-700' : 'text-emerald-700'}`}>{remaining ? `未回答 ${remaining}件` : '入力完了'}</span>
+                <button
+                  key={`${item.draftKey}:${item.childId}`}
+                  type="button"
+                  onClick={() => {
+                    if (item.draftKey === currentDraftKey && child) setActiveChildId(item.childId);
+                    else onSelectNavigationChild?.(item);
+                  }}
+                  aria-pressed={selected}
+                  className={`min-h-12 shrink-0 rounded-xl border px-3 text-left transition-colors ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-200 bg-white text-slate-800'}`}
+                >
+                  <strong className="block text-sm">{item.childName}</strong>
+                  <span className={`block max-w-36 truncate text-[10px] font-bold ${selected ? 'text-teal-50' : remaining ? 'text-amber-700' : 'text-slate-500'}`}>
+                    {remaining === null ? `${item.ownerName || '職員'}が入力中` : remaining ? `未回答 ${remaining}件` : '入力完了'}
+                  </span>
                 </button>
               );
             })}
@@ -1224,6 +1287,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   resolvedIssueId,
   readOnly = false,
   readOnlyOwnerName,
+  readOnlyInitialChildId,
+  readOnlyDrafts = [],
+  onReadOnlyDraftChange,
+  onBackToRecordStatus,
   lockedChildren = {},
   onSaveRecords,
   onDraftChanged,
@@ -2148,6 +2215,27 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     };
   });
 
+  const readOnlyNavigationChildren = (() => {
+    const byChildId = new Map<string, DraftPreviewNavigationChild>();
+    readOnlyDrafts
+      .filter((draft) => !wizard.date || !draft.date || draft.date === wizard.date)
+      .forEach((draft) => {
+        draft.selectedChildIds.forEach((childId) => {
+          if (byChildId.has(childId)) return;
+          byChildId.set(childId, {
+            childId,
+            childName: childrenList.find((child) => child.id === childId)?.name || '名称未登録',
+            draftKey: draft.draftKey,
+            ownerName: draft.recorderName,
+          });
+        });
+      });
+    return [
+      ...childrenList.filter((child) => byChildId.has(child.id)).map((child) => byChildId.get(child.id)!),
+      ...[...byChildId.values()].filter((item) => !childrenList.some((child) => child.id === item.childId)),
+    ];
+  })();
+
   if (readOnly) {
     return (
       <DraftProgressOverview
@@ -2158,6 +2246,11 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         recorderName={wizard.recorderName}
         updatedAt={wizard.updatedAt}
         children={draftPreviewChildren}
+        initialChildId={readOnlyInitialChildId}
+        currentDraftKey={draftKey}
+        navigationChildren={readOnlyNavigationChildren}
+        onSelectNavigationChild={(item) => onReadOnlyDraftChange?.(item.draftKey, item.ownerName, item.childId)}
+        onBack={onBackToRecordStatus}
       />
     );
   }

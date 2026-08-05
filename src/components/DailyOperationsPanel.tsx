@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { CalendarCheck2, CheckCircle2, Clock3, Eye, FileEdit, Info, PlayCircle, Trash2, UserRoundCheck } from 'lucide-react';
 import type { ChildProfile, RecordDraftSummary, SupportRecord } from '../types';
-import { getLocalDateString, getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
+import { getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
 import { ChildInfoDialog } from './ChildInfoDialog';
 
 interface DailyOperationsPanelProps {
@@ -11,9 +11,11 @@ interface DailyOperationsPanelProps {
   currentUserId?: string;
   currentRecorderId?: string;
   canManageDrafts?: boolean;
+  targetDate: string;
+  onTargetDateChange: (date: string) => void;
   onStartRecord: (childId: string, date: string) => void;
   onResumeDraft: (draftKey: string) => void;
-  onViewDraft: (draftKey: string, ownerName?: string) => void;
+  onViewDraft: (draftKey: string, ownerName?: string, childId?: string) => void;
   onTakeOverDraft: (draftKey: string, ownerName: string | undefined, childId: string) => void;
   onDeleteDraft: (draftKey: string) => void;
   onOpenRecord: (record: SupportRecord) => void;
@@ -26,6 +28,8 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
   currentUserId,
   currentRecorderId,
   canManageDrafts = false,
+  targetDate,
+  onTargetDateChange,
   onStartRecord,
   onResumeDraft,
   onViewDraft,
@@ -33,7 +37,6 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
   onDeleteDraft,
   onOpenRecord,
 }) => {
-  const [targetDate, setTargetDate] = useState(getLocalDateString());
   const [infoChild, setInfoChild] = useState<ChildProfile | null>(null);
   const weekday = getWeekdayFromDate(targetDate);
 
@@ -88,7 +91,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
             <input
               type="date"
               value={targetDate}
-              onChange={(event) => setTargetDate(event.target.value)}
+              onChange={(event) => onTargetDateChange(event.target.value)}
               className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm"
             />
           </label>
@@ -177,7 +180,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                     )}
                     <button
                       type="button"
-                      onClick={() => onViewDraft(draft.draftKey, draft.recorderName)}
+                      onClick={() => onViewDraft(draft.draftKey, draft.recorderName, child.id)}
                       className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl border border-sky-300 bg-sky-50 px-4 text-xs font-black text-sky-900 sm:flex-none"
                     >
                       <Eye className="h-4 w-4" />入力状況を見る
@@ -253,7 +256,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                         再開
                       </button>
                     )}
-                    <button type="button" onClick={() => onViewDraft(draft.draftKey, draft.recorderName)} className="flex min-h-10 items-center gap-1 rounded-lg border border-sky-300 bg-sky-50 px-3 text-[10px] font-black text-sky-900">
+                    <button type="button" onClick={() => onViewDraft(draft.draftKey, draft.recorderName, draft.selectedChildIds[0])} className="flex min-h-10 items-center gap-1 rounded-lg border border-sky-300 bg-sky-50 px-3 text-[10px] font-black text-sky-900">
                       <Eye className="h-3.5 w-3.5" />入力状況を見る
                     </button>
                     {canTakeOverDraft && draft.selectedChildIds.map((childId) => {

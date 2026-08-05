@@ -40,7 +40,7 @@ import { ChildrenManager } from './components/ChildrenManager';
 import { SupportPlanManager } from './components/SupportPlanManager';
 import { TeamManager } from './components/TeamManager';
 import { SettingsHub } from './components/SettingsHub';
-import { HomeScreen } from './components/HomeScreen';
+import { HomeScreen, type HomeWorkspace } from './components/HomeScreen';
 import { AuthScreen } from './components/AuthScreen';
 import { SetPasswordScreen } from './components/SetPasswordScreen';
 import { RecorderSessionGate } from './components/RecorderSessionGate';
@@ -105,12 +105,15 @@ import {
   removePendingRecordSync,
 } from './utils/offlineQueue';
 import { showAnnouncementNotification } from './utils/deviceNotifications';
+import { getLocalDateString } from './utils/weekdays';
 
 export default function App() {
   const auth = useAuth();
   const remoteMode = auth.configured;
   const organizationId = auth.profile?.organizationId;
   const [activeTab, setActiveTab] = useState<ActiveTab | 'preview'>('home');
+  const [homeWorkspace, setHomeWorkspace] = useState<HomeWorkspace>('menu');
+  const [recordStatusDate, setRecordStatusDate] = useState(getLocalDateString());
   const [dataLoading, setDataLoading] = useState(remoteMode);
   const [dataError, setDataError] = useState<string | null>(null);
 
@@ -218,7 +221,7 @@ export default function App() {
   });
   const [currentRecord, setCurrentRecord] = useState<SupportRecord | null>(null);
   const [correctionTarget, setCorrectionTarget] = useState<{ stepId?: string; issueId?: string } | null>(null);
-  const [readOnlyDraft, setReadOnlyDraft] = useState<{ draftKey: string; ownerName?: string } | null>(null);
+  const [readOnlyDraft, setReadOnlyDraft] = useState<{ draftKey: string; ownerName?: string; childId?: string } | null>(null);
   const [formSessionId, setFormSessionId] = useState(0);
   const [assistantRecordPrefill, setAssistantRecordPrefill] = useState<{ childId: string; date: string; requestId: string } | null>(null);
   const [recordFilterChildId, setRecordFilterChildId] = useState<string | null>(null);
@@ -1079,11 +1082,13 @@ export default function App() {
     setActiveTab('form');
   };
 
-  const handleViewDraft = (draftKey: string, ownerName?: string) => {
+  const handleViewDraft = (draftKey: string, ownerName?: string, childId?: string) => {
     setCurrentRecord(null);
     setCorrectionTarget(null);
     setAssistantRecordPrefill(null);
-    setReadOnlyDraft({ draftKey, ownerName });
+    setReadOnlyDraft({ draftKey, ownerName, childId });
+    setHomeWorkspace('operations');
+    setRecordStatusDate(recordDrafts.find((draft) => draft.draftKey === draftKey)?.date || getLocalDateString());
     setActiveDraftKey(draftKey);
     setFormSessionId((previous) => previous + 1);
     setActiveTab('form');
@@ -1338,12 +1343,19 @@ export default function App() {
           <ScreenContextBar
             activeTab={activeTab}
             onHome={() => setActiveTab('home')}
+            title={readOnlyDraft ? '入力状況' : undefined}
+            description={readOnlyDraft ? '同日の児童の過ごし方を一覧で確認' : undefined}
+            badge={readOnlyDraft ? '閲覧専用' : undefined}
           />
         )}
 
         <div key={activeTab} className="ui-screen-enter">
         {activeTab === 'home' && (
           <HomeScreen
+            activeWorkspace={homeWorkspace}
+            onWorkspaceChange={setHomeWorkspace}
+            recordStatusDate={recordStatusDate}
+            onRecordStatusDateChange={setRecordStatusDate}
             records={records}
             announcements={announcements}
             announcementConfirmations={announcementConfirmations}
@@ -1425,6 +1437,15 @@ export default function App() {
             resolvedIssueId={correctionTarget?.issueId}
             readOnly={Boolean(readOnlyDraft)}
             readOnlyOwnerName={readOnlyDraft?.ownerName}
+            readOnlyInitialChildId={readOnlyDraft?.childId}
+            readOnlyDrafts={recordDrafts}
+            onReadOnlyDraftChange={handleViewDraft}
+            onBackToRecordStatus={() => {
+              setReadOnlyDraft(null);
+              setCurrentRecord(null);
+              setHomeWorkspace('operations');
+              setActiveTab('home');
+            }}
             lockedChildren={Object.fromEntries(recordDrafts
               .filter((draft) => draft.draftKey !== activeDraftKey)
               .flatMap((draft) => draft.selectedChildIds.map((childId) => [
@@ -1488,9 +1509,15 @@ export default function App() {
 function ScreenContextBar({
   activeTab,
   onHome,
+  title,
+  description,
+  badge,
 }: {
   activeTab: ActiveTab | 'preview';
   onHome: () => void;
+  title?: string;
+  description?: string;
+  badge?: string;
 }) {
   const meta: Record<ActiveTab | 'preview', { title: string; description: string }> = {
     home: { title: 'ホーム', description: '' },
@@ -1511,12 +1538,12 @@ function ScreenContextBar({
         </button>
         <ChevronRight className="h-4 w-4 shrink-0 text-slate-300" />
         <div className="min-w-0">
-          <p className="truncate text-sm font-black text-slate-900">{current.title}</p>
-          <p className="hidden truncate text-[10px] text-slate-500 sm:block">{current.description}</p>
+          <p className="truncate text-sm font-black text-slate-900">{title || current.title}</p>
+          <p className="hidden truncate text-[10px] text-slate-500 sm:block">{description ?? current.description}</p>
         </div>
       </div>
       <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-500">
-        {activeTab === 'form' ? '入力内容は自動保存' : 'ホームへすぐ戻れます'}
+        {badge || (activeTab === 'form' ? '入力内容は自動保存' : 'ホームへすぐ戻れます')}
       </span>
     </div>
   );

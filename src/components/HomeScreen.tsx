@@ -50,6 +50,10 @@ import { TodayWorkPanel } from './TodayWorkPanel';
 import { getLocalDateString } from '../utils/weekdays';
 
 interface HomeScreenProps {
+  activeWorkspace: HomeWorkspace;
+  onWorkspaceChange: (workspace: HomeWorkspace) => void;
+  recordStatusDate: string;
+  onRecordStatusDateChange: (date: string) => void;
   records: SupportRecord[];
   announcements: Announcement[];
   announcementConfirmations: AnnouncementConfirmation[];
@@ -76,7 +80,7 @@ interface HomeScreenProps {
   onNewRecord: () => void;
   onStartRecord: (childId: string, date: string) => void;
   onResumeDraft: (draftKey: string) => void;
-  onViewDraft: (draftKey: string, ownerName?: string) => void;
+  onViewDraft: (draftKey: string, ownerName?: string, childId?: string) => void;
   onTakeOverDraft: (draftKey: string, ownerName: string | undefined, childId: string) => void;
   onDeleteDraft: (draftKey: string) => void;
   onOpenRecord: (record: SupportRecord) => void;
@@ -107,10 +111,14 @@ interface HomeScreenProps {
   onUpdateTransportStatus: (run: TransportRun, recorder: RecorderProfile, pin: string, status: TransportRunStatus) => Promise<void> | void;
 }
 
-type HomeWorkspace = 'menu' | 'todayWork' | 'operations' | 'communication' | 'assistant';
+export type HomeWorkspace = 'menu' | 'todayWork' | 'operations' | 'communication' | 'assistant';
 type CommunicationView = 'announcements' | 'morning' | 'handover';
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
+  activeWorkspace: activePanel,
+  onWorkspaceChange: setActivePanel,
+  recordStatusDate,
+  onRecordStatusDateChange,
   records,
   announcements,
   announcementConfirmations,
@@ -167,7 +175,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onSaveTransportRouteSettings,
   onUpdateTransportStatus,
 }) => {
-  const [activePanel, setActivePanel] = useState<HomeWorkspace>('menu');
   const [communicationView, setCommunicationView] = useState<CommunicationView>('announcements');
   const today = getLocalDateString();
   const todayRecords = records.filter((record) => record.date === today);
@@ -308,6 +315,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             childrenList={childrenList}
             records={records}
             drafts={drafts}
+            targetDate={recordStatusDate}
+            onTargetDateChange={onRecordStatusDateChange}
             currentUserId={currentUser?.id}
             currentRecorderId={activeRecorder?.id}
             canManageDrafts={canManageSettings}
