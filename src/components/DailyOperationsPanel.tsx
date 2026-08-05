@@ -166,7 +166,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                   </button>
                 ) : draft ? (
                   <>
-                    {canResumeDraft ? (
+                    {canResumeDraft && (
                       <button
                         type="button"
                         onClick={() => onResumeDraft(draft.draftKey)}
@@ -174,15 +174,14 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                       >
                         <FileEdit className="h-4 w-4" />入力を再開
                       </button>
-                    ) : (
-                      <button
-                        type="button"
-                        onClick={() => onViewDraft(draft.draftKey, draft.recorderName)}
-                        className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl border border-sky-300 bg-sky-50 px-4 text-xs font-black text-sky-900 sm:flex-none"
-                      >
-                        <Eye className="h-4 w-4" />入力状況を見る
-                      </button>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => onViewDraft(draft.draftKey, draft.recorderName)}
+                      className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl border border-sky-300 bg-sky-50 px-4 text-xs font-black text-sky-900 sm:flex-none"
+                    >
+                      <Eye className="h-4 w-4" />入力状況を見る
+                    </button>
                     {canTakeOverDraft && (
                       <button
                         type="button"
@@ -249,15 +248,14 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    {canResumeDraft ? (
+                    {canResumeDraft && (
                       <button type="button" onClick={() => onResumeDraft(draft.draftKey)} className="min-h-10 flex-1 rounded-lg bg-amber-500 px-3 text-xs font-black text-slate-950 sm:flex-none">
                         再開
                       </button>
-                    ) : (
-                      <button type="button" onClick={() => onViewDraft(draft.draftKey, draft.recorderName)} className="flex min-h-10 items-center gap-1 rounded-lg border border-sky-300 bg-sky-50 px-3 text-[10px] font-black text-sky-900">
-                        <Eye className="h-3.5 w-3.5" />入力状況を見る
-                      </button>
                     )}
+                    <button type="button" onClick={() => onViewDraft(draft.draftKey, draft.recorderName)} className="flex min-h-10 items-center gap-1 rounded-lg border border-sky-300 bg-sky-50 px-3 text-[10px] font-black text-sky-900">
+                      <Eye className="h-3.5 w-3.5" />入力状況を見る
+                    </button>
                     {canTakeOverDraft && draft.selectedChildIds.map((childId) => {
                       const childName = childrenList.find((child) => child.id === childId)?.name || '児童';
                       return (

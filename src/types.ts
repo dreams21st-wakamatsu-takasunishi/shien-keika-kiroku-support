@@ -673,6 +673,7 @@ export interface SupportRecord {
   reviewIssues?: ReviewIssue[];
   reviewedBy?: string;
   reviewedAt?: string;
+  version?: number;
   
   createdAt: string;
   updatedAt: string;

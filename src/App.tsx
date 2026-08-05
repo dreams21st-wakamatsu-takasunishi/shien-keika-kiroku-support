@@ -549,9 +549,9 @@ export default function App() {
   };
 
   const saveRecordsOrQueue = async (items: SupportRecord[]) => {
-    if (!organizationId || !auth.profile) return;
+    if (!organizationId || !auth.profile) return [];
     try {
-      await saveRecords(organizationId, items);
+      return await saveRecords(organizationId, items);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const networkFailure = !navigator.onLine || /network|fetch|connection|offline/i.test(message);
@@ -559,19 +559,28 @@ export default function App() {
       const queued = enqueueRecordSync(organizationId, auth.profile.id, items);
       setPendingSyncs(queued);
       setDataError('通信できないため端末に保存しました。通信復旧後に自動送信します。');
+      return [];
     }
   };
 
   const handleSaveRecord = async (savedRecord: SupportRecord) => {
     try {
-      if (organizationId) await saveRecord(organizationId, savedRecord);
+      const result = organizationId ? await saveRecord(organizationId, savedRecord) : undefined;
+      if (result?.outcome === 'already_saved') {
+        await refreshRemoteData(false);
+        setCurrentRecord(null);
+        setActiveTab('records');
+        alert('この記録は別端末ですでに保存済みです。上書きせず、最新の記録を表示しました。');
+        return;
+      }
+      const savedWithVersion = result ? { ...savedRecord, version: result.version } : savedRecord;
       setRecords((previous) => {
-        const exists = previous.some((record) => record.id === savedRecord.id);
+        const exists = previous.some((record) => record.id === savedWithVersion.id);
         return exists
-          ? previous.map((record) => record.id === savedRecord.id ? savedRecord : record)
-          : [savedRecord, ...previous];
+          ? previous.map((record) => record.id === savedWithVersion.id ? savedWithVersion : record)
+          : [savedWithVersion, ...previous];
       });
-      setCurrentRecord(savedRecord);
+      setCurrentRecord(savedWithVersion);
       setActiveTab('preview');
     } catch (error) { persistError(error); }
   };
@@ -581,15 +590,30 @@ export default function App() {
     options?: { keepFormOpen?: boolean },
   ) => {
     try {
-      await saveRecordsOrQueue(savedRecords);
+      const results = await saveRecordsOrQueue(savedRecords);
+      const resultById = new Map(results.map((result) => [result.id, result]));
+      const savedLocally = savedRecords
+        .filter((record) => resultById.get(record.id)?.outcome !== 'already_saved')
+        .map((record) => {
+          const result = resultById.get(record.id);
+          return result ? { ...record, version: result.version } : record;
+        });
       setRecords((previous) => {
-        const savedIds = new Set(savedRecords.map((record) => record.id));
-        return [...savedRecords, ...previous.filter((record) => !savedIds.has(record.id))];
+        const savedIds = new Set(savedLocally.map((record) => record.id));
+        return [...savedLocally, ...previous.filter((record) => !savedIds.has(record.id))];
       });
+      if (results.some((result) => result.outcome === 'already_saved')) {
+        await refreshRemoteData(false);
+        setCurrentRecord(null);
+        setActiveTab('records');
+        alert('一部の記録は別端末ですでに保存済みです。上書きせず、最新の記録を表示しました。');
+        void refreshRecordDrafts();
+        return;
+      }
       if (options?.keepFormOpen) {
         setCurrentRecord(null);
-      } else if (savedRecords.length === 1 && currentRecord?.id === savedRecords[0].id) {
-        setCurrentRecord(savedRecords[0]);
+      } else if (savedLocally.length === 1 && currentRecord?.id === savedLocally[0].id) {
+        setCurrentRecord(savedLocally[0]);
         setActiveTab('preview');
       } else {
         setCurrentRecord(null);
@@ -696,9 +720,10 @@ export default function App() {
       updatedAt: now,
     };
     try {
-      if (organizationId) await saveRecord(organizationId, updated);
-      setRecords((previous) => previous.map((record) => record.id === recordId ? updated : record));
-      setCurrentRecord((previous) => previous?.id === recordId ? updated : previous);
+      const result = organizationId ? await saveRecord(organizationId, updated) : undefined;
+      const savedWithVersion = result ? { ...updated, version: result.version } : updated;
+      setRecords((previous) => previous.map((record) => record.id === recordId ? savedWithVersion : record));
+      setCurrentRecord((previous) => previous?.id === recordId ? savedWithVersion : previous);
     } catch (error) { persistError(error); }
   };
 

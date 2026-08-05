@@ -414,6 +414,7 @@ function mapRecord(row: any): SupportRecord {
     reviewIssues: Array.isArray(row.review_issues) ? row.review_issues as ReviewIssue[] : [],
     reviewedBy: row.reviewer_name || undefined,
     reviewedAt: row.reviewed_at || undefined,
+    version: Number(row.version || 1),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -994,20 +995,41 @@ function mapRecordForSave(organizationId: string, record: SupportRecord) {
       reviewer_name: record.reviewedBy || null,
       reviewed_at: record.reviewedAt || null,
       deleted_at: null,
+      expected_version: record.version || 0,
     };
 }
 
-export async function saveRecords(organizationId: string, records: SupportRecord[]) {
-  if (records.length === 0) return;
-  const { error } = await assertSupabase().from('support_records').upsert(
-    records.map((record) => mapRecordForSave(organizationId, record)),
-    { onConflict: 'organization_id,id' }
-  );
-  if (error) throw error;
+export interface SaveRecordResult {
+  id: string;
+  version: number;
+  outcome: 'inserted' | 'updated' | 'already_saved';
+}
+
+export async function saveRecords(organizationId: string, records: SupportRecord[]): Promise<SaveRecordResult[]> {
+  if (records.length === 0) return [];
+  const { data, error } = await assertSupabase().rpc('save_support_records_guarded', {
+    p_organization_id: organizationId,
+    p_records: records.map((record) => mapRecordForSave(organizationId, record)),
+  });
+  if (error) {
+    if (error.message.includes('RECORD_DUPLICATE_DAY')) {
+      throw new Error('同じ児童・同じ日付の記録が別端末ですでに保存されています。既存の記録を確認してください。');
+    }
+    if (error.message.includes('RECORD_CONFLICT')) {
+      throw new Error('別端末で記録が更新されたため、この端末の内容では上書きしませんでした。最新の記録を読み直してください。');
+    }
+    throw error;
+  }
+  return ((data || []) as Array<{ record_id: string; new_version: number; outcome: SaveRecordResult['outcome'] }>).map((result) => ({
+    id: result.record_id,
+    version: Number(result.new_version),
+    outcome: result.outcome,
+  }));
 }
 
 export async function saveRecord(organizationId: string, record: SupportRecord) {
-  await saveRecords(organizationId, [record]);
+  const [result] = await saveRecords(organizationId, [record]);
+  return result;
 }
 
 export async function saveAiWritingSettings(organizationId: string, settings: AiWritingSettings) {
