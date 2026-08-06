@@ -316,6 +316,29 @@ const ChildTabDragPreview: React.FC<{
   </div>
 );
 
+const PersistentNoteDetails: React.FC<{
+  hasContent: boolean;
+  summary: React.ReactNode;
+  children: React.ReactNode;
+}> = ({ hasContent, summary, children }) => {
+  const [open, setOpen] = useState(hasContent);
+
+  useEffect(() => {
+    if (hasContent) setOpen(true);
+  }, [hasContent]);
+
+  return (
+    <details
+      open={open}
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+      className="rounded-xl border border-slate-200 bg-slate-50 p-3"
+    >
+      <summary className="cursor-pointer text-sm font-bold text-slate-700">{summary}</summary>
+      {children}
+    </details>
+  );
+};
+
 const DraftProgressOverview: React.FC<{
   loading: boolean;
   ownerName?: string;
@@ -3036,10 +3059,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           && !field.id.endsWith('_period3_type')
           && (!(field.noteVisibleWhen || /_(type)$/.test(field.id))
             || (Array.isArray(field.noteVisibleWhen || 'その他') ? field.noteVisibleWhen || ['その他'] : [field.noteVisibleWhen || 'その他']).includes(answer.value))
-          && <details open={Boolean(answer.note)} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <summary className="cursor-pointer text-sm font-bold text-slate-700">備考を入力（任意）{answer.note ? '・入力あり' : ''}</summary>
+          && <PersistentNoteDetails hasContent={Boolean(answer.note)} summary={<>備考を入力（任意）{answer.note ? '・入力あり' : ''}</>}>
             <textarea rows={3} value={answer.note || ''} onChange={(event) => updateField(sectionId, field.id, answer.value, event.target.value)} placeholder={field.notePlaceholder || '補足事項を入力'} className={`${inputClass} mt-2`} />
-          </details>}
+          </PersistentNoteDetails>}
       </div>
     );
   };
@@ -3060,10 +3082,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             ))}
           </div>
           {activeChildDraft?.attendance.includes('欠席') && <p className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm font-bold leading-relaxed text-sky-900">欠席のため、この後の支援中の質問は省略されます。</p>}
-          <details open={Boolean(activeChildDraft?.attendanceNote)} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <summary className="cursor-pointer text-sm font-bold text-slate-700">出欠の備考（任意）{activeChildDraft?.attendanceNote ? '・入力あり' : ''}</summary>
+          <PersistentNoteDetails hasContent={Boolean(activeChildDraft?.attendanceNote)} summary={<>出欠の備考（任意）{activeChildDraft?.attendanceNote ? '・入力あり' : ''}</>}>
             <textarea rows={2} value={activeChildDraft?.attendanceNote || ''} onChange={(event) => updateChildDraft(wizard.activeChildId, (draft) => ({ ...unskip(draft, 'attendance'), attendanceNote: event.target.value }))} placeholder={wizardQuestions.attendance.notePlaceholder} className={`${inputClass} mt-2`} />
-          </details>
+          </PersistentNoteDetails>
         </div>
       );
     }
@@ -3081,10 +3102,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           </div>
           {selectedValue && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-bold leading-relaxed text-amber-950">{selectedValue}</p>}
           <div className="flex justify-between text-[11px] font-bold text-slate-500"><span>1：暗い表情</span><span>5：笑顔</span></div>
-          <details open={Boolean(activeChildDraft?.expressionNote)} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <summary className="cursor-pointer text-sm font-bold text-slate-700">表情の備考（任意）{activeChildDraft?.expressionNote ? '・入力あり' : ''}</summary>
+          <PersistentNoteDetails hasContent={Boolean(activeChildDraft?.expressionNote)} summary={<>表情の備考（任意）{activeChildDraft?.expressionNote ? '・入力あり' : ''}</>}>
             <textarea rows={2} value={activeChildDraft?.expressionNote || ''} onChange={(event) => updateChildDraft(wizard.activeChildId, (draft) => ({ ...unskip(draft, 'expression'), expressionNote: event.target.value }))} placeholder={wizardQuestions.expression.notePlaceholder} className={`${inputClass} mt-2`} />
-          </details>
+          </PersistentNoteDetails>
         </div>
       );
     }
@@ -3098,10 +3118,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
               </button>
             ))}
           </div>
-          <details open={Boolean(activeChildDraft?.snackNote)} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-            <summary className="cursor-pointer text-sm font-bold text-slate-700">おやつの備考（任意）{activeChildDraft?.snackNote ? '・入力あり' : ''}</summary>
+          <PersistentNoteDetails hasContent={Boolean(activeChildDraft?.snackNote)} summary={<>おやつの備考（任意）{activeChildDraft?.snackNote ? '・入力あり' : ''}</>}>
             <textarea rows={2} value={activeChildDraft?.snackNote || ''} onChange={(event) => updateChildDraft(wizard.activeChildId, (draft) => ({ ...unskip(draft, 'snack'), snackNote: event.target.value }))} placeholder={wizardQuestions.snack.notePlaceholder} className={`${inputClass} mt-2`} />
-          </details>
+          </PersistentNoteDetails>
         </div>
       );
     }
