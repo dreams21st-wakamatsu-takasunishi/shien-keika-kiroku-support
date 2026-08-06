@@ -1,4 +1,25 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import {
+  closestCenter,
+  DndContext,
+  DragOverlay,
+  KeyboardSensor,
+  MouseSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core';
+import {
+  arrayMove,
+  horizontalListSortingStrategy,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import {
   AlertCircle,
   ArrowLeftRight,
@@ -202,6 +223,98 @@ interface TakeoverNotice {
   syncing: boolean;
   syncFailed: boolean;
 }
+
+const SortableChildTab: React.FC<{
+  childId: string;
+  childName: string;
+  index: number;
+  unanswered: number;
+  active: boolean;
+  reordering: boolean;
+  onSelect: () => void;
+}> = ({ childId, childName, index, unanswered, active, reordering, onSelect }) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+    isOver,
+  } = useSortable({ id: childId, disabled: !reordering });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition: transition || 'transform 180ms cubic-bezier(0.22, 1, 0.36, 1)',
+  };
+
+  return (
+    <div
+      ref={setNodeRef}
+      data-child-tab-id={childId}
+      style={style}
+      className={`relative flex shrink-0 overflow-hidden rounded-lg border will-change-transform ${
+        isDragging
+          ? 'z-10 border-amber-400 opacity-25 shadow-none'
+          : isOver && reordering
+            ? 'border-teal-500 shadow-[0_0_0_3px_rgba(20,184,166,0.18)]'
+            : active
+              ? 'border-teal-600 shadow-sm'
+              : 'border-slate-300'
+      }`}
+    >
+      <button
+        type="button"
+        onClick={onSelect}
+        className={`min-h-11 px-3 text-xs font-bold ${
+          active ? 'bg-teal-600 text-white' : 'bg-white text-slate-700'
+        }`}
+      >
+        {childName}
+        <span className={`ml-2 rounded-full px-1.5 py-0.5 text-[10px] ${
+          unanswered === 0
+            ? 'bg-emerald-100 text-emerald-800'
+            : active
+              ? 'bg-white/20 text-white'
+              : 'bg-amber-100 text-amber-800'
+        }`}>
+          {unanswered === 0 ? '完了' : `未${unanswered}`}
+        </span>
+      </button>
+      {reordering && (
+        <div className="flex items-stretch border-l border-slate-200 bg-amber-50">
+          <button
+            type="button"
+            aria-label={`${childName}を長押しして並べ替え。現在${index + 1}番目`}
+            title="長押ししてドラッグ"
+            {...attributes}
+            {...listeners}
+            style={{ touchAction: 'pan-y' }}
+            className="flex min-h-11 min-w-11 cursor-grab select-none items-center justify-center text-amber-900 transition-colors hover:bg-amber-100 active:cursor-grabbing active:bg-amber-200"
+          >
+            <GripVertical className="h-5 w-5" />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const ChildTabDragPreview: React.FC<{
+  childName: string;
+  unanswered: number;
+}> = ({ childName, unanswered }) => (
+  <div className="pointer-events-none flex min-h-12 rotate-[0.8deg] scale-[1.04] items-center overflow-hidden rounded-xl border-2 border-amber-400 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.28)]">
+    <span className="px-4 text-sm font-black text-slate-900">{childName}</span>
+    <span className={`mr-2 rounded-full px-2 py-1 text-[10px] font-black ${
+      unanswered === 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+    }`}>
+      {unanswered === 0 ? '完了' : `未${unanswered}`}
+    </span>
+    <span className="grid min-h-12 min-w-12 place-items-center border-l border-amber-200 bg-amber-50 text-amber-900">
+      <GripVertical className="h-5 w-5" />
+    </span>
+  </div>
+);
 
 const DraftProgressOverview: React.FC<{
   loading: boolean;
@@ -1399,6 +1512,11 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const [expandedGroupStepId, setExpandedGroupStepId] = useState<string | null>(null);
   const [reorderingChildTabs, setReorderingChildTabs] = useState(false);
   const [draggingChildId, setDraggingChildId] = useState<string | null>(null);
+  const childTabSensors = useSensors(
+    useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
   const [takeoverNotice, setTakeoverNotice] = useState<TakeoverNotice | null>(null);
   const draftWriteBlocked = draftStatus === 'locked' || draftStatus === 'taken-over' || Boolean(takeoverNotice);
   const editingDisabled = readOnly || draftWriteBlocked;
@@ -1409,8 +1527,6 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const remoteRevision = useRef<number | null>(null);
   const initialStepApplied = useRef(false);
   const formElement = useRef<HTMLFormElement | null>(null);
-  const childTabStrip = useRef<HTMLDivElement | null>(null);
-  const draggingChildIdRef = useRef<string | null>(null);
   const focusedEditor = useRef<{
     element: HTMLInputElement | HTMLTextAreaElement;
     selectionStart: number | null;
@@ -2693,67 +2809,23 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     moveToStep(target ? steps.findIndex((step) => step.id === target.id) : wizard.currentStepIndex, childId);
   };
 
-  const moveChildTab = (childId: string, direction: -1 | 1) => {
-    if (editingDisabled) return;
-    setWizard((previous) => {
-      const currentIndex = previous.selectedChildIds.indexOf(childId);
-      const targetIndex = currentIndex + direction;
-      if (currentIndex < 0 || targetIndex < 0 || targetIndex >= previous.selectedChildIds.length) {
-        return previous;
-      }
-      const selectedChildIds = [...previous.selectedChildIds];
-      [selectedChildIds[currentIndex], selectedChildIds[targetIndex]] = [
-        selectedChildIds[targetIndex],
-        selectedChildIds[currentIndex],
-      ];
-      return { ...previous, selectedChildIds };
-    });
+  const handleChildTabDragStart = ({ active }: DragStartEvent) => {
+    if (!reorderingChildTabs || editingDisabled) return;
+    setDraggingChildId(String(active.id));
   };
 
-  const moveChildTabTo = (childId: string, targetChildId: string) => {
-    if (editingDisabled || childId === targetChildId) return;
-    setWizard((previous) => {
-      const sourceIndex = previous.selectedChildIds.indexOf(childId);
-      const targetIndex = previous.selectedChildIds.indexOf(targetChildId);
-      if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return previous;
-      const selectedChildIds = [...previous.selectedChildIds];
-      selectedChildIds.splice(sourceIndex, 1);
-      selectedChildIds.splice(targetIndex, 0, childId);
-      return { ...previous, selectedChildIds };
-    });
-  };
-
-  const finishChildTabDrag = (event?: React.PointerEvent<HTMLButtonElement>) => {
-    if (event?.currentTarget.hasPointerCapture(event.pointerId)) {
-      event.currentTarget.releasePointerCapture(event.pointerId);
-    }
-    draggingChildIdRef.current = null;
+  const handleChildTabDragEnd = ({ active, over }: DragEndEvent) => {
     setDraggingChildId(null);
-  };
-
-  const startChildTabDrag = (event: React.PointerEvent<HTMLButtonElement>, childId: string) => {
-    if (!reorderingChildTabs || !event.isPrimary || event.button > 0) return;
-    event.preventDefault();
-    draggingChildIdRef.current = childId;
-    setDraggingChildId(childId);
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
-
-  const continueChildTabDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
-    const childId = draggingChildIdRef.current;
-    if (!childId || !event.isPrimary) return;
-    event.preventDefault();
-    const strip = childTabStrip.current;
-    if (strip) {
-      const bounds = strip.getBoundingClientRect();
-      if (event.clientX < bounds.left + 44) strip.scrollBy({ left: -28, behavior: 'auto' });
-      else if (event.clientX > bounds.right - 44) strip.scrollBy({ left: 28, behavior: 'auto' });
-    }
-    const target = document
-      .elementFromPoint(event.clientX, event.clientY)
-      ?.closest<HTMLElement>('[data-child-tab-id]')
-      ?.dataset.childTabId;
-    if (target) moveChildTabTo(childId, target);
+    if (!over || editingDisabled || active.id === over.id) return;
+    setWizard((previous) => {
+      const sourceIndex = previous.selectedChildIds.indexOf(String(active.id));
+      const targetIndex = previous.selectedChildIds.indexOf(String(over.id));
+      if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return previous;
+      return {
+        ...previous,
+        selectedChildIds: arrayMove(previous.selectedChildIds, sourceIndex, targetIndex),
+      };
+    });
   };
 
   const validateGlobalStep = () => {
@@ -3632,6 +3704,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             : wizard.selectedChildIds.length === 0
               ? '児童選択後に自動保存'
               : '下書き自動保存';
+  const draggingChild = draggingChildId
+    ? childrenList.find((child) => child.id === draggingChildId)
+    : undefined;
+  const draggingChildUnanswered = draggingChildId ? unansweredForChild(draggingChildId).length : 0;
 
   return (
     <form
@@ -3804,14 +3880,14 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         <div className="app-sticky-below-header sticky z-20 rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur">
           <div className="mb-2 flex items-center justify-between gap-3 px-1">
             <p className="text-[11px] font-black text-slate-600">
-              {reorderingChildTabs ? '右端のハンドルを押したまま移動' : '児童切替'}
+              {reorderingChildTabs ? '児童名側でスクロール・右端のハンドルを長押しして移動' : '児童切替'}
             </p>
             {wizard.selectedChildIds.length > 1 && !editingDisabled && (
               <button
                 type="button"
                 aria-pressed={reorderingChildTabs}
                 onClick={() => {
-                  finishChildTabDrag();
+                  setDraggingChildId(null);
                   setReorderingChildTabs((previous) => !previous);
                 }}
                 className={`flex min-h-9 items-center gap-1 rounded-lg border px-2.5 text-[11px] font-black ${
@@ -3825,68 +3901,48 @@ export const RecordForm: React.FC<RecordFormProps> = ({
               </button>
             )}
           </div>
-          <div ref={childTabStrip} className="ui-scrollbar flex gap-2 overflow-x-auto pb-1">
-            {wizard.selectedChildIds.map((childId, index) => {
-              const child = childrenList.find((item) => item.id === childId);
-              const unanswered = unansweredForChild(childId).length;
-              const active = wizard.activeChildId === childId;
-              return (
-                <div
-                  key={childId}
-                  data-child-tab-id={childId}
-                  className={`flex shrink-0 overflow-hidden rounded-lg border transition-[transform,box-shadow,opacity] ${
-                    draggingChildId === childId
-                      ? 'z-10 scale-[1.03] border-amber-500 opacity-80 shadow-lg ring-2 ring-amber-200'
-                      : active ? 'border-teal-600' : 'border-slate-300'
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => switchChild(childId)}
-                    className={`min-h-11 px-3 text-xs font-bold ${
-                      active ? 'bg-teal-600 text-white' : 'bg-white text-slate-700'
-                    }`}
-                  >
-                    {child?.name || '児童'}
-                    <span className={`ml-2 rounded-full px-1.5 py-0.5 text-[10px] ${
-                      unanswered === 0
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : active
-                          ? 'bg-white/20 text-white'
-                          : 'bg-amber-100 text-amber-800'
-                    }`}>
-                      {unanswered === 0 ? '完了' : `未${unanswered}`}
-                    </span>
-                  </button>
-                  {reorderingChildTabs && (
-                    <div className="flex items-stretch border-l border-slate-200 bg-amber-50">
-                      <button
-                        type="button"
-                        aria-label={`${child?.name || '児童'}をドラッグして並べ替え。現在${index + 1}番目`}
-                        onPointerDown={(event) => startChildTabDrag(event, childId)}
-                        onPointerMove={continueChildTabDrag}
-                        onPointerUp={finishChildTabDrag}
-                        onPointerCancel={finishChildTabDrag}
-                        onLostPointerCapture={() => finishChildTabDrag()}
-                        onKeyDown={(event) => {
-                          if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
-                            event.preventDefault();
-                            moveChildTab(childId, -1);
-                          } else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
-                            event.preventDefault();
-                            moveChildTab(childId, 1);
-                          }
-                        }}
-                        className={`flex min-h-11 min-w-11 touch-none select-none items-center justify-center text-amber-900 ${draggingChildId === childId ? 'cursor-grabbing bg-amber-200' : 'cursor-grab hover:bg-amber-100'}`}
-                      >
-                        <GripVertical className="h-5 w-5" />
-                      </button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
+          <DndContext
+            sensors={childTabSensors}
+            collisionDetection={closestCenter}
+            onDragStart={handleChildTabDragStart}
+            onDragCancel={() => setDraggingChildId(null)}
+            onDragEnd={handleChildTabDragEnd}
+          >
+            <SortableContext items={wizard.selectedChildIds} strategy={horizontalListSortingStrategy}>
+              <div className="ui-scrollbar flex gap-2 overflow-x-auto overscroll-x-contain pb-1" aria-label="記録対象児童の並び順">
+                {wizard.selectedChildIds.map((childId, index) => {
+                  const child = childrenList.find((item) => item.id === childId);
+                  return (
+                    <SortableChildTab
+                      key={childId}
+                      childId={childId}
+                      childName={child?.name || '児童'}
+                      index={index}
+                      unanswered={unansweredForChild(childId).length}
+                      active={wizard.activeChildId === childId}
+                      reordering={reorderingChildTabs}
+                      onSelect={() => switchChild(childId)}
+                    />
+                  );
+                })}
+              </div>
+            </SortableContext>
+            {typeof document !== 'undefined' && createPortal(
+              <DragOverlay
+                adjustScale={false}
+                dropAnimation={{ duration: 190, easing: 'cubic-bezier(0.22, 1, 0.36, 1)' }}
+                zIndex={150}
+              >
+                {draggingChild ? (
+                  <ChildTabDragPreview
+                    childName={draggingChild.name}
+                    unanswered={draggingChildUnanswered}
+                  />
+                ) : null}
+              </DragOverlay>,
+              document.body,
+            )}
+          </DndContext>
         </div>
       )}
 

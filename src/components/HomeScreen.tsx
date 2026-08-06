@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ArrowLeft,
   AlertTriangle,
@@ -53,6 +53,7 @@ import { getLocalDateString } from '../utils/weekdays';
 interface HomeScreenProps {
   activeWorkspace: HomeWorkspace;
   onWorkspaceChange: (workspace: HomeWorkspace) => void;
+  announcementFocusToken?: number;
   recordStatusDate: string;
   onRecordStatusDateChange: (date: string) => void;
   records: SupportRecord[];
@@ -118,6 +119,7 @@ type CommunicationView = 'announcements' | 'morning' | 'handover';
 export const HomeScreen: React.FC<HomeScreenProps> = ({
   activeWorkspace: activePanel,
   onWorkspaceChange: setActivePanel,
+  announcementFocusToken = 0,
   recordStatusDate,
   onRecordStatusDateChange,
   records,
@@ -177,6 +179,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onUpdateTransportStatus,
 }) => {
   const [communicationView, setCommunicationView] = useState<CommunicationView>('announcements');
+
+  useEffect(() => {
+    if (announcementFocusToken > 0) setCommunicationView('announcements');
+  }, [announcementFocusToken]);
+
   const today = getLocalDateString();
   const todayRecords = records.filter((record) => record.date === today);
   const unapproved = records.filter((record) => record.approvalStatus === '未確認');

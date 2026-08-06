@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, ChevronRight, HardDrive, House, LoaderCircle, RefreshCw, WifiOff } from 'lucide-react';
+import { AlertTriangle, BellRing, ChevronRight, HardDrive, House, LoaderCircle, RefreshCw, WifiOff, X } from 'lucide-react';
 import {
   AiWritingSettings,
   Announcement,
@@ -116,6 +116,7 @@ export default function App() {
   const organizationId = auth.profile?.organizationId;
   const [activeTab, setActiveTab] = useState<ActiveTab | 'preview'>('home');
   const [homeWorkspace, setHomeWorkspace] = useState<HomeWorkspace>('menu');
+  const [announcementFocusToken, setAnnouncementFocusToken] = useState(0);
   const [recordStatusDate, setRecordStatusDate] = useState(getLocalDateString());
   const [dataLoading, setDataLoading] = useState(remoteMode);
   const [dataError, setDataError] = useState<string | null>(null);
@@ -212,6 +213,17 @@ export default function App() {
     const saved = localStorage.getItem('support_announcement_confirmations_data');
     return saved ? JSON.parse(saved) : [];
   });
+  const [inAppAnnouncementQueue, setInAppAnnouncementQueue] = useState<Announcement[]>([]);
+  const [appVisible, setAppVisible] = useState(() => document.visibilityState === 'visible');
+  const activeInAppAnnouncement = inAppAnnouncementQueue[0];
+  const enqueueInAppAnnouncement = useCallback((announcement: Announcement) => {
+    setInAppAnnouncementQueue((current) => current.some((item) => item.id === announcement.id)
+      ? current
+      : [...current, announcement]);
+  }, []);
+  const dismissInAppAnnouncement = useCallback((announcementId: string) => {
+    setInAppAnnouncementQueue((current) => current.filter((item) => item.id !== announcementId));
+  }, []);
   const [activeRecorder, setActiveRecorder] = useState<RecorderProfile | null>(null);
   const [activeDraftKey, setActiveDraftKey] = useState(createRecordDraftKey);
   const [online, setOnline] = useState(() => navigator.onLine);
@@ -233,6 +245,21 @@ export default function App() {
     const saved = localStorage.getItem('support_ai_writing_settings');
     return saved ? JSON.parse(saved) : DEFAULT_AI_WRITING_SETTINGS;
   });
+
+  useEffect(() => {
+    const handleVisibilityChange = () => setAppVisible(document.visibilityState === 'visible');
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
+
+  useEffect(() => {
+    if (!activeInAppAnnouncement || !appVisible) return;
+    const timer = window.setTimeout(
+      () => dismissInAppAnnouncement(activeInAppAnnouncement.id),
+      activeInAppAnnouncement.priority === 'urgent' ? 12000 : 8500,
+    );
+    return () => window.clearTimeout(timer);
+  }, [activeInAppAnnouncement, appVisible, dismissInAppAnnouncement]);
 
   useEffect(() => {
     if (!remoteMode) localStorage.setItem('support_records_data', JSON.stringify(records));
@@ -425,9 +452,40 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'morning_meeting_confirmations', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'record_drafts', filter: `organization_id=eq.${organizationId}` }, () => void refreshRecordDrafts())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'announcements', filter: `organization_id=eq.${organizationId}` }, (payload) => {
-        if (payload.eventType === 'INSERT' && !import.meta.env.VITE_VAPID_PUBLIC_KEY) {
-          const row = payload.new as { id?: string; title?: string; content?: string };
-          void showAnnouncementNotification(row.title || '新しいお知らせ', row.content || '', row.id);
+        if (payload.eventType === 'INSERT') {
+          const row = payload.new as {
+            id?: string;
+            title?: string;
+            content?: string;
+            priority?: Announcement['priority'];
+            published_at?: string;
+            expires_at?: string | null;
+            created_by_recorder_profile_id?: string | null;
+            created_by_name?: string | null;
+            created_at?: string;
+            updated_at?: string;
+          };
+          if (row.id) {
+            const now = new Date().toISOString();
+            enqueueInAppAnnouncement({
+              id: row.id,
+              title: row.title || '新しいお知らせ',
+              content: row.content || 'お知らせを確認してください。',
+              priority: ['normal', 'important', 'urgent'].includes(row.priority || '')
+                ? row.priority!
+                : 'normal',
+              sourceType: 'manual',
+              publishedAt: row.published_at || now,
+              expiresAt: row.expires_at || undefined,
+              createdByRecorderId: row.created_by_recorder_profile_id || undefined,
+              createdByName: row.created_by_name || undefined,
+              createdAt: row.created_at || now,
+              updatedAt: row.updated_at || now,
+            });
+          }
+          if (!import.meta.env.VITE_VAPID_PUBLIC_KEY) {
+            void showAnnouncementNotification(row.title || '新しいお知らせ', row.content || '', row.id);
+          }
         }
         void refreshRemoteData(false);
       })
@@ -441,7 +499,7 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_route_settings', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
-  }, [auth.profile, refreshRemoteData, refreshRecordDrafts]);
+  }, [auth.profile, enqueueInAppAnnouncement, refreshRemoteData, refreshRecordDrafts]);
 
   const syncPendingRecords = useCallback(async () => {
     if (!organizationId || !auth.profile || !navigator.onLine || syncing) return;
@@ -776,6 +834,7 @@ export default function App() {
       savedAnnouncement,
       ...previous.filter((item) => item.id !== savedAnnouncement.id),
     ]);
+    enqueueInAppAnnouncement(savedAnnouncement);
     if (organizationId) {
       try {
         await sendAnnouncementNotification(savedAnnouncement.id);
@@ -1356,6 +1415,20 @@ export default function App() {
         onSignOut={remoteMode ? auth.signOut : undefined}
       />
 
+      {activeInAppAnnouncement && appVisible && (
+        <InAppAnnouncementToast
+          announcement={activeInAppAnnouncement}
+          queuedCount={inAppAnnouncementQueue.length}
+          onOpen={() => {
+            setActiveTab('home');
+            setHomeWorkspace('communication');
+            setAnnouncementFocusToken((current) => current + 1);
+            dismissInAppAnnouncement(activeInAppAnnouncement.id);
+          }}
+          onDismiss={() => dismissInAppAnnouncement(activeInAppAnnouncement.id)}
+        />
+      )}
+
       <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-3 sm:pt-6">
         {(!online || !remoteMode || pendingSyncs.length > 0) && (
         <div className={`mb-3 rounded-xl border px-3 py-2 text-[11px] sm:mb-4 sm:px-4 sm:text-xs ${
@@ -1398,6 +1471,7 @@ export default function App() {
           <HomeScreen
             activeWorkspace={homeWorkspace}
             onWorkspaceChange={setHomeWorkspace}
+            announcementFocusToken={announcementFocusToken}
             recordStatusDate={recordStatusDate}
             onRecordStatusDateChange={setRecordStatusDate}
             records={records}
@@ -1547,6 +1621,79 @@ export default function App() {
         </div>
       </main>
     </div>
+  );
+}
+
+function InAppAnnouncementToast({
+  announcement,
+  queuedCount,
+  onOpen,
+  onDismiss,
+}: {
+  announcement: Announcement;
+  queuedCount: number;
+  onOpen: () => void;
+  onDismiss: () => void;
+}) {
+  const urgent = announcement.priority === 'urgent';
+  const important = announcement.priority === 'important';
+  return (
+    <aside
+      key={announcement.id}
+      role={urgent ? 'alert' : 'status'}
+      aria-live={urgent ? 'assertive' : 'polite'}
+      className={`in-app-announcement-toast ui-panel-enter fixed z-[110] overflow-hidden rounded-2xl border-2 bg-white shadow-[0_18px_50px_rgba(15,23,42,0.3)] ${
+        urgent
+          ? 'border-rose-400'
+          : important
+            ? 'border-amber-400'
+            : 'border-teal-400'
+      }`}
+    >
+      <div className={`h-1 ${urgent ? 'bg-rose-500' : important ? 'bg-amber-500' : 'bg-teal-500'}`} />
+      <div className="flex items-start gap-3 p-3 sm:p-4">
+        <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${
+          urgent
+            ? 'bg-rose-100 text-rose-700'
+            : important
+              ? 'bg-amber-100 text-amber-800'
+              : 'bg-teal-100 text-teal-700'
+        }`}>
+          <BellRing className="h-5 w-5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-black uppercase tracking-[0.12em] text-slate-500">
+              {urgent ? '緊急のお知らせ' : important ? '重要なお知らせ' : '新しいお知らせ'}
+            </span>
+            {queuedCount > 1 && (
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-600">
+                ほか{queuedCount - 1}件
+              </span>
+            )}
+          </div>
+          <p className="mt-0.5 truncate text-sm font-black text-slate-950">{announcement.title}</p>
+          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-slate-600">{announcement.content}</p>
+          <button
+            type="button"
+            onClick={onOpen}
+            className={`mt-3 min-h-10 rounded-xl px-4 text-xs font-black text-white ${
+              urgent ? 'bg-rose-600' : important ? 'bg-amber-600' : 'bg-teal-600'
+            }`}
+          >
+            お知らせを確認
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="アプリ内通知を閉じる"
+          className="grid h-10 w-10 shrink-0 place-items-center rounded-xl text-slate-500 hover:bg-slate-100"
+        >
+          <X className="h-5 w-5" />
+        </button>
+      </div>
+    </aside>
   );
 }
 
