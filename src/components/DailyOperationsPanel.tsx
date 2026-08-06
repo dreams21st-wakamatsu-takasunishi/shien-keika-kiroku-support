@@ -45,6 +45,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
   onOpenRecord,
 }) => {
   const [infoChild, setInfoChild] = useState<ChildProfile | null>(null);
+  const [takeoverSelectionMode, setTakeoverSelectionMode] = useState(false);
   const [selectedTakeoverKeys, setSelectedTakeoverKeys] = useState<string[]>([]);
   const [takingOver, setTakingOver] = useState(false);
   const [takeoverMessage, setTakeoverMessage] = useState<string | null>(null);
@@ -114,7 +115,14 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
 
   useEffect(() => {
     setSelectedTakeoverKeys((previous) => previous.filter((key) => takeoverCandidateKeys.has(key)));
+    if (takeoverCandidateKeys.size === 0) setTakeoverSelectionMode(false);
   }, [takeoverCandidateKeys]);
+
+  useEffect(() => {
+    setTakeoverSelectionMode(false);
+    setSelectedTakeoverKeys([]);
+    setTakeoverMessage(null);
+  }, [targetDate]);
 
   const toggleTakeoverSelection = (draftKey: string, childId: string) => {
     const key = `${draftKey}:${childId}`;
@@ -133,6 +141,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
       if (!completed) return;
       const count = selectedTakeovers.length;
       setSelectedTakeoverKeys([]);
+      setTakeoverSelectionMode(false);
       setTakeoverMessage(`${count}名の記録を引き継ぎました。「入力を再開」から続けられます。`);
     } finally {
       setTakingOver(false);
@@ -166,34 +175,64 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
         </div>
         {takeoverCandidates.length > 0 && (
           <div className="mt-4 rounded-xl border border-amber-300 bg-white p-3">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div>
-                <p className="text-xs font-black text-amber-950">別職員が入力中の記録を引き継ぐ</p>
-                <p className="mt-1 text-[11px] text-slate-600">下の児童一覧で対象を選択してから、まとめて引き継げます。</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
+            {!takeoverSelectionMode ? (
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-xs text-slate-600">別職員が入力中の記録を、必要な児童だけ選んで引き継げます。</p>
                 <button
                   type="button"
-                  onClick={() => setSelectedTakeoverKeys(
-                    selectedTakeoverKeys.length === takeoverCandidates.length
-                      ? []
-                      : takeoverCandidates.map((item) => `${item.draftKey}:${item.childId}`)
-                  )}
-                  className="min-h-11 rounded-xl border border-amber-300 bg-white px-3 text-xs font-bold text-amber-950"
-                >
-                  {selectedTakeoverKeys.length === takeoverCandidates.length ? '選択を解除' : 'すべて選択'}
-                </button>
-                <button
-                  type="button"
-                  disabled={selectedTakeovers.length === 0 || takingOver}
-                  onClick={() => void handleTakeOverSelected()}
-                  className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-amber-600 px-4 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  onClick={() => {
+                    setTakeoverSelectionMode(true);
+                    setSelectedTakeoverKeys([]);
+                    setTakeoverMessage(null);
+                  }}
+                  className="flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-amber-600 px-4 text-xs font-black text-white"
                 >
                   <UserRoundCheck className="h-4 w-4" />
-                  {takingOver ? '引き継ぎ中…' : `記録を引き継ぐ（${selectedTakeovers.length}名）`}
+                  記録を引き継ぐ
                 </button>
               </div>
-            </div>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <p className="text-xs font-black text-amber-950">引き継ぐ児童を選択してください</p>
+                  <p className="mt-1 text-[11px] text-slate-600">下の児童一覧に表示されたチェックボックスから複数選択できます。</p>
+                </div>
+                <div className="flex flex-wrap gap-2 sm:justify-end">
+                  <button
+                    type="button"
+                    disabled={takingOver}
+                    onClick={() => setSelectedTakeoverKeys(
+                      selectedTakeoverKeys.length === takeoverCandidates.length
+                        ? []
+                        : takeoverCandidates.map((item) => `${item.draftKey}:${item.childId}`)
+                    )}
+                    className="min-h-11 rounded-xl border border-amber-300 bg-white px-3 text-xs font-bold text-amber-950 disabled:opacity-50"
+                  >
+                    {selectedTakeoverKeys.length === takeoverCandidates.length ? '選択を解除' : 'すべて選択'}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={takingOver}
+                    onClick={() => {
+                      setTakeoverSelectionMode(false);
+                      setSelectedTakeoverKeys([]);
+                    }}
+                    className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 disabled:opacity-50"
+                  >
+                    キャンセル
+                  </button>
+                  <button
+                    type="button"
+                    disabled={selectedTakeovers.length === 0 || takingOver}
+                    onClick={() => void handleTakeOverSelected()}
+                    className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-amber-600 px-4 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <UserRoundCheck className="h-4 w-4" />
+                    {takingOver ? '引き継ぎ中…' : `選択した児童を引き継ぐ（${selectedTakeovers.length}名）`}
+                  </button>
+                </div>
+              </div>
+            )}
             {takeoverMessage && <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800" role="status">{takeoverMessage}</p>}
           </div>
         )}
@@ -220,7 +259,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
             <article key={child.id} className="p-4 sm:flex sm:items-center sm:gap-4">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
-                  {canTakeOverDraft && draft && (
+                  {takeoverSelectionMode && canTakeOverDraft && draft && (
                     <label className={`flex min-h-10 cursor-pointer items-center gap-2 rounded-xl border px-3 text-xs font-black ${selectedForTakeover ? 'border-amber-500 bg-amber-100 text-amber-950' : 'border-slate-300 bg-white text-slate-700'}`}>
                       <input
                         type="checkbox"
