@@ -220,7 +220,15 @@ export interface RecorderProfile {
   displayName: string;
   active: boolean;
   pinConfigured?: boolean;
+  menuPreferences?: RecorderMenuPreferences;
   createdAt?: string;
+}
+
+export type RecorderMenuItemId = 'home' | 'form' | 'records' | 'children' | 'templates' | 'team';
+
+export interface RecorderMenuPreferences {
+  order: RecorderMenuItemId[];
+  hidden: RecorderMenuItemId[];
 }
 
 export type StaffScheduleCategory =

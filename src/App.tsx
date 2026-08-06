@@ -19,6 +19,7 @@ import {
   MorningMeetingRecord,
   MorningMeetingTemplate,
   RecordDraftSummary,
+  RecorderMenuPreferences,
   RecorderProfile,
   ReviewIssue,
   StaffScheduleItem,
@@ -76,6 +77,7 @@ import {
   saveMorningMeetingTemplate,
   saveRecord,
   saveRecords,
+  saveRecorderMenuPreferences,
   saveStaffScheduleItem,
   saveAiWritingSettings,
   saveAnnouncement,
@@ -487,9 +489,10 @@ export default function App() {
   }, [syncPendingRecords]);
 
   useEffect(() => {
-    if (activeRecorder && !recorderProfiles.some((profile) => profile.id === activeRecorder.id)) {
-      setActiveRecorder(null);
-    }
+    if (!activeRecorder) return;
+    const refreshedRecorder = recorderProfiles.find((profile) => profile.id === activeRecorder.id);
+    if (!refreshedRecorder) setActiveRecorder(null);
+    else if (refreshedRecorder !== activeRecorder) setActiveRecorder(refreshedRecorder);
   }, [activeRecorder, recorderProfiles]);
 
   if (auth.loading) {
@@ -1060,6 +1063,17 @@ export default function App() {
     setActiveTab('form');
   };
 
+  const handleSaveRecorderMenuPreferences = async (preferences: RecorderMenuPreferences) => {
+    if (!activeRecorder) throw new Error('記録者を選択してからメニューを設定してください。');
+    const saved = organizationId
+      ? await saveRecorderMenuPreferences(organizationId, activeRecorder.id, preferences)
+      : preferences;
+    setRecorderProfiles((previous) => previous.map((profile) =>
+      profile.id === activeRecorder.id ? { ...profile, menuPreferences: saved } : profile
+    ));
+    setActiveRecorder((previous) => previous ? { ...previous, menuPreferences: saved } : previous);
+  };
+
   const handleStartRecord = (childId: string, date: string) => {
     const requestId = createRecordDraftKey();
     setCurrentRecord(null);
@@ -1337,6 +1351,7 @@ export default function App() {
         onNewRecord={handleNewRecordClick}
         currentUser={auth.profile}
         activeRecorder={activeRecorder}
+        onSaveMenuPreferences={handleSaveRecorderMenuPreferences}
         onChangeRecorder={() => setActiveRecorder(null)}
         onSignOut={remoteMode ? auth.signOut : undefined}
       />

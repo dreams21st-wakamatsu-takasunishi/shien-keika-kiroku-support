@@ -238,6 +238,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   );
   const carriedOverTargetDate = carriedOverDrafts[0]?.date;
   const attentionCount = drafts.length + unapproved.length + openHandovers;
+  const resumableDraft = useMemo(() => drafts
+    .filter((draft) => {
+      if (draft.selectedChildIds.length === 0) return false;
+      if (currentUser?.id && draft.userId !== currentUser.id) return false;
+      if (activeRecorder) return draft.recorderId === activeRecorder.id;
+      if (currentUser) return !draft.recorderId;
+      return true;
+    })
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0], [activeRecorder, currentUser, drafts]);
 
   return (
     <div className="max-w-6xl mx-auto space-y-4">
@@ -251,8 +260,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 <p className="mt-1 text-[10px] font-bold text-slate-300">操作担当は画面右上でいつでも確認・切替できます。</p>
               </div>
               <div className="grid shrink-0 grid-cols-2 gap-2 sm:flex">
-                <button type="button" onClick={onNewRecord} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-teal-400 px-4 text-sm font-black text-slate-950 shadow-md hover:bg-teal-300">
-                  <PlusCircle className="h-5 w-5" />記録を始める
+                <button type="button" onClick={() => resumableDraft ? onResumeDraft(resumableDraft.draftKey) : onNewRecord()} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-teal-400 px-4 text-sm font-black text-slate-950 shadow-md hover:bg-teal-300">
+                  {resumableDraft ? <RotateCcw className="h-5 w-5" /> : <PlusCircle className="h-5 w-5" />}
+                  {resumableDraft ? '記録を再開' : '記録を始める'}
                 </button>
                 <button type="button" onClick={() => onNavigate('records')} className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 text-sm font-bold text-white hover:bg-white/15">
                   <ClipboardList className="h-5 w-5" />記録一覧

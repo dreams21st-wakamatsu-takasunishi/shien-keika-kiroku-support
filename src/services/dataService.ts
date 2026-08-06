@@ -16,6 +16,8 @@ import {
   MorningMeetingTemplate,
   RecordDraftSummary,
   RecordRevision,
+  RecorderMenuItemId,
+  RecorderMenuPreferences,
   RecorderProfile,
   ReviewIssue,
   RegularDaySchedule,
@@ -98,11 +100,33 @@ function mapRegularDaySchedule(row: any): RegularDaySchedule {
 }
 
 function mapRecorderProfile(row: any): RecorderProfile {
+  const allowedMenuItems = new Set<RecorderMenuItemId>([
+    'home',
+    'form',
+    'records',
+    'children',
+    'templates',
+    'team',
+  ]);
+  const rawPreferences = row.menu_preferences && typeof row.menu_preferences === 'object'
+    ? row.menu_preferences as { order?: unknown; hidden?: unknown }
+    : undefined;
+  const menuPreferences = rawPreferences
+    ? {
+        order: Array.isArray(rawPreferences.order)
+          ? rawPreferences.order.filter((item): item is RecorderMenuItemId => typeof item === 'string' && allowedMenuItems.has(item as RecorderMenuItemId))
+          : [],
+        hidden: Array.isArray(rawPreferences.hidden)
+          ? rawPreferences.hidden.filter((item): item is RecorderMenuItemId => typeof item === 'string' && item !== 'home' && allowedMenuItems.has(item as RecorderMenuItemId))
+          : [],
+      }
+    : undefined;
   return {
     id: row.id,
     displayName: row.display_name,
     active: row.active !== false,
     pinConfigured: row.pin_configured === true,
+    menuPreferences,
     createdAt: row.created_at || undefined,
   };
 }
@@ -466,7 +490,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
   ] = await Promise.all([
     client.from('children').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('name'),
     client.from('child_regular_day_schedules').select('*').eq('organization_id', organizationId).order('effective_from'),
-    client.from('recorder_profiles').select('id, display_name, active, pin_configured, created_at').eq('organization_id', organizationId).eq('active', true).order('display_name'),
+    client.from('recorder_profiles').select('id, display_name, active, pin_configured, menu_preferences, created_at').eq('organization_id', organizationId).eq('active', true).order('display_name'),
     client.from('record_templates').select('*').eq('organization_id', organizationId).is('archived_at', null).order('created_at'),
     client.from('support_records').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('record_date', { ascending: false }),
     client.from('handover_items').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }),
@@ -1247,6 +1271,26 @@ export async function setRecorderPin(
     p_pin: pin,
   });
   if (error) throw error;
+}
+
+export async function saveRecorderMenuPreferences(
+  organizationId: string,
+  recorderId: string,
+  preferences: RecorderMenuPreferences,
+) {
+  const { data, error } = await assertSupabase().rpc('set_recorder_menu_preferences', {
+    p_organization_id: organizationId,
+    p_recorder_profile_id: recorderId,
+    p_preferences: preferences,
+  });
+  if (error) throw error;
+  const saved = data && typeof data === 'object'
+    ? data as { order?: unknown; hidden?: unknown }
+    : {};
+  return {
+    order: Array.isArray(saved.order) ? saved.order as RecorderMenuItemId[] : preferences.order,
+    hidden: Array.isArray(saved.hidden) ? saved.hidden as RecorderMenuItemId[] : preferences.hidden,
+  } satisfies RecorderMenuPreferences;
 }
 
 export async function saveHandoverItem(organizationId: string, item: HandoverItem) {

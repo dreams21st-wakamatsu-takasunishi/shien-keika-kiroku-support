@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   ArrowLeftRight,
@@ -9,6 +9,7 @@ import {
   Circle,
   Cloud,
   Eye,
+  GripVertical,
   Info,
   ListChecks,
   LoaderCircle,
@@ -1397,6 +1398,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const [checksAcknowledged, setChecksAcknowledged] = useState(false);
   const [expandedGroupStepId, setExpandedGroupStepId] = useState<string | null>(null);
   const [reorderingChildTabs, setReorderingChildTabs] = useState(false);
+  const [draggingChildId, setDraggingChildId] = useState<string | null>(null);
   const [takeoverNotice, setTakeoverNotice] = useState<TakeoverNotice | null>(null);
   const draftWriteBlocked = draftStatus === 'locked' || draftStatus === 'taken-over' || Boolean(takeoverNotice);
   const editingDisabled = readOnly || draftWriteBlocked;
@@ -1406,6 +1408,53 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const deviceId = useRef(getDeviceId()).current;
   const remoteRevision = useRef<number | null>(null);
   const initialStepApplied = useRef(false);
+  const formElement = useRef<HTMLFormElement | null>(null);
+  const childTabStrip = useRef<HTMLDivElement | null>(null);
+  const draggingChildIdRef = useRef<string | null>(null);
+  const focusedEditor = useRef<{
+    element: HTMLInputElement | HTMLTextAreaElement;
+    selectionStart: number | null;
+    selectionEnd: number | null;
+    inputAt: number;
+  } | null>(null);
+
+  const rememberFocusedEditor = (target: EventTarget | null, inputEvent = false) => {
+    if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLTextAreaElement)) return;
+    const inputType = target instanceof HTMLInputElement ? target.type : 'textarea';
+    if (!['text', 'search', 'tel', 'email', 'url', 'number', 'textarea'].includes(inputType)) return;
+    let selectionStart: number | null = null;
+    let selectionEnd: number | null = null;
+    try {
+      selectionStart = target.selectionStart;
+      selectionEnd = target.selectionEnd;
+    } catch {
+      // Number inputs do not expose a text selection in every browser.
+    }
+    focusedEditor.current = {
+      element: target,
+      selectionStart,
+      selectionEnd,
+      inputAt: inputEvent ? performance.now() : 0,
+    };
+  };
+
+  useLayoutEffect(() => {
+    const snapshot = focusedEditor.current;
+    if (!snapshot || snapshot.inputAt === 0 || performance.now() - snapshot.inputAt > 500) return;
+    if (!snapshot.element.isConnected || document.activeElement === snapshot.element) return;
+    if (document.activeElement !== document.body && document.activeElement !== document.documentElement) return;
+    const animationFrame = window.requestAnimationFrame(() => {
+      if (!snapshot.element.isConnected || !formElement.current?.contains(snapshot.element)) return;
+      snapshot.element.focus({ preventScroll: true });
+      if (snapshot.selectionStart === null || snapshot.selectionEnd === null) return;
+      try {
+        snapshot.element.setSelectionRange(snapshot.selectionStart, snapshot.selectionEnd);
+      } catch {
+        // Some input types do not support restoring a selection range.
+      }
+    });
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [wizard]);
 
   const activeTemplate = initialRecord
     ? initialTemplate
@@ -2661,6 +2710,52 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     });
   };
 
+  const moveChildTabTo = (childId: string, targetChildId: string) => {
+    if (editingDisabled || childId === targetChildId) return;
+    setWizard((previous) => {
+      const sourceIndex = previous.selectedChildIds.indexOf(childId);
+      const targetIndex = previous.selectedChildIds.indexOf(targetChildId);
+      if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return previous;
+      const selectedChildIds = [...previous.selectedChildIds];
+      selectedChildIds.splice(sourceIndex, 1);
+      selectedChildIds.splice(targetIndex, 0, childId);
+      return { ...previous, selectedChildIds };
+    });
+  };
+
+  const finishChildTabDrag = (event?: React.PointerEvent<HTMLButtonElement>) => {
+    if (event?.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
+    draggingChildIdRef.current = null;
+    setDraggingChildId(null);
+  };
+
+  const startChildTabDrag = (event: React.PointerEvent<HTMLButtonElement>, childId: string) => {
+    if (!reorderingChildTabs || !event.isPrimary || event.button > 0) return;
+    event.preventDefault();
+    draggingChildIdRef.current = childId;
+    setDraggingChildId(childId);
+    event.currentTarget.setPointerCapture(event.pointerId);
+  };
+
+  const continueChildTabDrag = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const childId = draggingChildIdRef.current;
+    if (!childId || !event.isPrimary) return;
+    event.preventDefault();
+    const strip = childTabStrip.current;
+    if (strip) {
+      const bounds = strip.getBoundingClientRect();
+      if (event.clientX < bounds.left + 44) strip.scrollBy({ left: -28, behavior: 'auto' });
+      else if (event.clientX > bounds.right - 44) strip.scrollBy({ left: 28, behavior: 'auto' });
+    }
+    const target = document
+      .elementFromPoint(event.clientX, event.clientY)
+      ?.closest<HTMLElement>('[data-child-tab-id]')
+      ?.dataset.childTabId;
+    if (target) moveChildTabTo(childId, target);
+  };
+
   const validateGlobalStep = () => {
     if (currentStep?.kind === 'template' && !activeTemplate) return '記録フォーマットを選択してください。';
     if (currentStep?.kind === 'children' && wizard.selectedChildIds.length === 0) return '対象児童を1名以上選択してください。';
@@ -3539,7 +3634,14 @@ export const RecordForm: React.FC<RecordFormProps> = ({
               : '下書き自動保存';
 
   return (
-    <form id="record-wizard" onSubmit={handleSubmit} className="mx-auto w-full min-w-0 max-w-4xl space-y-4 scroll-mt-20">
+    <form
+      ref={formElement}
+      id="record-wizard"
+      onSubmit={handleSubmit}
+      onFocusCapture={(event) => rememberFocusedEditor(event.target)}
+      onInputCapture={(event) => rememberFocusedEditor(event.target, true)}
+      className="mx-auto w-full min-w-0 max-w-4xl space-y-4 scroll-mt-20"
+    >
       {takeoverNotice && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 p-4" role="alertdialog" aria-modal="true" aria-labelledby="takeover-alert-title">
           <div className="w-full max-w-lg rounded-2xl border-2 border-amber-400 bg-white p-5 shadow-2xl sm:p-6">
@@ -3701,12 +3803,17 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       {wizard.selectedChildIds.length > 0 && wizard.currentStepIndex >= 2 && (
         <div className="app-sticky-below-header sticky z-20 rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur">
           <div className="mb-2 flex items-center justify-between gap-3 px-1">
-            <p className="text-[11px] font-black text-slate-600">児童切替</p>
+            <p className="text-[11px] font-black text-slate-600">
+              {reorderingChildTabs ? '右端のハンドルを押したまま移動' : '児童切替'}
+            </p>
             {wizard.selectedChildIds.length > 1 && !editingDisabled && (
               <button
                 type="button"
                 aria-pressed={reorderingChildTabs}
-                onClick={() => setReorderingChildTabs((previous) => !previous)}
+                onClick={() => {
+                  finishChildTabDrag();
+                  setReorderingChildTabs((previous) => !previous);
+                }}
                 className={`flex min-h-9 items-center gap-1 rounded-lg border px-2.5 text-[11px] font-black ${
                   reorderingChildTabs
                     ? 'border-teal-600 bg-teal-50 text-teal-800'
@@ -3714,11 +3821,11 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                 }`}
               >
                 <ArrowLeftRight className="h-4 w-4" />
-                {reorderingChildTabs ? '並べ替え完了' : '並べ替え'}
+                {reorderingChildTabs ? '並べ替えを終了' : 'ドラッグで並べ替え'}
               </button>
             )}
           </div>
-          <div className="flex gap-2 overflow-x-auto pb-1">
+          <div ref={childTabStrip} className="ui-scrollbar flex gap-2 overflow-x-auto pb-1">
             {wizard.selectedChildIds.map((childId, index) => {
               const child = childrenList.find((item) => item.id === childId);
               const unanswered = unansweredForChild(childId).length;
@@ -3726,8 +3833,11 @@ export const RecordForm: React.FC<RecordFormProps> = ({
               return (
                 <div
                   key={childId}
-                  className={`flex shrink-0 overflow-hidden rounded-lg border ${
-                    active ? 'border-teal-600' : 'border-slate-300'
+                  data-child-tab-id={childId}
+                  className={`flex shrink-0 overflow-hidden rounded-lg border transition-[transform,box-shadow,opacity] ${
+                    draggingChildId === childId
+                      ? 'z-10 scale-[1.03] border-amber-500 opacity-80 shadow-lg ring-2 ring-amber-200'
+                      : active ? 'border-teal-600' : 'border-slate-300'
                   }`}
                 >
                   <button
@@ -3749,24 +3859,27 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                     </span>
                   </button>
                   {reorderingChildTabs && (
-                    <div className="flex items-stretch border-l border-slate-200 bg-slate-50">
+                    <div className="flex items-stretch border-l border-slate-200 bg-amber-50">
                       <button
                         type="button"
-                        aria-label={`${child?.name || '児童'}を左へ移動`}
-                        disabled={index === 0}
-                        onClick={() => moveChildTab(childId, -1)}
-                        className="flex min-h-11 min-w-10 items-center justify-center text-slate-700 disabled:text-slate-300"
+                        aria-label={`${child?.name || '児童'}をドラッグして並べ替え。現在${index + 1}番目`}
+                        onPointerDown={(event) => startChildTabDrag(event, childId)}
+                        onPointerMove={continueChildTabDrag}
+                        onPointerUp={finishChildTabDrag}
+                        onPointerCancel={finishChildTabDrag}
+                        onLostPointerCapture={() => finishChildTabDrag()}
+                        onKeyDown={(event) => {
+                          if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') {
+                            event.preventDefault();
+                            moveChildTab(childId, -1);
+                          } else if (event.key === 'ArrowRight' || event.key === 'ArrowDown') {
+                            event.preventDefault();
+                            moveChildTab(childId, 1);
+                          }
+                        }}
+                        className={`flex min-h-11 min-w-11 touch-none select-none items-center justify-center text-amber-900 ${draggingChildId === childId ? 'cursor-grabbing bg-amber-200' : 'cursor-grab hover:bg-amber-100'}`}
                       >
-                        <ChevronLeft className="h-4 w-4" />
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`${child?.name || '児童'}を右へ移動`}
-                        disabled={index === wizard.selectedChildIds.length - 1}
-                        onClick={() => moveChildTab(childId, 1)}
-                        className="flex min-h-11 min-w-10 items-center justify-center border-l border-slate-200 text-slate-700 disabled:text-slate-300"
-                      >
-                        <ChevronRight className="h-4 w-4" />
+                        <GripVertical className="h-5 w-5" />
                       </button>
                     </div>
                   )}
