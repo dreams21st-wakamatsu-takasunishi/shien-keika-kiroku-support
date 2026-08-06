@@ -91,7 +91,7 @@ import {
   seedDefaultTemplates,
   softDeleteChild,
   softDeleteRecord,
-  takeOverRecordDraftChild,
+  takeOverRecordDraftChildren,
   updateHandoverStatus,
   updateTransportRunStatus,
 } from './services/dataService';
@@ -1093,17 +1093,15 @@ export default function App() {
 
     try {
       if (!organizationId) throw new Error('共有データベースへ接続されていないため、記録を引き継げません。');
-      for (const item of items) {
-        const targetDraftKey = createRecordDraftKey();
-        await takeOverRecordDraftChild(
-          organizationId,
-          item.draftKey,
-          item.childId,
-          targetDraftKey,
-          activeRecorder?.id,
-        );
-      }
+      const targetDraftKey = createRecordDraftKey();
+      await takeOverRecordDraftChildren(
+        organizationId,
+        items.map((item) => ({ sourceDraftKey: item.draftKey, childId: item.childId })),
+        targetDraftKey,
+        activeRecorder?.id,
+      );
       await refreshRecordDrafts();
+      handleResumeDraft(targetDraftKey);
       return true;
     } catch (error) {
       await refreshRecordDrafts();
