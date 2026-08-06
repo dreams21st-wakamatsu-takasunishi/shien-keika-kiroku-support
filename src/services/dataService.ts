@@ -1164,6 +1164,27 @@ export async function takeOverRecordDraftChildren(
   };
 }
 
+export async function takeOverRecordDraftChildrenIntoExisting(
+  organizationId: string,
+  items: Array<{ sourceDraftKey: string; childId: string }>,
+  targetDraftKey: string,
+  recorderId?: string | null,
+) {
+  const { data, error } = await assertSupabase().rpc('take_over_record_draft_children_into_existing', {
+    p_organization_id: organizationId,
+    p_items: items,
+    p_target_draft_key: targetDraftKey,
+    p_recorder_profile_id: recorderId || null,
+  });
+  if (error) throw error;
+  const result = Array.isArray(data) ? data[0] : data;
+  return {
+    revision: Number(result?.new_revision || 1),
+    updatedAt: String(result?.saved_at || new Date().toISOString()),
+    payload: result?.draft_payload as unknown,
+  };
+}
+
 export async function listRecordDrafts(organizationId: string): Promise<RecordDraftSummary[]> {
   const { data, error } = await assertSupabase()
     .from('record_drafts')
@@ -1178,6 +1199,11 @@ export async function listRecordDrafts(organizationId: string): Promise<RecordDr
       ? row.payload as Record<string, unknown>
       : null;
     if (!payload || !Array.isArray(payload.selectedChildIds)) return [];
+    const takenOverFromDraftKeys = Array.isArray(payload.takenOverFromDraftKeys)
+      ? payload.takenOverFromDraftKeys.filter((value): value is string => typeof value === 'string')
+      : typeof payload.takenOverFromDraftKey === 'string'
+        ? [payload.takenOverFromDraftKey]
+        : [];
     return [{
       draftKey: row.draft_key,
       revision: Number(row.revision || 1),
@@ -1186,6 +1212,9 @@ export async function listRecordDrafts(organizationId: string): Promise<RecordDr
       recorderId: row.recorder_profile_id || (typeof payload.recorderId === 'string' ? payload.recorderId : undefined),
       recorderName: typeof payload.recorderName === 'string' ? payload.recorderName : undefined,
       selectedChildIds: payload.selectedChildIds.filter((value): value is string => typeof value === 'string'),
+      selectedTemplateId: typeof payload.selectedTemplateId === 'string' ? payload.selectedTemplateId : undefined,
+      takenOverFromDraftKeys,
+      takenOverAt: typeof payload.takenOverAt === 'string' ? payload.takenOverAt : undefined,
       date: typeof payload.date === 'string' ? payload.date : undefined,
       currentStepIndex: typeof payload.currentStepIndex === 'number' ? payload.currentStepIndex : 0,
       updatedAt: row.updated_at,

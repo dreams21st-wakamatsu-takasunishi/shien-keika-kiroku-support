@@ -92,6 +92,7 @@ import {
   softDeleteChild,
   softDeleteRecord,
   takeOverRecordDraftChildren,
+  takeOverRecordDraftChildrenIntoExisting,
   updateHandoverStatus,
   updateTransportRunStatus,
 } from './services/dataService';
@@ -383,6 +384,19 @@ export default function App() {
   useEffect(() => {
     if (activeTab === 'home') void refreshRecordDrafts();
   }, [activeTab, refreshRecordDrafts]);
+
+  useEffect(() => {
+    if (activeTab !== 'form' || !remoteMode || !auth.profile) return;
+    const timer = window.setInterval(() => void refreshRecordDrafts(), 3000);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void refreshRecordDrafts();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [activeTab, auth.profile, refreshRecordDrafts, remoteMode]);
 
   useEffect(() => {
     if (remoteMode && auth.profile) {
@@ -1084,22 +1098,48 @@ export default function App() {
     const nextRecorderName = activeRecorder?.displayName || auth.profile?.displayName || '現在の職員';
     const childNames = items.map((item) => item.childName).join('、');
     const ownerNames = [...new Set(items.map((item) => item.ownerName || '別の職員'))].join('、');
+    const sourceDraftKeys = new Set(items.map((item) => item.draftKey));
+    const sourceDraft = recordDrafts.find((draft) => sourceDraftKeys.has(draft.draftKey));
+    const existingTargetDraft = recordDrafts
+      .filter((draft) =>
+        !sourceDraftKeys.has(draft.draftKey)
+        && draft.userId === auth.profile?.id
+        && draft.date === sourceDraft?.date
+        && (!sourceDraft?.selectedTemplateId || !draft.selectedTemplateId || draft.selectedTemplateId === sourceDraft.selectedTemplateId)
+        && (activeRecorder
+          ? draft.recorderId === activeRecorder.id
+          : !draft.recorderId)
+      )
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
     const confirmed = window.confirm(
       `${ownerNames}が入力中の記録から、次の${items.length}名を${nextRecorderName}へ引き継ぎます。\n\n`
       + `${childNames}\n\n`
+      + (existingTargetDraft
+        ? `自身が入力中の${existingTargetDraft.selectedChildIds.length}名の記録へ追加します。\n\n`
+        : '新しい入力中記録としてまとめます。\n\n')
       + '選択していない児童の記録は元の入力者に残ります。よろしいですか？'
     );
     if (!confirmed) return false;
 
     try {
       if (!organizationId) throw new Error('共有データベースへ接続されていないため、記録を引き継げません。');
-      const targetDraftKey = createRecordDraftKey();
-      await takeOverRecordDraftChildren(
-        organizationId,
-        items.map((item) => ({ sourceDraftKey: item.draftKey, childId: item.childId })),
-        targetDraftKey,
-        activeRecorder?.id,
-      );
+      const targetDraftKey = existingTargetDraft?.draftKey || createRecordDraftKey();
+      const takeoverItems = items.map((item) => ({ sourceDraftKey: item.draftKey, childId: item.childId }));
+      if (existingTargetDraft) {
+        await takeOverRecordDraftChildrenIntoExisting(
+          organizationId,
+          takeoverItems,
+          targetDraftKey,
+          activeRecorder?.id,
+        );
+      } else {
+        await takeOverRecordDraftChildren(
+          organizationId,
+          takeoverItems,
+          targetDraftKey,
+          activeRecorder?.id,
+        );
+      }
       await refreshRecordDrafts();
       handleResumeDraft(targetDraftKey);
       return true;

@@ -455,6 +455,9 @@ export interface RecordDraftSummary {
   recorderId?: string;
   recorderName?: string;
   selectedChildIds: string[];
+  selectedTemplateId?: string;
+  takenOverFromDraftKeys?: string[];
+  takenOverAt?: string;
   date?: string;
   currentStepIndex: number;
   updatedAt: string;

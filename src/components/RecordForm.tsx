@@ -193,6 +193,15 @@ interface DraftPreviewNavigationChild {
   ownerName?: string;
 }
 
+interface TakeoverNotice {
+  kind: 'transferred-out' | 'received';
+  childNames: string[];
+  nextRecorderName?: string;
+  allTransferred: boolean;
+  syncing: boolean;
+  syncFailed: boolean;
+}
+
 const DraftProgressOverview: React.FC<{
   loading: boolean;
   ownerName?: string;
@@ -1270,6 +1279,17 @@ function normalizeWizardDraft(value: unknown): WizardDraft | null {
   return (draft.version || 0) < 9 ? migrateLegacyHolidayDraft(normalized) : normalized;
 }
 
+function describeDraftSaveError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || '原因不明のエラー');
+  if (/failed to fetch|network|load failed|通信|offline/i.test(message)) {
+    return '通信状態を確認できず、共有データベースへ保存できませんでした。入力内容はこの端末内に残っています。';
+  }
+  if (/jwt|session|unauthorized|not authenticated/i.test(message)) {
+    return 'ログイン状態を確認できず、共有保存できませんでした。画面を再読み込みせず、まず再試行してください。';
+  }
+  return `共有データベースへの保存に失敗しました。入力内容はこの端末内に残っています。詳細: ${message.slice(0, 240)}`;
+}
+
 export const RecordForm: React.FC<RecordFormProps> = ({
   templates,
   childrenList,
@@ -1362,6 +1382,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const [wizard, setWizard] = useState<WizardDraft>(createInitialDraft);
   const [draftReady, setDraftReady] = useState(!organizationId || !userId);
   const [draftStatus, setDraftStatus] = useState<'restored' | 'saving' | 'saved' | 'deleted' | 'conflict' | 'locked' | 'taken-over' | 'error' | null>(null);
+  const [draftSaveError, setDraftSaveError] = useState<string | null>(null);
+  const [draftRetryToken, setDraftRetryToken] = useState(0);
   const [stepError, setStepError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -1375,7 +1397,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const [checksAcknowledged, setChecksAcknowledged] = useState(false);
   const [expandedGroupStepId, setExpandedGroupStepId] = useState<string | null>(null);
   const [reorderingChildTabs, setReorderingChildTabs] = useState(false);
-  const draftWriteBlocked = draftStatus === 'locked' || draftStatus === 'taken-over';
+  const [takeoverNotice, setTakeoverNotice] = useState<TakeoverNotice | null>(null);
+  const draftWriteBlocked = draftStatus === 'locked' || draftStatus === 'taken-over' || Boolean(takeoverNotice);
   const editingDisabled = readOnly || draftWriteBlocked;
   const [questionIndexMode, setQuestionIndexMode] = useState<'unanswered' | 'all'>('unanswered');
   const draftCleared = useRef(false);
@@ -1390,6 +1413,17 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const wizardQuestions = getWizardQuestions(activeTemplate);
   const activeChild = childrenList.find((child) => child.id === wizard.activeChildId);
   const activeChildDraft = wizard.childDrafts[wizard.activeChildId];
+  const takeoverTarget = readOnlyDrafts
+    .filter((draft) => draft.takenOverFromDraftKeys?.includes(draftKey))
+    .sort((left, right) => (right.takenOverAt || right.updatedAt).localeCompare(left.takenOverAt || left.updatedAt))
+    .find((draft) => draft.selectedChildIds.some((childId) => wizard.selectedChildIds.includes(childId)));
+  const takeoverTargetSignature = takeoverTarget
+    ? `${takeoverTarget.draftKey}:${takeoverTarget.revision}:${takeoverTarget.selectedChildIds.join(',')}`
+    : '';
+  const liveCurrentDraft = readOnlyDrafts.find((draft) => draft.draftKey === draftKey);
+  const liveCurrentDraftSignature = liveCurrentDraft
+    ? `${liveCurrentDraft.revision}:${liveCurrentDraft.selectedChildIds.join(',')}`
+    : '';
   const relevantHandovers = useMemo(() => handoverItems
     .filter((item) => item.status !== '完了' && (!item.childId || item.childId === activeChild?.id))
     .sort((left, right) => {
@@ -1422,12 +1456,152 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           setDraftStatus('restored');
         }
       })
-      .catch(() => setDraftStatus('error'))
+      .catch((error) => {
+        setDraftSaveError(describeDraftSaveError(error));
+        setDraftStatus('error');
+      })
       .finally(() => { if (alive) setDraftReady(true); });
     return () => { alive = false; };
     // The initial local draft is intentionally compared once per form session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [organizationId, userId, draftKey, storageKey, readOnly]);
+
+  useEffect(() => {
+    if (
+      readOnly
+      || initialRecord
+      || !organizationId
+      || !draftReady
+      || draftCleared.current
+      || !takeoverTarget
+    ) return;
+
+    const transferredChildIds = takeoverTarget.selectedChildIds.filter((childId) =>
+      wizard.selectedChildIds.includes(childId)
+    );
+    if (transferredChildIds.length === 0) return;
+
+    const childNames = transferredChildIds.map((childId) =>
+      childrenList.find((child) => child.id === childId)?.name || '児童'
+    );
+    let alive = true;
+    skipNextDraftSave.current = true;
+    setDraftStatus('taken-over');
+    setTakeoverNotice({
+      kind: 'transferred-out',
+      childNames,
+      nextRecorderName: takeoverTarget.recorderName,
+      allTransferred: transferredChildIds.length === wizard.selectedChildIds.length,
+      syncing: true,
+      syncFailed: false,
+    });
+
+    void loadRecordDraft(organizationId, draftKey)
+      .then((remote) => {
+        if (!alive) return;
+        if (!remote) {
+          remoteRevision.current = null;
+          localStorage.removeItem(storageKey);
+          setTakeoverNotice((previous) => previous ? {
+            ...previous,
+            allTransferred: true,
+            syncing: false,
+          } : null);
+          setDraftStatus('taken-over');
+          return;
+        }
+
+        const restored = normalizeWizardDraft(remote.payload);
+        if (!restored) throw new Error('引き継ぎ後の最新下書きを読み込めませんでした。');
+        remoteRevision.current = remote.revision;
+        skipNextDraftSave.current = true;
+        const latest = { ...restored, updatedAt: remote.updatedAt };
+        setWizard(latest);
+        localStorage.setItem(storageKey, JSON.stringify(latest));
+        setTakeoverNotice((previous) => previous ? {
+          ...previous,
+          allTransferred: restored.selectedChildIds.length === 0,
+          syncing: false,
+        } : null);
+        setDraftStatus(restored.selectedChildIds.length === 0 ? 'taken-over' : 'restored');
+        onDraftChanged?.();
+      })
+      .catch(() => {
+        if (!alive) return;
+        setTakeoverNotice((previous) => previous ? {
+          ...previous,
+          syncing: false,
+          syncFailed: true,
+        } : null);
+        setDraftStatus('taken-over');
+      });
+
+    return () => { alive = false; };
+    // The target signature is emitted by the shared draft Realtime refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [takeoverTargetSignature, organizationId, draftKey, draftReady, initialRecord, readOnly, storageKey]);
+
+  useEffect(() => {
+    if (
+      readOnly
+      || initialRecord
+      || !organizationId
+      || !draftReady
+      || draftCleared.current
+      || !liveCurrentDraft
+      || takeoverNotice
+    ) return;
+
+    const addedChildIds = liveCurrentDraft.selectedChildIds.filter((childId) =>
+      !wizard.selectedChildIds.includes(childId)
+    );
+    if (addedChildIds.length === 0) return;
+
+    const childNames = addedChildIds.map((childId) =>
+      childrenList.find((child) => child.id === childId)?.name || '児童'
+    );
+    let alive = true;
+    skipNextDraftSave.current = true;
+    setTakeoverNotice({
+      kind: 'received',
+      childNames,
+      nextRecorderName: liveCurrentDraft.recorderName,
+      allTransferred: false,
+      syncing: true,
+      syncFailed: false,
+    });
+
+    void loadRecordDraft(organizationId, draftKey)
+      .then((remote) => {
+        if (!alive || !remote) throw new Error('統合後の下書きを取得できませんでした。');
+        const restored = normalizeWizardDraft(remote.payload);
+        if (!restored) throw new Error('統合後の下書きを読み込めませんでした。');
+        remoteRevision.current = remote.revision;
+        skipNextDraftSave.current = true;
+        const latest = { ...restored, updatedAt: remote.updatedAt };
+        setWizard(latest);
+        localStorage.setItem(storageKey, JSON.stringify(latest));
+        setTakeoverNotice((previous) => previous?.kind === 'received' ? {
+          ...previous,
+          syncing: false,
+        } : previous);
+        setDraftStatus('restored');
+        onDraftChanged?.();
+      })
+      .catch(() => {
+        if (!alive) return;
+        setTakeoverNotice((previous) => previous?.kind === 'received' ? {
+          ...previous,
+          syncing: false,
+          syncFailed: true,
+        } : previous);
+        setDraftStatus('taken-over');
+      });
+
+    return () => { alive = false; };
+    // Realtime and the form-only polling refresh this summary signature.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [liveCurrentDraftSignature, organizationId, draftKey, draftReady, initialRecord, readOnly, storageKey]);
 
   useEffect(() => {
     if (editingDisabled || !draftReady || draftCleared.current) return;
@@ -1440,6 +1614,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       return;
     }
     setDraftStatus('saving');
+    setDraftSaveError(null);
+    let cancelled = false;
+    let retryTimer: number | undefined;
     const timer = window.setTimeout(() => {
       const payload: WizardDraft = {
         ...wizard,
@@ -1453,34 +1630,54 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         setDraftStatus('error');
       }
       if (organizationId && userId) {
-        void saveRecordDraft(organizationId, userId, draftKey, payload, {
-          deviceId,
-          expectedRevision: remoteRevision.current,
-          recorderId: wizard.recorderId || null,
-        })
-          .then((saved) => {
+        const saveSharedDraft = async (attempt: number) => {
+          try {
+            const saved = await saveRecordDraft(organizationId, userId, draftKey, payload, {
+              deviceId,
+              expectedRevision: remoteRevision.current,
+              recorderId: wizard.recorderId || null,
+            });
+            if (cancelled) return;
             remoteRevision.current = saved.revision;
+            setDraftSaveError(null);
             setDraftStatus('saved');
             onDraftChanged?.();
-          })
-          .catch((error) => {
+          } catch (error) {
+            if (cancelled) return;
             const message = error instanceof Error ? error.message : String(error);
-            setDraftStatus(
-              message.includes('DRAFT_CHILD_LOCKED')
-                ? 'locked'
-                : message.includes('DRAFT_TAKEN_OVER') || message.includes('DRAFT_OWNED_BY_ANOTHER_RECORDER')
-                  ? 'taken-over'
-                  : message.includes('DRAFT_CONFLICT')
-                    ? 'conflict'
-                    : 'error'
-            );
-          });
+            const knownStatus = message.includes('DRAFT_CHILD_LOCKED')
+              ? 'locked' as const
+              : message.includes('DRAFT_TAKEN_OVER') || message.includes('DRAFT_OWNED_BY_ANOTHER_RECORDER')
+                ? 'taken-over' as const
+                : message.includes('DRAFT_CONFLICT')
+                  ? 'conflict' as const
+                  : null;
+            if (knownStatus) {
+              setDraftSaveError(null);
+              setDraftStatus(knownStatus);
+              return;
+            }
+            if (attempt < 2 && navigator.onLine) {
+              setDraftStatus('saving');
+              retryTimer = window.setTimeout(() => void saveSharedDraft(attempt + 1), 1500 * (attempt + 1));
+              return;
+            }
+            setDraftSaveError(describeDraftSaveError(error));
+            setDraftStatus('error');
+          }
+        };
+        void saveSharedDraft(0);
       } else {
+        setDraftSaveError(null);
         setDraftStatus('saved');
       }
     }, 700);
-    return () => window.clearTimeout(timer);
-  }, [wizard, draftReady, storageKey, organizationId, userId, draftKey, deviceId, onDraftChanged, editingDisabled, initialRecord]);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      if (retryTimer) window.clearTimeout(retryTimer);
+    };
+  }, [wizard, draftReady, storageKey, organizationId, userId, draftKey, deviceId, onDraftChanged, editingDisabled, initialRecord, draftRetryToken]);
 
   useEffect(() => {
     if (!readOnly || !organizationId) return;
@@ -3343,6 +3540,66 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
   return (
     <form id="record-wizard" onSubmit={handleSubmit} className="mx-auto w-full min-w-0 max-w-4xl space-y-4 scroll-mt-20">
+      {takeoverNotice && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 p-4" role="alertdialog" aria-modal="true" aria-labelledby="takeover-alert-title">
+          <div className="w-full max-w-lg rounded-2xl border-2 border-amber-400 bg-white p-5 shadow-2xl sm:p-6">
+            <div className="flex items-start gap-3">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-amber-100 text-amber-800">
+                <AlertCircle className="h-6 w-6" />
+              </span>
+              <div className="min-w-0">
+                <h2 id="takeover-alert-title" className="text-base font-black text-slate-950">
+                  {takeoverNotice.kind === 'received'
+                    ? '担当中の記録へ児童が追加されました'
+                    : '記録が別の職員へ引き継がれました'}
+                </h2>
+                <p className="mt-2 text-sm font-bold leading-relaxed text-amber-950">
+                  {takeoverNotice.childNames.join('、')}
+                  {takeoverNotice.kind === 'transferred-out' && takeoverNotice.nextRecorderName
+                    ? ` → ${takeoverNotice.nextRecorderName}`
+                    : ''}
+                </p>
+                <p className="mt-2 text-xs leading-relaxed text-slate-600">
+                  {takeoverNotice.syncing
+                    ? '重複入力を防ぐため、この画面からの入力と自動保存を停止し、最新状態へ同期しています。'
+                    : takeoverNotice.syncFailed
+                      ? '最新状態を取得できなかったため、この画面からの入力を停止しました。記録状況へ戻って状態を確認してください。'
+                      : takeoverNotice.kind === 'received'
+                        ? '引き継いだ児童を現在の入力画面へ追加しました。確認後、児童タブを切り替えながら入力できます。'
+                      : takeoverNotice.allTransferred
+                        ? 'この画面の児童はすべて引き継がれました。この端末からの入力と自動保存は停止しています。'
+                        : '引き継がれた児童を入力画面から取り除きました。確認後、残っている児童の入力を続けられます。'}
+                </p>
+              </div>
+            </div>
+            <div className="mt-5 flex justify-end">
+              {takeoverNotice.syncing ? (
+                <span className="flex min-h-11 items-center gap-2 rounded-xl bg-slate-100 px-4 text-sm font-bold text-slate-600">
+                  <LoaderCircle className="h-4 w-4 animate-spin" />同期中
+                </span>
+              ) : takeoverNotice.syncFailed || (takeoverNotice.kind === 'transferred-out' && takeoverNotice.allTransferred) ? (
+                <button
+                  type="button"
+                  onClick={() => onBackToRecordStatus?.()}
+                  className="min-h-12 rounded-xl bg-slate-900 px-5 text-sm font-black text-white"
+                >
+                  記録状況へ戻る
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setTakeoverNotice(null)}
+                  className="min-h-12 rounded-xl bg-amber-600 px-5 text-sm font-black text-white"
+                >
+                  {takeoverNotice.kind === 'received'
+                    ? '確認して入力を続ける'
+                    : '確認して残りの入力を続ける'}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
       {readOnly && (
         <div className="flex items-start gap-3 rounded-xl border-2 border-sky-300 bg-sky-50 p-4 text-sky-950">
           <Eye className="mt-0.5 h-5 w-5 shrink-0" />
@@ -3390,6 +3647,19 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             入力中の記録を削除
           </button>}
         </div>
+        {draftStatus === 'error' && draftSaveError && !takeoverNotice && (
+          <div className="mt-3 rounded-xl border-2 border-rose-300 bg-rose-50 p-4" role="alert">
+            <p className="text-sm font-black text-rose-950">共有保存を完了できませんでした</p>
+            <p className="mt-1 text-xs leading-relaxed text-rose-800">{draftSaveError}</p>
+            <button
+              type="button"
+              onClick={() => setDraftRetryToken((previous) => previous + 1)}
+              className="mt-3 min-h-11 rounded-xl bg-rose-700 px-4 text-sm font-black text-white"
+            >
+              共有保存を再試行
+            </button>
+          </div>
+        )}
         {draftStatus === 'conflict' && (
           <div className="mt-3 rounded-xl border-2 border-rose-300 bg-rose-50 p-4">
             <p className="text-sm font-black text-rose-900">同じ下書きが別端末で更新されています</p>
@@ -3414,7 +3684,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             </div>
           </div>
         )}
-        {draftWriteBlocked && (
+        {draftWriteBlocked && !takeoverNotice && (
           <div className="mt-3 rounded-xl border-2 border-amber-400 bg-amber-50 p-4">
             <p className="text-sm font-black text-amber-950">
               {draftStatus === 'taken-over'
