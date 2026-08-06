@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Edit3, KeyRound, Save, ShieldCheck, Trash2, UserRoundPlus, UsersRound, X } from 'lucide-react';
+import { Copy, Edit3, IdCard, KeyRound, Save, ShieldCheck, Trash2, UserRoundPlus, UsersRound, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { setRecorderPin } from '../services/dataService';
 import { RecorderProfile, UserProfile } from '../types';
@@ -9,6 +9,9 @@ interface RecorderRow {
   display_name: string;
   active: boolean;
   pin_configured: boolean;
+  employee_code: string | null;
+  job_title: string | null;
+  individual_login_enabled: boolean;
   created_at: string;
 }
 
@@ -17,17 +20,42 @@ const toRecorderProfile = (row: RecorderRow): RecorderProfile => ({
   displayName: row.display_name,
   active: row.active,
   pinConfigured: row.pin_configured,
+  employeeCode: row.employee_code || undefined,
+  jobTitle: row.job_title || undefined,
+  individualLoginEnabled: row.individual_login_enabled,
   createdAt: row.created_at,
 });
 
+async function functionErrorMessage(error: unknown) {
+  const typed = error as { message?: string; context?: Response };
+  if (typed.context) {
+    try {
+      const payload = await typed.context.clone().json() as { error?: string };
+      if (payload.error) return payload.error;
+    } catch {
+      // Use the SDK message when the response is not JSON.
+    }
+  }
+  return typed.message || '処理に失敗しました。';
+}
+
 export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({ currentUser }) => {
   const [recorders, setRecorders] = useState<RecorderProfile[]>([]);
+  const [organizationCode, setOrganizationCode] = useState('');
   const [newName, setNewName] = useState('');
+  const [newEmployeeCode, setNewEmployeeCode] = useState('');
+  const [newJobTitle, setNewJobTitle] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
+  const [editingEmployeeCode, setEditingEmployeeCode] = useState('');
+  const [editingJobTitle, setEditingJobTitle] = useState('');
   const [pinEditingId, setPinEditingId] = useState<string | null>(null);
   const [pin, setPin] = useState('');
   const [pinConfirmation, setPinConfirmation] = useState('');
+  const [loginEditingId, setLoginEditingId] = useState<string | null>(null);
+  const [loginEmployeeCode, setLoginEmployeeCode] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginPasswordConfirmation, setLoginPasswordConfirmation] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -35,11 +63,19 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
   const refresh = async () => {
     if (!supabase) return;
     setLoading(true);
-    const { data, error } = await supabase
-      .from('recorder_profiles')
-      .select('id, display_name, active, pin_configured, created_at')
-      .eq('organization_id', currentUser.organizationId)
-      .eq('active', true);
+    const [recordersResult, organizationResult] = await Promise.all([
+      supabase
+        .from('recorder_profiles')
+        .select('id, display_name, active, pin_configured, employee_code, job_title, individual_login_enabled, created_at')
+        .eq('organization_id', currentUser.organizationId)
+        .eq('active', true),
+      supabase
+        .from('organizations')
+        .select('staff_login_code')
+        .eq('id', currentUser.organizationId)
+        .maybeSingle(),
+    ]);
+    const { data, error } = recordersResult;
     if (error) {
       setMessage(error.message);
     } else {
@@ -48,6 +84,7 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
         .sort((left, right) => left.displayName.localeCompare(right.displayName, 'ja'));
       setRecorders(mapped);
     }
+    if (!organizationResult.error) setOrganizationCode(organizationResult.data?.staff_login_code || '');
     setLoading(false);
   };
 
@@ -65,12 +102,16 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
     const { error } = await supabase.from('recorder_profiles').insert({
       organization_id: currentUser.organizationId,
       display_name: newName.trim(),
+      employee_code: newEmployeeCode.trim() || null,
+      job_title: newJobTitle.trim() || null,
       created_by: currentUser.id,
     });
     if (error) {
-      setMessage(error.code === '23505' ? '同じ名前の記録者がすでに登録されています。' : error.message);
+      setMessage(error.code === '23505' ? '同じ氏名または職員IDがすでに登録されています。' : error.message);
     } else {
       setNewName('');
+      setNewEmployeeCode('');
+      setNewJobTitle('');
       setMessage('記録者を登録しました。');
       await refresh();
     }
@@ -83,14 +124,71 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
     setMessage(null);
     const { error } = await supabase
       .from('recorder_profiles')
-      .update({ display_name: editingName.trim() })
+      .update({
+        display_name: editingName.trim(),
+        employee_code: editingEmployeeCode.trim() || null,
+        job_title: editingJobTitle.trim() || null,
+      })
       .eq('organization_id', currentUser.organizationId)
       .eq('id', editingId);
     if (error) {
-      setMessage(error.code === '23505' ? '同じ名前の記録者がすでに登録されています。' : error.message);
+      setMessage(error.code === '23505' ? '同じ氏名または職員IDがすでに登録されています。' : error.message);
     } else {
       setEditingId(null);
       setMessage('記録者名を更新しました。過去の記録に保存された氏名は変更されません。');
+      await refresh();
+    }
+    setBusy(false);
+  };
+
+  const configureIndividualLogin = async (recorder: RecorderProfile) => {
+    if (!supabase) return;
+    if (!/^[A-Za-z0-9._-]{3,32}$/.test(loginEmployeeCode)) {
+      setMessage('職員IDは半角英数字・ピリオド・ハイフン・下線の3～32文字で入力してください。');
+      return;
+    }
+    if (loginPassword.length < 10 || loginPassword.length > 72) {
+      setMessage('パスワードは10～72文字で入力してください。');
+      return;
+    }
+    if (loginPassword !== loginPasswordConfirmation) {
+      setMessage('確認用パスワードが一致しません。');
+      return;
+    }
+    setBusy(true);
+    setMessage(null);
+    const { data, error } = await supabase.functions.invoke('manage-recorder-login', {
+      body: {
+        action: 'configure',
+        recorderProfileId: recorder.id,
+        employeeCode: loginEmployeeCode,
+        password: loginPassword,
+      },
+    });
+    if (error) {
+      setMessage(`職員IDログインを設定できませんでした: ${await functionErrorMessage(error)}`);
+    } else {
+      if (data?.organizationCode) setOrganizationCode(data.organizationCode);
+      setLoginEditingId(null);
+      setLoginPassword('');
+      setLoginPasswordConfirmation('');
+      setMessage(`${recorder.displayName}さんの職員IDログインを設定しました。事業所コードと職員IDを本人へ安全に伝えてください。`);
+      await refresh();
+    }
+    setBusy(false);
+  };
+
+  const disableIndividualLogin = async (recorder: RecorderProfile) => {
+    if (!supabase || !window.confirm(`${recorder.displayName}さんの職員IDログインを停止しますか？`)) return;
+    setBusy(true);
+    setMessage(null);
+    const { error } = await supabase.functions.invoke('manage-recorder-login', {
+      body: { action: 'disable', recorderProfileId: recorder.id },
+    });
+    if (error) setMessage(`職員IDログインを停止できませんでした: ${await functionErrorMessage(error)}`);
+    else {
+      setLoginEditingId(null);
+      setMessage(`${recorder.displayName}さんの職員IDログインを停止しました。`);
       await refresh();
     }
     setBusy(false);
@@ -104,6 +202,16 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
     if (!confirmed) return;
     setBusy(true);
     setMessage(null);
+    if (recorder.individualLoginEnabled) {
+      const { error: disableError } = await supabase.functions.invoke('manage-recorder-login', {
+        body: { action: 'disable', recorderProfileId: recorder.id },
+      });
+      if (disableError) {
+        setMessage(`職員IDログインを停止できなかったため、名簿から外していません: ${await functionErrorMessage(disableError)}`);
+        setBusy(false);
+        return;
+      }
+    }
     const { error } = await supabase
       .from('recorder_profiles')
       .update({ active: false })
@@ -166,17 +274,29 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
           記録者名簿
         </h3>
         <p className="mt-1 text-xs leading-relaxed text-slate-600">
-          共有の指導員アカウントでログインした際に、記録作成画面から選択する実際の指導員名を管理します。
-          メールアドレスは必要ありません。
+          実際に記録する職員名を管理します。従来の共有アカウント＋PINと、メールアドレス不要の職員IDログインを併用できます。
         </p>
         <p className="mt-2 flex items-start gap-1.5 rounded-lg border border-teal-200 bg-white/80 p-2 text-[11px] leading-relaxed text-teal-900">
           <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
           共有アカウント利用時の取り違え防止のため、各指導員に4～8桁の個人PINを設定してください。
         </p>
+        {organizationCode && (
+          <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white/90 p-2 text-[11px]">
+            <span className="font-bold text-slate-600">職員IDログイン用・事業所コード</span>
+            <code className="rounded bg-slate-900 px-2 py-1 font-black tracking-widest text-white">{organizationCode}</code>
+            <button
+              type="button"
+              onClick={() => void navigator.clipboard.writeText(organizationCode)}
+              className="flex min-h-8 items-center gap-1 rounded-lg border border-slate-300 px-2 font-bold text-slate-700"
+            >
+              <Copy className="h-3.5 w-3.5" />コピー
+            </button>
+          </div>
+        )}
       </div>
 
-      <form onSubmit={addRecorder} className="flex flex-col gap-2 border-b border-slate-200 p-4 sm:flex-row">
-        <label className="flex-1">
+      <form onSubmit={addRecorder} className="grid gap-2 border-b border-slate-200 p-4 md:grid-cols-[1.2fr_1fr_1fr_auto]">
+        <label>
           <span className="mb-1 block text-[11px] font-bold text-slate-600">指導員氏名</span>
           <input
             value={newName}
@@ -184,6 +304,25 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
             required
             maxLength={100}
             placeholder="例：山田 太郎"
+            className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm focus:border-teal-500 focus:ring-2 focus:ring-teal-200"
+          />
+        </label>
+        <label>
+          <span className="mb-1 block text-[11px] font-bold text-slate-600">職員ID（任意）</span>
+          <input
+            value={newEmployeeCode}
+            onChange={(event) => setNewEmployeeCode(event.target.value.replace(/[^A-Za-z0-9._-]/g, '').slice(0, 32))}
+            minLength={3}
+            placeholder="例：staff001"
+            className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm focus:border-teal-500 focus:ring-2 focus:ring-teal-200"
+          />
+        </label>
+        <label>
+          <span className="mb-1 block text-[11px] font-bold text-slate-600">職種・役職（任意）</span>
+          <input
+            value={newJobTitle}
+            onChange={(event) => setNewJobTitle(event.target.value.slice(0, 100))}
+            placeholder="例：児童指導員"
             className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm focus:border-teal-500 focus:ring-2 focus:ring-teal-200"
           />
         </label>
@@ -215,14 +354,28 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
             return (
               <div key={recorder.id} className="px-4 py-3">
                 {editing ? (
-                  <div className="flex items-center gap-2">
+                  <div className="grid gap-2 md:grid-cols-[1.2fr_1fr_1fr_auto_auto] md:items-center">
                     <input
                       autoFocus
                       value={editingName}
                       onChange={(event) => setEditingName(event.target.value)}
                       maxLength={100}
                       aria-label="記録者氏名"
-                      className="min-h-10 min-w-0 flex-1 rounded-lg border border-slate-300 px-3 text-sm"
+                      className="min-h-10 min-w-0 rounded-lg border border-slate-300 px-3 text-sm"
+                    />
+                    <input
+                      value={editingEmployeeCode}
+                      onChange={(event) => setEditingEmployeeCode(event.target.value.replace(/[^A-Za-z0-9._-]/g, '').slice(0, 32))}
+                      placeholder="職員ID"
+                      aria-label="職員ID"
+                      className="min-h-10 min-w-0 rounded-lg border border-slate-300 px-3 text-sm"
+                    />
+                    <input
+                      value={editingJobTitle}
+                      onChange={(event) => setEditingJobTitle(event.target.value.slice(0, 100))}
+                      placeholder="職種・役職"
+                      aria-label="職種・役職"
+                      className="min-h-10 min-w-0 rounded-lg border border-slate-300 px-3 text-sm"
                     />
                     <button
                       type="button"
@@ -244,8 +397,11 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
                   </div>
                 ) : (
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="min-w-40 flex-1 truncate text-sm font-bold text-slate-800">
-                      {recorder.displayName}
+                    <span className="min-w-40 flex-1">
+                      <strong className="block truncate text-sm text-slate-800">{recorder.displayName}</strong>
+                      <span className="mt-0.5 block truncate text-[10px] text-slate-500">
+                        {[recorder.jobTitle, recorder.employeeCode ? `ID: ${recorder.employeeCode}` : '職員ID未登録'].filter(Boolean).join('・')}
+                      </span>
                     </span>
                     <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${
                       recorder.pinConfigured
@@ -254,12 +410,31 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
                     }`}>
                       {recorder.pinConfigured ? 'PIN設定済み' : 'PIN未設定'}
                     </span>
+                    <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${recorder.individualLoginEnabled ? 'bg-sky-100 text-sky-800' : 'bg-slate-100 text-slate-600'}`}>
+                      {recorder.individualLoginEnabled ? '職員IDログイン有効' : '職員ID未発行'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLoginEditingId(loginEditingId === recorder.id ? null : recorder.id);
+                        setLoginEmployeeCode(recorder.employeeCode || '');
+                        setLoginPassword('');
+                        setLoginPasswordConfirmation('');
+                        setPinEditingId(null);
+                        setMessage(null);
+                      }}
+                      className="flex min-h-10 items-center gap-1 rounded-lg px-2.5 text-xs font-bold text-sky-700 hover:bg-sky-50"
+                    >
+                      <IdCard className="h-3.5 w-3.5" />
+                      {recorder.individualLoginEnabled ? 'ログイン設定' : '職員IDを発行'}
+                    </button>
                     <button
                       type="button"
                       onClick={() => {
                         setPinEditingId(editingPin ? null : recorder.id);
                         setPin('');
                         setPinConfirmation('');
+                        setLoginEditingId(null);
                         setMessage(null);
                       }}
                       className="flex min-h-10 items-center gap-1 rounded-lg px-2.5 text-xs font-bold text-indigo-700 hover:bg-indigo-50"
@@ -272,6 +447,8 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
                       onClick={() => {
                         setEditingId(recorder.id);
                         setEditingName(recorder.displayName);
+                        setEditingEmployeeCode(recorder.employeeCode || '');
+                        setEditingJobTitle(recorder.jobTitle || '');
                         setMessage(null);
                       }}
                       className="flex min-h-10 items-center gap-1 rounded-lg px-2.5 text-xs font-bold text-teal-700 hover:bg-teal-50"
@@ -288,6 +465,76 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
                       <Trash2 className="h-3.5 w-3.5" />
                       名簿から外す
                     </button>
+                  </div>
+                )}
+
+                {loginEditingId === recorder.id && !editing && (
+                  <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50 p-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="text-xs font-bold text-sky-950">{recorder.displayName}さんの職員IDログイン</p>
+                        <p className="mt-1 text-[10px] leading-relaxed text-sky-800">
+                          個人メールは不要です。事業所コード・職員ID・パスワードで本人専用のログインになります。
+                        </p>
+                      </div>
+                      {recorder.individualLoginEnabled && (
+                        <button
+                          type="button"
+                          disabled={busy}
+                          onClick={() => void disableIndividualLogin(recorder)}
+                          className="min-h-9 rounded-lg border border-rose-200 bg-white px-3 text-[11px] font-bold text-rose-700"
+                        >
+                          ログインを停止
+                        </button>
+                      )}
+                    </div>
+                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                      <label>
+                        <span className="mb-1 block text-[10px] font-bold text-sky-900">職員ID</span>
+                        <input
+                          value={loginEmployeeCode}
+                          onChange={(event) => setLoginEmployeeCode(event.target.value.replace(/[^A-Za-z0-9._-]/g, '').slice(0, 32))}
+                          placeholder="staff001"
+                          autoComplete="off"
+                          className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"
+                        />
+                      </label>
+                      <label>
+                        <span className="mb-1 block text-[10px] font-bold text-sky-900">{recorder.individualLoginEnabled ? '新しいパスワード' : '初期パスワード'}</span>
+                        <input
+                          type="password"
+                          value={loginPassword}
+                          onChange={(event) => setLoginPassword(event.target.value.slice(0, 72))}
+                          minLength={10}
+                          autoComplete="new-password"
+                          placeholder="10文字以上"
+                          className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"
+                        />
+                      </label>
+                      <label>
+                        <span className="mb-1 block text-[10px] font-bold text-sky-900">確認用パスワード</span>
+                        <input
+                          type="password"
+                          value={loginPasswordConfirmation}
+                          onChange={(event) => setLoginPasswordConfirmation(event.target.value.slice(0, 72))}
+                          minLength={10}
+                          autoComplete="new-password"
+                          placeholder="もう一度入力"
+                          className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"
+                        />
+                      </label>
+                    </div>
+                    <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-[10px] text-slate-600">パスワードは画面に再表示されません。安全な方法で本人に伝えてください。</p>
+                      <button
+                        type="button"
+                        disabled={busy || !loginEmployeeCode || !loginPassword || !loginPasswordConfirmation}
+                        onClick={() => void configureIndividualLogin(recorder)}
+                        className="min-h-11 rounded-lg bg-sky-700 px-4 text-xs font-bold text-white disabled:bg-slate-400"
+                      >
+                        {recorder.individualLoginEnabled ? '職員IDとパスワードを更新' : '職員IDログインを発行'}
+                      </button>
+                    </div>
                   </div>
                 )}
 

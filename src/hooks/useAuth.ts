@@ -3,7 +3,7 @@ import type { Session } from '@supabase/supabase-js';
 import { isSupabaseConfigured, supabase } from '../lib/supabase';
 import { UserProfile } from '../types';
 
-function mapProfile(row: any, email?: string, organizationName?: string): UserProfile {
+function mapProfile(row: any, email?: string, organizationName?: string, recorderProfileId?: string): UserProfile {
   return {
     id: row.id,
     organizationId: row.organization_id,
@@ -11,6 +11,7 @@ function mapProfile(row: any, email?: string, organizationName?: string): UserPr
     displayName: row.display_name,
     role: row.role,
     email,
+    recorderProfileId,
   };
 }
 
@@ -40,7 +41,20 @@ async function fetchProfile(activeSession: Session): Promise<UserProfile> {
     .eq('id', profileRow.organization_id)
     .maybeSingle();
 
-  return mapProfile(profileRow, activeSession.user.email, organization?.name);
+  const { data: recorderProfileId, error: recorderError } = await supabase.rpc('current_recorder_profile_id');
+  if (recorderError && recorderError.code !== 'PGRST202') {
+    throw new Error(`職員情報を確認できませんでした: ${recorderError.message}`);
+  }
+  if (activeSession.user.user_metadata?.login_method === 'staff_id' && typeof recorderProfileId !== 'string') {
+    throw new Error('この職員IDは記録者名簿と正しく紐付いていないか、利用停止中です。管理者にお問い合わせください。');
+  }
+
+  return mapProfile(
+    profileRow,
+    activeSession.user.user_metadata?.login_method === 'staff_id' ? undefined : activeSession.user.email,
+    organization?.name,
+    typeof recorderProfileId === 'string' ? recorderProfileId : undefined,
+  );
 }
 
 export function useAuth() {
@@ -127,15 +141,48 @@ export function useAuth() {
   const signIn = async (email: string, password: string) => {
     if (!supabase) return { error: new Error('Supabaseが設定されていません。') };
     setError(null);
-    setLoading(true);
     const { data, error: signInError } = await supabase.auth.signInWithPassword({ email, password });
     if (signInError) {
-      setLoading(false);
       return { error: signInError };
     }
 
     // Authイベントだけに依存せず、成功時のセッションを確実に画面へ反映する。
     setSession(data.session);
+    setInitialized(true);
+    return { error: null };
+  };
+
+  const signInWithStaffId = async (organizationCode: string, employeeCode: string, password: string) => {
+    if (!supabase) return { error: new Error('Supabaseが設定されていません。') };
+    setError(null);
+    const { data, error: invokeError } = await supabase.functions.invoke('staff-login', {
+      body: { organizationCode, employeeCode, password },
+    });
+    if (invokeError) {
+      let message = invokeError.message;
+      const context = (invokeError as { context?: Response }).context;
+      if (context) {
+        try {
+          const payload = await context.clone().json() as { error?: string };
+          if (payload.error) message = payload.error;
+        } catch {
+          // Keep the SDK error message when the function did not return JSON.
+        }
+      }
+      return { error: new Error(message || '職員IDでログインできませんでした。') };
+    }
+    const nextSession = data?.session as { access_token?: string; refresh_token?: string } | undefined;
+    if (!nextSession?.access_token || !nextSession.refresh_token) {
+      return { error: new Error('ログイン情報を受け取れませんでした。管理者にお問い合わせください。') };
+    }
+    const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+      access_token: nextSession.access_token,
+      refresh_token: nextSession.refresh_token,
+    });
+    if (sessionError || !sessionData.session) {
+      return { error: sessionError || new Error('ログイン状態を開始できませんでした。') };
+    }
+    setSession(sessionData.session);
     setInitialized(true);
     return { error: null };
   };
@@ -186,6 +233,7 @@ export function useAuth() {
     loading,
     error,
     signIn,
+    signInWithStaffId,
     completePasswordSetup,
     signOut,
     reloadProfile,

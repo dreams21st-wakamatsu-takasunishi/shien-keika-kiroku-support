@@ -1,12 +1,18 @@
 import React, { useState } from 'react';
-import { FileText, LockKeyhole, Mail, ShieldCheck } from 'lucide-react';
+import { Building2, FileText, IdCard, LockKeyhole, Mail, ShieldCheck } from 'lucide-react';
 
 interface AuthScreenProps {
   onSignIn: (email: string, password: string) => Promise<{ error: Error | null }>;
+  onStaffIdSignIn: (organizationCode: string, employeeCode: string, password: string) => Promise<{ error: Error | null }>;
 }
 
-export const AuthScreen: React.FC<AuthScreenProps> = ({ onSignIn }) => {
+export const AuthScreen: React.FC<AuthScreenProps> = ({ onSignIn, onStaffIdSignIn }) => {
+  // Keep the current email flow as the initial view during the staged rollout.
+  // Facilities can issue staff IDs without interrupting existing shared logins.
+  const [loginMethod, setLoginMethod] = useState<'staff-id' | 'email'>('email');
   const [email, setEmail] = useState('');
+  const [organizationCode, setOrganizationCode] = useState('');
+  const [employeeCode, setEmployeeCode] = useState('');
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -16,7 +22,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onSignIn }) => {
     setSubmitting(true);
     setMessage(null);
     try {
-      const result = await onSignIn(email.trim(), password);
+      const result = loginMethod === 'staff-id'
+        ? await onStaffIdSignIn(organizationCode.trim(), employeeCode.trim(), password)
+        : await onSignIn(email.trim(), password);
       if (result.error) setMessage(result.error.message);
     } finally {
       setSubmitting(false);
@@ -40,8 +48,62 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onSignIn }) => {
             <span>本アプリは招待制です。管理者から招待された職員のみログインできます。</span>
           </div>
 
+          <div className="mb-5 grid grid-cols-2 rounded-xl bg-slate-100 p-1" role="tablist" aria-label="ログイン方法">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={loginMethod === 'staff-id'}
+              onClick={() => { setLoginMethod('staff-id'); setMessage(null); }}
+              className={`min-h-11 rounded-lg text-xs font-bold transition-colors ${loginMethod === 'staff-id' ? 'bg-white text-teal-800 shadow-sm' : 'text-slate-500'}`}
+            >
+              職員ID
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={loginMethod === 'email'}
+              onClick={() => { setLoginMethod('email'); setMessage(null); }}
+              className={`min-h-11 rounded-lg text-xs font-bold transition-colors ${loginMethod === 'email' ? 'bg-white text-teal-800 shadow-sm' : 'text-slate-500'}`}
+            >
+              メールアドレス
+            </button>
+          </div>
+
           <form onSubmit={handleSubmit} className="space-y-4">
-            <label className="block text-xs font-bold text-slate-700">
+            {loginMethod === 'staff-id' ? (
+              <>
+                <label className="block text-xs font-bold text-slate-700">
+                  事業所コード
+                  <span className="relative block mt-1">
+                    <Building2 className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                    <input
+                      required
+                      autoCapitalize="characters"
+                      autoComplete="organization"
+                      value={organizationCode}
+                      onChange={(event) => setOrganizationCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16))}
+                      placeholder="管理者から案内されたコード"
+                      className="w-full min-h-11 border border-slate-300 rounded-lg py-2 pl-9 pr-3 font-normal uppercase tracking-wider"
+                    />
+                  </span>
+                </label>
+                <label className="block text-xs font-bold text-slate-700">
+                  職員ID
+                  <span className="relative block mt-1">
+                    <IdCard className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                    <input
+                      required
+                      autoCapitalize="none"
+                      autoComplete="username"
+                      value={employeeCode}
+                      onChange={(event) => setEmployeeCode(event.target.value.replace(/[^A-Za-z0-9._-]/g, '').slice(0, 32))}
+                      placeholder="例：staff001"
+                      className="w-full min-h-11 border border-slate-300 rounded-lg py-2 pl-9 pr-3 font-normal"
+                    />
+                  </span>
+                </label>
+              </>
+            ) : <label className="block text-xs font-bold text-slate-700">
               メールアドレス
               <span className="relative block mt-1">
                 <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
@@ -54,7 +116,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onSignIn }) => {
                   className="w-full min-h-11 border border-slate-300 rounded-lg py-2 pl-9 pr-3 font-normal"
                 />
               </span>
-            </label>
+            </label>}
 
             <label className="block text-xs font-bold text-slate-700">
               パスワード
@@ -63,7 +125,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onSignIn }) => {
                 <input
                   type="password"
                   required
-                  minLength={8}
+                  minLength={loginMethod === 'staff-id' ? 10 : 8}
                   autoComplete="current-password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}

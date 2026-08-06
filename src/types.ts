@@ -213,6 +213,7 @@ export interface UserProfile {
   displayName: string;
   role: UserRole;
   email?: string;
+  recorderProfileId?: string;
 }
 
 export interface RecorderProfile {
@@ -220,6 +221,9 @@ export interface RecorderProfile {
   displayName: string;
   active: boolean;
   pinConfigured?: boolean;
+  employeeCode?: string;
+  jobTitle?: string;
+  individualLoginEnabled?: boolean;
   menuPreferences?: RecorderMenuPreferences;
   createdAt?: string;
 }

@@ -553,11 +553,17 @@ export default function App() {
     else if (refreshedRecorder !== activeRecorder) setActiveRecorder(refreshedRecorder);
   }, [activeRecorder, recorderProfiles]);
 
+  useEffect(() => {
+    if (auth.profile?.role !== 'staff' || !auth.profile.recorderProfileId) return;
+    const boundRecorder = recorderProfiles.find((profile) => profile.id === auth.profile?.recorderProfileId);
+    if (boundRecorder && activeRecorder?.id !== boundRecorder.id) setActiveRecorder(boundRecorder);
+  }, [activeRecorder?.id, auth.profile, recorderProfiles]);
+
   if (auth.loading) {
     return <LoadingScreen text="認証状態を確認しています..." />;
   }
   if (remoteMode && !auth.session) {
-    return <AuthScreen onSignIn={auth.signIn} />;
+    return <AuthScreen onSignIn={auth.signIn} onStaffIdSignIn={auth.signInWithStaffId} />;
   }
   if (remoteMode && auth.session && auth.needsPasswordSetup) {
     return (
@@ -1411,7 +1417,7 @@ export default function App() {
         currentUser={auth.profile}
         activeRecorder={activeRecorder}
         onSaveMenuPreferences={handleSaveRecorderMenuPreferences}
-        onChangeRecorder={() => setActiveRecorder(null)}
+        onChangeRecorder={auth.profile?.recorderProfileId ? undefined : () => setActiveRecorder(null)}
         onSignOut={remoteMode ? auth.signOut : undefined}
       />
 

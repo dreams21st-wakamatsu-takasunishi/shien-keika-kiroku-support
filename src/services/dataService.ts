@@ -126,6 +126,9 @@ function mapRecorderProfile(row: any): RecorderProfile {
     displayName: row.display_name,
     active: row.active !== false,
     pinConfigured: row.pin_configured === true,
+    employeeCode: row.employee_code || undefined,
+    jobTitle: row.job_title || undefined,
+    individualLoginEnabled: row.individual_login_enabled === true,
     menuPreferences,
     createdAt: row.created_at || undefined,
   };
@@ -490,7 +493,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
   ] = await Promise.all([
     client.from('children').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('name'),
     client.from('child_regular_day_schedules').select('*').eq('organization_id', organizationId).order('effective_from'),
-    client.from('recorder_profiles').select('id, display_name, active, pin_configured, menu_preferences, created_at').eq('organization_id', organizationId).eq('active', true).order('display_name'),
+    client.from('recorder_profiles').select('id, display_name, active, pin_configured, employee_code, job_title, individual_login_enabled, menu_preferences, created_at').eq('organization_id', organizationId).eq('active', true).order('display_name'),
     client.from('record_templates').select('*').eq('organization_id', organizationId).is('archived_at', null).order('created_at'),
     client.from('support_records').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('record_date', { ascending: false }),
     client.from('handover_items').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }),
