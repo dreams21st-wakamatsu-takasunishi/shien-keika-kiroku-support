@@ -23,6 +23,7 @@ import type {
   AttendanceCorrectionRequest,
   AttendanceRecord,
   CalendarEvent,
+  DailyChildPlan,
   HandoverConfirmation,
   HandoverItem,
   HandoverStatus,
@@ -64,6 +65,7 @@ interface HomeScreenProps {
   recorderProfiles: RecorderProfile[];
   staffScheduleItems: StaffScheduleItem[];
   calendarEvents: CalendarEvent[];
+  dailyChildPlans: DailyChildPlan[];
   attendanceRecords: AttendanceRecord[];
   attendanceCorrections: AttendanceCorrectionRequest[];
   vehicles: Vehicle[];
@@ -101,6 +103,8 @@ interface HomeScreenProps {
   onDeleteStaffSchedule: (itemId: string) => Promise<void> | void;
   onSaveCalendarEvent: (event: CalendarEvent) => Promise<void> | void;
   onDeleteCalendarEvent: (eventId: string) => Promise<void> | void;
+  onSaveDailyChildPlan: (plan: DailyChildPlan) => Promise<void> | void;
+  onDeleteDailyChildPlan: (childId: string, date: string) => Promise<void> | void;
   onSaveAttendance: (record: AttendanceRecord) => Promise<void> | void;
   onPunchAttendance: (recorder: RecorderProfile, pin: string, action: '出勤' | '退勤' | '休憩開始' | '休憩終了') => Promise<void> | void;
   onRequestAttendanceCorrection: (record: AttendanceRecord, pin: string, clockIn: string | undefined, clockOut: string | undefined, reason: string) => Promise<void> | void;
@@ -130,6 +134,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   recorderProfiles,
   staffScheduleItems,
   calendarEvents,
+  dailyChildPlans,
   attendanceRecords,
   attendanceCorrections,
   vehicles,
@@ -167,6 +172,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onDeleteStaffSchedule,
   onSaveCalendarEvent,
   onDeleteCalendarEvent,
+  onSaveDailyChildPlan,
+  onDeleteDailyChildPlan,
   onSaveAttendance,
   onPunchAttendance,
   onRequestAttendanceCorrection,
@@ -342,6 +349,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           <TodayWorkPanel
             staffScheduleItems={staffScheduleItems}
             calendarEvents={calendarEvents}
+            dailyChildPlans={dailyChildPlans}
             attendanceRecords={attendanceRecords}
             attendanceCorrections={attendanceCorrections}
             vehicles={vehicles}
@@ -373,6 +381,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             childrenList={childrenList}
             records={records}
             drafts={drafts}
+            dailyChildPlans={dailyChildPlans}
             targetDate={recordStatusDate}
             onTargetDateChange={onRecordStatusDateChange}
             currentUserId={currentUser?.id}
@@ -384,6 +393,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             onTakeOverDrafts={onTakeOverDrafts}
             onDeleteDraft={onDeleteDraft}
             onOpenRecord={onOpenRecord}
+            onSaveDailyChildPlan={onSaveDailyChildPlan}
+            onDeleteDailyChildPlan={onDeleteDailyChildPlan}
           />
         )}
 

@@ -16,6 +16,7 @@ import type {
   AttendanceRecord,
   CalendarEvent,
   ChildProfile,
+  DailyChildPlan,
   RecorderProfile,
   StaffScheduleItem,
   TransportRun,
@@ -41,6 +42,7 @@ interface TodayWorkPanelProps {
   transportRouteSettings: TransportRouteSettings;
   recorderProfiles: RecorderProfile[];
   childrenList: ChildProfile[];
+  dailyChildPlans: DailyChildPlan[];
   activeRecorder?: RecorderProfile;
   canManage: boolean;
   onSaveStaffSchedule: (item: StaffScheduleItem) => Promise<void> | void;
@@ -69,6 +71,7 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
   transportRouteSettings,
   recorderProfiles,
   childrenList,
+  dailyChildPlans,
   activeRecorder,
   canManage,
   onSaveStaffSchedule,
@@ -97,8 +100,8 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
     [dayEvents, dayAttendance, dayRuns, recorderProfiles, selectedDate],
   );
   const allScheduleItems = useMemo(() => [...staffScheduleItems, ...generatedItems], [staffScheduleItems, generatedItems]);
-  const scheduledChildren = useMemo(() => getScheduledChildren(childrenList, dayEvents, selectedDate), [childrenList, dayEvents, selectedDate]);
-  const warningsByRunId = useMemo(() => getTransportWarnings(dayRuns, vehicles, dayAttendance, dayEvents, staffScheduleItems, childrenList), [dayRuns, vehicles, dayAttendance, dayEvents, staffScheduleItems, childrenList]);
+  const scheduledChildren = useMemo(() => getScheduledChildren(childrenList, dayEvents, dailyChildPlans, selectedDate), [childrenList, dayEvents, dailyChildPlans, selectedDate]);
+  const warningsByRunId = useMemo(() => getTransportWarnings(dayRuns, vehicles, dayAttendance, dayEvents, dailyChildPlans, staffScheduleItems, childrenList), [dayRuns, vehicles, dayAttendance, dayEvents, dailyChildPlans, staffScheduleItems, childrenList]);
   const allWarnings = [...warningsByRunId.values()].flat();
   const working = dayAttendance.filter((record) => ['出勤中', '休憩中', '遅刻', '早退'].includes(record.status));
   const absent = dayAttendance.filter((record) => ['欠勤', '有給', '公休'].includes(record.status));
@@ -168,7 +171,7 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
       )}
       {view === 'calendar' && <CalendarPanel events={calendarEvents} recorderProfiles={recorderProfiles} childrenList={childrenList} selectedDate={selectedDate} onDateChange={setSelectedDate} canEdit={canManage} onSave={onSaveCalendarEvent} onDelete={onDeleteCalendarEvent} />}
       {view === 'attendance' && <AttendancePanel records={attendanceRecords} corrections={attendanceCorrections} recorderProfiles={recorderProfiles} selectedDate={selectedDate} activeRecorder={activeRecorder} canManage={canManage} onSaveRecord={onSaveAttendance} onPunch={onPunchAttendance} onRequestCorrection={onRequestAttendanceCorrection} onReviewCorrection={onReviewAttendanceCorrection} />}
-      {view === 'transport' && <TransportPanel runs={transportRuns} vehicles={vehicles} routeSettings={transportRouteSettings} recorderProfiles={recorderProfiles} childrenList={childrenList} selectedDate={selectedDate} canManage={canManage} activeRecorder={activeRecorder} warningsByRunId={warningsByRunId} focusRunId={focusRunId} onSaveRun={onSaveTransportRun} onDeleteRun={onDeleteTransportRun} onSaveVehicle={onSaveVehicle} onDeleteVehicle={onDeleteVehicle} onSaveRouteSettings={onSaveTransportRouteSettings} onUpdateStatus={onUpdateTransportStatus} />}
+      {view === 'transport' && <TransportPanel runs={transportRuns} vehicles={vehicles} routeSettings={transportRouteSettings} recorderProfiles={recorderProfiles} childrenList={childrenList} dailyChildPlans={dailyChildPlans} selectedDate={selectedDate} canManage={canManage} activeRecorder={activeRecorder} warningsByRunId={warningsByRunId} focusRunId={focusRunId} onSaveRun={onSaveTransportRun} onDeleteRun={onDeleteTransportRun} onSaveVehicle={onSaveVehicle} onDeleteVehicle={onDeleteVehicle} onSaveRouteSettings={onSaveTransportRouteSettings} onUpdateStatus={onUpdateTransportStatus} />}
     </div>
   );
 };
@@ -393,16 +396,26 @@ function shiftOperationsDate(date: string, days: number) { const next = new Date
 function addMinutes(time: string, minutes: number) { const [hour, minute] = time.split(':').map(Number); const total = hour * 60 + minute + minutes; return `${String(Math.floor(total / 60) % 24).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`; }
 function createOperationsUuid(prefix: string) { return typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`; }
 
-function getScheduledChildren(children: ChildProfile[], events: CalendarEvent[], date: string) {
+function getScheduledChildren(children: ChildProfile[], events: CalendarEvent[], dailyPlans: DailyChildPlan[], date: string) {
   const additions = new Set(events.filter((event) => ['追加利用', '通常利用'].includes(event.eventType)).flatMap((event) => event.childIds));
   const absences = new Set(events.filter((event) => event.eventType === '欠席').flatMap((event) => event.childIds));
+  const plans = new Map(dailyPlans.filter((plan) => plan.date === date).map((plan) => [plan.childId, plan]));
   const weekday = getWeekdayFromDate(date);
-  return children.filter((child) => !absences.has(child.id) && (additions.has(child.id) || getRegularDaysForDate(child, date).includes(weekday)));
+  return children.filter((child) => {
+    const plan = plans.get(child.id);
+    if (plan) return plan.attendancePlan !== '欠席';
+    return !absences.has(child.id) && (additions.has(child.id) || getRegularDaysForDate(child, date).includes(weekday));
+  });
 }
 
-function getTransportWarnings(runs: TransportRun[], vehicles: Vehicle[], attendance: AttendanceRecord[], events: CalendarEvent[], manualItems: StaffScheduleItem[], children: ChildProfile[]) {
+function getTransportWarnings(runs: TransportRun[], vehicles: Vehicle[], attendance: AttendanceRecord[], events: CalendarEvent[], dailyPlans: DailyChildPlan[], manualItems: StaffScheduleItem[], children: ChildProfile[]) {
   const result = new Map<string, string[]>();
-  const absentChildren = new Set(events.filter((event) => event.eventType === '欠席').flatMap((event) => event.childIds));
+  const serviceDate = runs[0]?.date;
+  const servicePlans = new Map(dailyPlans.filter((plan) => plan.date === serviceDate).map((plan) => [plan.childId, plan]));
+  const absentChildren = new Set([
+    ...events.filter((event) => event.eventType === '欠席').flatMap((event) => event.childIds).filter((childId) => !servicePlans.has(childId)),
+    ...[...servicePlans.values()].filter((plan) => plan.attendancePlan === '欠席').map((plan) => plan.childId),
+  ]);
   const attendanceByRecorder = new Map(attendance.map((record) => [record.recorderProfileId, record]));
   const childMap = new Map(children.map((child) => [child.id, child]));
   const push = (runId: string, text: string) => result.set(runId, [...(result.get(runId) || []), text]);

@@ -1,13 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CalendarCheck2, CheckCircle2, Clock3, Eye, FileEdit, Info, PlayCircle, Trash2, UserRoundCheck } from 'lucide-react';
-import type { ChildProfile, RecordDraftSummary, SupportRecord } from '../types';
+import { CalendarCheck2, CalendarClock, CheckCircle2, Clock3, Eye, FileEdit, Info, PlayCircle, Trash2, UserRoundCheck } from 'lucide-react';
+import type { ChildProfile, DailyChildPlan, RecordDraftSummary, SupportRecord } from '../types';
 import { getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
 import { ChildInfoDialog } from './ChildInfoDialog';
+import { DailyChildPlanDialog } from './DailyChildPlanDialog';
 
 interface DailyOperationsPanelProps {
   childrenList: ChildProfile[];
   records: SupportRecord[];
   drafts: RecordDraftSummary[];
+  dailyChildPlans: DailyChildPlan[];
   currentUserId?: string;
   currentRecorderId?: string;
   canManageDrafts?: boolean;
@@ -19,6 +21,8 @@ interface DailyOperationsPanelProps {
   onTakeOverDrafts: (items: DraftTakeoverSelection[]) => Promise<boolean>;
   onDeleteDraft: (draftKey: string) => void;
   onOpenRecord: (record: SupportRecord) => void;
+  onSaveDailyChildPlan: (plan: DailyChildPlan) => Promise<void> | void;
+  onDeleteDailyChildPlan: (childId: string, date: string) => Promise<void> | void;
 }
 
 export interface DraftTakeoverSelection {
@@ -32,6 +36,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
   childrenList,
   records,
   drafts,
+  dailyChildPlans,
   currentUserId,
   currentRecorderId,
   canManageDrafts = false,
@@ -43,8 +48,11 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
   onTakeOverDrafts,
   onDeleteDraft,
   onOpenRecord,
+  onSaveDailyChildPlan,
+  onDeleteDailyChildPlan,
 }) => {
   const [infoChild, setInfoChild] = useState<ChildProfile | null>(null);
+  const [planChild, setPlanChild] = useState<ChildProfile | null>(null);
   const [takeoverSelectionMode, setTakeoverSelectionMode] = useState(false);
   const [selectedTakeoverKeys, setSelectedTakeoverKeys] = useState<string[]>([]);
   const [takingOver, setTakingOver] = useState(false);
@@ -58,10 +66,15 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
     const draftChildren = new Set(
       drafts.filter((draft) => draft.date === targetDate).flatMap((draft) => draft.selectedChildIds)
     );
+    const plansByChild = new Map<string, DailyChildPlan>(
+      dailyChildPlans.filter((plan) => plan.date === targetDate).map((plan) => [plan.childId, plan])
+    );
     return childrenList.filter((child) => {
       const regularDays = getRegularDaysForDate(child, targetDate);
+      const plan = plansByChild.get(child.id);
       return regularDays.length === 0
         || regularDays.includes(weekday)
+        || Boolean(plan)
         || recordChildren.has(child.id)
         || draftChildren.has(child.id);
     }).map((child) => {
@@ -71,15 +84,17 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
       const childDraft = drafts.find((draft) =>
         draft.date === targetDate && draft.selectedChildIds.includes(child.id)
       );
+      const plan = plansByChild.get(child.id);
       return {
         child,
         record: childRecords[0],
         draft: childDraft,
-        scheduled: getRegularDaysForDate(child, targetDate).includes(weekday),
+        plan,
+        scheduled: plan ? plan.attendancePlan !== '欠席' : getRegularDaysForDate(child, targetDate).includes(weekday),
         scheduleUnset: getRegularDaysForDate(child, targetDate).length === 0,
       };
     }).sort((left, right) => left.child.name.localeCompare(right.child.name, 'ja'));
-  }, [childrenList, drafts, records, targetDate, weekday]);
+  }, [childrenList, dailyChildPlans, drafts, records, targetDate, weekday]);
 
   const counts = {
     missing: rows.filter((row) => !row.record && !row.draft).length,
@@ -244,7 +259,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
         </p>
       ) : (
         <div className="divide-y divide-slate-100">
-          {rows.map(({ child, record, draft, scheduled, scheduleUnset }) => {
+          {rows.map(({ child, record, draft, plan, scheduled, scheduleUnset }) => {
             const sameAccount = !draft?.userId || !currentUserId || draft.userId === currentUserId;
             const ownedByAnotherRecorder = Boolean(
               draft?.recorderId
@@ -282,6 +297,11 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                       追加利用
                     </span>
                   )}
+                  {plan && (
+                    <span className={`rounded-full px-2 py-1 text-[10px] font-black ${plan.attendancePlan === '欠席' ? 'bg-rose-100 text-rose-800' : plan.recordFormat === '休日' ? 'bg-violet-100 text-violet-800' : 'bg-teal-100 text-teal-800'}`}>
+                      {plan.attendancePlan === '欠席' ? '欠席予定' : `${plan.dayPattern}・${plan.recordFormat}形式`}
+                    </span>
+                  )}
                   {record ? (
                     <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${
                       record.approvalStatus === '確認済み'
@@ -304,9 +324,21 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                   {child.grade || '学年未設定'}
                   {record ? `・記録者 ${record.recorderName}` : draft?.recorderName ? `・入力者 ${draft.recorderName}` : ''}
                 </p>
+                {plan && (plan.schoolEndTime || plan.arrivalTime || plan.departureTime || plan.note) && (
+                  <p className="mt-1 line-clamp-2 text-[11px] text-slate-500">
+                    {[plan.schoolEndTime && `下校 ${plan.schoolEndTime}`, plan.arrivalTime && `来所 ${plan.arrivalTime}`, plan.departureTime && `退所 ${plan.departureTime}`, plan.note].filter(Boolean).join('・')}
+                  </p>
+                )}
               </div>
 
               <div className="mt-3 flex flex-wrap gap-2 sm:mt-0 sm:justify-end">
+                <button
+                  type="button"
+                  onClick={() => setPlanChild(child)}
+                  className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 px-3 text-xs font-black text-teal-900 sm:flex-none"
+                >
+                  <CalendarClock className="h-4 w-4" />当日予定
+                </button>
                 {record ? (
                   <button
                     type="button"
@@ -410,6 +442,17 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
         </details>
       )}
       <ChildInfoDialog child={infoChild} onClose={() => setInfoChild(null)} />
+      {planChild && (
+        <DailyChildPlanDialog
+          child={planChild}
+          date={targetDate}
+          weekday={weekday}
+          plan={dailyChildPlans.find((plan) => plan.childId === planChild.id && plan.date === targetDate)}
+          onClose={() => setPlanChild(null)}
+          onSave={onSaveDailyChildPlan}
+          onDelete={onDeleteDailyChildPlan}
+        />
+      )}
     </section>
   );
 };

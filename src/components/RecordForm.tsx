@@ -48,6 +48,7 @@ import {
   AttendanceType,
   CalendarEvent,
   ChildProfile,
+  DailyChildPlan,
   ExpressionType,
   HandoverItem,
   RecordDraftSummary,
@@ -95,6 +96,7 @@ interface RecordFormProps {
   templates: Template[];
   childrenList: ChildProfile[];
   calendarEvents?: CalendarEvent[];
+  dailyChildPlans?: DailyChildPlan[];
   recorderProfiles: RecorderProfile[];
   initialRecord?: SupportRecord | null;
   organizationId?: string;
@@ -150,6 +152,7 @@ interface WizardStep {
 
 interface ChildDraft {
   recordId: string;
+  templateId?: string;
   attendance: AttendanceType | '';
   attendanceNote: string;
   expressions: ExpressionType[];
@@ -161,9 +164,10 @@ interface ChildDraft {
 }
 
 interface WizardDraft {
-  version: 10;
+  version: 11;
   draftCycleKey: string;
   selectedTemplateId: string;
+  childTemplateIds: Record<string, string>;
   selectedChildIds: string[];
   activeChildId: string;
   date: string;
@@ -1338,6 +1342,7 @@ function createSectionAnswers(template?: Template, existing?: Record<string, Sec
 function createChildDraft(template?: Template, record?: SupportRecord): ChildDraft {
   return {
     recordId: record?.id || newRecordId(),
+    templateId: template?.id || record?.templateId,
     attendance: record?.attendance || '',
     attendanceNote: record?.attendanceNote || '',
     expressions: record?.expressions || [],
@@ -1400,16 +1405,19 @@ function migrateLegacyHolidayDraft(draft: WizardDraft) {
 function normalizeWizardDraft(value: unknown): WizardDraft | null {
   if (!value || typeof value !== 'object') return null;
   const draft = value as Partial<WizardDraft> & { version?: number };
-  if (![2, 3, 4, 5, 6, 7, 8, 9, 10].includes(draft.version || 0) || !Array.isArray(draft.selectedChildIds) || !draft.childDrafts) return null;
+  if (![2, 3, 4, 5, 6, 7, 8, 9, 10, 11].includes(draft.version || 0) || !Array.isArray(draft.selectedChildIds) || !draft.childDrafts) return null;
   const previousStepIndex = draft.currentStepIndex || 0;
   const currentStepIndex = (draft.version || 0) < 4
     ? previousStepIndex === 1 ? 2 : previousStepIndex === 2 ? 1 : previousStepIndex
     : previousStepIndex;
   const normalized = {
     ...draft,
-    version: 10,
+    version: 11,
     draftCycleKey: getCurrentDraftCycleKey(),
     recorderId: draft.recorderId || '',
+    childTemplateIds: draft.childTemplateIds || Object.fromEntries(
+      (draft.selectedChildIds || []).map((childId) => [childId, draft.selectedTemplateId || ''])
+    ),
     currentStepIndex,
     childStepIds: draft.childStepIds || {},
   } as WizardDraft;
@@ -1431,6 +1439,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   templates,
   childrenList,
   calendarEvents = [],
+  dailyChildPlans = [],
   recorderProfiles,
   initialRecord,
   organizationId,
@@ -1479,21 +1488,38 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       : recorderProfiles.length === 1
         ? recorderProfiles[0]
         : undefined);
+    const initialChildId = initialRecord?.childId || assistantPrefill?.childId || '';
+    const initialDate = initialRecord?.date || assistantPrefill?.date || new Date().toISOString().split('T')[0];
+    const initialDailyPlan = initialChildId
+      ? dailyChildPlans.find((plan) => plan.childId === initialChildId && plan.date === initialDate)
+      : undefined;
+    const initialChildTemplate = initialRecord
+      ? initialTemplate
+      : initialDailyPlan
+        ? templates.find((template) => template.id === (initialDailyPlan.recordFormat === '休日' ? 'template-holiday' : 'template-weekday'))
+          || templates.find((template) => template.type === initialDailyPlan.recordFormat)
+          || initialTemplate
+        : initialTemplate;
     const base: WizardDraft = {
-      version: 10,
+      version: 11,
       draftCycleKey: getCurrentDraftCycleKey(),
       selectedTemplateId: initialTemplate?.id || '',
+      childTemplateIds: initialRecord
+        ? { [initialRecord.childId]: initialChildTemplate?.id || '' }
+        : assistantPrefill
+          ? { [assistantPrefill.childId]: initialChildTemplate?.id || '' }
+          : {},
       selectedChildIds: initialRecord ? [initialRecord.childId] : assistantPrefill ? [assistantPrefill.childId] : [],
       activeChildId: initialRecord?.childId || assistantPrefill?.childId || '',
-      date: initialRecord?.date || assistantPrefill?.date || new Date().toISOString().split('T')[0],
+      date: initialDate,
       recorderId: activeRecorder?.id || initialRecord?.recorderId || (!userDisplayName ? initialRecorder?.id : '') || '',
       recorderName: activeRecorder?.displayName || initialRecord?.recorderName || userDisplayName || initialRecorder?.displayName || '',
       currentStepIndex: 0,
       childStepIds: {},
       childDrafts: initialRecord
-        ? { [initialRecord.childId]: createChildDraft(initialTemplate, initialRecord) }
+        ? { [initialRecord.childId]: createChildDraft(initialChildTemplate, initialRecord) }
         : assistantPrefill
-          ? { [assistantPrefill.childId]: createChildDraft(initialTemplate) }
+          ? { [assistantPrefill.childId]: createChildDraft(initialChildTemplate) }
           : {},
     };
     return base;
@@ -1595,9 +1621,14 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     return () => window.cancelAnimationFrame(animationFrame);
   }, [wizard]);
 
-  const activeTemplate = initialRecord
-    ? initialTemplate
-    : templates.find((template) => template.id === wizard.selectedTemplateId) || templates[0];
+  const templateForChild = (childId?: string) => {
+    if (initialRecord) return initialTemplate;
+    const templateId = childId
+      ? wizard.childDrafts[childId]?.templateId || wizard.childTemplateIds[childId]
+      : undefined;
+    return templates.find((template) => template.id === (templateId || wizard.selectedTemplateId)) || templates[0];
+  };
+  const activeTemplate = templateForChild(wizard.activeChildId);
   const wizardQuestions = getWizardQuestions(activeTemplate);
   const activeChild = childrenList.find((child) => child.id === wizard.activeChildId);
   const activeChildDraft = wizard.childDrafts[wizard.activeChildId];
@@ -1808,7 +1839,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     const timer = window.setTimeout(() => {
       const payload: WizardDraft = {
         ...wizard,
-        version: 10,
+        version: 11,
         draftCycleKey: getCurrentDraftCycleKey(),
         updatedAt: new Date().toISOString(),
       };
@@ -1900,7 +1931,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     setWizard((previous) => ({ ...previous, selectedTemplateId: templates[0].id }));
   }, [activeTemplate, templates]);
 
-  const steps = useMemo<WizardStep[]>(() => {
+  const buildStepsForTemplate = (template?: Template): WizardStep[] => {
+    const activeTemplate = template;
     const questions = getWizardQuestions(activeTemplate);
     const next: WizardStep[] = [
       { id: 'template', kind: 'template', displayNumber: 1, ...questions.template },
@@ -2118,7 +2150,13 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     });
     next.push({ id: 'review', kind: 'review', title: '選択した児童全員の入力内容を確認してください。' });
     return next;
-  }, [activeRecorder, activeTemplate, userDisplayName]);
+  };
+  const steps = useMemo<WizardStep[]>(
+    () => buildStepsForTemplate(activeTemplate),
+    // Step definitions change only when the active child/template or recorder gate changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeRecorder, activeTemplate, userDisplayName],
+  );
 
   useEffect(() => {
     if (wizard.currentStepIndex < steps.length) return;
@@ -2195,12 +2233,65 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     setWizard((previous) => ({
       ...previous,
       selectedTemplateId: templateId,
+      childTemplateIds: Object.fromEntries(previous.selectedChildIds.map((childId) => [childId, templateId])),
       childDrafts: Object.fromEntries((Object.entries(previous.childDrafts) as Array<[string, ChildDraft]>).map(([childId, draft]) => [
         childId,
-        { ...draft, sectionAnswers: createSectionAnswers(template), skippedQuestionIds: [] },
+        { ...draft, templateId, sectionAnswers: createSectionAnswers(template), skippedQuestionIds: [] },
       ])),
       childStepIds: {},
     }));
+  };
+
+  const recommendedTemplateForChild = (childId: string, date = wizard.date) => {
+    const plan = dailyChildPlans.find((candidate) => candidate.childId === childId && candidate.date === date);
+    if (!plan) return templates.find((template) => template.id === wizard.selectedTemplateId) || templates[0];
+    const preferredId = plan.recordFormat === '休日' ? 'template-holiday' : 'template-weekday';
+    return templates.find((template) => template.id === preferredId)
+      || templates.find((template) => template.type === plan.recordFormat)
+      || templates.find((template) => template.id === wizard.selectedTemplateId)
+      || templates[0];
+  };
+
+  const setChildTemplate = (childId: string, templateId: string) => {
+    const template = templates.find((candidate) => candidate.id === templateId);
+    if (!template) return;
+    setWizard((previous) => ({
+      ...previous,
+      childTemplateIds: { ...previous.childTemplateIds, [childId]: templateId },
+      childDrafts: {
+        ...previous.childDrafts,
+        [childId]: {
+          ...(previous.childDrafts[childId] || createChildDraft(template)),
+          templateId,
+          sectionAnswers: createSectionAnswers(template),
+          skippedQuestionIds: [],
+        },
+      },
+      childStepIds: { ...previous.childStepIds, [childId]: 'attendance' },
+    }));
+  };
+
+  const setRecordDate = (date: string) => {
+    setWizard((previous) => {
+      const childTemplateIds = { ...previous.childTemplateIds };
+      const childDrafts = { ...previous.childDrafts };
+      previous.selectedChildIds.forEach((childId) => {
+        const plan = dailyChildPlans.find((candidate) => candidate.childId === childId && candidate.date === date);
+        if (!plan) return;
+        const preferredId = plan.recordFormat === '休日' ? 'template-holiday' : 'template-weekday';
+        const template = templates.find((candidate) => candidate.id === preferredId)
+          || templates.find((candidate) => candidate.type === plan.recordFormat);
+        if (!template || childTemplateIds[childId] === template.id) return;
+        childTemplateIds[childId] = template.id;
+        childDrafts[childId] = {
+          ...(childDrafts[childId] || createChildDraft(template)),
+          templateId: template.id,
+          sectionAnswers: createSectionAnswers(template),
+          skippedQuestionIds: [],
+        };
+      });
+      return { ...previous, date, childTemplateIds, childDrafts };
+    });
   };
 
   const toggleChild = (childId: string) => {
@@ -2216,11 +2307,14 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         ? previous.selectedChildIds.filter((id) => id !== childId)
         : [...previous.selectedChildIds, childId];
       const childDrafts = { ...previous.childDrafts };
-      if (!selected && !childDrafts[childId]) childDrafts[childId] = createChildDraft(activeTemplate);
+      const childTemplateIds = { ...previous.childTemplateIds };
+      const recommendedTemplate = recommendedTemplateForChild(childId, previous.date);
+      if (!selected && !childTemplateIds[childId]) childTemplateIds[childId] = recommendedTemplate?.id || previous.selectedTemplateId;
+      if (!selected && !childDrafts[childId]) childDrafts[childId] = createChildDraft(recommendedTemplate);
       const activeChildId = selected && previous.activeChildId === childId
         ? selectedChildIds[0] || ''
         : previous.activeChildId || childId;
-      return { ...previous, selectedChildIds, activeChildId, childDrafts };
+      return { ...previous, selectedChildIds, activeChildId, childDrafts, childTemplateIds };
     });
   };
 
@@ -2302,7 +2396,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     });
   };
 
-  const fieldForStep = (step: WizardStep) => activeTemplate?.sections
+  const fieldForStep = (step: WizardStep, template = activeTemplate) => template?.sections
     .find((section) => section.id === step.sectionId)?.fields
     .find((field) => field.id === step.fieldId);
 
@@ -2331,13 +2425,22 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     return !hidden;
   };
 
-  const stepIsVisible = (step: WizardStep, childDraft?: ChildDraft) => {
+  const stepIsVisible = (step: WizardStep, childDraft?: ChildDraft, template = activeTemplate, childId = wizard.activeChildId) => {
+    const dailyPlan = dailyChildPlans.find((plan) => plan.childId === childId && plan.date === wizard.date);
+    if (dailyPlan) {
+      if (step.kind === 'snack' && !dailyPlan.hasSnack) return false;
+      if (isStructuredHolidayTemplate(template)) {
+        if (step.sectionId === 'morning' && !dailyPlan.hasMorningProgram) return false;
+        if (step.sectionId === 'lunch' && !dailyPlan.hasLunch) return false;
+        if (step.sectionId === 'afternoon' && !dailyPlan.hasAfternoonProgram) return false;
+      }
+    }
     if (
       childDraft?.attendance.includes('欠席')
       && !['attendance', 'review'].includes(step.kind)
     ) return false;
     if (step.kind !== 'field') return true;
-    const field = fieldForStep(step);
+    const field = fieldForStep(step, template);
     return field ? fieldIsVisible(field, childDraft, step.sectionId) : false;
   };
 
@@ -2384,7 +2487,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     return true;
   };
 
-  const answerStatus = (step: WizardStep, childDraft?: ChildDraft): AnswerStatus => {
+  const answerStatus = (step: WizardStep, childDraft?: ChildDraft, template = activeTemplate): AnswerStatus => {
     if (!childDraft) return 'unanswered';
     if (childDraft.skippedQuestionIds.includes(step.id)) return 'skipped';
     const section = step.sectionId ? childDraft.sectionAnswers[step.sectionId] : undefined;
@@ -2394,7 +2497,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       case 'snack': return childDraft.snack ? 'answered' : 'unanswered';
       case 'section-subtitle': return section?.subTitleValue?.trim() ? 'answered' : 'unanswered';
       case 'field': {
-        const field = fieldForStep(step);
+        const field = fieldForStep(step, template);
         return field && fieldAnswerIsComplete(field, section?.answers?.[step.fieldId || ''])
           ? 'answered'
           : 'unanswered';
@@ -2411,7 +2514,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     }
   };
 
-  const allPerChildSteps = steps.filter((step) => !['template', 'children', 'date', 'recorder', 'review'].includes(step.kind));
+  const perChildStepsFrom = (template?: Template) => buildStepsForTemplate(template)
+    .filter((step) => !['template', 'children', 'date', 'recorder', 'review'].includes(step.kind));
+  const allPerChildSteps = perChildStepsFrom(activeTemplate);
   const pageGroupKey = (step?: WizardStep) => {
     if (!step || (!isStructuredWeekdayTemplate(activeTemplate) && !isStructuredHolidayTemplate(activeTemplate))) return step?.id || '';
     if (['attendance', 'expression', 'field-life-fatigue'].includes(step.id)) return 'arrival';
@@ -2454,10 +2559,21 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       return Number(rightIsPosture) - Number(leftIsPosture);
     });
   };
-  const childStepsForDraft = (draft?: ChildDraft) => allPerChildSteps.filter((step) => stepIsVisible(step, draft));
-  const perChildSteps = childStepsForDraft(activeChildDraft);
-  const unansweredForChild = (childId: string) => childStepsForDraft(wizard.childDrafts[childId]).filter((step) => answerStatus(step, wizard.childDrafts[childId]) === 'unanswered');
-  const skippedForChild = (childId: string) => childStepsForDraft(wizard.childDrafts[childId]).filter((step) => answerStatus(step, wizard.childDrafts[childId]) === 'skipped');
+  const childStepsForDraft = (draft?: ChildDraft, childId = wizard.activeChildId) => {
+    const template = templateForChild(childId);
+    return perChildStepsFrom(template).filter((step) => stepIsVisible(step, draft, template, childId));
+  };
+  const perChildSteps = childStepsForDraft(activeChildDraft, wizard.activeChildId);
+  const unansweredForChild = (childId: string) => {
+    const template = templateForChild(childId);
+    return childStepsForDraft(wizard.childDrafts[childId], childId)
+      .filter((step) => answerStatus(step, wizard.childDrafts[childId], template) === 'unanswered');
+  };
+  const skippedForChild = (childId: string) => {
+    const template = templateForChild(childId);
+    return childStepsForDraft(wizard.childDrafts[childId], childId)
+      .filter((step) => answerStatus(step, wizard.childDrafts[childId], template) === 'skipped');
+  };
 
   const currentPageSteps = pageStepsFor(currentStep);
 
@@ -2549,8 +2665,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
   const draftPreviewChildren = wizard.selectedChildIds.map<DraftPreviewChild>((childId) => {
     const childDraft = wizard.childDrafts[childId];
-    const entries = childStepsForDraft(childDraft).map<DraftPreviewEntry>((step) => {
-      const status = answerStatus(step, childDraft);
+    const childTemplate = templateForChild(childId);
+    const childSteps = childStepsForDraft(childDraft, childId);
+    const entries = childSteps.map<DraftPreviewEntry>((step) => {
+      const status = answerStatus(step, childDraft, childTemplate);
       return {
         id: step.id,
         label: draftPreviewLabel(step),
@@ -2559,7 +2677,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       };
     });
     const groups = entries.reduce<DraftPreviewGroup[]>((result, entry, index) => {
-      const label = questionIndexGroupLabel(childStepsForDraft(childDraft)[index]);
+      const label = questionIndexGroupLabel(childSteps[index]);
       const group = result.find((item) => item.label === label);
       if (group) group.entries.push(entry);
       else result.push({ label, entries: [entry] });
@@ -2639,7 +2757,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     const checks: PreSaveCheck[] = [];
     childIds.forEach((childId) => {
       const childName = childrenList.find((child) => child.id === childId)?.name || '児童';
-      const draft = wizard.childDrafts[childId] || createChildDraft(activeTemplate);
+      const childTemplate = templateForChild(childId);
+      const childPerSteps = perChildStepsFrom(childTemplate);
+      const dailyPlan = dailyChildPlans.find((plan) => plan.childId === childId && plan.date === wizard.date);
+      const draft = wizard.childDrafts[childId] || createChildDraft(childTemplate);
       const unanswered = unansweredForChild(childId);
       const skipped = skippedForChild(childId);
 
@@ -2669,7 +2790,12 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       // 欠席時は出欠だけを記録対象とし、以降の必須項目を検査しない。
       if (draft.attendance.includes('欠席')) return;
 
-      activeTemplate?.sections.forEach((section) => {
+      childTemplate?.sections.forEach((section) => {
+        if (isStructuredHolidayTemplate(childTemplate) && dailyPlan) {
+          if (section.id === 'morning' && !dailyPlan.hasMorningProgram) return;
+          if (section.id === 'lunch' && !dailyPlan.hasLunch) return;
+          if (section.id === 'afternoon' && !dailyPlan.hasAfternoonProgram) return;
+        }
         const sectionAnswer = draft.sectionAnswers[section.id];
         section.fields.forEach((field) => {
           if (!fieldIsVisible(field, draft, section.id)) return;
@@ -2797,7 +2923,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             level: 'warning',
             title: `${section.title}のABC記録が一部のみ入力されています`,
             detail: 'A（きっかけ）・B（行動）・C（結果）の3要素を確認してください。',
-            stepId: allPerChildSteps.find((step) => step.sectionId === section.id && step.kind.startsWith('abc'))?.id,
+            stepId: childPerSteps.find((step) => step.sectionId === section.id && step.kind.startsWith('abc'))?.id,
           });
         }
       });
@@ -2824,12 +2950,39 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     document.getElementById('record-wizard')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
+  const moveToChildStep = (childId: string, stepId: string) => {
+    const targetSteps = buildStepsForTemplate(templateForChild(childId));
+    const targetIndex = targetSteps.findIndex((step) => step.id === stepId);
+    if (targetIndex < 0) return;
+    setStepError(null);
+    setSaveError(null);
+    setWizard((previous) => ({
+      ...previous,
+      activeChildId: childId,
+      currentStepIndex: targetIndex,
+      childStepIds: { ...previous.childStepIds, [childId]: stepId },
+    }));
+    document.getElementById('question-index')?.removeAttribute('open');
+    document.getElementById('record-wizard')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
   const switchChild = (childId: string) => {
     const rememberedStepId = wizard.childStepIds[childId];
     const firstUnanswered = unansweredForChild(childId)[0];
-    const targetSteps = childStepsForDraft(wizard.childDrafts[childId]);
+    const targetSteps = childStepsForDraft(wizard.childDrafts[childId], childId);
     const target = targetSteps.find((step) => step.id === rememberedStepId) || firstUnanswered || targetSteps[0];
-    moveToStep(target ? steps.findIndex((step) => step.id === target.id) : wizard.currentStepIndex, childId);
+    const targetTemplateSteps = buildStepsForTemplate(templateForChild(childId));
+    const targetIndex = target ? targetTemplateSteps.findIndex((step) => step.id === target.id) : wizard.currentStepIndex;
+    setStepError(null);
+    setSaveError(null);
+    setWizard((previous) => ({
+      ...previous,
+      activeChildId: childId,
+      currentStepIndex: Math.max(0, targetIndex),
+      childStepIds: target ? { ...previous.childStepIds, [childId]: target.id } : previous.childStepIds,
+    }));
+    document.getElementById('question-index')?.removeAttribute('open');
+    document.getElementById('record-wizard')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   const handleChildTabDragStart = ({ active }: DragStartEvent) => {
@@ -2871,7 +3024,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const goNext = () => {
     const error = readOnly ? null : validateGlobalStep();
     if (error) return setStepError(error);
-    const currentChildSteps = childStepsForDraft(activeChildDraft);
+    const currentChildSteps = childStepsForDraft(activeChildDraft, wizard.activeChildId);
     const currentChildStepIndex = currentStep ? currentChildSteps.findIndex((step) => step.id === currentStep.id) : -1;
     if (currentChildStepIndex === currentChildSteps.length - 1 && currentChildStepIndex >= 0 && wizard.selectedChildIds.length > 1) {
       const activeIndex = wizard.selectedChildIds.indexOf(wizard.activeChildId);
@@ -2879,7 +3032,14 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       const nextChildId = remainingIds.find((id) => unansweredForChild(id).length > 0);
       if (nextChildId) {
         const firstUnanswered = unansweredForChild(nextChildId)[0];
-        moveToStep(steps.findIndex((step) => step.id === firstUnanswered.id), nextChildId);
+        const nextSteps = buildStepsForTemplate(templateForChild(nextChildId));
+        setStepError(null);
+        setWizard((previous) => ({
+          ...previous,
+          activeChildId: nextChildId,
+          currentStepIndex: Math.max(0, nextSteps.findIndex((step) => step.id === firstUnanswered.id)),
+          childStepIds: { ...previous.childStepIds, [nextChildId]: firstUnanswered.id },
+        }));
         return;
       }
     }
@@ -3215,8 +3375,16 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         {
           const targetWeekday = getWeekdayFromDate(wizard.date);
           const dayEvents = calendarEvents.filter((event) => calendarEventOccursOn(event, wizard.date));
-          const plannedChildIds = new Set(dayEvents.filter((event) => ['追加利用', '通常利用'].includes(event.eventType)).flatMap((event) => event.childIds));
-          const absentChildIds = new Set(dayEvents.filter((event) => event.eventType === '欠席').flatMap((event) => event.childIds));
+          const dayPlans = dailyChildPlans.filter((plan) => plan.date === wizard.date);
+          const overriddenChildIds = new Set(dayPlans.map((plan) => plan.childId));
+          const plannedChildIds = new Set([
+            ...dayEvents.filter((event) => ['追加利用', '通常利用'].includes(event.eventType)).flatMap((event) => event.childIds),
+            ...dayPlans.filter((plan) => plan.attendancePlan !== '欠席').map((plan) => plan.childId),
+          ]);
+          const absentChildIds = new Set([
+            ...dayEvents.filter((event) => event.eventType === '欠席').flatMap((event) => event.childIds).filter((childId) => !overriddenChildIds.has(childId)),
+            ...dayPlans.filter((plan) => plan.attendancePlan === '欠席').map((plan) => plan.childId),
+          ]);
           const regularChildren = childrenList.filter((child) => {
             const regularDays = getRegularDaysForDate(child, wizard.date);
             return !absentChildIds.has(child.id) && (plannedChildIds.has(child.id) || !regularDays.length || regularDays.includes(targetWeekday));
@@ -3238,12 +3406,48 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[50vh] overflow-y-auto pr-1">
               {displayedChildren.map((child) => {
                 const selected = wizard.selectedChildIds.includes(child.id);
-                const isAdditional = plannedChildIds.has(child.id) || additionalSelected.some((item) => item.id === child.id);
+                const dayPlan = dayPlans.find((plan) => plan.childId === child.id);
+                const isAdditional = dayPlan?.attendancePlan === '追加利用' || plannedChildIds.has(child.id) || additionalSelected.some((item) => item.id === child.id);
                 const lockOwner = lockedChildren[`${wizard.date}:${child.id}`];
-                return <button key={child.id} type="button" disabled={Boolean(initialRecord) || Boolean(lockOwner)} onClick={() => toggleChild(child.id)} className={`${choiceClass} flex items-center justify-between text-left ${selected ? 'bg-teal-600 border-teal-600 text-white' : lockOwner ? 'border-amber-300 bg-amber-50 text-amber-900' : 'bg-white border-slate-300 text-slate-700'} disabled:opacity-80`}><span>{child.name}<span className="block text-[11px] font-normal opacity-75">{lockOwner ? `${lockOwner}が入力中` : `${calculateSchoolGrade(child.birthDate) || child.grade || '学年未設定'}・${isAdditional ? '追加利用' : formatRegularDays(getRegularDaysForDate(child, wizard.date))}`}</span></span>{selected && <Check className="w-5 h-5" />}</button>;
+                return <button key={child.id} type="button" disabled={Boolean(initialRecord) || Boolean(lockOwner)} onClick={() => toggleChild(child.id)} className={`${choiceClass} flex items-center justify-between text-left ${selected ? 'bg-teal-600 border-teal-600 text-white' : lockOwner ? 'border-amber-300 bg-amber-50 text-amber-900' : 'bg-white border-slate-300 text-slate-700'} disabled:opacity-80`}><span>{child.name}<span className="block text-[11px] font-normal opacity-75">{lockOwner ? `${lockOwner}が入力中` : `${calculateSchoolGrade(child.birthDate) || child.grade || '学年未設定'}・${dayPlan ? `${dayPlan.dayPattern}・${dayPlan.recordFormat}形式` : isAdditional ? '追加利用' : formatRegularDays(getRegularDaysForDate(child, wizard.date))}`}</span></span>{selected && <Check className="w-5 h-5" />}</button>;
               })}
             </div>
             {displayedChildren.length === 0 && <p className="rounded-xl border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">この曜日の定期利用児童は登録されていません。</p>}
+            {wizard.selectedChildIds.length > 0 && (
+              <section className="rounded-2xl border border-violet-200 bg-violet-50/60 p-3">
+                <div className="flex items-start gap-2">
+                  <Info className="mt-0.5 h-4 w-4 shrink-0 text-violet-700" />
+                  <div>
+                    <h3 className="text-xs font-black text-violet-950">児童ごとの記録形式</h3>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-violet-800">日別予定がある児童は当日の流れから自動選択しています。平日・休日が混在しても一緒に入力できます。</p>
+                  </div>
+                </div>
+                <div className="mt-3 space-y-2">
+                  {wizard.selectedChildIds.map((childId) => {
+                    const child = childrenList.find((candidate) => candidate.id === childId);
+                    const plan = dailyChildPlans.find((candidate) => candidate.childId === childId && candidate.date === wizard.date);
+                    const childTemplate = templateForChild(childId);
+                    return (
+                      <div key={childId} className="flex flex-col gap-2 rounded-xl border border-violet-100 bg-white p-3 sm:flex-row sm:items-center">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-black text-slate-900">{child?.name || '児童'}</p>
+                          <p className="mt-0.5 text-[10px] text-slate-500">{plan ? `当日予定：${plan.dayPattern}・利用区分 ${plan.serviceCategory}` : '日別変更なし'}</p>
+                        </div>
+                        <div className="grid grid-cols-2 gap-1.5 sm:w-52">
+                          {(['平日', '休日'] as const).map((type) => {
+                            const template = templates.find((candidate) => candidate.id === (type === '平日' ? 'template-weekday' : 'template-holiday'))
+                              || templates.find((candidate) => candidate.type === type);
+                            if (!template) return null;
+                            const selected = childTemplate?.id === template.id;
+                            return <button key={type} type="button" onClick={() => setChildTemplate(childId, template.id)} className={`min-h-10 rounded-lg border px-2 text-xs font-black ${selected ? 'border-violet-600 bg-violet-600 text-white' : 'border-slate-300 bg-white text-slate-700'}`}>{type}形式</button>;
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
             {!initialRecord && <button type="button" onClick={() => { setChildSearch(''); setShowChildPicker(true); }} className="min-h-12 w-full px-4 rounded-xl border border-dashed border-teal-500 bg-white text-teal-700 text-sm font-bold flex items-center justify-center gap-2"><UserPlus className="w-5 h-5" />児童を追加</button>}
 
             {showChildPicker && (
@@ -3274,7 +3478,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           </div>
           );
         }
-      case 'date': return <input type="date" value={wizard.date} onChange={(event) => updateWizard({ date: event.target.value })} className={inputClass} />;
+      case 'date': return <input type="date" value={wizard.date} onChange={(event) => setRecordDate(event.target.value)} className={inputClass} />;
       case 'recorder': {
         const selectedIsLegacy =
           Boolean(initialRecord?.recorderName) &&
@@ -3449,13 +3653,13 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           <ReviewAllChildren
             wizard={wizard}
             childrenList={childrenList}
-            template={activeTemplate}
-            getStepsForChild={(childId) => childStepsForDraft(wizard.childDrafts[childId])}
-            answerStatus={answerStatus}
+            getTemplateForChild={templateForChild}
+            getStepsForChild={(childId) => childStepsForDraft(wizard.childDrafts[childId], childId)}
+            answerStatus={(childId, step, draft) => answerStatus(step, draft, templateForChild(childId))}
             checks={getPreSaveChecks()}
             checksAcknowledged={checksAcknowledged}
             onChecksAcknowledged={setChecksAcknowledged}
-            onJump={(childId, stepId) => moveToStep(steps.findIndex((step) => step.id === stepId), childId)}
+            onJump={moveToChildStep}
             onSaveChild={(childId) => void saveChildRecord(childId)}
             savingChildId={savingChildId}
             saveDisabled={editingDisabled || isSaving}
@@ -3466,16 +3670,17 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   };
 
   const buildRecordForChild = (childId: string, now: string): SupportRecord => {
-    if (!activeTemplate) throw new Error('テンプレートを確認してください。');
+    const childTemplate = templateForChild(childId);
+    if (!childTemplate) throw new Error('テンプレートを確認してください。');
     const child = childrenList.find((item) => item.id === childId);
-    const childDraft = wizard.childDrafts[childId] || createChildDraft(activeTemplate);
+    const childDraft = wizard.childDrafts[childId] || createChildDraft(childTemplate);
     const previous = initialRecord?.childId === childId ? initialRecord : undefined;
     const record = {
       id: childDraft.recordId,
-      templateId: activeTemplate.id,
-      templateName: activeTemplate.name,
-      templateType: activeTemplate.type,
-      templateSectionsSnapshot: activeTemplate.sections,
+      templateId: childTemplate.id,
+      templateName: childTemplate.name,
+      templateType: childTemplate.type,
+      templateSectionsSnapshot: childTemplate.sections,
       childId,
       childName: child?.name || previous?.childName || '名称未記入',
       date: wizard.date,
@@ -3507,15 +3712,15 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       createdAt: previous?.createdAt || now,
       updatedAt: now,
     } satisfies SupportRecord;
-    return isStructuredWeekdayTemplate(activeTemplate)
+    return isStructuredWeekdayTemplate(childTemplate)
       ? { ...record, synthesizedSummary: generateStructuredWeekdaySummary(record) }
-      : isStructuredHolidayTemplate(activeTemplate)
+      : isStructuredHolidayTemplate(childTemplate)
         ? { ...record, synthesizedSummary: generateStructuredHolidaySummary(record) }
         : record;
   };
 
   const saveChildRecord = async (childId: string) => {
-    if (editingDisabled || !activeTemplate || savingChildId) return;
+    if (editingDisabled || !templateForChild(childId) || savingChildId) return;
     setSaveError(null);
     if (!wizard.date || !wizard.recorderName.trim()) {
       setSaveError('日付と記録者を確認してください。');
@@ -3551,14 +3756,17 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       setWizard((previous) => {
         const childDrafts = { ...previous.childDrafts };
         const childStepIds = { ...previous.childStepIds };
+        const childTemplateIds = { ...previous.childTemplateIds };
         delete childDrafts[childId];
         delete childStepIds[childId];
+        delete childTemplateIds[childId];
         return {
           ...previous,
           selectedChildIds: previous.selectedChildIds.filter((id) => id !== childId),
           activeChildId: previous.activeChildId === childId ? remainingChildIds[0] : previous.activeChildId,
           childDrafts,
           childStepIds,
+          childTemplateIds,
           updatedAt: new Date().toISOString(),
         };
       });
@@ -3657,7 +3865,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         remoteRevision.current = remote.revision;
         const payload: WizardDraft = {
           ...wizard,
-          version: 10,
+          version: 11,
           draftCycleKey: getCurrentDraftCycleKey(),
           updatedAt: new Date().toISOString(),
         };
@@ -4152,7 +4360,7 @@ function calendarEventOccursOn(event: CalendarEvent, date: string) {
 function ReviewAllChildren({
   wizard,
   childrenList,
-  template,
+  getTemplateForChild,
   getStepsForChild,
   answerStatus,
   checks,
@@ -4165,9 +4373,9 @@ function ReviewAllChildren({
 }: {
   wizard: WizardDraft;
   childrenList: ChildProfile[];
-  template?: Template;
+  getTemplateForChild: (childId: string) => Template | undefined;
   getStepsForChild: (childId: string) => WizardStep[];
-  answerStatus: (step: WizardStep, draft?: ChildDraft) => AnswerStatus;
+  answerStatus: (childId: string, step: WizardStep, draft?: ChildDraft) => AnswerStatus;
   checks: PreSaveCheck[];
   checksAcknowledged: boolean;
   onChecksAcknowledged: (checked: boolean) => void;
@@ -4180,7 +4388,7 @@ function ReviewAllChildren({
   const notices = checks.filter((check) => check.level !== 'error');
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-teal-200 bg-teal-50 p-4 text-sm"><p><strong>日付：</strong>{wizard.date}</p><p><strong>記録者：</strong>{wizard.recorderName}</p><p><strong>テンプレート：</strong>{template?.name}</p></div>
+      <div className="rounded-xl border border-teal-200 bg-teal-50 p-4 text-sm"><p><strong>日付：</strong>{wizard.date}</p><p><strong>記録者：</strong>{wizard.recorderName}</p><p><strong>記録形式：</strong>児童ごとの当日予定に合わせて表示</p></div>
       <section className={`rounded-xl border-2 p-4 ${
         errors.length > 0
           ? 'border-rose-300 bg-rose-50'
@@ -4244,12 +4452,13 @@ function ReviewAllChildren({
       {wizard.selectedChildIds.map((childId) => {
         const child = childrenList.find((item) => item.id === childId);
         const draft = wizard.childDrafts[childId];
+        const template = getTemplateForChild(childId);
         const childSteps = getStepsForChild(childId);
-        const unanswered = childSteps.filter((step) => answerStatus(step, draft) === 'unanswered');
-        const skipped = childSteps.filter((step) => answerStatus(step, draft) === 'skipped');
+        const unanswered = childSteps.filter((step) => answerStatus(childId, step, draft) === 'unanswered');
+        const skipped = childSteps.filter((step) => answerStatus(childId, step, draft) === 'skipped');
         return (
           <article key={childId} className="rounded-xl border border-slate-200 p-4 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-bold text-slate-900">{child?.name || '児童'}</h3><div className="flex gap-2 text-[10px] font-bold"><span className={`rounded-full px-2 py-1 ${unanswered.length ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{unanswered.length ? `未回答 ${unanswered.length}` : '全回答済み'}</span>{skipped.length > 0 && <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">スキップ {skipped.length}</span>}</div></div>
+            <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-bold text-slate-900">{child?.name || '児童'}</h3><p className="mt-0.5 text-[10px] font-bold text-violet-700">{template?.name || '記録形式未設定'}</p></div><div className="flex gap-2 text-[10px] font-bold"><span className={`rounded-full px-2 py-1 ${unanswered.length ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{unanswered.length ? `未回答 ${unanswered.length}` : '全回答済み'}</span>{skipped.length > 0 && <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">スキップ {skipped.length}</span>}</div></div>
             <p className="text-xs text-slate-600">出欠：{draft?.attendance || '未回答'}{draft?.attendanceNote ? `（${draft.attendanceNote}）` : ''} ／ 表情：{draft?.expressions.join('、') || '未回答'} ／ おやつ：{draft?.snack || '未回答'}</p>
             {unanswered.length > 0 && <div className="rounded-lg bg-amber-50 p-3"><p className="text-xs font-bold text-amber-900 mb-2">未回答の質問</p><div className="flex flex-wrap gap-2">{unanswered.map((step) => <button key={step.id} type="button" onClick={() => onJump(childId, step.id)} className="rounded-md border border-amber-300 bg-white px-2 py-1 text-[11px] text-amber-900">{step.title}</button>)}</div></div>}
             {template && (isStructuredWeekdayTemplate(template) || isStructuredHolidayTemplate(template)) ? (

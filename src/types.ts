@@ -206,6 +206,31 @@ export interface ChildTransportSchedule {
   dropoffTime?: string;
 }
 
+export type DailyAttendancePlan = '利用予定' | '追加利用' | '欠席';
+export type DailyServiceCategory = '平日' | '休日';
+export type DailyRecordFormat = '平日' | '休日';
+export type DailyDayPattern = '通常' | '短縮授業' | '午前のみ' | '午後のみ' | '個別';
+
+export interface DailyChildPlan {
+  id: string;
+  childId: string;
+  date: string;
+  attendancePlan: DailyAttendancePlan;
+  serviceCategory: DailyServiceCategory;
+  recordFormat: DailyRecordFormat;
+  dayPattern: DailyDayPattern;
+  hasMorningProgram: boolean;
+  hasLunch: boolean;
+  hasAfternoonProgram: boolean;
+  hasSnack: boolean;
+  schoolEndTime?: string;
+  arrivalTime?: string;
+  departureTime?: string;
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface UserProfile {
   id: string;
   organizationId: string;

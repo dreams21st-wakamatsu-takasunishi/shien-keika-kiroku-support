@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import type {
   ChildProfile,
+  DailyChildPlan,
   RecorderProfile,
   TransportDirection,
   TransportRun,
@@ -54,6 +55,7 @@ interface TransportPanelProps {
   routeSettings: TransportRouteSettings;
   recorderProfiles: RecorderProfile[];
   childrenList: ChildProfile[];
+  dailyChildPlans: DailyChildPlan[];
   selectedDate: string;
   canManage: boolean;
   activeRecorder?: RecorderProfile;
@@ -80,6 +82,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
   routeSettings,
   recorderProfiles,
   childrenList,
+  dailyChildPlans,
   selectedDate,
   canManage,
   activeRecorder,
@@ -1243,6 +1246,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
           vehicles={vehicles}
           recorderProfiles={recorderProfiles}
           childrenList={childrenList}
+          dailyChildPlans={dailyChildPlans}
           onSaveRun={onSaveRun}
           onDeleteRun={onDeleteRun}
           onClose={() => setDayPlannerOpen(false)}

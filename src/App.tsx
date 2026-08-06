@@ -8,6 +8,7 @@ import {
   AttendanceRecord,
   CalendarEvent,
   ChildProfile,
+  DailyChildPlan,
   DEFAULT_AI_WRITING_SETTINGS,
   DEFAULT_TRANSPORT_ROUTE_SETTINGS,
   HandoverConfirmation,
@@ -58,6 +59,7 @@ import {
   archiveTemplate,
   closeSupportPlan,
   deleteCalendarEvent,
+  deleteDailyChildPlan,
   deleteHandoverConfirmation,
   deleteMorningMeetingConfirmation,
   deleteRecordDraft,
@@ -84,6 +86,7 @@ import {
   saveAnnouncementConfirmation,
   saveAttendanceRecord,
   saveCalendarEvent,
+  saveDailyChildPlan,
   saveSupportPlan,
   sendAnnouncementNotification,
   saveTemplate,
@@ -176,6 +179,11 @@ export default function App() {
   const [calendarEvents, setCalendarEvents] = useState<CalendarEvent[]>(() => {
     if (remoteMode) return [];
     const saved = localStorage.getItem('support_calendar_events_data');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [dailyChildPlans, setDailyChildPlans] = useState<DailyChildPlan[]>(() => {
+    if (remoteMode) return [];
+    const saved = localStorage.getItem('support_daily_child_plans_data');
     return saved ? JSON.parse(saved) : [];
   });
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(() => {
@@ -319,6 +327,9 @@ export default function App() {
     if (!remoteMode) localStorage.setItem('support_calendar_events_data', JSON.stringify(calendarEvents));
   }, [calendarEvents, remoteMode]);
   useEffect(() => {
+    if (!remoteMode) localStorage.setItem('support_daily_child_plans_data', JSON.stringify(dailyChildPlans));
+  }, [dailyChildPlans, remoteMode]);
+  useEffect(() => {
     if (!remoteMode) localStorage.setItem('support_attendance_records_data', JSON.stringify(attendanceRecords));
   }, [attendanceRecords, remoteMode]);
   useEffect(() => {
@@ -360,6 +371,7 @@ export default function App() {
       setAnnouncementConfirmations(workspace.announcementConfirmations);
       setStaffScheduleItems(workspace.staffScheduleItems);
       setCalendarEvents(workspace.calendarEvents);
+      setDailyChildPlans(workspace.dailyChildPlans);
       setAttendanceRecords(workspace.attendanceRecords);
       setAttendanceCorrections(workspace.attendanceCorrectionRequests);
       setVehicles(workspace.vehicles);
@@ -442,6 +454,7 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'support_records', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'children', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'child_regular_day_schedules', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_child_plans', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'recorder_profiles', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'record_templates', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'support_plans', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
@@ -929,6 +942,31 @@ export default function App() {
       if (organizationId) await deleteCalendarEvent(organizationId, eventId);
       setCalendarEvents((previous) => previous.filter((event) => event.id !== eventId));
     } catch (error) { persistError(error); }
+  };
+
+  const handleSaveDailyChildPlan = async (plan: DailyChildPlan) => {
+    try {
+      if (organizationId) await saveDailyChildPlan(organizationId, plan);
+      setDailyChildPlans((previous) => [
+        plan,
+        ...previous.filter((candidate) => !(candidate.childId === plan.childId && candidate.date === plan.date)),
+      ]);
+      setDataError(null);
+    } catch (error) {
+      persistError(error);
+      throw error;
+    }
+  };
+
+  const handleDeleteDailyChildPlan = async (childId: string, date: string) => {
+    try {
+      if (organizationId) await deleteDailyChildPlan(organizationId, childId, date);
+      setDailyChildPlans((previous) => previous.filter((plan) => !(plan.childId === childId && plan.date === date)));
+      setDataError(null);
+    } catch (error) {
+      persistError(error);
+      throw error;
+    }
   };
 
   const handleSaveAttendance = async (record: AttendanceRecord) => {
@@ -1496,6 +1534,7 @@ export default function App() {
             recorderProfiles={recorderProfiles}
             staffScheduleItems={staffScheduleItems}
             calendarEvents={calendarEventsForCurrentUser}
+            dailyChildPlans={dailyChildPlans}
             attendanceRecords={attendanceRecords}
             attendanceCorrections={attendanceCorrections}
             vehicles={vehicles}
@@ -1539,6 +1578,8 @@ export default function App() {
             onDeleteStaffSchedule={handleDeleteStaffSchedule}
             onSaveCalendarEvent={handleSaveCalendarEvent}
             onDeleteCalendarEvent={handleDeleteCalendarEvent}
+            onSaveDailyChildPlan={handleSaveDailyChildPlan}
+            onDeleteDailyChildPlan={handleDeleteDailyChildPlan}
             onSaveAttendance={handleSaveAttendance}
             onPunchAttendance={handlePunchAttendance}
             onRequestAttendanceCorrection={handleRequestAttendanceCorrection}
@@ -1557,6 +1598,7 @@ export default function App() {
             templates={templates}
             childrenList={childrenList}
             calendarEvents={calendarEventsForCurrentUser}
+            dailyChildPlans={dailyChildPlans}
             recorderProfiles={recorderProfiles}
             initialRecord={currentRecord}
             organizationId={organizationId}

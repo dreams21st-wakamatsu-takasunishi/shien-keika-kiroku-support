@@ -7,6 +7,7 @@ import {
   AttendanceRecord,
   CalendarEvent,
   ChildProfile,
+  DailyChildPlan,
   DEFAULT_AI_WRITING_SETTINGS,
   ExpressionType,
   HandoverConfirmation,
@@ -55,6 +56,7 @@ export interface WorkspaceData {
   announcementConfirmations: AnnouncementConfirmation[];
   staffScheduleItems: StaffScheduleItem[];
   calendarEvents: CalendarEvent[];
+  dailyChildPlans: DailyChildPlan[];
   attendanceRecords: AttendanceRecord[];
   attendanceCorrectionRequests: AttendanceCorrectionRequest[];
   vehicles: Vehicle[];
@@ -96,6 +98,28 @@ function mapRegularDaySchedule(row: any): RegularDaySchedule {
     effectiveFrom: row.effective_from,
     regularDays: Array.isArray(row.regular_days) ? row.regular_days as Weekday[] : [],
     createdAt: row.created_at || undefined,
+  };
+}
+
+function mapDailyChildPlan(row: any): DailyChildPlan {
+  return {
+    id: row.id,
+    childId: row.child_id,
+    date: row.service_date,
+    attendancePlan: row.attendance_plan,
+    serviceCategory: row.service_category,
+    recordFormat: row.record_format,
+    dayPattern: row.day_pattern,
+    hasMorningProgram: row.has_morning_program === true,
+    hasLunch: row.has_lunch === true,
+    hasAfternoonProgram: row.has_afternoon_program === true,
+    hasSnack: row.has_snack === true,
+    schoolEndTime: row.school_end_time || undefined,
+    arrivalTime: row.arrival_time || undefined,
+    departureTime: row.departure_time || undefined,
+    note: row.note || undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -485,6 +509,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     announcementConfirmationsResult,
     staffScheduleItemsResult,
     calendarEventsResult,
+    dailyChildPlansResult,
     attendanceRecordsResult,
     attendanceCorrectionsResult,
     vehiclesResult,
@@ -507,6 +532,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     client.from('announcement_confirmations').select('*').eq('organization_id', organizationId).order('read_at', { ascending: false }),
     client.from('staff_schedule_items').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }).order('start_time'),
     client.from('calendar_events').select('*').eq('organization_id', organizationId).order('event_date', { ascending: false }).order('start_time'),
+    client.from('daily_child_plans').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }),
     client.from('attendance_records').select('*').eq('organization_id', organizationId).order('work_date', { ascending: false }),
     client.from('attendance_correction_requests').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }),
     client.from('vehicles').select('*').eq('organization_id', organizationId).order('name'),
@@ -566,6 +592,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
       ? []
       : (staffScheduleItemsResult.data || []).map((row) => mapStaffScheduleItem(row, recorderNames)),
     calendarEvents: calendarEventsResult.error ? [] : (calendarEventsResult.data || []).map(mapCalendarEvent),
+    dailyChildPlans: dailyChildPlansResult.error ? [] : (dailyChildPlansResult.data || []).map(mapDailyChildPlan),
     attendanceRecords: attendanceRecordsResult.error
       ? []
       : (attendanceRecordsResult.data || []).map((row) => mapAttendanceRecord(row, recorderNames)),
@@ -637,6 +664,42 @@ export async function saveCalendarEvent(organizationId: string, event: CalendarE
     color: event.color,
     recurrence: event.recurrence,
   }, { onConflict: 'organization_id,id' });
+  if (error) throw error;
+}
+
+export async function saveDailyChildPlan(organizationId: string, plan: DailyChildPlan) {
+  const { error } = await assertSupabase().from('daily_child_plans').upsert({
+    organization_id: organizationId,
+    id: plan.id,
+    child_id: plan.childId,
+    service_date: plan.date,
+    attendance_plan: plan.attendancePlan,
+    service_category: plan.serviceCategory,
+    record_format: plan.recordFormat,
+    day_pattern: plan.dayPattern,
+    has_morning_program: plan.hasMorningProgram,
+    has_lunch: plan.hasLunch,
+    has_afternoon_program: plan.hasAfternoonProgram,
+    has_snack: plan.hasSnack,
+    school_end_time: plan.schoolEndTime || null,
+    arrival_time: plan.arrivalTime || null,
+    departure_time: plan.departureTime || null,
+    note: plan.note?.trim() || null,
+  }, { onConflict: 'organization_id,child_id,service_date' });
+  if (error) throw error;
+}
+
+export async function deleteDailyChildPlan(
+  organizationId: string,
+  childId: string,
+  date: string,
+) {
+  const { error } = await assertSupabase()
+    .from('daily_child_plans')
+    .delete()
+    .eq('organization_id', organizationId)
+    .eq('child_id', childId)
+    .eq('service_date', date);
   if (error) throw error;
 }
 

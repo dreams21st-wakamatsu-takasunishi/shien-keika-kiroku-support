@@ -33,6 +33,7 @@ import {
 } from 'lucide-react';
 import type {
   ChildProfile,
+  DailyChildPlan,
   RecorderProfile,
   TransportDirection,
   TransportLocationType,
@@ -50,6 +51,7 @@ interface DailyTransportPlannerProps {
   vehicles: Vehicle[];
   recorderProfiles: RecorderProfile[];
   childrenList: ChildProfile[];
+  dailyChildPlans: DailyChildPlan[];
   onSaveRun: (run: TransportRun) => Promise<void> | void;
   onDeleteRun: (runId: string) => Promise<void> | void;
   onClose: () => void;
@@ -88,7 +90,7 @@ function createRun(date: string, direction: TransportDirection, sequence: number
   };
 }
 
-function childStop(child: ChildProfile, direction: TransportDirection, date: string): TransportStop {
+function childStop(child: ChildProfile, direction: TransportDirection, date: string, dailyPlan?: DailyChildPlan): TransportStop {
   const suggestion = getSuggestedTransportLocation(child, direction, date);
   return {
     id: createUuid(),
@@ -98,10 +100,15 @@ function childStop(child: ChildProfile, direction: TransportDirection, date: str
     locationType: suggestion?.type || (direction === '迎え' ? '学校' : '自宅'),
     locationName: suggestion?.name,
     locationProfileId: suggestion?.source === 'registered' ? suggestion.id : undefined,
-    plannedTime: getTransportTargetTime(child, date, direction) || undefined,
+    plannedTime: dailyTransportTargetTime(child, date, direction, dailyPlan) || undefined,
     order: 1,
     note: suggestion?.note,
   };
+}
+
+function dailyTransportTargetTime(child: ChildProfile, date: string, direction: TransportDirection, dailyPlan?: DailyChildPlan) {
+  if (direction === '迎え') return dailyPlan?.schoolEndTime || dailyPlan?.arrivalTime || getTransportTargetTime(child, date, direction);
+  return dailyPlan?.departureTime || getTransportTargetTime(child, date, direction);
 }
 
 function minutes(time?: string) {
@@ -221,6 +228,7 @@ const TransportRunLane: React.FC<{
   run,
   vehicle,
   childrenList,
+  dailyChildPlans,
   date,
   activeRecorders,
   pickupAssignedIds,
@@ -298,6 +306,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
   vehicles,
   recorderProfiles,
   childrenList,
+  dailyChildPlans,
   onSaveRun,
   onDeleteRun,
   onClose,
@@ -322,7 +331,12 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
     ...(boardVehicles.length === 0 || drafts.some((run) => !run.vehicleId) ? [undefined] : []),
   ], [boardVehicles, drafts]);
   const weekday = getWeekdayFromDate(date);
-  const scheduledChildren = useMemo(() => childrenList.filter((child) => getRegularDaysForDate(child, date).includes(weekday)), [childrenList, date, weekday]);
+  const dayPlans = useMemo(() => dailyChildPlans.filter((plan) => plan.date === date), [dailyChildPlans, date]);
+  const dayPlansByChild = useMemo(() => new Map(dayPlans.map((plan) => [plan.childId, plan])), [dayPlans]);
+  const scheduledChildren = useMemo(() => childrenList.filter((child) => {
+    const plan = dayPlansByChild.get(child.id);
+    return plan ? plan.attendancePlan !== '欠席' : getRegularDaysForDate(child, date).includes(weekday);
+  }), [childrenList, date, dayPlansByChild, weekday]);
   const assignedChildIds = useMemo(() => new Set(drafts.flatMap((run) => run.stops.map((stop) => stop.childId).filter((id): id is string => Boolean(id)))), [drafts]);
   const poolChildren = useMemo(() => childrenList.filter((child) => scheduledChildren.some((scheduled) => scheduled.id === child.id) || additionalChildIds.includes(child.id) || assignedChildIds.has(child.id)), [additionalChildIds, assignedChildIds, childrenList, scheduledChildren]);
   const pickupAssignedIds = useMemo(() => new Set(drafts.filter((run) => run.direction === '迎え').flatMap((run) => run.stops.map((stop) => stop.childId).filter((id): id is string => Boolean(id)))), [drafts]);
@@ -360,7 +374,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
     setDrafts((current) => current.map((run) => {
       const withoutSameDirection = run.direction === targetRun.direction ? run.stops.filter((stop) => stop.childId !== childId) : run.stops;
       if (run.id !== targetRunId) return { ...run, stops: withoutSameDirection.map((stop, index) => ({ ...stop, order: index + 1 })) };
-      const nextStop = childStop(child, run.direction, date);
+      const nextStop = childStop(child, run.direction, date, dayPlansByChild.get(child.id));
       return adjustRunTimes({ ...run, routeOptimizedAt: undefined, stops: [...withoutSameDirection, { ...nextStop, order: withoutSameDirection.length + 1 }] });
     }));
   };
@@ -400,7 +414,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
       });
       const maximumVehicleCapacity = Math.max(...usableVehicles.map((vehicle) => vehicle?.capacity || 30));
       const groups = Array.from(familyGroups.values())
-        .sort((left, right) => minutes(getTransportTargetTime(left[0], date, direction)) - minutes(getTransportTargetTime(right[0], date, direction)))
+        .sort((left, right) => minutes(dailyTransportTargetTime(left[0], date, direction, dayPlansByChild.get(left[0].id))) - minutes(dailyTransportTargetTime(right[0], date, direction, dayPlansByChild.get(right[0].id))))
         .flatMap((family) => {
           if (family.length <= maximumVehicleCapacity) return [family];
           const divided: ChildProfile[][] = [];
@@ -427,7 +441,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
           nextDrafts.push(target);
           lanes.push(target);
         }
-        const additions = group.map((child, index) => ({ ...childStop(child, direction, date), order: target!.stops.length + index + 1 }));
+        const additions = group.map((child, index) => ({ ...childStop(child, direction, date, dayPlansByChild.get(child.id)), order: target!.stops.length + index + 1 }));
         const updated = adjustRunTimes({ ...target, stops: [...target.stops, ...additions] });
         nextDrafts = nextDrafts.map((run) => run.id === target!.id ? updated : run);
         lanes = lanes.map((run) => run.id === target!.id ? updated : run);
