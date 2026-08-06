@@ -214,6 +214,9 @@ export interface UserProfile {
   role: UserRole;
   email?: string;
   recorderProfileId?: string;
+  loginMethod?: 'email' | 'staff_id';
+  fieldModeOnly?: boolean;
+  accessDeviceId?: string;
 }
 
 export interface RecorderProfile {

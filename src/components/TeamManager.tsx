@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { ClipboardList, Edit3, History, MailPlus, RefreshCw, Save, ShieldCheck, Trash2, UserCheck, Users, X } from 'lucide-react';
+import { ClipboardList, Edit3, History, Laptop, MailPlus, RefreshCw, Save, ShieldCheck, Trash2, UserCheck, Users, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { UserProfile, UserRole } from '../types';
 import { RecorderProfileManager } from './RecorderProfileManager';
+import { StaffDeviceManager } from './StaffDeviceManager';
 
 interface TeamMemberRow {
   id: string;
@@ -32,7 +33,7 @@ interface AuditRow {
 }
 
 const roleLabels: Record<UserRole, string> = { staff: '職員', manager: '児発管', admin: '管理者' };
-type TeamSection = 'recorders' | 'members' | 'invite' | 'invitations' | 'audit';
+type TeamSection = 'recorders' | 'devices' | 'members' | 'invite' | 'invitations' | 'audit';
 
 async function functionErrorMessage(error: unknown) {
   const typed = error as { message?: string; context?: Response };
@@ -158,8 +159,9 @@ export const TeamManager: React.FC<{ currentUser: UserProfile }> = ({ currentUse
       </div>
 
       <section className="rounded-xl border border-slate-200 bg-white p-2 shadow-xs">
-        <div className="grid grid-cols-2 gap-1 sm:grid-cols-5" role="tablist" aria-label="職員管理項目">
+        <div className="grid grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-6" role="tablist" aria-label="職員管理項目">
           <TeamSectionButton active={activeSection === 'recorders'} icon={ClipboardList} label="記録者名簿" onClick={() => setActiveSection('recorders')} />
+          <TeamSectionButton active={activeSection === 'devices'} icon={Laptop} label="端末・アクセス" onClick={() => setActiveSection('devices')} />
           <TeamSectionButton active={activeSection === 'members'} icon={Users} label="ログイン職員" count={members.length} onClick={() => setActiveSection('members')} />
           <TeamSectionButton active={activeSection === 'invite'} icon={MailPlus} label="メール招待" onClick={() => setActiveSection('invite')} />
           <TeamSectionButton
@@ -176,6 +178,7 @@ export const TeamManager: React.FC<{ currentUser: UserProfile }> = ({ currentUse
       {message && <p role="status" className="rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-700">{message}</p>}
 
       {activeSection === 'recorders' && <RecorderProfileManager currentUser={currentUser} />}
+      {activeSection === 'devices' && <StaffDeviceManager currentUser={currentUser} />}
 
       {activeSection === 'invite' && <form onSubmit={invite} className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
         <h3 className="text-xs font-bold flex items-center gap-2"><MailPlus className="w-4 h-4 text-teal-600" />職員をメールで招待</h3>

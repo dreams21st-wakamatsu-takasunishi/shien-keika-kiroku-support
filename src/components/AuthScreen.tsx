@@ -4,9 +4,10 @@ import { Building2, FileText, IdCard, LockKeyhole, Mail, ShieldCheck } from 'luc
 interface AuthScreenProps {
   onSignIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   onStaffIdSignIn: (organizationCode: string, employeeCode: string, password: string) => Promise<{ error: Error | null }>;
+  initialMessage?: string | null;
 }
 
-export const AuthScreen: React.FC<AuthScreenProps> = ({ onSignIn, onStaffIdSignIn }) => {
+export const AuthScreen: React.FC<AuthScreenProps> = ({ onSignIn, onStaffIdSignIn, initialMessage }) => {
   // Keep the current email flow as the initial view during the staged rollout.
   // Facilities can issue staff IDs without interrupting existing shared logins.
   const [loginMethod, setLoginMethod] = useState<'staff-id' | 'email'>('email');
@@ -14,7 +15,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onSignIn, onStaffIdSignI
   const [organizationCode, setOrganizationCode] = useState('');
   const [employeeCode, setEmployeeCode] = useState('');
   const [password, setPassword] = useState('');
-  const [message, setMessage] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(initialMessage || null);
   const [submitting, setSubmitting] = useState(false);
 
   const handleSubmit = async (event: React.FormEvent) => {

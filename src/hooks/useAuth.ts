@@ -2,8 +2,17 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { isSupabaseConfigured, supabase } from '../lib/supabase';
 import { UserProfile } from '../types';
+import { getAccessDeviceLabel, getAccessDevicePlatform, getAccessDeviceToken } from '../utils/accessDevice';
 
-function mapProfile(row: any, email?: string, organizationName?: string, recorderProfileId?: string): UserProfile {
+function mapProfile(
+  row: any,
+  email?: string,
+  organizationName?: string,
+  recorderProfileId?: string,
+  loginMethod: UserProfile['loginMethod'] = 'email',
+  fieldModeOnly = false,
+  accessDeviceId?: string,
+): UserProfile {
   return {
     id: row.id,
     organizationId: row.organization_id,
@@ -12,6 +21,9 @@ function mapProfile(row: any, email?: string, organizationName?: string, recorde
     role: row.role,
     email,
     recorderProfileId,
+    loginMethod,
+    fieldModeOnly,
+    accessDeviceId,
   };
 }
 
@@ -45,15 +57,37 @@ async function fetchProfile(activeSession: Session): Promise<UserProfile> {
   if (recorderError && recorderError.code !== 'PGRST202') {
     throw new Error(`職員情報を確認できませんでした: ${recorderError.message}`);
   }
-  if (activeSession.user.user_metadata?.login_method === 'staff_id' && typeof recorderProfileId !== 'string') {
+  const loginMethod = activeSession.user.user_metadata?.login_method === 'staff_id' ? 'staff_id' : 'email';
+  if (loginMethod === 'staff_id' && typeof recorderProfileId !== 'string') {
     throw new Error('この職員IDは記録者名簿と正しく紐付いていないか、利用停止中です。管理者にお問い合わせください。');
+  }
+
+  let fieldModeOnly = false;
+  let accessDeviceId: string | undefined;
+  const { data: deviceAccessRows, error: deviceAccessError } = await supabase.rpc(
+    'get_current_staff_device_access',
+    { p_device_token: getAccessDeviceToken() },
+  );
+  if (deviceAccessError && deviceAccessError.code !== 'PGRST202') {
+    throw new Error(`端末の利用状態を確認できませんでした: ${deviceAccessError.message}`);
+  }
+  const deviceAccess = Array.isArray(deviceAccessRows) ? deviceAccessRows[0] : deviceAccessRows;
+  if (deviceAccess && deviceAccess.access_allowed === false) {
+    throw new Error(deviceAccess.access_reason || 'この端末は現在利用できません。');
+  }
+  if (deviceAccess) {
+    fieldModeOnly = deviceAccess.field_mode_only === true;
+    accessDeviceId = typeof deviceAccess.device_id === 'string' ? deviceAccess.device_id : undefined;
   }
 
   return mapProfile(
     profileRow,
-    activeSession.user.user_metadata?.login_method === 'staff_id' ? undefined : activeSession.user.email,
+    loginMethod === 'staff_id' ? undefined : activeSession.user.email,
     organization?.name,
     typeof recorderProfileId === 'string' ? recorderProfileId : undefined,
+    loginMethod,
+    fieldModeOnly,
+    accessDeviceId,
   );
 }
 
@@ -138,6 +172,43 @@ export function useAuth() {
     };
   }, [initialized, profileReloadKey, session]);
 
+  useEffect(() => {
+    if (!supabase || !session || session.user.user_metadata?.login_method !== 'staff_id') return;
+    let active = true;
+    const verifyDeviceAccess = async () => {
+      const { data, error: accessError } = await supabase.rpc('get_current_staff_device_access', {
+        p_device_token: getAccessDeviceToken(),
+      });
+      if (!active || accessError) return;
+      const access = Array.isArray(data) ? data[0] : data;
+      if (access?.access_allowed === false) {
+        setError(access.access_reason || 'この端末は現在利用できません。');
+        await supabase.auth.signOut({ scope: 'local' });
+        if (!active) return;
+        setSession(null);
+        setProfile(null);
+        setLoading(false);
+        return;
+      }
+      if (profile && access && (
+        profile.fieldModeOnly !== (access.field_mode_only === true)
+        || profile.accessDeviceId !== (access.device_id || undefined)
+      )) {
+        setProfileReloadKey((current) => current + 1);
+      }
+    };
+    const timer = window.setInterval(() => void verifyDeviceAccess(), 60_000);
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') void verifyDeviceAccess();
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
+  }, [profile, session]);
+
   const signIn = async (email: string, password: string) => {
     if (!supabase) return { error: new Error('Supabaseが設定されていません。') };
     setError(null);
@@ -156,7 +227,14 @@ export function useAuth() {
     if (!supabase) return { error: new Error('Supabaseが設定されていません。') };
     setError(null);
     const { data, error: invokeError } = await supabase.functions.invoke('staff-login', {
-      body: { organizationCode, employeeCode, password },
+      body: {
+        organizationCode,
+        employeeCode,
+        password,
+        deviceToken: getAccessDeviceToken(),
+        deviceLabel: getAccessDeviceLabel(),
+        platform: getAccessDevicePlatform(),
+      },
     });
     if (invokeError) {
       let message = invokeError.message;
@@ -189,6 +267,7 @@ export function useAuth() {
 
   const signOut = async () => {
     if (!supabase) return;
+    setError(null);
     setLoading(true);
     const { error: signOutError } = await supabase.auth.signOut();
     if (signOutError) {

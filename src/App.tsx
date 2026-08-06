@@ -559,11 +559,19 @@ export default function App() {
     if (boundRecorder && activeRecorder?.id !== boundRecorder.id) setActiveRecorder(boundRecorder);
   }, [activeRecorder?.id, auth.profile, recorderProfiles]);
 
+  useEffect(() => {
+    if (!auth.profile?.fieldModeOnly) return;
+    if (!['home', 'form'].includes(activeTab)) {
+      setActiveTab('home');
+      setHomeWorkspace('menu');
+    }
+  }, [activeTab, auth.profile?.fieldModeOnly]);
+
   if (auth.loading) {
     return <LoadingScreen text="認証状態を確認しています..." />;
   }
   if (remoteMode && !auth.session) {
-    return <AuthScreen onSignIn={auth.signIn} onStaffIdSignIn={auth.signInWithStaffId} />;
+    return <AuthScreen onSignIn={auth.signIn} onStaffIdSignIn={auth.signInWithStaffId} initialMessage={auth.error} />;
   }
   if (remoteMode && auth.session && auth.needsPasswordSetup) {
     return (

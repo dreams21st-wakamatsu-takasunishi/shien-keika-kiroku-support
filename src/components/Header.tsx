@@ -71,8 +71,10 @@ export const Header: React.FC<HeaderProps> = ({
   const [draftHidden, setDraftHidden] = useState<RecorderMenuItemId[]>([]);
   const [savingMenu, setSavingMenu] = useState(false);
   const [menuMessage, setMenuMessage] = useState('');
-  const roleItems = navigationItems.filter(
-    (item) => !item.managerOnly || !currentUser || currentUser.role !== 'staff'
+  const fieldModeItems = new Set<RecorderMenuItemId>(['home', 'form']);
+  const roleItems = navigationItems.filter((item) =>
+    (!item.managerOnly || !currentUser || currentUser.role !== 'staff')
+    && (!currentUser?.fieldModeOnly || fieldModeItems.has(item.tab))
   );
   const roleItemIds = roleItems.map((item) => item.tab);
   const configuredOrder = activeRecorder?.menuPreferences?.order || [];
@@ -206,6 +208,11 @@ export const Header: React.FC<HeaderProps> = ({
                       ? `${roleLabel(currentUser.role)}でログイン中`
                       : 'このブラウザー内だけで試用中'}
                 </p>
+                {currentUser?.fieldModeOnly && (
+                  <p className="mt-2 rounded-lg bg-amber-300/15 px-2 py-1.5 text-[10px] font-bold text-amber-100">
+                    個人端末用の現場モードで表示しています
+                  </p>
+                )}
                 {activeRecorder && onChangeRecorder && (
                   <button type="button" onClick={() => { onChangeRecorder(); setMenuOpen(false); setCustomizingMenu(false); }} className="mt-2 flex min-h-9 items-center gap-1 rounded-lg bg-white px-3 text-xs font-black text-teal-800">
                     <UserRoundCog className="h-4 w-4" />記録者を切り替える
