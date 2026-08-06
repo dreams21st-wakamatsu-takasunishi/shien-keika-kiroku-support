@@ -1,0 +1,6 @@
+{
+  "name": "放課後等デイサービス マニュアル確認",
+  "description": "放課後等デイサービス施設向けの業務・緊急時マニュアル閲覧、既読チェック・署名管理、ヒヤリハット記録、AIマニュアル相談アプリ",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

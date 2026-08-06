@@ -22,7 +22,11 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import {
   AlertCircle,
+  ArrowDown,
   ArrowLeftRight,
+  ArrowUp,
+  Award,
+  BookOpen,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -34,12 +38,16 @@ import {
   Info,
   ListChecks,
   LoaderCircle,
+  Monitor,
   MessageSquareText,
+  NotebookPen,
+  Palette,
   Save,
   Search,
   SkipForward,
   Sparkles,
   Trash2,
+  Utensils,
   UserPlus,
   Users,
   X,
@@ -77,6 +85,7 @@ import {
   formatHomeworkDetails,
   HOMEWORK_ACADEMIC_SUBJECTS,
   HOMEWORK_MATERIALS,
+  HOMEWORK_OTHER_MODES,
   HOMEWORK_SUBJECTS,
   normalizeHomeworkDetails,
 } from '../utils/homeworkField';
@@ -87,10 +96,12 @@ import {
   POSTURE_BACK_OPTIONS,
   POSTURE_CATEGORIES,
   POSTURE_LEG_OPTIONS,
+  STANDARD_WEEKDAY_TEMPLATE,
 } from '../data/weekdayTemplate';
 import { generateStructuredWeekdaySummary } from '../utils/weekdayRecordSummary';
-import { isIntegratedHolidayTemplate, isStructuredHolidayTemplate } from '../data/holidayTemplate';
+import { isIntegratedHolidayTemplate, isStructuredHolidayTemplate, STANDARD_HOLIDAY_TEMPLATE } from '../data/holidayTemplate';
 import { generateStructuredHolidaySummary } from '../utils/holidayRecordSummary';
+import { generateUnifiedRecordSummary } from '../utils/unifiedRecordSummary';
 
 interface RecordFormProps {
   templates: Template[];
@@ -138,7 +149,15 @@ type StepKind =
   | 'abc-antecedent'
   | 'abc-summary'
   | 'abc-sequence'
+  | 'modules'
   | 'review';
+
+type RecordModuleType = 'study' | 'pc' | 'certification' | 'activity' | 'lunch' | 'snack' | 'special' | 'other';
+
+interface RecordModuleDraft {
+  id: string;
+  type: RecordModuleType;
+}
 
 interface WizardStep {
   id: string;
@@ -148,6 +167,9 @@ interface WizardStep {
   sectionId?: string;
   fieldId?: string;
   displayNumber?: number;
+  field?: TemplateField;
+  moduleId?: string;
+  moduleType?: RecordModuleType;
 }
 
 interface ChildDraft {
@@ -160,11 +182,12 @@ interface ChildDraft {
   snack: SnackType | '';
   snackNote: string;
   sectionAnswers: Record<string, SectionAnswer>;
+  recordModules: RecordModuleDraft[];
   skippedQuestionIds: string[];
 }
 
 interface WizardDraft {
-  version: 11;
+  version: 12;
   draftCycleKey: string;
   selectedTemplateId: string;
   childTemplateIds: Record<string, string>;
@@ -226,6 +249,167 @@ interface TakeoverNotice {
   allTransferred: boolean;
   syncing: boolean;
   syncFailed: boolean;
+}
+
+const UNIFIED_TEMPLATE_ID = 'template-unified';
+const MODULE_META_SECTION_ID = '__record_modules';
+
+const UNIFIED_TEMPLATE: Template = {
+  id: UNIFIED_TEMPLATE_ID,
+  name: '支援経過記録（統合）',
+  type: 'カスタム',
+  isDefault: true,
+  description: 'その日に行った内容だけを選んで記録する統合フォーマット',
+  wizardQuestions: STANDARD_WEEKDAY_TEMPLATE.wizardQuestions,
+  sections: [
+    {
+      id: 'life',
+      title: '来所時の様子',
+      fields: (STANDARD_WEEKDAY_TEMPLATE.sections.find((section) => section.id === 'life')?.fields || []).map((field) => ({ ...field })),
+    },
+  ],
+};
+
+const RECORD_MODULE_LABELS: Record<RecordModuleType, string> = {
+  study: '学習',
+  pc: 'パソコン',
+  certification: '検定',
+  activity: '活動',
+  lunch: 'お昼ごはん',
+  snack: 'おやつ',
+  special: '特記',
+  other: 'その他',
+};
+
+const SINGLE_RECORD_MODULES = new Set<RecordModuleType>(['lunch', 'snack']);
+
+function isUnifiedTemplate(template?: Template) {
+  return template?.id === UNIFIED_TEMPLATE_ID;
+}
+
+function moduleSectionId(moduleId: string) {
+  return `record-module-${moduleId}`;
+}
+
+function cloneModuleField(field: TemplateField, sourcePrefix: string): TemplateField {
+  const rewriteCondition = (condition: { fieldId: string; equals: string | string[] }) => ({
+    ...condition,
+    fieldId: condition.fieldId.replace(`${sourcePrefix}_`, 'module_'),
+  });
+  const visibleWhen = field.visibleWhen
+    ? (Array.isArray(field.visibleWhen) ? field.visibleWhen : [field.visibleWhen])
+        .filter((condition) => !condition.fieldId.endsWith('_type'))
+        .map(rewriteCondition)
+    : undefined;
+  const hiddenWhen = field.hiddenWhen
+    ? (Array.isArray(field.hiddenWhen) ? field.hiddenWhen : [field.hiddenWhen]).map(rewriteCondition)
+    : undefined;
+  return {
+    ...field,
+    id: field.id.replace(`${sourcePrefix}_`, 'module_'),
+    visibleWhen: visibleWhen?.length ? visibleWhen : undefined,
+    hiddenWhen: hiddenWhen?.length ? hiddenWhen : undefined,
+  };
+}
+
+function fieldsForRecordModule(type: RecordModuleType): TemplateField[] {
+  const weekdayPeriod = STANDARD_WEEKDAY_TEMPLATE.sections.find((section) => section.id === 'period1')?.fields || [];
+  if (type === 'study') {
+    return weekdayPeriod
+      .filter((field) => field.id.includes('_study_'))
+      .map((field) => cloneModuleField(field, 'period1'));
+  }
+  if (type === 'pc') {
+    return weekdayPeriod
+      .filter((field) => field.id.includes('_pc_'))
+      .map((field) => cloneModuleField(field, 'period1'));
+  }
+  if (type === 'certification') {
+    return [{
+      id: 'module_period3_type',
+      label: '検定内容',
+      questionTitle: '検定の取り組み内容はなんですか？',
+      type: 'radio',
+      options: ['漢検', 'パソコン', 'その他'],
+      defaultValue: '',
+      helpText: '取り組みを選ぶと、そのすぐ下に詳しい入力欄が表示されます。',
+      required: true,
+    }];
+  }
+  if (type === 'activity') {
+    const source = STANDARD_HOLIDAY_TEMPLATE.sections.find((section) => section.id === 'morning')?.fields || [];
+    return source
+      .filter((field) => field.id.includes('_activity_'))
+      .map((field) => cloneModuleField(field, 'morning'));
+  }
+  if (type === 'lunch') {
+    return (STANDARD_HOLIDAY_TEMPLATE.sections.find((section) => section.id === 'lunch')?.fields || [])
+      .map((field) => ({ ...field, id: 'module_lunch_details', visibleWhen: undefined }));
+  }
+  if (type === 'other') {
+    return [{
+      id: 'module_other_note',
+      label: 'その他の記録',
+      questionTitle: '記録内容を入力してください。',
+      type: 'textarea',
+      defaultValue: '',
+      helpText: '既存の項目に当てはまらない内容を入力してください。',
+      required: true,
+    }];
+  }
+  return [];
+}
+
+function createRecordModule(type: RecordModuleType): RecordModuleDraft {
+  const random = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return { id: `${type}-${random}`, type };
+}
+
+function createModuleSection(module: RecordModuleDraft, existing?: SectionAnswer): SectionAnswer {
+  const fields = fieldsForRecordModule(module.type);
+  const answers = Object.fromEntries(fields.map((field) => [
+    field.id,
+    existing?.answers?.[field.id] || { value: field.defaultValue || '', note: '' },
+  ]));
+  return {
+    sectionId: moduleSectionId(module.id),
+    sectionTitle: RECORD_MODULE_LABELS[module.type],
+    answers,
+    detailText: existing?.detailText || '',
+    abcAnalysis: module.type === 'special'
+      ? existing?.abcAnalysis || { inputMode: 'abc', behavior: '', consequence: '', antecedent: '', summary: '', freeText: '' }
+      : existing?.abcAnalysis,
+  };
+}
+
+function readRecordModules(sectionAnswers?: Record<string, SectionAnswer>): RecordModuleDraft[] {
+  const metadata = sectionAnswers?.[MODULE_META_SECTION_ID];
+  if (!metadata) return [];
+  return Object.entries(metadata.answers || {})
+    .map(([id, answer]) => ({
+      id,
+      type: answer.value as RecordModuleType,
+      order: Number.parseInt(answer.note || '0', 10) || 0,
+    }))
+    .filter((module) => module.type in RECORD_MODULE_LABELS)
+    .sort((left, right) => left.order - right.order)
+    .map(({ id, type }) => ({ id, type }));
+}
+
+function withRecordModuleMetadata(
+  sectionAnswers: Record<string, SectionAnswer>,
+  modules: RecordModuleDraft[],
+) {
+  return {
+    ...sectionAnswers,
+    [MODULE_META_SECTION_ID]: {
+      sectionId: MODULE_META_SECTION_ID,
+      sectionTitle: '記録項目',
+      answers: Object.fromEntries(modules.map((module, index) => [module.id, { value: module.type, note: String(index) }])),
+    },
+  };
 }
 
 const SortableChildTab: React.FC<{
@@ -519,22 +703,18 @@ function HomeworkSubjectInput({
   const toggleSubject = (subject: string) => {
     const selected = details.subjects.includes(subject);
     if (selected) {
-      if (subject === '宿題無し') {
-        commit({ ...details, subjects: [] });
-        return;
-      }
       setExpandedSubject((current) => current === subject ? null : subject);
       return;
     }
-    if (subject === '宿題無し') {
-      commit({ subjects: ['宿題無し'], materials: {}, notes: {} });
-      setExpandedSubject(null);
-      return;
+    const notes = { ...details.notes };
+    const subjects = subject !== 'その他' && details.subjects.includes('その他')
+      ? details.subjects.filter((value) => value !== 'その他')
+      : details.subjects;
+    if (subject !== 'その他') {
+      delete notes['その他区分'];
+      delete notes['その他備考'];
     }
-    commit({
-      ...details,
-      subjects: [...details.subjects.filter((value) => value !== '宿題無し'), subject],
-    });
+    commit({ ...details, subjects: [...subjects, subject], notes });
     setExpandedSubject(subject);
   };
 
@@ -575,11 +755,22 @@ function HomeworkSubjectInput({
     });
   };
 
+  const updateOtherMode = (mode: string) => {
+    commit({
+      subjects: ['その他'],
+      materials: {},
+      notes: {
+        その他区分: mode,
+        その他備考: details.notes['その他備考'] || '',
+      },
+    });
+  };
+
   return (
     <div className="space-y-3">
       {HOMEWORK_SUBJECTS.map((subject) => {
         const selected = details.subjects.includes(subject);
-        const expanded = subject !== '宿題無し' && selected && expandedSubject === subject;
+        const expanded = selected && expandedSubject === subject;
         const academic = HOMEWORK_ACADEMIC_SUBJECTS.includes(
           subject as (typeof HOMEWORK_ACADEMIC_SUBJECTS)[number]
         );
@@ -587,8 +778,8 @@ function HomeworkSubjectInput({
         const note = details.notes[subject]?.trim() || '';
         const summary = academic
           ? selectedMaterials.join('・')
-          : subject === '宿題無し'
-            ? '宿題はありません'
+          : subject === 'その他'
+            ? [details.notes['その他区分'], details.notes['その他備考']].filter(Boolean).join('・')
             : note;
 
         return (
@@ -614,11 +805,11 @@ function HomeworkSubjectInput({
                 <span className="block text-base font-black text-slate-900">{subject}</span>
                 <span className={`mt-0.5 block text-sm ${selected ? 'font-bold text-teal-800' : 'text-slate-500'}`}>
                   {selected
-                    ? summary || (academic ? '教材を選択してください' : '内容を入力してください')
+                    ? summary || (academic ? '教材を選択してください' : subject === 'その他' ? '取り組みなし／宿題なしを選択' : '内容を入力してください')
                     : 'タップして選択'}
                 </span>
               </span>
-              {selected && subject !== '宿題無し' && (
+              {selected && (
                 <ChevronRight className={`h-5 w-5 shrink-0 text-teal-700 transition-transform ${expanded ? 'rotate-90' : ''}`} />
               )}
             </button>
@@ -652,6 +843,37 @@ function HomeworkSubjectInput({
                       })}
                     </div>
                   </>
+                ) : subject === 'その他' ? (
+                  <div className="space-y-3">
+                    <div>
+                      <p className="mb-2 text-sm font-bold text-slate-700">該当する内容を選択してください</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        {HOMEWORK_OTHER_MODES.map((mode) => {
+                          const modeSelected = details.notes['その他区分'] === mode;
+                          return (
+                            <button
+                              key={mode}
+                              type="button"
+                              onClick={() => updateOtherMode(mode)}
+                              className={`${choiceClass} ${modeSelected ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300 bg-white text-slate-700'}`}
+                            >
+                              {modeSelected && <Check className="mr-1 inline h-4 w-4" />}{mode}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <label className="block text-base font-bold text-slate-800">
+                      備考（任意）
+                      <textarea
+                        rows={3}
+                        value={details.notes['その他備考'] || ''}
+                        onChange={(event) => updateNote('その他備考', event.target.value)}
+                        placeholder="理由や当日の状況を入力"
+                        className={`${inputClass} mt-2`}
+                      />
+                    </label>
+                  </div>
                 ) : (
                   <label className="block text-base font-bold text-slate-800">
                     {subject}の内容
@@ -659,7 +881,7 @@ function HomeworkSubjectInput({
                       rows={3}
                       value={details.notes[subject] || ''}
                       onChange={(event) => updateNote(subject, event.target.value)}
-                      placeholder={subject === '自学' ? '例：漢字練習、読書、調べ学習' : '宿題の内容を簡潔に入力'}
+                      placeholder="例：漢字練習、読書、調べ学習"
                       className={`${inputClass} mt-2`}
                     />
                   </label>
@@ -839,7 +1061,10 @@ function StudyExtrasInput({
     const parts = nextSelections.map((selection) => {
       if (selection === '漢検') {
         const grade = String(nextDetails.kankenGrade || '').trim();
-        return grade ? `漢検（${grade}）` : '漢検';
+        const activities = detailArray(nextDetails, 'kankenActivities');
+        const other = activities.includes('その他') ? String(nextDetails.kankenOtherNote || '').trim() : '';
+        const detailParts = [grade, ...activities.filter((item) => item !== 'その他'), other && `その他：${other}`].filter(Boolean);
+        return detailParts.length ? `漢検（${detailParts.join('・')}）` : '漢検';
       }
       if (selection === 'エジソン') {
         const activities = detailArray(nextDetails, 'edisonActivities');
@@ -869,7 +1094,11 @@ function StudyExtrasInput({
 
   const removeSelection = (selection: string) => {
     const next: Record<string, string | string[]> = { ...details, selections: selections.filter((item) => item !== selection) };
-    if (selection === '漢検') delete next.kankenGrade;
+    if (selection === '漢検') {
+      delete next.kankenGrade;
+      delete next.kankenActivities;
+      delete next.kankenOtherNote;
+    }
     if (selection === 'エジソン') delete next.edisonActivities;
     if (selection === 'その他') delete next.otherNote;
     commit(next);
@@ -882,7 +1111,7 @@ function StudyExtrasInput({
         const selected = selections.includes(selection);
         const isExpanded = selected && expanded === selection;
         const summary = selection === '漢検'
-          ? String(details.kankenGrade || '')
+          ? [String(details.kankenGrade || ''), ...detailArray(details, 'kankenActivities')].filter(Boolean).join('・')
           : selection === 'エジソン'
             ? detailArray(details, 'edisonActivities').join('・')
             : selection === 'その他'
@@ -898,12 +1127,25 @@ function StudyExtrasInput({
             {isExpanded && (
               <div className="space-y-3 border-t border-teal-200 bg-white p-4">
                 {selection === '漢検' && (
-                  <label className="block text-sm font-bold text-slate-700">取り組んだ級
-                    <select value={String(details.kankenGrade || '')} onChange={(event) => commit({ ...details, kankenGrade: event.target.value })} className={`${inputClass} mt-2`}>
-                      <option value="">級を選択してください</option>
-                      {KANKEN_GRADES.map((grade) => <option key={grade} value={grade}>{grade}</option>)}
-                    </select>
-                  </label>
+                  <div className="space-y-3">
+                    <label className="block text-sm font-bold text-slate-700">取り組んだ級
+                      <select value={String(details.kankenGrade || '')} onChange={(event) => commit({ ...details, kankenGrade: event.target.value })} className={`${inputClass} mt-2`}>
+                        <option value="">級を選択してください</option>
+                        {KANKEN_GRADES.map((grade) => <option key={grade} value={grade}>{grade}</option>)}
+                      </select>
+                    </label>
+                    <div>
+                      <p className="mb-2 text-sm font-bold text-slate-700">取り組んだ内容（複数選択可）</p>
+                      <div className="grid gap-2 sm:grid-cols-3">
+                        {['ドリル/ワーク', '過去問題', 'その他'].map((option) => {
+                          const current = detailArray(details, 'kankenActivities');
+                          const optionSelected = current.includes(option);
+                          return <button key={option} type="button" onClick={() => commit({ ...details, kankenActivities: optionSelected ? current.filter((item) => item !== option) : [...current, option] })} className={`${choiceClass} ${optionSelected ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300 bg-white text-slate-700'}`}>{optionSelected && <Check className="mr-1 inline h-4 w-4" />}{option}</button>;
+                        })}
+                      </div>
+                    </div>
+                    {detailArray(details, 'kankenActivities').includes('その他') && <textarea rows={2} value={String(details.kankenOtherNote || '')} onChange={(event) => commit({ ...details, kankenOtherNote: event.target.value })} placeholder="漢検のその他の内容" className={inputClass} />}
+                  </div>
                 )}
                 {selection === 'エジソン' && (
                   <div><p className="mb-2 text-sm font-bold text-slate-700">取り組んだ内容（複数選択可）</p><div className="grid grid-cols-2 gap-2">{EDISON_OPTIONS.map((option) => {
@@ -1340,6 +1582,12 @@ function createSectionAnswers(template?: Template, existing?: Record<string, Sec
 }
 
 function createChildDraft(template?: Template, record?: SupportRecord): ChildDraft {
+  const recordModules = isUnifiedTemplate(template) ? readRecordModules(record?.sectionAnswers) : [];
+  const sectionAnswers = createSectionAnswers(template, record?.sectionAnswers);
+  recordModules.forEach((module) => {
+    const sectionId = moduleSectionId(module.id);
+    sectionAnswers[sectionId] = createModuleSection(module, record?.sectionAnswers?.[sectionId]);
+  });
   return {
     recordId: record?.id || newRecordId(),
     templateId: template?.id || record?.templateId,
@@ -1349,7 +1597,8 @@ function createChildDraft(template?: Template, record?: SupportRecord): ChildDra
     expressionNote: record?.expressionNote || '',
     snack: record?.snack || '',
     snackNote: record?.snackNote || '',
-    sectionAnswers: createSectionAnswers(template, record?.sectionAnswers),
+    sectionAnswers,
+    recordModules,
     skippedQuestionIds: record?.skippedQuestionIds || [],
   };
 }
@@ -1405,14 +1654,14 @@ function migrateLegacyHolidayDraft(draft: WizardDraft) {
 function normalizeWizardDraft(value: unknown): WizardDraft | null {
   if (!value || typeof value !== 'object') return null;
   const draft = value as Partial<WizardDraft> & { version?: number };
-  if (![2, 3, 4, 5, 6, 7, 8, 9, 10, 11].includes(draft.version || 0) || !Array.isArray(draft.selectedChildIds) || !draft.childDrafts) return null;
+  if (![2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].includes(draft.version || 0) || !Array.isArray(draft.selectedChildIds) || !draft.childDrafts) return null;
   const previousStepIndex = draft.currentStepIndex || 0;
   const currentStepIndex = (draft.version || 0) < 4
     ? previousStepIndex === 1 ? 2 : previousStepIndex === 2 ? 1 : previousStepIndex
     : previousStepIndex;
   const normalized = {
     ...draft,
-    version: 11,
+    version: 12,
     draftCycleKey: getCurrentDraftCycleKey(),
     recorderId: draft.recorderId || '',
     childTemplateIds: draft.childTemplateIds || Object.fromEntries(
@@ -1420,6 +1669,13 @@ function normalizeWizardDraft(value: unknown): WizardDraft | null {
     ),
     currentStepIndex,
     childStepIds: draft.childStepIds || {},
+    childDrafts: Object.fromEntries(Object.entries(draft.childDrafts).map(([childId, childDraft]) => [
+      childId,
+      {
+        ...childDraft,
+        recordModules: childDraft.recordModules || readRecordModules(childDraft.sectionAnswers),
+      },
+    ])),
   } as WizardDraft;
   return (draft.version || 0) < 9 ? migrateLegacyHolidayDraft(normalized) : normalized;
 }
@@ -1463,7 +1719,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   handoverItems = [],
 }) => {
   const storedTemplate = templates.find((template) => template.id === initialRecord?.templateId) || templates[0];
-  const initialTemplate = initialRecord?.templateSectionsSnapshot?.length
+  const initialTemplate = initialRecord?.templateId === UNIFIED_TEMPLATE_ID
+    ? UNIFIED_TEMPLATE
+    : initialRecord?.templateSectionsSnapshot?.length
     ? {
         id: initialRecord.templateId,
         name: initialRecord.templateName,
@@ -1471,7 +1729,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         sections: initialRecord.templateSectionsSnapshot,
         wizardQuestions: storedTemplate?.wizardQuestions,
       } satisfies Template
-    : storedTemplate;
+    : initialRecord
+      ? storedTemplate
+      : UNIFIED_TEMPLATE;
   const draftKey = useRef(
     requestedDraftKey
       || (initialRecord ? `record-edit-${initialRecord.id}` : createRecordDraftKey())
@@ -1490,20 +1750,11 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         : undefined);
     const initialChildId = initialRecord?.childId || assistantPrefill?.childId || '';
     const initialDate = initialRecord?.date || assistantPrefill?.date || new Date().toISOString().split('T')[0];
-    const initialDailyPlan = initialChildId
-      ? dailyChildPlans.find((plan) => plan.childId === initialChildId && plan.date === initialDate)
-      : undefined;
-    const initialChildTemplate = initialRecord
-      ? initialTemplate
-      : initialDailyPlan
-        ? templates.find((template) => template.id === (initialDailyPlan.recordFormat === '休日' ? 'template-holiday' : 'template-weekday'))
-          || templates.find((template) => template.type === initialDailyPlan.recordFormat)
-          || initialTemplate
-        : initialTemplate;
+    const initialChildTemplate = initialRecord ? initialTemplate : UNIFIED_TEMPLATE;
     const base: WizardDraft = {
-      version: 11,
+      version: 12,
       draftCycleKey: getCurrentDraftCycleKey(),
-      selectedTemplateId: initialTemplate?.id || '',
+      selectedTemplateId: initialTemplate?.id || UNIFIED_TEMPLATE_ID,
       childTemplateIds: initialRecord
         ? { [initialRecord.childId]: initialChildTemplate?.id || '' }
         : assistantPrefill
@@ -1559,6 +1810,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const [childSearch, setChildSearch] = useState('');
   const [checksAcknowledged, setChecksAcknowledged] = useState(false);
   const [expandedGroupStepId, setExpandedGroupStepId] = useState<string | null>(null);
+  const [pendingModuleStepId, setPendingModuleStepId] = useState<string | null>(null);
   const [reorderingChildTabs, setReorderingChildTabs] = useState(false);
   const [draggingChildId, setDraggingChildId] = useState<string | null>(null);
   const childTabSensors = useSensors(
@@ -1626,6 +1878,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     const templateId = childId
       ? wizard.childDrafts[childId]?.templateId || wizard.childTemplateIds[childId]
       : undefined;
+    if ((templateId || wizard.selectedTemplateId) === UNIFIED_TEMPLATE_ID) return UNIFIED_TEMPLATE;
     return templates.find((template) => template.id === (templateId || wizard.selectedTemplateId)) || templates[0];
   };
   const activeTemplate = templateForChild(wizard.activeChildId);
@@ -1839,7 +2092,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     const timer = window.setTimeout(() => {
       const payload: WizardDraft = {
         ...wizard,
-        version: 11,
+        version: 12,
         draftCycleKey: getCurrentDraftCycleKey(),
         updatedAt: new Date().toISOString(),
       };
@@ -1931,17 +2184,86 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     setWizard((previous) => ({ ...previous, selectedTemplateId: templates[0].id }));
   }, [activeTemplate, templates]);
 
-  const buildStepsForTemplate = (template?: Template): WizardStep[] => {
+  const buildStepsForTemplate = (template?: Template, childDraft = activeChildDraft): WizardStep[] => {
     const activeTemplate = template;
     const questions = getWizardQuestions(activeTemplate);
-    const next: WizardStep[] = [
-      { id: 'template', kind: 'template', displayNumber: 1, ...questions.template },
-      { id: 'date', kind: 'date', displayNumber: 2, ...questions.date },
-      { id: 'children', kind: 'children', displayNumber: 3, ...questions.children },
-    ];
+    const next: WizardStep[] = isUnifiedTemplate(activeTemplate)
+      ? [
+          { id: 'date', kind: 'date', displayNumber: 1, ...questions.date },
+          { id: 'children', kind: 'children', displayNumber: 2, ...questions.children },
+        ]
+      : [
+          { id: 'template', kind: 'template', displayNumber: 1, ...questions.template },
+          { id: 'date', kind: 'date', displayNumber: 2, ...questions.date },
+          { id: 'children', kind: 'children', displayNumber: 3, ...questions.children },
+        ];
 
     if (!activeRecorder && !userDisplayName) {
       next.push({ id: 'recorder', kind: 'recorder', ...questions.recorder });
+    }
+
+    if (isUnifiedTemplate(activeTemplate)) {
+      next.push(
+        { id: 'attendance', kind: 'attendance', displayNumber: 3, ...questions.attendance },
+        { id: 'expression', kind: 'expression', displayNumber: 4, ...questions.expression },
+      );
+      const life = activeTemplate.sections.find((section) => section.id === 'life');
+      life?.fields.forEach((field, index) => next.push({
+        id: `field-life-${field.id}`,
+        kind: 'field',
+        sectionId: 'life',
+        fieldId: field.id,
+        field,
+        displayNumber: 5 + index,
+        title: field.questionTitle || `${field.label}はどうですか？`,
+        help: field.helpText,
+      }));
+      next.push({
+        id: 'module-menu',
+        kind: 'modules',
+        title: '何を記録しますか？',
+        help: '本日行った内容だけを選んで入力してください。同じ項目を複数回追加できます。',
+      });
+      (childDraft?.recordModules || []).forEach((module) => {
+        const sectionId = moduleSectionId(module.id);
+        if (module.type === 'snack') {
+          next.push({
+            id: `module-${module.id}-snack`,
+            kind: 'snack',
+            sectionId,
+            moduleId: module.id,
+            moduleType: module.type,
+            title: questions.snack.title,
+            help: questions.snack.help,
+          });
+          return;
+        }
+        if (module.type === 'special') {
+          next.push({
+            id: `module-${module.id}-special`,
+            kind: 'abc-sequence',
+            sectionId,
+            moduleId: module.id,
+            moduleType: module.type,
+            title: questions.abcBehavior.title,
+            help: 'ABCで整理するか、自由記入を選べます。',
+          });
+          return;
+        }
+        fieldsForRecordModule(module.type).forEach((field) => next.push({
+          id: `module-${module.id}-field-${field.id}`,
+          kind: 'field',
+          sectionId,
+          fieldId: field.id,
+          field,
+          moduleId: module.id,
+          moduleType: module.type,
+          title: field.questionTitle || field.label,
+          help: field.helpText,
+        }));
+      });
+      next.push({ id: 'review', kind: 'review', title: '入力内容を確認してください。' });
+      return next;
     }
 
     if (isStructuredWeekdayTemplate(activeTemplate)) {
@@ -2151,11 +2473,12 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     next.push({ id: 'review', kind: 'review', title: '選択した児童全員の入力内容を確認してください。' });
     return next;
   };
+  const activeModuleSignature = (activeChildDraft?.recordModules || []).map((module) => `${module.id}:${module.type}`).join('|');
   const steps = useMemo<WizardStep[]>(
-    () => buildStepsForTemplate(activeTemplate),
+    () => buildStepsForTemplate(activeTemplate, activeChildDraft),
     // Step definitions change only when the active child/template or recorder gate changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [activeRecorder, activeTemplate, userDisplayName],
+    [activeRecorder, activeTemplate, userDisplayName, activeModuleSignature],
   );
 
   useEffect(() => {
@@ -2178,18 +2501,22 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   }, [draftReady, initialStepId, steps]);
 
   const currentStep = steps[wizard.currentStepIndex];
-  const questionTotal = isIntegratedHolidayTemplate(activeTemplate)
-    ? 36
-    : isStructuredHolidayTemplate(activeTemplate)
-      ? 22
-      : 21;
+  const questionTotal = isUnifiedTemplate(activeTemplate)
+    ? Math.max(1, steps.filter((step) => !['date', 'children', 'recorder', 'modules', 'review'].includes(step.kind)).length)
+    : isIntegratedHolidayTemplate(activeTemplate)
+      ? 36
+      : isStructuredHolidayTemplate(activeTemplate)
+        ? 22
+        : 21;
   const progress = currentStep?.kind === 'review'
     ? 100
-    : currentStep?.displayNumber
-      ? (currentStep.displayNumber / questionTotal) * 100
-      : steps.length > 0
-        ? ((wizard.currentStepIndex + 1) / steps.length) * 100
-        : 0;
+    : isUnifiedTemplate(activeTemplate)
+      ? steps.length > 0 ? ((wizard.currentStepIndex + 1) / steps.length) * 100 : 0
+      : currentStep?.displayNumber
+        ? (currentStep.displayNumber / questionTotal) * 100
+        : steps.length > 0
+          ? ((wizard.currentStepIndex + 1) / steps.length) * 100
+          : 0;
   const isChildStep = currentStep && !['template', 'children', 'date', 'recorder', 'review'].includes(currentStep.kind);
 
   const updateWizard = (updates: Partial<WizardDraft>) => {
@@ -2205,6 +2532,61 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     });
   };
 
+  const openRecordModule = (module: RecordModuleDraft) => {
+    const step = module.type === 'snack'
+      ? `module-${module.id}-snack`
+      : module.type === 'special'
+        ? `module-${module.id}-special`
+        : `module-${module.id}-field-${fieldsForRecordModule(module.type)[0]?.id || ''}`;
+    setPendingModuleStepId(step);
+  };
+
+  const addRecordModule = (type: RecordModuleType) => {
+    if (!wizard.activeChildId || editingDisabled) return;
+    const existing = activeChildDraft?.recordModules.find((module) => module.type === type);
+    if (existing && SINGLE_RECORD_MODULES.has(type)) {
+      openRecordModule(existing);
+      return;
+    }
+    const module = createRecordModule(type);
+    updateChildDraft(wizard.activeChildId, (draft) => ({
+      ...draft,
+      recordModules: [...draft.recordModules, module],
+      sectionAnswers: {
+        ...draft.sectionAnswers,
+        [moduleSectionId(module.id)]: createModuleSection(module),
+      },
+    }));
+    openRecordModule(module);
+  };
+
+  const removeRecordModule = (moduleId: string) => {
+    if (!wizard.activeChildId || editingDisabled) return;
+    const module = activeChildDraft?.recordModules.find((item) => item.id === moduleId);
+    if (!module || !window.confirm(`${RECORD_MODULE_LABELS[module.type]}の入力欄と内容を削除しますか？`)) return;
+    updateChildDraft(wizard.activeChildId, (draft) => {
+      const sectionAnswers = { ...draft.sectionAnswers };
+      delete sectionAnswers[moduleSectionId(moduleId)];
+      return {
+        ...draft,
+        ...(module.type === 'snack' ? { snack: '', snackNote: '' } : {}),
+        recordModules: draft.recordModules.filter((item) => item.id !== moduleId),
+        sectionAnswers,
+        skippedQuestionIds: draft.skippedQuestionIds.filter((id) => !id.includes(moduleId)),
+      };
+    });
+  };
+
+  const moveRecordModule = (moduleId: string, direction: -1 | 1) => {
+    if (!wizard.activeChildId || editingDisabled) return;
+    updateChildDraft(wizard.activeChildId, (draft) => {
+      const index = draft.recordModules.findIndex((module) => module.id === moduleId);
+      const target = index + direction;
+      if (index < 0 || target < 0 || target >= draft.recordModules.length) return draft;
+      return { ...draft, recordModules: arrayMove(draft.recordModules, index, target) };
+    });
+  };
+
   const unskip = (draft: ChildDraft, stepId: string) => ({
     ...draft,
     skippedQuestionIds: draft.skippedQuestionIds.filter((id) => id !== stepId),
@@ -2215,6 +2597,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     updateChildDraft(wizard.activeChildId, (raw) => {
       const draft = unskip(raw, 'attendance');
       if (!attendance.includes('欠席')) return { ...draft, attendance };
+      if (isUnifiedTemplate(activeTemplate)) return { ...draft, attendance };
       return {
         ...draft,
         attendance,
@@ -2243,6 +2626,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   };
 
   const recommendedTemplateForChild = (childId: string, date = wizard.date) => {
+    if (!initialRecord) return UNIFIED_TEMPLATE;
     const plan = dailyChildPlans.find((candidate) => candidate.childId === childId && candidate.date === date);
     if (!plan) return templates.find((template) => template.id === wizard.selectedTemplateId) || templates[0];
     const preferredId = plan.recordFormat === '休日' ? 'template-holiday' : 'template-weekday';
@@ -2273,6 +2657,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
   const setRecordDate = (date: string) => {
     setWizard((previous) => {
+      if (previous.selectedTemplateId === UNIFIED_TEMPLATE_ID) return { ...previous, date };
       const childTemplateIds = { ...previous.childTemplateIds };
       const childDrafts = { ...previous.childDrafts };
       previous.selectedChildIds.forEach((childId) => {
@@ -2396,7 +2781,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     });
   };
 
-  const fieldForStep = (step: WizardStep, template = activeTemplate) => template?.sections
+  const fieldForStep = (step: WizardStep, template = activeTemplate) => step.field || template?.sections
     .find((section) => section.id === step.sectionId)?.fields
     .find((field) => field.id === step.fieldId);
 
@@ -2412,8 +2797,12 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     if (!visible) return false;
     if (/_study_attitude$/.test(field.id)) {
       const homeworkFieldId = field.id.replace(/_study_attitude$/, '_study_homework');
-      const homeworkValue = childDraft?.sectionAnswers[sectionId || '']?.answers[homeworkFieldId]?.value;
-      if (homeworkValue === '宿題無し') return false;
+      const homeworkAnswer = childDraft?.sectionAnswers[sectionId || '']?.answers[homeworkFieldId];
+      const homework = normalizeHomeworkDetails(homeworkAnswer?.homeworkDetails, homeworkAnswer?.value);
+      if (
+        homework.subjects.includes('その他')
+        && HOMEWORK_OTHER_MODES.includes(homework.notes['その他区分'] as (typeof HOMEWORK_OTHER_MODES)[number])
+      ) return false;
     }
     if (!field.hiddenWhen) return true;
     const hiddenConditions = Array.isArray(field.hiddenWhen) ? field.hiddenWhen : [field.hiddenWhen];
@@ -2427,7 +2816,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
   const stepIsVisible = (step: WizardStep, childDraft?: ChildDraft, template = activeTemplate, childId = wizard.activeChildId) => {
     const dailyPlan = dailyChildPlans.find((plan) => plan.childId === childId && plan.date === wizard.date);
-    if (dailyPlan) {
+    if (dailyPlan && !isUnifiedTemplate(template)) {
       if (step.kind === 'snack' && !dailyPlan.hasSnack) return false;
       if (isStructuredHolidayTemplate(template)) {
         if (step.sectionId === 'morning' && !dailyPlan.hasMorningProgram) return false;
@@ -2449,10 +2838,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     if (field.type === 'homework_subjects') {
       const homework = normalizeHomeworkDetails(answer.homeworkDetails, answer.value);
       return homework.subjects.length > 0 && homework.subjects.every((subject) =>
-        subject === '宿題無し'
-          ? true
-          : HOMEWORK_ACADEMIC_SUBJECTS.includes(subject as (typeof HOMEWORK_ACADEMIC_SUBJECTS)[number])
-            ? (homework.materials[subject] || []).length > 0
+        HOMEWORK_ACADEMIC_SUBJECTS.includes(subject as (typeof HOMEWORK_ACADEMIC_SUBJECTS)[number])
+          ? (homework.materials[subject] || []).length > 0
+          : subject === 'その他'
+            ? HOMEWORK_OTHER_MODES.includes(homework.notes['その他区分'] as (typeof HOMEWORK_OTHER_MODES)[number])
             : Boolean(homework.notes[subject]?.trim())
       );
     }
@@ -2460,7 +2849,11 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       const details = answer.nestedDetails || {};
       const selections = detailArray(details, 'selections');
       return selections.length > 0
-        && (!selections.includes('漢検') || Boolean(String(details.kankenGrade || '').trim()))
+        && (!selections.includes('漢検') || (
+          Boolean(String(details.kankenGrade || '').trim())
+          && detailArray(details, 'kankenActivities').length > 0
+          && (!detailArray(details, 'kankenActivities').includes('その他') || Boolean(String(details.kankenOtherNote || '').trim()))
+        ))
         && (!selections.includes('エジソン') || detailArray(details, 'edisonActivities').length > 0)
         && (!selections.includes('その他') || Boolean(String(details.otherNote || '').trim()));
     }
@@ -2514,11 +2907,18 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     }
   };
 
-  const perChildStepsFrom = (template?: Template) => buildStepsForTemplate(template)
-    .filter((step) => !['template', 'children', 'date', 'recorder', 'review'].includes(step.kind));
-  const allPerChildSteps = perChildStepsFrom(activeTemplate);
+  const perChildStepsFrom = (template?: Template, draft?: ChildDraft) => buildStepsForTemplate(template, draft)
+    .filter((step) => !['template', 'children', 'date', 'recorder', 'modules', 'review'].includes(step.kind));
+  const allPerChildSteps = perChildStepsFrom(activeTemplate, activeChildDraft);
   const pageGroupKey = (step?: WizardStep) => {
-    if (!step || (!isStructuredWeekdayTemplate(activeTemplate) && !isStructuredHolidayTemplate(activeTemplate))) return step?.id || '';
+    if (!step) return '';
+    if (isUnifiedTemplate(activeTemplate)) {
+      if (step.kind === 'attendance' || step.kind === 'expression' || step.sectionId === 'life') return 'arrival';
+      if (step.kind === 'modules') return 'modules';
+      if (step.moduleId) return `module:${step.moduleId}`;
+      return step.id;
+    }
+    if (!isStructuredWeekdayTemplate(activeTemplate) && !isStructuredHolidayTemplate(activeTemplate)) return step.id;
     if (['attendance', 'expression', 'field-life-fatigue'].includes(step.id)) return 'arrival';
     if (
       ['field-life-preparation', 'field-life-response_to_prompt'].includes(step.id)
@@ -2538,6 +2938,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const pageTitle = (step?: WizardStep) => {
     const key = pageGroupKey(step);
     if (key === 'arrival') return '来所時の様子';
+    if (key === 'modules') return '何を記録しますか？';
+    if (key.startsWith('module:')) return step?.moduleType ? RECORD_MODULE_LABELS[step.moduleType] : '記録項目';
     if (key === 'readiness') return isStructuredWeekdayTemplate(activeTemplate)
       ? '準備・おやつ・声掛けへの反応'
       : '準備・声掛けへの反応';
@@ -2552,7 +2954,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     const visibleSteps = allPerChildSteps.filter((candidate) =>
       pageGroupKey(candidate) === key && stepIsVisible(candidate, draft)
     );
-    if (!key.endsWith(':study') && !key.endsWith(':pc')) return visibleSteps;
+    const postureFirst = key.endsWith(':study')
+      || key.endsWith(':pc')
+      || (key.startsWith('module:') && (step.moduleType === 'study' || step.moduleType === 'pc'));
+    if (!postureFirst) return visibleSteps;
     return [...visibleSteps].sort((left, right) => {
       const leftIsPosture = /_(study|pc)_posture$/.test(left.fieldId || '');
       const rightIsPosture = /_(study|pc)_posture$/.test(right.fieldId || '');
@@ -2561,7 +2966,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   };
   const childStepsForDraft = (draft?: ChildDraft, childId = wizard.activeChildId) => {
     const template = templateForChild(childId);
-    return perChildStepsFrom(template).filter((step) => stepIsVisible(step, draft, template, childId));
+    return perChildStepsFrom(template, draft).filter((step) => stepIsVisible(step, draft, template, childId));
   };
   const perChildSteps = childStepsForDraft(activeChildDraft, wizard.activeChildId);
   const unansweredForChild = (childId: string) => {
@@ -2604,6 +3009,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const questionIndexGroupLabel = (step: WizardStep) => {
     const key = pageGroupKey(step);
     if (key === 'arrival') return '来所時の様子';
+    if (key.startsWith('module:')) return step.moduleType ? RECORD_MODULE_LABELS[step.moduleType] : '記録項目';
     if (key === 'readiness') return '生活の様子';
     const sectionTitle = activeTemplate?.sections.find((section) => section.id === step.sectionId)?.title;
     if (key.endsWith(':study')) return `${sectionTitle || ''}・学習`;
@@ -2758,7 +3164,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     childIds.forEach((childId) => {
       const childName = childrenList.find((child) => child.id === childId)?.name || '児童';
       const childTemplate = templateForChild(childId);
-      const childPerSteps = perChildStepsFrom(childTemplate);
+      const childPerSteps = perChildStepsFrom(childTemplate, wizard.childDrafts[childId]);
       const dailyPlan = dailyChildPlans.find((plan) => plan.childId === childId && plan.date === wizard.date);
       const draft = wizard.childDrafts[childId] || createChildDraft(childTemplate);
       const unanswered = unansweredForChild(childId);
@@ -2790,7 +3196,20 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       // 欠席時は出欠だけを記録対象とし、以降の必須項目を検査しない。
       if (draft.attendance.includes('欠席')) return;
 
-      childTemplate?.sections.forEach((section) => {
+      const sectionsToCheck = childTemplate
+        ? [
+            ...childTemplate.sections,
+            ...(isUnifiedTemplate(childTemplate)
+              ? draft.recordModules.map((module) => ({
+                  id: moduleSectionId(module.id),
+                  title: RECORD_MODULE_LABELS[module.type],
+                  fields: fieldsForRecordModule(module.type),
+                }))
+              : []),
+          ]
+        : [];
+
+      sectionsToCheck.forEach((section) => {
         if (isStructuredHolidayTemplate(childTemplate) && dailyPlan) {
           if (section.id === 'morning' && !dailyPlan.hasMorningProgram) return;
           if (section.id === 'lunch' && !dailyPlan.hasLunch) return;
@@ -2815,12 +3234,11 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           if (field.type === 'homework_subjects' && answer?.homeworkDetails) {
             const homework = normalizeHomeworkDetails(answer.homeworkDetails, answer.value);
             const incomplete = homework.subjects.filter((subject) =>
-              subject === '宿題無し'
-                ? false
-                :
               HOMEWORK_ACADEMIC_SUBJECTS.includes(subject as (typeof HOMEWORK_ACADEMIC_SUBJECTS)[number])
                 ? !(homework.materials[subject] || []).length
-                : !homework.notes[subject]?.trim()
+                : subject === 'その他'
+                  ? !HOMEWORK_OTHER_MODES.includes(homework.notes['その他区分'] as (typeof HOMEWORK_OTHER_MODES)[number])
+                  : !homework.notes[subject]?.trim()
             );
             if (incomplete.length > 0) {
               checks.push({
@@ -2839,6 +3257,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             const selections = detailArray(details, 'selections');
             const incomplete = [
               selections.includes('漢検') && !String(details.kankenGrade || '').trim() ? '漢検の級' : '',
+              selections.includes('漢検') && detailArray(details, 'kankenActivities').length === 0 ? '漢検の取り組み内容' : '',
+              selections.includes('漢検') && detailArray(details, 'kankenActivities').includes('その他') && !String(details.kankenOtherNote || '').trim() ? '漢検のその他内容' : '',
               selections.includes('エジソン') && detailArray(details, 'edisonActivities').length === 0 ? 'エジソンの内容' : '',
               selections.includes('その他') && !String(details.otherNote || '').trim() ? 'その他の内容' : '',
             ].filter(Boolean);
@@ -2950,8 +3370,18 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     document.getElementById('record-wizard')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
+  useEffect(() => {
+    if (!pendingModuleStepId) return;
+    const targetIndex = steps.findIndex((step) => step.id === pendingModuleStepId);
+    if (targetIndex < 0) return;
+    setPendingModuleStepId(null);
+    moveToStep(targetIndex);
+    // moveToStep intentionally follows the latest dynamic module step list.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pendingModuleStepId, steps]);
+
   const moveToChildStep = (childId: string, stepId: string) => {
-    const targetSteps = buildStepsForTemplate(templateForChild(childId));
+    const targetSteps = buildStepsForTemplate(templateForChild(childId), wizard.childDrafts[childId]);
     const targetIndex = targetSteps.findIndex((step) => step.id === stepId);
     if (targetIndex < 0) return;
     setStepError(null);
@@ -2971,7 +3401,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     const firstUnanswered = unansweredForChild(childId)[0];
     const targetSteps = childStepsForDraft(wizard.childDrafts[childId], childId);
     const target = targetSteps.find((step) => step.id === rememberedStepId) || firstUnanswered || targetSteps[0];
-    const targetTemplateSteps = buildStepsForTemplate(templateForChild(childId));
+    const targetTemplateSteps = buildStepsForTemplate(templateForChild(childId), wizard.childDrafts[childId]);
     const targetIndex = target ? targetTemplateSteps.findIndex((step) => step.id === target.id) : wizard.currentStepIndex;
     setStepError(null);
     setSaveError(null);
@@ -3024,6 +3454,13 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const goNext = () => {
     const error = readOnly ? null : validateGlobalStep();
     if (error) return setStepError(error);
+    if (currentStep?.moduleId && isUnifiedTemplate(activeTemplate)) {
+      const moduleMenuIndex = steps.findIndex((step) => step.kind === 'modules');
+      if (moduleMenuIndex >= 0) {
+        moveToStep(moduleMenuIndex);
+        return;
+      }
+    }
     const currentChildSteps = childStepsForDraft(activeChildDraft, wizard.activeChildId);
     const currentChildStepIndex = currentStep ? currentChildSteps.findIndex((step) => step.id === currentStep.id) : -1;
     if (currentChildStepIndex === currentChildSteps.length - 1 && currentChildStepIndex >= 0 && wizard.selectedChildIds.length > 1) {
@@ -3032,7 +3469,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       const nextChildId = remainingIds.find((id) => unansweredForChild(id).length > 0);
       if (nextChildId) {
         const firstUnanswered = unansweredForChild(nextChildId)[0];
-        const nextSteps = buildStepsForTemplate(templateForChild(nextChildId));
+        const nextSteps = buildStepsForTemplate(templateForChild(nextChildId), wizard.childDrafts[nextChildId]);
         setStepError(null);
         setWizard((previous) => ({
           ...previous,
@@ -3064,6 +3501,13 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   };
 
   const goPrevious = () => {
+    if (currentStep?.moduleId && isUnifiedTemplate(activeTemplate)) {
+      const moduleMenuIndex = steps.findIndex((step) => step.kind === 'modules');
+      if (moduleMenuIndex >= 0) {
+        moveToStep(moduleMenuIndex);
+        return;
+      }
+    }
     const currentPageFirstIndex = Math.min(
       wizard.currentStepIndex,
       ...currentPageSteps.map((step) => steps.findIndex((candidate) => candidate.id === step.id)),
@@ -3409,11 +3853,14 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                 const dayPlan = dayPlans.find((plan) => plan.childId === child.id);
                 const isAdditional = dayPlan?.attendancePlan === '追加利用' || plannedChildIds.has(child.id) || additionalSelected.some((item) => item.id === child.id);
                 const lockOwner = lockedChildren[`${wizard.date}:${child.id}`];
-                return <button key={child.id} type="button" disabled={Boolean(initialRecord) || Boolean(lockOwner)} onClick={() => toggleChild(child.id)} className={`${choiceClass} flex items-center justify-between text-left ${selected ? 'bg-teal-600 border-teal-600 text-white' : lockOwner ? 'border-amber-300 bg-amber-50 text-amber-900' : 'bg-white border-slate-300 text-slate-700'} disabled:opacity-80`}><span>{child.name}<span className="block text-[11px] font-normal opacity-75">{lockOwner ? `${lockOwner}が入力中` : `${calculateSchoolGrade(child.birthDate) || child.grade || '学年未設定'}・${dayPlan ? `${dayPlan.dayPattern}・${dayPlan.recordFormat}形式` : isAdditional ? '追加利用' : formatRegularDays(getRegularDaysForDate(child, wizard.date))}`}</span></span>{selected && <Check className="w-5 h-5" />}</button>;
+                const planSummary = dayPlan
+                  ? [dayPlan.hasLunch && '昼食', dayPlan.hasSnack && 'おやつ', dayPlan.arrivalTime && `来所 ${dayPlan.arrivalTime}`].filter(Boolean).join('・') || '日別予定あり'
+                  : isAdditional ? '追加利用' : formatRegularDays(getRegularDaysForDate(child, wizard.date));
+                return <button key={child.id} type="button" disabled={Boolean(initialRecord) || Boolean(lockOwner)} onClick={() => toggleChild(child.id)} className={`${choiceClass} flex items-center justify-between text-left ${selected ? 'bg-teal-600 border-teal-600 text-white' : lockOwner ? 'border-amber-300 bg-amber-50 text-amber-900' : 'bg-white border-slate-300 text-slate-700'} disabled:opacity-80`}><span>{child.name}<span className="block text-[11px] font-normal opacity-75">{lockOwner ? `${lockOwner}が入力中` : `${calculateSchoolGrade(child.birthDate) || child.grade || '学年未設定'}・${planSummary}`}</span></span>{selected && <Check className="w-5 h-5" />}</button>;
               })}
             </div>
             {displayedChildren.length === 0 && <p className="rounded-xl border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">この曜日の定期利用児童は登録されていません。</p>}
-            {wizard.selectedChildIds.length > 0 && (
+            {wizard.selectedChildIds.length > 0 && !isUnifiedTemplate(activeTemplate) && (
               <section className="rounded-2xl border border-violet-200 bg-violet-50/60 p-3">
                 <div className="flex items-start gap-2">
                   <Info className="mt-0.5 h-4 w-4 shrink-0 text-violet-700" />
@@ -3431,7 +3878,12 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                       <div key={childId} className="flex flex-col gap-2 rounded-xl border border-violet-100 bg-white p-3 sm:flex-row sm:items-center">
                         <div className="min-w-0 flex-1">
                           <p className="text-sm font-black text-slate-900">{child?.name || '児童'}</p>
-                          <p className="mt-0.5 text-[10px] text-slate-500">{plan ? `当日予定：${plan.dayPattern}・利用区分 ${plan.serviceCategory}` : '日別変更なし'}</p>
+                          <p className="mt-0.5 text-[10px] text-slate-500">{plan ? `当日予定：${[
+                            plan.hasMorningProgram && '午前',
+                            plan.hasLunch && '昼食',
+                            plan.hasAfternoonProgram && '午後',
+                            plan.hasSnack && 'おやつ',
+                          ].filter(Boolean).join('・') || '個別予定'}` : '日別変更なし'}</p>
                         </div>
                         <div className="grid grid-cols-2 gap-1.5 sm:w-52">
                           {(['平日', '休日'] as const).map((type) => {
@@ -3520,6 +3972,80 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                 記録者名簿がまだ登録されていません。「職員」画面から管理者または児発管が登録してください。
               </div>
             )}
+          </div>
+        );
+      }
+      case 'modules': {
+        const dailyPlan = dailyChildPlans.find((plan) => plan.childId === wizard.activeChildId && plan.date === wizard.date);
+        const moduleTypes: Array<{ type: RecordModuleType; icon: React.ComponentType<{ className?: string }>; hint: string }> = [
+          { type: 'study', icon: BookOpen, hint: '宿題・姿勢・宿題以外' },
+          { type: 'pc', icon: Monitor, hint: 'PC課題・指使い・姿勢' },
+          { type: 'certification', icon: Award, hint: '漢検などの検定' },
+          { type: 'activity', icon: Palette, hint: '活動内容・積極性' },
+          { type: 'lunch', icon: Utensils, hint: '食事量・時間・備考' },
+          { type: 'snack', icon: NotebookPen, hint: 'おやつの状況・備考' },
+          { type: 'special', icon: Sparkles, hint: 'ABC整理または自由記入' },
+          { type: 'other', icon: NotebookPen, hint: 'ほかに残したい記録' },
+        ];
+        const recommended = new Set<RecordModuleType>([
+          ...(dailyPlan?.hasLunch ? ['lunch' as const] : []),
+          ...(dailyPlan?.hasSnack ? ['snack' as const] : []),
+        ]);
+        return (
+          <div className="space-y-5">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {moduleTypes.map(({ type, icon: Icon, hint }) => {
+                const count = activeChildDraft?.recordModules.filter((module) => module.type === type).length || 0;
+                const singleExisting = count > 0 && SINGLE_RECORD_MODULES.has(type);
+                return (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => addRecordModule(type)}
+                    className={`relative min-h-28 rounded-2xl border-2 p-3 text-left transition-all active:scale-[0.98] ${count ? 'border-teal-400 bg-teal-50' : 'border-slate-200 bg-white'}`}
+                  >
+                    <span className={`grid h-10 w-10 place-items-center rounded-xl ${count ? 'bg-teal-600 text-white' : 'bg-slate-100 text-slate-700'}`}><Icon className="h-5 w-5" /></span>
+                    <strong className="mt-2 block text-sm text-slate-950">{RECORD_MODULE_LABELS[type]}</strong>
+                    <span className="mt-0.5 block text-[10px] leading-relaxed text-slate-500">{singleExisting ? '入力内容を開く' : hint}</span>
+                    {count > 0 && <span className="absolute right-2 top-2 rounded-full bg-teal-700 px-2 py-0.5 text-[9px] font-black text-white">{count}件</span>}
+                    {recommended.has(type) && count === 0 && <span className="absolute right-2 top-2 rounded-full bg-amber-300 px-2 py-0.5 text-[9px] font-black text-amber-950">本日の予定</span>}
+                  </button>
+                );
+              })}
+            </div>
+
+            <section className="rounded-2xl border border-slate-200 bg-slate-50 p-3 sm:p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-black text-slate-900">追加した記録項目</h3>
+                  <p className="mt-0.5 text-[11px] text-slate-500">実際に行った順に並べられます。</p>
+                </div>
+                <span className="rounded-full bg-white px-2.5 py-1 text-xs font-black text-slate-600">{activeChildDraft?.recordModules.length || 0}件</span>
+              </div>
+              {!activeChildDraft?.recordModules.length ? (
+                <p className="mt-3 rounded-xl border border-dashed border-slate-300 bg-white p-5 text-center text-sm font-bold text-slate-500">上の項目をタップして追加してください。</p>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  {activeChildDraft.recordModules.map((module, index) => {
+                    const moduleSteps = steps.filter((step) => step.moduleId === module.id);
+                    const answered = moduleSteps.filter((step) => answerStatus(step, activeChildDraft) === 'answered').length;
+                    const complete = moduleSteps.length > 0 && answered === moduleSteps.length;
+                    return (
+                      <article key={module.id} className="flex min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-white p-2.5">
+                        <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full ${complete ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{complete ? <Check className="h-4 w-4" /> : <Circle className="h-4 w-4" />}</span>
+                        <button type="button" onClick={() => openRecordModule(module)} className="min-w-0 flex-1 text-left">
+                          <strong className="block truncate text-sm text-slate-900">{RECORD_MODULE_LABELS[module.type]}{activeChildDraft.recordModules.filter((item) => item.type === module.type).length > 1 ? ` ${activeChildDraft.recordModules.filter((item) => item.type === module.type).indexOf(module) + 1}` : ''}</strong>
+                          <span className={`text-[10px] font-bold ${complete ? 'text-emerald-700' : 'text-amber-700'}`}>{complete ? '入力済み' : '入力を確認'}</span>
+                        </button>
+                        <button type="button" disabled={index === 0} onClick={() => moveRecordModule(module.id, -1)} aria-label="1つ上へ" className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 disabled:opacity-25"><ArrowUp className="h-4 w-4" /></button>
+                        <button type="button" disabled={index === activeChildDraft.recordModules.length - 1} onClick={() => moveRecordModule(module.id, 1)} aria-label="1つ下へ" className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 disabled:opacity-25"><ArrowDown className="h-4 w-4" /></button>
+                        <button type="button" onClick={() => removeRecordModule(module.id)} aria-label="記録項目を削除" className="grid h-9 w-9 place-items-center rounded-lg border border-rose-200 text-rose-600"><Trash2 className="h-4 w-4" /></button>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
           </div>
         );
       }
@@ -3675,6 +4201,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     const child = childrenList.find((item) => item.id === childId);
     const childDraft = wizard.childDrafts[childId] || createChildDraft(childTemplate);
     const previous = initialRecord?.childId === childId ? initialRecord : undefined;
+    const sectionAnswers = isUnifiedTemplate(childTemplate)
+      ? withRecordModuleMetadata(childDraft.sectionAnswers, childDraft.recordModules)
+      : childDraft.sectionAnswers;
     const record = {
       id: childDraft.recordId,
       templateId: childTemplate.id,
@@ -3698,7 +4227,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       supportPlanId: previous?.supportPlanId,
       fiveDomains: previous?.fiveDomains,
       goalProgress: previous?.goalProgress,
-      sectionAnswers: childDraft.sectionAnswers,
+      sectionAnswers,
       skippedQuestionIds: childDraft.skippedQuestionIds,
       approvalStatus: previous?.approvalStatus === '要修正' ? '未確認' : previous?.approvalStatus || '未確認',
       jihatsukanComment: previous?.jihatsukanComment,
@@ -3712,7 +4241,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       createdAt: previous?.createdAt || now,
       updatedAt: now,
     } satisfies SupportRecord;
-    return isStructuredWeekdayTemplate(childTemplate)
+    return isUnifiedTemplate(childTemplate)
+      ? { ...record, synthesizedSummary: generateUnifiedRecordSummary(record) }
+      : isStructuredWeekdayTemplate(childTemplate)
       ? { ...record, synthesizedSummary: generateStructuredWeekdaySummary(record) }
       : isStructuredHolidayTemplate(childTemplate)
         ? { ...record, synthesizedSummary: generateStructuredHolidaySummary(record) }
@@ -3865,7 +4396,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         remoteRevision.current = remote.revision;
         const payload: WizardDraft = {
           ...wizard,
-          version: 11,
+          version: 12,
           draftCycleKey: getCurrentDraftCycleKey(),
           updatedAt: new Date().toISOString(),
         };
@@ -3907,11 +4438,19 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const currentPageNumbers = currentPageSteps
     .map((step) => step.displayNumber)
     .filter((value): value is number => typeof value === 'number');
-  const questionPositionLabel = currentPageNumbers.length > 1
-    ? `質問 ${Math.min(...currentPageNumbers)}〜${Math.max(...currentPageNumbers)} / ${questionTotal}`
-    : currentStep?.displayNumber
-      ? `質問 ${currentStep.displayNumber} / ${questionTotal}`
-      : `入力設定 ${wizard.currentStepIndex + 1} / ${steps.length}`;
+  const questionPositionLabel = isUnifiedTemplate(activeTemplate)
+    ? currentStep?.kind === 'modules'
+      ? '記録項目を選択'
+      : currentStep?.moduleType
+        ? `${RECORD_MODULE_LABELS[currentStep.moduleType]}を入力`
+        : pageGroupKey(currentStep) === 'arrival'
+          ? '来所時の様子'
+          : '記録の準備'
+    : currentPageNumbers.length > 1
+      ? `質問 ${Math.min(...currentPageNumbers)}〜${Math.max(...currentPageNumbers)} / ${questionTotal}`
+      : currentStep?.displayNumber
+        ? `質問 ${currentStep.displayNumber} / ${questionTotal}`
+        : `入力設定 ${wizard.currentStepIndex + 1} / ${steps.length}`;
   const draftStatusLabel = readOnly
     ? '閲覧中（自動保存なし）'
     : draftStatus === 'saving'
@@ -4193,7 +4732,11 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                 <h2 className="text-lg font-bold leading-relaxed text-slate-900 sm:text-xl">{pageTitle(currentStep)}</h2>
                 {currentPageSteps.length > 1 && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-black text-slate-600">{currentPageStatuses.filter((status) => status === 'answered').length} / {currentPageSteps.length} 回答</span>}
               </div>
-              {currentPageSteps.length > 1 && <p className="mt-1 text-xs font-medium text-slate-500">姿勢は上部からいつでも入力できます。ほかの項目はタップして1つずつ開きます。</p>}
+              {currentPageSteps.length > 1 && <p className="mt-1 text-xs font-medium text-slate-500">{
+                currentPageSteps.some((step) => /_(study|pc)_posture$/.test(step.fieldId || ''))
+                  ? '姿勢は上部からいつでも入力できます。ほかの項目はタップして1つずつ開きます。'
+                  : '必要な項目をタップして入力してください。入力済みの内容は閉じた状態でも確認できます。'
+              }</p>}
               {currentFieldWarning && <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-black leading-relaxed text-rose-700">{currentFieldWarning}</p>}
               {currentPageSteps.length <= 1 && currentStep?.help && <p className="mt-2 text-sm leading-relaxed text-slate-500">{currentStep.help}</p>}
             </div>
@@ -4244,7 +4787,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
         <button type="button" onClick={goPrevious} disabled={wizard.currentStepIndex === 0} className="min-h-12 rounded-xl border border-slate-300 px-4 text-sm font-bold text-slate-700 disabled:opacity-40 flex items-center justify-center gap-2"><ChevronLeft className="w-4 h-4" />前の質問</button>
         <div className="flex flex-col sm:flex-row gap-2">
-          {isChildStep && currentPageSteps.length <= 1 && !editingDisabled && <button type="button" onClick={(event) => { event.preventDefault(); skipCurrent(); }} className="min-h-12 rounded-xl border border-slate-300 px-4 text-sm font-bold text-slate-600 flex items-center justify-center gap-2"><SkipForward className="w-4 h-4" />この質問をスキップ</button>}
+          {isChildStep && currentStep?.kind !== 'modules' && currentPageSteps.length <= 1 && !editingDisabled && <button type="button" onClick={(event) => { event.preventDefault(); skipCurrent(); }} className="min-h-12 rounded-xl border border-slate-300 px-4 text-sm font-bold text-slate-600 flex items-center justify-center gap-2"><SkipForward className="w-4 h-4" />この質問をスキップ</button>}
           {isChildStep && currentStep?.kind !== 'review' && !editingDisabled && (
             <button
               type="button"
@@ -4254,7 +4797,11 @@ export const RecordForm: React.FC<RecordFormProps> = ({
               入力を終えて確認
             </button>
           )}
-          {currentStep?.kind === 'review' ? editingDisabled ? <span className="flex min-h-12 items-center justify-center rounded-xl bg-sky-100 px-6 text-sm font-black text-sky-900">{readOnly ? '閲覧モード' : '入力停止中'}</span> : <button type="submit" disabled={isSaving} className="min-h-12 rounded-xl bg-emerald-600 disabled:bg-slate-400 px-6 text-sm font-bold text-white flex items-center justify-center gap-2"><Save className="w-4 h-4" />{isSaving ? '保存中...' : `${wizard.selectedChildIds.length}名分を保存`}</button> : <button type="button" onClick={(event) => { event.preventDefault(); goNext(); }} className="min-h-12 rounded-xl bg-teal-600 px-6 text-sm font-bold text-white flex items-center justify-center gap-2">次の質問<ChevronRight className="w-4 h-4" /></button>}
+          {currentStep?.kind === 'review'
+            ? editingDisabled
+              ? <span className="flex min-h-12 items-center justify-center rounded-xl bg-sky-100 px-6 text-sm font-black text-sky-900">{readOnly ? '閲覧モード' : '入力停止中'}</span>
+              : <button type="submit" disabled={isSaving} className="min-h-12 rounded-xl bg-emerald-600 disabled:bg-slate-400 px-6 text-sm font-bold text-white flex items-center justify-center gap-2"><Save className="w-4 h-4" />{isSaving ? '保存中...' : `${wizard.selectedChildIds.length}名分を保存`}</button>
+            : currentStep?.kind !== 'modules' && <button type="button" onClick={(event) => { event.preventDefault(); goNext(); }} className="min-h-12 rounded-xl bg-teal-600 px-6 text-sm font-bold text-white flex items-center justify-center gap-2">{currentStep?.moduleId ? '項目選択へ戻る' : '次の質問'}<ChevronRight className="w-4 h-4" /></button>}
         </div>
       </div>
 
@@ -4388,7 +4935,7 @@ function ReviewAllChildren({
   const notices = checks.filter((check) => check.level !== 'error');
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-teal-200 bg-teal-50 p-4 text-sm"><p><strong>日付：</strong>{wizard.date}</p><p><strong>記録者：</strong>{wizard.recorderName}</p><p><strong>記録形式：</strong>児童ごとの当日予定に合わせて表示</p></div>
+      <div className="rounded-xl border border-teal-200 bg-teal-50 p-4 text-sm"><p><strong>日付：</strong>{wizard.date}</p><p><strong>記録者：</strong>{wizard.recorderName}</p></div>
       <section className={`rounded-xl border-2 p-4 ${
         errors.length > 0
           ? 'border-rose-300 bg-rose-50'
@@ -4458,10 +5005,24 @@ function ReviewAllChildren({
         const skipped = childSteps.filter((step) => answerStatus(childId, step, draft) === 'skipped');
         return (
           <article key={childId} className="rounded-xl border border-slate-200 p-4 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-bold text-slate-900">{child?.name || '児童'}</h3><p className="mt-0.5 text-[10px] font-bold text-violet-700">{template?.name || '記録形式未設定'}</p></div><div className="flex gap-2 text-[10px] font-bold"><span className={`rounded-full px-2 py-1 ${unanswered.length ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{unanswered.length ? `未回答 ${unanswered.length}` : '全回答済み'}</span>{skipped.length > 0 && <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">スキップ {skipped.length}</span>}</div></div>
-            <p className="text-xs text-slate-600">出欠：{draft?.attendance || '未回答'}{draft?.attendanceNote ? `（${draft.attendanceNote}）` : ''} ／ 表情：{draft?.expressions.join('、') || '未回答'} ／ おやつ：{draft?.snack || '未回答'}</p>
+            <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-bold text-slate-900">{child?.name || '児童'}</h3>{template && !isUnifiedTemplate(template) && <p className="mt-0.5 text-[10px] font-bold text-violet-700">{template.name}</p>}</div><div className="flex gap-2 text-[10px] font-bold"><span className={`rounded-full px-2 py-1 ${unanswered.length ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}`}>{unanswered.length ? `未回答 ${unanswered.length}` : '全回答済み'}</span>{skipped.length > 0 && <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">スキップ {skipped.length}</span>}</div></div>
+            <p className="text-xs text-slate-600">出欠：{draft?.attendance || '未回答'}{draft?.attendanceNote ? `（${draft.attendanceNote}）` : ''} ／ 表情：{draft?.expressions.join('、') || '未回答'}{draft?.recordModules.some((module) => module.type === 'snack') ? ` ／ おやつ：${draft.snack || '未回答'}` : ''}</p>
             {unanswered.length > 0 && <div className="rounded-lg bg-amber-50 p-3"><p className="text-xs font-bold text-amber-900 mb-2">未回答の質問</p><div className="flex flex-wrap gap-2">{unanswered.map((step) => <button key={step.id} type="button" onClick={() => onJump(childId, step.id)} className="rounded-md border border-amber-300 bg-white px-2 py-1 text-[11px] text-amber-900">{step.title}</button>)}</div></div>}
-            {template && (isStructuredWeekdayTemplate(template) || isStructuredHolidayTemplate(template)) ? (
+            {template && isUnifiedTemplate(template) ? (
+              <details className="overflow-hidden rounded-xl border border-slate-300">
+                <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 bg-slate-100 px-3 py-2 text-xs font-black text-slate-700"><span>文章合成プレビュー</span><span className="text-[10px] text-slate-500">タップして表示</span></summary>
+                <pre className="whitespace-pre-wrap bg-white p-4 font-sans text-xs leading-relaxed text-slate-800">{generateUnifiedRecordSummary({
+                  recorderName: wizard.recorderName,
+                  attendance: draft?.attendance || '',
+                  attendanceNote: draft?.attendanceNote,
+                  expressions: draft?.expressions || [],
+                  expressionNote: draft?.expressionNote,
+                  snack: draft?.snack || '',
+                  snackNote: draft?.snackNote,
+                  sectionAnswers: withRecordModuleMetadata(draft?.sectionAnswers || {}, draft?.recordModules || []),
+                })}</pre>
+              </details>
+            ) : template && (isStructuredWeekdayTemplate(template) || isStructuredHolidayTemplate(template)) ? (
               <details className="overflow-hidden rounded-xl border border-slate-300">
                 <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 bg-slate-100 px-3 py-2 text-xs font-black text-slate-700">
                   <span>文章合成プレビュー</span><span className="text-[10px] text-slate-500">タップして表示</span>

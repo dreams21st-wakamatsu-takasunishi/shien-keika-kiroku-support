@@ -2,6 +2,7 @@ import React from 'react';
 import { SectionAnswer, SupportRecord } from '../types';
 import { generateStructuredWeekdaySummary, hasStructuredWeekdayAnswers } from '../utils/weekdayRecordSummary';
 import { generateStructuredHolidaySummary, hasStructuredHolidayAnswers } from '../utils/holidayRecordSummary';
+import { generateUnifiedRecordSummary, hasUnifiedRecordAnswers } from '../utils/unifiedRecordSummary';
 
 interface PDFDocumentProps {
   record: SupportRecord;
@@ -21,7 +22,8 @@ export const PDFDocument: React.FC<PDFDocumentProps> = ({
     const activity = record.sectionAnswers?.['activity'];
     const structuredWeekday = hasStructuredWeekdayAnswers(record);
     const structuredHoliday = hasStructuredHolidayAnswers(record);
-    const structuredRecord = structuredWeekday || structuredHoliday;
+    const unifiedRecord = hasUnifiedRecordAnswers(record);
+    const structuredRecord = structuredWeekday || structuredHoliday || unifiedRecord;
 
     return (
       <div className="bg-white text-slate-900 text-xs font-sans p-6 leading-relaxed max-w-[800px] mx-auto border border-slate-300 shadow-xs print:shadow-none print:border-none">
@@ -30,7 +32,7 @@ export const PDFDocument: React.FC<PDFDocumentProps> = ({
           <h1 className="text-base font-bold tracking-wider text-slate-900 flex items-center gap-2">
             <span>支援経過記録</span>
             <span className="text-xs font-normal border border-slate-800 px-2 py-0.5 rounded-xs">
-              ({record.templateType || '平日'})
+              ({unifiedRecord ? '統合' : record.templateType || '平日'})
             </span>
             {labelSuffix && <span className="text-[10px] text-slate-500">{labelSuffix}</span>}
           </h1>
@@ -71,7 +73,9 @@ export const PDFDocument: React.FC<PDFDocumentProps> = ({
           <div className="mb-3 border-2 border-slate-900">
             <div className="border-b border-slate-900 bg-slate-200 px-3 py-1.5 text-[11px] font-bold">文章合成記録</div>
             <div className="whitespace-pre-wrap p-3 text-[11px] leading-relaxed">
-              {record.synthesizedSummary || (structuredHoliday
+              {record.synthesizedSummary || (unifiedRecord
+                ? generateUnifiedRecordSummary(record)
+                : structuredHoliday
                 ? generateStructuredHolidaySummary(record)
                 : generateStructuredWeekdaySummary(record))}
             </div>
@@ -238,7 +242,7 @@ export const PDFDocument: React.FC<PDFDocumentProps> = ({
         )}
         </>}
 
-        {record.templateType === 'カスタム' && (Object.values(record.sectionAnswers || {}) as SectionAnswer[]).map((sectionAnswer) => {
+        {record.templateType === 'カスタム' && !unifiedRecord && (Object.values(record.sectionAnswers || {}) as SectionAnswer[]).map((sectionAnswer) => {
           const sectionTemplate = record.templateSectionsSnapshot?.find((section) => section.id === sectionAnswer.sectionId);
           return (
             <div key={sectionAnswer.sectionId} className="border-2 border-slate-900 mb-3">

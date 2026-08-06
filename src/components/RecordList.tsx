@@ -270,7 +270,7 @@ export const RecordList: React.FC<RecordListProps> = ({
                       <td className="p-3 font-mono font-bold text-slate-800 whitespace-nowrap">
                         {r.date}
                         <span className="block text-[10px] text-slate-400 font-sans font-normal">
-                          {r.templateType}
+                          {r.templateId === 'template-unified' ? '統合記録' : r.templateType}
                         </span>
                       </td>
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { RecordRevision, ReviewIssue, SectionAnswer, SupportRecord, Template } from '../types';
+import { RecordRevision, ReviewIssue, SectionAnswer, SectionFieldAnswer, SupportRecord, Template } from '../types';
 import { PDFDocument } from './PDFDocument';
 import { generatePDFFromElement } from '../utils/pdfGenerator';
 import { generateRecordSummary, generateNarrativeReport } from '../utils/textGenerator';
@@ -7,6 +7,7 @@ import { Download, Printer, Copy, Edit, Check, ArrowLeft, LayoutGrid, FileText, 
 import { loadRecordRevisions } from '../services/dataService';
 import { isStructuredWeekdayTemplate } from '../data/weekdayTemplate';
 import { isStructuredHolidayTemplate } from '../data/holidayTemplate';
+import { hasUnifiedRecordAnswers } from '../utils/unifiedRecordSummary';
 
 interface RecordPreviewProps {
   record: SupportRecord;
@@ -62,6 +63,7 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
       sections: record.templateSectionsSnapshot || [],
     };
     const structured = isStructuredWeekdayTemplate(template) || isStructuredHolidayTemplate(template);
+    const unified = hasUnifiedRecordAnswers(record);
     const targets = [
       { stepId: 'date', label: '記録日' },
       { stepId: 'attendance', label: '本日の出欠' },
@@ -81,7 +83,7 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
           label: `${section.title}：${field.questionTitle || field.label}`,
         });
       });
-      if (!structured && section.id !== 'special') {
+      if (!structured && !unified && section.id !== 'special') {
         targets.push(
           { stepId: `abc-b-${section.id}`, label: `${section.title}：B（行動）` },
           { stepId: `abc-c-${section.id}`, label: `${section.title}：C（結果）` },
@@ -90,6 +92,27 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
         );
       }
     });
+    if (unified) {
+      const moduleMeta = record.sectionAnswers?.__record_modules;
+      (Object.entries(moduleMeta?.answers || {}) as Array<[string, SectionFieldAnswer]>).forEach(([moduleId, module]) => {
+        const section = record.sectionAnswers?.[`record-module-${moduleId}`];
+        const label = section?.sectionTitle || module.value || '記録項目';
+        if (module.value === 'snack') {
+          targets.push({ stepId: `module-${moduleId}-snack`, label: `${label}の様子` });
+          return;
+        }
+        if (module.value === 'special') {
+          targets.push({ stepId: `module-${moduleId}-special`, label });
+          return;
+        }
+        Object.keys(section?.answers || {}).forEach((fieldId) => {
+          targets.push({
+            stepId: `module-${moduleId}-field-${fieldId}`,
+            label: `${label}：${fieldId}`,
+          });
+        });
+      });
+    }
     if (template.sections.length === 0) {
       (Object.values(record.sectionAnswers || {}) as SectionAnswer[]).forEach((section) => {
         const firstFieldId = Object.keys(section.answers || {})[0];

@@ -942,7 +942,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
                           ))}
                           <option value="one-time">今回のみ別の場所を入力</option>
                         </select>
-                        {selectedLocation?.recommended && <span className="mt-1 block text-[10px] font-bold text-teal-700">選択日・曜日・利用区分から自動提案しました。</span>}
+                        {selectedLocation?.recommended && <span className="mt-1 block text-[10px] font-bold text-teal-700">選択日・曜日・送迎方向から自動提案しました。</span>}
                       </label>
                     )}
 

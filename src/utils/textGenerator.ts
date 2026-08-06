@@ -1,6 +1,7 @@
 import { SupportRecord, SectionAnswer } from '../types';
 import { generateStructuredWeekdaySummary, hasStructuredWeekdayAnswers } from './weekdayRecordSummary';
 import { generateStructuredHolidaySummary, hasStructuredHolidayAnswers } from './holidayRecordSummary';
+import { generateUnifiedRecordSummary, hasUnifiedRecordAnswers } from './unifiedRecordSummary';
 
 /**
  * Automatically builds a coherent, professional summary text from structured form responses.
@@ -9,6 +10,9 @@ export function generateRecordSummary(
   record: Partial<SupportRecord> & { sectionAnswers?: Record<string, SectionAnswer> }
 ): string {
   if (!record.sectionAnswers) return '';
+  if (hasUnifiedRecordAnswers(record as SupportRecord)) {
+    return record.synthesizedSummary || generateUnifiedRecordSummary(record as SupportRecord);
+  }
   if (hasStructuredHolidayAnswers(record as Pick<SupportRecord, 'sectionAnswers'>)) {
     return record.synthesizedSummary || generateStructuredHolidaySummary(record as SupportRecord);
   }
@@ -19,7 +23,7 @@ export function generateRecordSummary(
   const parts: string[] = [];
 
   // Basic Header Info summary
-  parts.push(`【児童名】${record.childName || '未選択'}　【利用区分】${record.templateType || '一般'}`);
+  parts.push(`【児童名】${record.childName || '未選択'}`);
   parts.push(`【来所様子】出欠: ${record.attendance || '未回答'}${record.attendanceNote ? ` (${record.attendanceNote})` : ''} / 表情: ${record.expressions?.join('、') || '未回答'}${record.expressionNote ? ` (${record.expressionNote})` : ''} / おやつ: ${record.snack || '未回答'}${record.snackNote ? ` (${record.snackNote})` : ''}`);
 
   // Loop through sections
@@ -60,6 +64,9 @@ export function generateNarrativeReport(
   record: Partial<SupportRecord> & { sectionAnswers?: Record<string, SectionAnswer> }
 ): string {
   if (!record.sectionAnswers) return '';
+  if (hasUnifiedRecordAnswers(record as SupportRecord)) {
+    return record.synthesizedSummary || generateUnifiedRecordSummary(record as SupportRecord);
+  }
   if (hasStructuredHolidayAnswers(record as Pick<SupportRecord, 'sectionAnswers'>)) {
     return record.synthesizedSummary || generateStructuredHolidaySummary(record as SupportRecord);
   }

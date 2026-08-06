@@ -155,7 +155,7 @@ const ChildCardContent: React.FC<{
         <div className="min-w-0 flex-1">
           <strong className="block truncate text-xs text-slate-900">{child.name}</strong>
           <span className="block truncate text-[9px] font-bold text-slate-500">{child.schoolName || child.pickupLocation || '学校・迎え先未登録'}</span>
-          <span className="mt-1 block text-[9px] text-slate-500">下校 {schedule?.schoolEndTime || '―'}／迎え {schedule?.pickupTime || '―'}／送り {schedule?.dropoffTime || '―'}</span>
+          <span className="mt-1 block text-[9px] text-slate-500">迎え基準 {schedule?.schoolEndTime || '―'}／乗車 {schedule?.pickupTime || '―'}／送り {schedule?.dropoffTime || '―'}</span>
         </div>
       </div>
       {!compact && (

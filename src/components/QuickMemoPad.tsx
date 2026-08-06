@@ -21,6 +21,42 @@ interface QuickMemoPayload {
 
 type SaveStatus = 'restored' | 'saving' | 'saved' | 'reset' | 'error' | null;
 
+interface MemoPosition {
+  x: number;
+  y: number;
+}
+
+interface MemoDragState {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  offsetX: number;
+  offsetY: number;
+  active: boolean;
+}
+
+const MEMO_TRIGGER_SIZE = 56;
+
+function readMemoPosition(storageKey: string): MemoPosition | null {
+  try {
+    const value = JSON.parse(localStorage.getItem(storageKey) || 'null') as Partial<MemoPosition> | null;
+    return value && Number.isFinite(value.x) && Number.isFinite(value.y)
+      ? { x: Number(value.x), y: Number(value.y) }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function clampMemoPosition(position: MemoPosition): MemoPosition {
+  const safeTop = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--app-safe-area-top')) || 0;
+  const edge = 10;
+  return {
+    x: Math.min(Math.max(position.x, edge), Math.max(edge, window.innerWidth - MEMO_TRIGGER_SIZE - edge)),
+    y: Math.min(Math.max(position.y, safeTop + edge), Math.max(safeTop + edge, window.innerHeight - MEMO_TRIGGER_SIZE - edge)),
+  };
+}
+
 function isQuickMemoPayload(value: unknown): value is QuickMemoPayload {
   if (!value || typeof value !== 'object') return false;
   const payload = value as Partial<QuickMemoPayload>;
@@ -52,6 +88,7 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
 }) => {
   const draftKey = `quick-memo-${recorderId || 'account'}`;
   const storageKey = `support-quick-memo-v1:${organizationId || 'local'}:${userId || 'local'}:${recorderId || 'account'}`;
+  const positionStorageKey = `support-quick-memo-position-v1:${organizationId || 'local'}:${userId || 'local'}:${recorderId || 'account'}`;
   const initialLocal = useMemo(() => readLocalMemo(storageKey), [storageKey]);
   const localUpdatedAt = useRef(initialLocal?.updatedAt || '');
   const [content, setContent] = useState(initialLocal?.content || '');
@@ -59,7 +96,13 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
   const [ready, setReady] = useState(!organizationId || !userId);
   const [status, setStatus] = useState<SaveStatus>(initialLocal ? 'restored' : null);
   const [forwarding, setForwarding] = useState(false);
+  const [position, setPosition] = useState<MemoPosition | null>(() => readMemoPosition(positionStorageKey));
+  const [dragging, setDragging] = useState(false);
   const skipNextSave = useRef(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const longPressTimer = useRef<number | null>(null);
+  const dragState = useRef<MemoDragState | null>(null);
+  const suppressNextClick = useRef(false);
   const deviceId = useRef(getDeviceId()).current;
   const remoteRevision = useRef<number | null>(null);
 
@@ -172,6 +215,89 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
     return () => window.clearTimeout(timer);
   }, [draftKey, organizationId, storageKey]);
 
+  useEffect(() => {
+    const stored = readMemoPosition(positionStorageKey);
+    setPosition(stored ? clampMemoPosition(stored) : null);
+  }, [positionStorageKey]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setPosition((current) => {
+        if (!current) return null;
+        const next = clampMemoPosition(current);
+        localStorage.setItem(positionStorageKey, JSON.stringify(next));
+        return next;
+      });
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [positionStorageKey]);
+
+  const clearLongPressTimer = () => {
+    if (longPressTimer.current !== null) {
+      window.clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  };
+
+  const handlePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) return;
+    const rect = triggerRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    clearLongPressTimer();
+    dragState.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+      active: false,
+    };
+    longPressTimer.current = window.setTimeout(() => {
+      if (!dragState.current || dragState.current.pointerId !== event.pointerId) return;
+      dragState.current.active = true;
+      triggerRef.current?.setPointerCapture(event.pointerId);
+      setDragging(true);
+      navigator.vibrate?.(35);
+    }, 430);
+  };
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLButtonElement>) => {
+    const state = dragState.current;
+    if (!state || state.pointerId !== event.pointerId) return;
+    if (!state.active) {
+      if (Math.hypot(event.clientX - state.startX, event.clientY - state.startY) > 8) {
+        clearLongPressTimer();
+        dragState.current = null;
+      }
+      return;
+    }
+    event.preventDefault();
+    setPosition(clampMemoPosition({
+      x: event.clientX - state.offsetX,
+      y: event.clientY - state.offsetY,
+    }));
+  };
+
+  const finishPointerInteraction = (event: React.PointerEvent<HTMLButtonElement>) => {
+    clearLongPressTimer();
+    const state = dragState.current;
+    if (!state || state.pointerId !== event.pointerId) return;
+    if (state.active) {
+      suppressNextClick.current = true;
+      setPosition((current) => {
+        if (!current) return null;
+        const next = clampMemoPosition(current);
+        localStorage.setItem(positionStorageKey, JSON.stringify(next));
+        return next;
+      });
+      setDragging(false);
+      if (triggerRef.current?.hasPointerCapture(event.pointerId)) triggerRef.current.releasePointerCapture(event.pointerId);
+      window.setTimeout(() => { suppressNextClick.current = false; }, 0);
+    }
+    dragState.current = null;
+  };
+
   const clearMemo = () => {
     if (content && !window.confirm('クイックメモの内容をすべて消去しますか？')) return;
     setContent('');
@@ -215,7 +341,7 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
             <h3 className="flex items-center gap-2 text-sm font-bold text-amber-950">
               <StickyNote className="h-4 w-4" />クイックメモ
             </h3>
-            <p className="mt-0.5 text-[11px] text-amber-800">入力内容は自動保存され、毎日午前3時にリセットされます</p>
+            <p className="mt-0.5 text-[11px] text-amber-800">自動保存・毎日午前3時リセット／アイコンは長押しで移動</p>
           </div>
           <button
             type="button"
@@ -271,11 +397,22 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
       </section>
 
       <button
+        ref={triggerRef}
         type="button"
-        onClick={() => setOpen((current) => !current)}
+        onClick={() => {
+          if (suppressNextClick.current) return;
+          setOpen((current) => !current);
+        }}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={finishPointerInteraction}
+        onPointerCancel={finishPointerInteraction}
+        onContextMenu={(event) => event.preventDefault()}
         aria-expanded={open}
         aria-label={open ? 'メモ帳をしまう' : 'クイックメモを開く'}
-        className={`quick-memo-trigger fixed z-50 flex h-14 w-14 items-center justify-center rounded-full border-2 shadow-xl transition-all duration-300 active:scale-95 ${
+        title="タップで開く・長押しして移動"
+        style={position ? { left: position.x, top: position.y, right: 'auto', bottom: 'auto', touchAction: 'none' } : { touchAction: 'none' }}
+        className={`quick-memo-trigger fixed z-50 flex h-14 w-14 items-center justify-center rounded-full border-2 shadow-xl transition-[transform,background-color,border-color,box-shadow] duration-200 ${dragging ? 'scale-110 cursor-grabbing ring-4 ring-amber-200' : 'active:scale-95'} ${
           open
             ? 'rotate-6 border-amber-300 bg-amber-100 text-amber-950'
             : 'border-amber-300 bg-amber-400 text-amber-950 hover:-translate-y-1 hover:bg-amber-300'

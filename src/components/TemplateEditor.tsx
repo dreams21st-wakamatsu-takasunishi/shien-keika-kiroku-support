@@ -3,7 +3,7 @@ import { FieldType, Template, TemplateSection, TemplateField, WizardQuestionId }
 import { Plus, Trash2, Copy, Save, Check, CheckCircle2, ChevronRight, GripVertical, HelpCircle, X } from 'lucide-react';
 import { FATIGUE_SCALE_HELP, FATIGUE_SCALE_OPTIONS, normalizeTemplateFatigueScale } from '../utils/templateNormalizer';
 import { getWizardQuestions, WIZARD_QUESTION_LABELS, WIZARD_QUESTION_ORDER } from '../utils/wizardQuestions';
-import { HOMEWORK_FIELD_HELP, HOMEWORK_SUBJECTS } from '../utils/homeworkField';
+import { HOMEWORK_FIELD_HELP, HOMEWORK_OTHER_MODES, HOMEWORK_SUBJECTS } from '../utils/homeworkField';
 import {
   closestCenter,
   DndContext,
@@ -114,6 +114,7 @@ function InputTypePreview({ type }: { type: FieldType }) {
   const [expandedHomework, setExpandedHomework] = useState<string | null>(null);
   const [homeworkMaterials, setHomeworkMaterials] = useState<Record<string, string[]>>({});
   const [homeworkNotes, setHomeworkNotes] = useState<Record<string, string>>({});
+  const [homeworkOtherMode, setHomeworkOtherMode] = useState('');
 
   const buttonClass = 'min-h-11 rounded-lg border px-3 py-2 text-sm font-bold';
 
@@ -182,7 +183,7 @@ function InputTypePreview({ type }: { type: FieldType }) {
   }
 
   if (type === 'posture_observation') {
-    return <div className="space-y-2">{['背すじ（背がまっすぐ・背が丸まる）', '足（閉じる・開く・組む等）', 'その他（自由記入）'].map((option, index) => <div key={option} className={`rounded-lg border p-3 text-sm font-bold ${index === 0 ? 'border-teal-500 bg-teal-50 text-teal-900' : 'border-slate-300 bg-white text-slate-700'}`}>{option}</div>)}</div>;
+    return <div className="space-y-2">{['背すじ（背がまっすぐ・猫背）', '足（閉じる・開く・組む等）', 'その他（自由記入）'].map((option, index) => <div key={option} className={`rounded-lg border p-3 text-sm font-bold ${index === 0 ? 'border-teal-500 bg-teal-50 text-teal-900' : 'border-slate-300 bg-white text-slate-700'}`}>{option}</div>)}</div>;
   }
 
   if (type === 'meal_details') {
@@ -199,30 +200,30 @@ function InputTypePreview({ type }: { type: FieldType }) {
     <div className="space-y-2">
       {HOMEWORK_SUBJECTS.map((subject) => {
         const selected = homeworkSubjects.includes(subject);
-        const noHomework = subject === '宿題無し';
-        const expanded = !noHomework && selected && expandedHomework === subject;
+        const expanded = selected && expandedHomework === subject;
         const academic = ['国語', '算数', '理科', '社会', '英語'].includes(subject);
         const summary = academic
           ? (homeworkMaterials[subject] || []).join('・')
-          : homeworkNotes[subject] || '';
+          : subject === 'その他'
+            ? [homeworkOtherMode, homeworkNotes[subject]].filter(Boolean).join('・')
+            : homeworkNotes[subject] || '';
         return (
           <div key={subject} className={`overflow-hidden rounded-xl border ${selected ? 'border-teal-500 bg-teal-50' : 'border-slate-300 bg-white'}`}>
             <button
               type="button"
               onClick={() => {
                 if (!selected) {
-                  setHomeworkSubjects(noHomework ? ['宿題無し'] : [...homeworkSubjects.filter((value) => value !== '宿題無し'), subject]);
-                  setExpandedHomework(noHomework ? null : subject);
+                  setHomeworkSubjects([...homeworkSubjects, subject]);
+                  setExpandedHomework(subject);
                 } else {
-                  if (noHomework) setHomeworkSubjects([]);
-                  else setExpandedHomework(expanded ? null : subject);
+                  setExpandedHomework(expanded ? null : subject);
                 }
               }}
               className="flex min-h-12 w-full items-center gap-2 px-3 text-left"
             >
               <span className={`flex h-6 w-6 items-center justify-center rounded-md border ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300'}`}>{selected && <Check className="h-4 w-4" />}</span>
               <span className="flex-1"><strong>{subject}</strong>{selected && <span className="ml-2 text-xs text-teal-800">{summary || '詳細を入力'}</span>}</span>
-              {selected && !noHomework && <ChevronRight className={`h-4 w-4 ${expanded ? 'rotate-90' : ''}`} />}
+              {selected && <ChevronRight className={`h-4 w-4 ${expanded ? 'rotate-90' : ''}`} />}
             </button>
             {expanded && (
               <div className="space-y-2 border-t border-teal-200 bg-white p-3">
@@ -233,6 +234,13 @@ function InputTypePreview({ type }: { type: FieldType }) {
                       const materialSelected = materials.includes(material);
                       return <button key={material} type="button" onClick={() => setHomeworkMaterials({ ...homeworkMaterials, [subject]: materialSelected ? materials.filter((value) => value !== material) : [...materials, material] })} className={`${buttonClass} text-left ${materialSelected ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300 bg-white'}`}>{materialSelected && <Check className="mr-1 inline h-4 w-4" />}{material}</button>;
                     })}
+                  </div>
+                ) : subject === 'その他' ? (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      {HOMEWORK_OTHER_MODES.map((mode) => <button key={mode} type="button" onClick={() => setHomeworkOtherMode(mode)} className={`${buttonClass} ${homeworkOtherMode === mode ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300 bg-white'}`}>{mode}</button>)}
+                    </div>
+                    {homeworkOtherMode && <textarea rows={2} value={homeworkNotes[subject] || ''} onChange={(event) => setHomeworkNotes({ ...homeworkNotes, [subject]: event.target.value })} placeholder="備考（任意）" className="w-full rounded-lg border border-slate-300 p-3 text-base" />}
                   </div>
                 ) : (
                   <textarea rows={2} value={homeworkNotes[subject] || ''} onChange={(event) => setHomeworkNotes({ ...homeworkNotes, [subject]: event.target.value })} placeholder={`${subject}の内容`} className="w-full rounded-lg border border-slate-300 p-3 text-base" />

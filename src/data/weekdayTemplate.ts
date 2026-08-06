@@ -51,7 +51,7 @@ export const TRANSITION_SCALE_OPTIONS = [
 
 export const POSTURE_BACK_OPTIONS = [
   '背がまっすぐ',
-  '背が丸まる',
+  '猫背',
   '横を向いている',
 ];
 
@@ -114,7 +114,6 @@ export function createLearningPcFields(
       scaleLowLabel: '1：できなかった',
       scaleHighLabel: '5：自力で完了',
       visibleWhen: visibleWhen('学習'),
-      hiddenWhen: { fieldId: `${prefix}_study_homework`, equals: '宿題無し' },
     },
     {
       id: `${prefix}_study_extras`,

@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { CalendarClock, Save, Trash2, X } from 'lucide-react';
-import type { ChildProfile, DailyChildPlan, DailyDayPattern, DailyRecordFormat, Weekday } from '../types';
+import type { ChildProfile, DailyChildPlan, Weekday } from '../types';
 
 interface DailyChildPlanDialogProps {
   child: ChildProfile;
@@ -11,8 +11,6 @@ interface DailyChildPlanDialogProps {
   onSave: (plan: DailyChildPlan) => Promise<void> | void;
   onDelete: (childId: string, date: string) => Promise<void> | void;
 }
-
-const patterns: DailyDayPattern[] = ['通常', '短縮授業', '午前のみ', '午後のみ', '個別'];
 
 function createDefaultPlan(child: ChildProfile, date: string, weekday: Weekday): DailyChildPlan {
   const now = new Date().toISOString();
@@ -38,23 +36,6 @@ function createDefaultPlan(child: ChildProfile, date: string, weekday: Weekday):
   };
 }
 
-function applyPattern(plan: DailyChildPlan, pattern: DailyDayPattern): DailyChildPlan {
-  if (pattern === '短縮授業') {
-    return { ...plan, dayPattern: pattern, recordFormat: '休日', hasMorningProgram: false, hasLunch: true, hasAfternoonProgram: true, hasSnack: true };
-  }
-  if (pattern === '午前のみ') {
-    return { ...plan, dayPattern: pattern, recordFormat: '休日', hasMorningProgram: true, hasLunch: true, hasAfternoonProgram: false, hasSnack: false };
-  }
-  if (pattern === '午後のみ') {
-    return { ...plan, dayPattern: pattern, recordFormat: '平日', hasMorningProgram: false, hasLunch: false, hasAfternoonProgram: true, hasSnack: true };
-  }
-  if (pattern === '通常') {
-    const holidayLike = plan.serviceCategory === '休日';
-    return { ...plan, dayPattern: pattern, recordFormat: holidayLike ? '休日' : '平日', hasMorningProgram: holidayLike, hasLunch: holidayLike, hasAfternoonProgram: true, hasSnack: true };
-  }
-  return { ...plan, dayPattern: pattern };
-}
-
 export const DailyChildPlanDialog: React.FC<DailyChildPlanDialogProps> = ({
   child,
   date,
@@ -70,8 +51,6 @@ export const DailyChildPlanDialog: React.FC<DailyChildPlanDialogProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   const update = (updates: Partial<DailyChildPlan>) => setDraft((previous) => ({ ...previous, ...updates }));
-  const chooseFormat = (recordFormat: DailyRecordFormat) => update({ recordFormat });
-
   const handleSave = async () => {
     setSaving(true);
     setError(null);
@@ -101,8 +80,8 @@ export const DailyChildPlanDialog: React.FC<DailyChildPlanDialogProps> = ({
 
   return (
     <div className="fixed inset-0 z-[80] flex items-end justify-center bg-slate-950/60 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label={`${child.name}の日別利用予定`}>
-      <div className="max-h-[92dvh] w-full max-w-2xl overflow-y-auto rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
-        <header className="sticky top-0 z-10 flex items-start justify-between gap-4 border-b border-slate-200 bg-white/95 p-4 backdrop-blur sm:p-5">
+      <div className="max-h-[calc(100dvh-var(--app-safe-area-top,0px))] w-full max-w-2xl overflow-y-auto rounded-t-3xl bg-white shadow-2xl sm:max-h-[92dvh] sm:rounded-3xl">
+        <header className="sticky top-0 z-10 flex items-start justify-between gap-3 border-b border-slate-200 bg-white/95 p-3 backdrop-blur sm:p-5">
           <div>
             <p className="flex items-center gap-2 text-xs font-black text-teal-700"><CalendarClock className="h-4 w-4" />日別利用予定</p>
             <h2 className="mt-1 text-lg font-black text-slate-950">{child.name}・{date}（{weekday}）</h2>
@@ -110,7 +89,7 @@ export const DailyChildPlanDialog: React.FC<DailyChildPlanDialogProps> = ({
           <button type="button" onClick={onClose} className="flex h-11 w-11 items-center justify-center rounded-xl border border-slate-200 text-slate-600" aria-label="閉じる"><X className="h-5 w-5" /></button>
         </header>
 
-        <div className="space-y-5 p-4 sm:p-6">
+        <div className="space-y-4 p-3 sm:space-y-5 sm:p-6">
           <section>
             <h3 className="text-sm font-black text-slate-900">利用予定</h3>
             <div className="mt-2 grid grid-cols-3 gap-2">
@@ -120,34 +99,9 @@ export const DailyChildPlanDialog: React.FC<DailyChildPlanDialogProps> = ({
             </div>
           </section>
 
-          <section className="grid gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2">
-            <div>
-              <h3 className="text-sm font-black text-slate-900">利用区分</h3>
-              <p className="mt-1 text-[11px] leading-relaxed text-slate-500">事業所で管理する平日・休日の区分です。</p>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                {(['平日', '休日'] as const).map((value) => (
-                  <button key={value} type="button" onClick={() => setDraft((previous) => applyPattern({ ...previous, serviceCategory: value }, previous.dayPattern))} className={`min-h-11 rounded-xl border text-xs font-black ${draft.serviceCategory === value ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 bg-white text-slate-700'}`}>{value}</button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <h3 className="text-sm font-black text-slate-900">記録形式</h3>
-              <p className="mt-1 text-[11px] leading-relaxed text-slate-500">実際の過ごし方に合わせて質問を切り替えます。利用区分とは別に変更できます。</p>
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                {(['平日', '休日'] as const).map((value) => (
-                  <button key={value} type="button" onClick={() => chooseFormat(value)} className={`min-h-11 rounded-xl border text-xs font-black ${draft.recordFormat === value ? 'border-violet-600 bg-violet-600 text-white' : 'border-slate-300 bg-white text-slate-700'}`}>{value}形式</button>
-                ))}
-              </div>
-            </div>
-          </section>
-
           <section>
-            <h3 className="text-sm font-black text-slate-900">当日の流れ</h3>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {patterns.map((pattern) => (
-                <button key={pattern} type="button" onClick={() => setDraft((previous) => applyPattern(previous, pattern))} className={`min-h-10 rounded-full border px-4 text-xs font-black ${draft.dayPattern === pattern ? 'border-amber-500 bg-amber-100 text-amber-950' : 'border-slate-300 bg-white text-slate-700'}`}>{pattern}</button>
-              ))}
-            </div>
+            <h3 className="text-sm font-black text-slate-900">本日の予定</h3>
+            <p className="mt-1 text-[11px] leading-relaxed text-slate-500">記録画面の候補表示や送迎予定に反映します。実際に行う内容だけを選択してください。</p>
             <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
               {([
                 ['hasMorningProgram', '午前の取組'],
@@ -156,7 +110,7 @@ export const DailyChildPlanDialog: React.FC<DailyChildPlanDialogProps> = ({
                 ['hasSnack', 'おやつ'],
               ] as const).map(([key, label]) => (
                 <label key={key} className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border px-3 text-xs font-black ${draft[key] ? 'border-teal-400 bg-teal-50 text-teal-900' : 'border-slate-200 bg-white text-slate-500'}`}>
-                  <input type="checkbox" checked={draft[key]} onChange={(event) => update({ [key]: event.target.checked })} className="h-4 w-4 accent-teal-600" />
+                  <input type="checkbox" checked={draft[key]} onChange={(event) => update({ [key]: event.target.checked, dayPattern: '個別' })} className="h-4 w-4 accent-teal-600" />
                   {label}
                 </label>
               ))}
@@ -165,7 +119,7 @@ export const DailyChildPlanDialog: React.FC<DailyChildPlanDialogProps> = ({
 
           <section className="grid gap-3 sm:grid-cols-3">
             {([
-              ['schoolEndTime', '下校時刻'],
+              ['schoolEndTime', '迎え時刻'],
               ['arrivalTime', '来所予定'],
               ['departureTime', '退所予定'],
             ] as const).map(([key, label]) => (

@@ -298,8 +298,8 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                     </span>
                   )}
                   {plan && (
-                    <span className={`rounded-full px-2 py-1 text-[10px] font-black ${plan.attendancePlan === '欠席' ? 'bg-rose-100 text-rose-800' : plan.recordFormat === '休日' ? 'bg-violet-100 text-violet-800' : 'bg-teal-100 text-teal-800'}`}>
-                      {plan.attendancePlan === '欠席' ? '欠席予定' : `${plan.dayPattern}・${plan.recordFormat}形式`}
+                    <span className={`rounded-full px-2 py-1 text-[10px] font-black ${plan.attendancePlan === '欠席' ? 'bg-rose-100 text-rose-800' : 'bg-teal-100 text-teal-800'}`}>
+                      {plan.attendancePlan === '欠席' ? '欠席予定' : plan.attendancePlan}
                     </span>
                   )}
                   {record ? (
@@ -326,7 +326,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                 </p>
                 {plan && (plan.schoolEndTime || plan.arrivalTime || plan.departureTime || plan.note) && (
                   <p className="mt-1 line-clamp-2 text-[11px] text-slate-500">
-                    {[plan.schoolEndTime && `下校 ${plan.schoolEndTime}`, plan.arrivalTime && `来所 ${plan.arrivalTime}`, plan.departureTime && `退所 ${plan.departureTime}`, plan.note].filter(Boolean).join('・')}
+                    {[plan.schoolEndTime && `迎え ${plan.schoolEndTime}`, plan.arrivalTime && `来所 ${plan.arrivalTime}`, plan.departureTime && `退所 ${plan.departureTime}`, plan.note].filter(Boolean).join('・')}
                   </p>
                 )}
               </div>

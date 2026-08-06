@@ -241,7 +241,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
       (location) => !location.name.trim() || !location.address.trim() || location.directions.length === 0
     );
     if (incompleteLocation) {
-      setFormError('追加送迎先は、名称・住所・利用区分をすべて入力してください。');
+      setFormError('追加送迎先は、名称・住所・送迎方向をすべて入力してください。');
       return;
     }
     const invalidDateRange = transportationRequired && transportLocations.find(
@@ -893,7 +893,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                       </div>
                       <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white">
                         <div className="grid grid-cols-[2.5rem_repeat(3,minmax(0,1fr))] gap-px bg-slate-200 text-center text-[9px] font-black text-slate-600">
-                          <span className="bg-slate-50 px-1 py-2">曜日</span><span className="bg-slate-50 px-1 py-2">下校</span><span className="bg-slate-50 px-1 py-2">迎え</span><span className="bg-slate-50 px-1 py-2">送り</span>
+                          <span className="bg-slate-50 px-1 py-2">曜日</span><span className="bg-slate-50 px-1 py-2">迎え基準</span><span className="bg-slate-50 px-1 py-2">乗車</span><span className="bg-slate-50 px-1 py-2">送り</span>
                         </div>
                         {WEEKDAYS.map((day) => {
                           const schedule = transportSchedule.find((item) => item.weekday === day);
@@ -901,14 +901,14 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                           return (
                             <div key={day} className={`grid grid-cols-[2.5rem_repeat(3,minmax(0,1fr))] items-center gap-px border-t border-slate-100 ${regular ? 'bg-teal-50' : 'bg-white'}`}>
                               <strong className={`text-center text-xs ${regular ? 'text-teal-800' : 'text-slate-400'}`}>{day}</strong>
-                              <input aria-label={`${day}曜日の下校時刻`} type="time" value={schedule?.schoolEndTime || ''} onChange={(event) => setTransportSchedule((current) => updateTransportSchedule(current, day, { schoolEndTime: event.target.value || undefined }))} className="min-h-10 min-w-0 border-0 bg-transparent px-1 text-center text-[11px] font-bold" />
+                              <input aria-label={`${day}曜日の迎え基準時刻`} type="time" value={schedule?.schoolEndTime || ''} onChange={(event) => setTransportSchedule((current) => updateTransportSchedule(current, day, { schoolEndTime: event.target.value || undefined }))} className="min-h-10 min-w-0 border-0 bg-transparent px-1 text-center text-[11px] font-bold" />
                               <input aria-label={`${day}曜日の迎え予定時刻`} type="time" value={schedule?.pickupTime || ''} onChange={(event) => setTransportSchedule((current) => updateTransportSchedule(current, day, { pickupTime: event.target.value || undefined }))} className="min-h-10 min-w-0 border-0 bg-transparent px-1 text-center text-[11px] font-bold" />
                               <input aria-label={`${day}曜日の送り希望時刻`} type="time" value={schedule?.dropoffTime || ''} onChange={(event) => setTransportSchedule((current) => updateTransportSchedule(current, day, { dropoffTime: event.target.value || undefined }))} className="min-h-10 min-w-0 border-0 bg-transparent px-1 text-center text-[11px] font-bold" />
                             </div>
                           );
                         })}
                       </div>
-                      <p className="mt-2 text-[9px] leading-relaxed text-slate-500">下校は学校終了時刻、迎えは乗車予定の目安、送りは自宅等への到着希望時刻です。定期利用曜日は色付きで表示します。</p>
+                      <p className="mt-2 text-[9px] leading-relaxed text-slate-500">迎え基準は学校・自宅などへ向かう目安、乗車は実際に乗せる予定時刻、送りは自宅等への到着希望時刻です。定期利用曜日は色付きで表示します。</p>
                     </section>
                     <div className="grid gap-2 sm:grid-cols-2">
                       <label className="font-bold text-slate-700">通常の迎え先<input value={pickupLocation} onChange={(event) => setPickupLocation(event.target.value)} placeholder="例：○○小学校 正門・住所" className="mt-1 w-full rounded-md border border-slate-300 bg-white p-2" /></label>
@@ -973,7 +973,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                                   </div>
                                   <label className="block text-xs font-bold text-slate-700">住所・乗降場所<input value={location.address} onChange={(event) => updateTransportLocation(location.id, { address: event.target.value })} placeholder="都道府県・市区町村・番地、入口など" className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3 text-sm" /></label>
                                   <div className="grid gap-2 sm:grid-cols-2">
-                                    <label className="text-xs font-bold text-slate-700">利用区分<select value={location.directions.length === 2 ? 'both' : location.directions[0] || 'both'} onChange={(event) => setTransportDirection(location.id, event.target.value as 'both' | TransportDirection)} className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"><option value="both">迎え・送り両方</option><option value="迎え">迎えのみ</option><option value="送り">送りのみ</option></select></label>
+                                    <label className="text-xs font-bold text-slate-700">送迎方向<select value={location.directions.length === 2 ? 'both' : location.directions[0] || 'both'} onChange={(event) => setTransportDirection(location.id, event.target.value as 'both' | TransportDirection)} className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"><option value="both">迎え・送り両方</option><option value="迎え">迎えのみ</option><option value="送り">送りのみ</option></select></label>
                                     <label className="flex min-h-10 items-center gap-2 self-end rounded-lg border border-slate-300 px-3 text-xs font-bold text-slate-700"><input type="checkbox" checked={Boolean(location.autoSelect)} onChange={(event) => updateTransportLocation(location.id, { autoSelect: event.target.checked })} />条件に合う日は自動提案</label>
                                   </div>
                                   <fieldset>
