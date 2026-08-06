@@ -57,7 +57,7 @@ import {
   HOMEWORK_SUBJECTS,
   normalizeHomeworkDetails,
 } from '../utils/homeworkField';
-import { getCurrentDraftCycleKey, getNextDraftResetAt, isDraftCurrent } from '../utils/draftExpiry';
+import { getCurrentDraftCycleKey } from '../utils/draftExpiry';
 import { createRecordDraftKey, getDeviceId } from '../utils/deviceId';
 import {
   isStructuredWeekdayTemplate,
@@ -1255,7 +1255,6 @@ function normalizeWizardDraft(value: unknown): WizardDraft | null {
   if (!value || typeof value !== 'object') return null;
   const draft = value as Partial<WizardDraft> & { version?: number };
   if (![2, 3, 4, 5, 6, 7, 8, 9, 10].includes(draft.version || 0) || !Array.isArray(draft.selectedChildIds) || !draft.childDrafts) return null;
-  if (!isDraftCurrent(draft.draftCycleKey, draft.updatedAt)) return null;
   const previousStepIndex = draft.currentStepIndex || 0;
   const currentStepIndex = (draft.version || 0) < 4
     ? previousStepIndex === 1 ? 2 : previousStepIndex === 2 ? 1 : previousStepIndex
@@ -1362,7 +1361,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
   const [wizard, setWizard] = useState<WizardDraft>(createInitialDraft);
   const [draftReady, setDraftReady] = useState(!organizationId || !userId);
-  const [draftStatus, setDraftStatus] = useState<'restored' | 'saving' | 'saved' | 'deleted' | 'reset' | 'conflict' | 'locked' | 'taken-over' | 'error' | null>(null);
+  const [draftStatus, setDraftStatus] = useState<'restored' | 'saving' | 'saved' | 'deleted' | 'conflict' | 'locked' | 'taken-over' | 'error' | null>(null);
   const [stepError, setStepError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -1510,31 +1509,6 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [draftKey, organizationId, readOnly]);
-
-  useEffect(() => {
-    if (readOnly) return;
-    let timer: number;
-    const scheduleNextReset = () => {
-      const now = new Date();
-      const resetAt = getNextDraftResetAt(now);
-      timer = window.setTimeout(() => {
-        skipNextDraftSave.current = true;
-        remoteRevision.current = null;
-        localStorage.removeItem(storageKey);
-        if (organizationId) void deleteRecordDraft(organizationId, draftKey);
-        setWizard(createBaseDraft());
-        setStepError(null);
-        setSaveError(null);
-        setDraftStatus('reset');
-        onDraftChanged?.();
-        scheduleNextReset();
-      }, resetAt.getTime() - now.getTime());
-    };
-    scheduleNextReset();
-    return () => window.clearTimeout(timer);
-    // The form session keeps scheduling its next local 03:00 reset.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draftKey, organizationId, storageKey, onDraftChanged, readOnly]);
 
   useEffect(() => {
     if (activeTemplate || templates.length === 0) return;
@@ -1846,8 +1820,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
   const toggleChild = (childId: string) => {
     if (initialRecord) return;
-    if (lockedChildren[childId]) {
-      setStepError(`${lockedChildren[childId]}が入力中のため、この児童は選択できません。ホームから入力状況を確認できます。`);
+    const lockOwner = lockedChildren[`${wizard.date}:${childId}`];
+    if (lockOwner) {
+      setStepError(`${lockOwner}が同日の記録を入力中のため、この児童は選択できません。ホームから入力状況を確認できます。`);
       return;
     }
     setWizard((previous) => {
@@ -2881,7 +2856,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
               {displayedChildren.map((child) => {
                 const selected = wizard.selectedChildIds.includes(child.id);
                 const isAdditional = plannedChildIds.has(child.id) || additionalSelected.some((item) => item.id === child.id);
-                const lockOwner = lockedChildren[child.id];
+                const lockOwner = lockedChildren[`${wizard.date}:${child.id}`];
                 return <button key={child.id} type="button" disabled={Boolean(initialRecord) || Boolean(lockOwner)} onClick={() => toggleChild(child.id)} className={`${choiceClass} flex items-center justify-between text-left ${selected ? 'bg-teal-600 border-teal-600 text-white' : lockOwner ? 'border-amber-300 bg-amber-50 text-amber-900' : 'bg-white border-slate-300 text-slate-700'} disabled:opacity-80`}><span>{child.name}<span className="block text-[11px] font-normal opacity-75">{lockOwner ? `${lockOwner}が入力中` : `${calculateSchoolGrade(child.birthDate) || child.grade || '学年未設定'}・${isAdditional ? '追加利用' : formatRegularDays(getRegularDaysForDate(child, wizard.date))}`}</span></span>{selected && <Check className="w-5 h-5" />}</button>;
               })}
             </div>
@@ -2903,7 +2878,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                     <div className="mt-3 max-h-[55vh] space-y-2 overflow-y-auto">
                       {pickerChildren.map((child) => {
                         const selected = wizard.selectedChildIds.includes(child.id);
-                        const lockOwner = lockedChildren[child.id];
+                        const lockOwner = lockedChildren[`${wizard.date}:${child.id}`];
                         return <button key={child.id} type="button" disabled={Boolean(lockOwner)} onClick={() => toggleChild(child.id)} className={`w-full min-h-14 rounded-xl border p-3 text-left flex items-center gap-3 disabled:opacity-80 ${selected ? 'border-teal-500 bg-teal-50 text-teal-900' : lockOwner ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-slate-200 bg-white text-slate-700'}`}><span className={`h-6 w-6 shrink-0 rounded-md border flex items-center justify-center ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300'}`}>{selected && <Check className="w-4 h-4" />}</span><span><strong className="block text-sm">{child.name}</strong><span className="text-[11px] text-slate-500">{lockOwner ? `${lockOwner}が入力中` : `${calculateSchoolGrade(child.birthDate) || child.grade || '学年未設定'}・${wizard.date}時点の定期利用 ${formatRegularDays(getRegularDaysForDate(child, wizard.date))}`}</span></span></button>;
                       })}
                       {pickerChildren.length === 0 && <p className="py-8 text-center text-sm text-slate-400">一致する児童がいません。</p>}
@@ -3354,9 +3329,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       ? '下書きを復元しました'
       : draftStatus === 'deleted'
         ? '入力中の記録を削除しました'
-        : draftStatus === 'reset'
-          ? '午前3時に下書きをリセットしました'
-          : draftStatus === 'conflict'
+        : draftStatus === 'conflict'
             ? '別端末の更新を検出しました'
           : draftStatus === 'locked'
             ? '別の職員が同じ児童を入力中'
@@ -3393,7 +3366,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             className={`flex items-center gap-1 ${
               draftStatus === 'error' || draftStatus === 'conflict' || draftWriteBlocked
                 ? 'text-rose-600'
-                : draftStatus === 'deleted' || draftStatus === 'reset'
+                : draftStatus === 'deleted'
                   ? 'font-bold text-amber-700'
                   : 'text-slate-500'
             }`}
@@ -3406,7 +3379,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           <p className="text-xs leading-relaxed text-slate-600">
             {wizard.selectedChildIds.length === 0
               ? '児童を選択するまでは入力中の記録として保存されません。'
-              : '入力内容は自動保存され、毎日午前3時にリセットされます。'}
+              : '入力内容は自動保存され、保存または削除するまで入力中の記録として残ります。'}
           </p>
           {!editingDisabled && (wizard.selectedChildIds.length > 0 || Boolean(initialRecord)) && <button
             type="button"

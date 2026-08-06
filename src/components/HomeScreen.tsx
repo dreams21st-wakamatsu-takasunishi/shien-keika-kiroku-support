@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   ArrowLeft,
+  AlertTriangle,
   Bell,
   Bot,
   CalendarDays,
@@ -42,7 +43,7 @@ import type {
 } from '../types';
 import type { ActiveTab } from './Header';
 import { executeHomeAssistantProposal, requestHomeAssistantProposal } from '../services/homeAssistantService';
-import { DailyOperationsPanel } from './DailyOperationsPanel';
+import { DailyOperationsPanel, type DraftTakeoverSelection } from './DailyOperationsPanel';
 import { HandoverPanel } from './HandoverPanel';
 import { MorningMeetingPanel } from './MorningMeetingPanel';
 import { AnnouncementPanel } from './AnnouncementPanel';
@@ -81,7 +82,7 @@ interface HomeScreenProps {
   onStartRecord: (childId: string, date: string) => void;
   onResumeDraft: (draftKey: string) => void;
   onViewDraft: (draftKey: string, ownerName?: string, childId?: string) => void;
-  onTakeOverDraft: (draftKey: string, ownerName: string | undefined, childId: string) => void;
+  onTakeOverDrafts: (items: DraftTakeoverSelection[]) => Promise<boolean>;
   onDeleteDraft: (draftKey: string) => void;
   onOpenRecord: (record: SupportRecord) => void;
   onSaveAnnouncement: (announcement: Announcement) => Promise<void> | void;
@@ -146,7 +147,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onStartRecord,
   onResumeDraft,
   onViewDraft,
-  onTakeOverDraft,
+  onTakeOverDrafts,
   onDeleteDraft,
   onOpenRecord,
   onSaveAnnouncement,
@@ -225,6 +226,17 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const todayWorkCount = staffScheduleItems.filter((item) => item.date === today).length
     + transportRuns.filter((run) => run.date === today).length
     + calendarEvents.filter((event) => homeEventOccursOn(event, today)).length;
+  const carriedOverDrafts = useMemo(
+    () => drafts
+      .filter((draft) => Boolean(draft.date && draft.date < today))
+      .sort((left, right) => (right.date || '').localeCompare(left.date || '') || right.updatedAt.localeCompare(left.updatedAt)),
+    [drafts, today]
+  );
+  const carriedOverChildCount = useMemo(
+    () => new Set(carriedOverDrafts.flatMap((draft) => draft.selectedChildIds)).size,
+    [carriedOverDrafts]
+  );
+  const carriedOverTargetDate = carriedOverDrafts[0]?.date;
   const attentionCount = drafts.length + unapproved.length + openHandovers;
 
   return (
@@ -249,6 +261,35 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             </div>
           </section>
 
+          {carriedOverDrafts.length > 0 && carriedOverTargetDate && (
+            <section className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-4 shadow-sm" aria-label="前日以前の未保存記録">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-200 text-amber-900">
+                    <AlertTriangle className="h-5 w-5" />
+                  </span>
+                  <div className="min-w-0">
+                    <h3 className="text-sm font-black text-amber-950">前日以前の未保存記録があります</h3>
+                    <p className="mt-1 text-xs leading-relaxed text-amber-900">
+                      {carriedOverDrafts.length}件（{carriedOverChildCount}名分）を入力中のまま保持しています。内容を確認し、保存または不要な下書きの削除を行ってください。
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    onRecordStatusDateChange(carriedOverTargetDate);
+                    setActivePanel('operations');
+                  }}
+                  className="flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-amber-900 px-4 text-sm font-black text-white hover:bg-amber-800"
+                >
+                  {carriedOverTargetDate.replaceAll('-', '/')}を確認
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            </section>
+          )}
+
           {attentionCount > 0 && (
             <section className="rounded-2xl border border-amber-200 bg-amber-50 p-3" aria-label="確認が必要な項目">
               <div className="flex items-center gap-2 px-1 text-xs font-black text-amber-950"><Bell className="h-4 w-4" />確認が必要です</div>
@@ -267,7 +308,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <WorkspaceCard icon={CalendarDays} title="本日の業務" description="職員配置・予定・出勤・送迎" meta={todayWorkCount > 0 ? `${todayWorkCount}件の予定` : '予定を確認'} tone="teal" onClick={() => setActivePanel('todayWork')} />
-              <WorkspaceCard icon={ClipboardList} title="記録状況" description="利用児童・入力中・保存済み" meta={`本日 ${todayRecords.length}件／入力中 ${drafts.length}件`} tone="sky" onClick={() => setActivePanel('operations')} />
+              <WorkspaceCard icon={ClipboardList} title="記録状況" description="利用児童・入力中・保存済み" meta={`本日 ${todayRecords.length}件／入力中 ${drafts.length}件${carriedOverDrafts.length > 0 ? `／持越し ${carriedOverDrafts.length}件` : ''}`} tone="sky" onClick={() => setActivePanel('operations')} />
               <WorkspaceCard icon={MessageSquareText} title="共有・連絡" description="お知らせ・朝礼・申し送り" meta={`${visibleAnnouncements.length + openHandovers}件を確認`} tone="amber" onClick={() => setActivePanel('communication')} />
               <WorkspaceCard icon={Bot} title="AIアシスタント" description="児童情報の変更や記録の整理" meta="実行前に内容を確認" tone="indigo" onClick={() => setActivePanel('assistant')} />
             </div>
@@ -323,7 +364,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             onStartRecord={onStartRecord}
             onResumeDraft={onResumeDraft}
             onViewDraft={onViewDraft}
-            onTakeOverDraft={onTakeOverDraft}
+            onTakeOverDrafts={onTakeOverDrafts}
             onDeleteDraft={onDeleteDraft}
             onOpenRecord={onOpenRecord}
           />

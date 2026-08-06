@@ -41,6 +41,7 @@ import { SupportPlanManager } from './components/SupportPlanManager';
 import { TeamManager } from './components/TeamManager';
 import { SettingsHub } from './components/SettingsHub';
 import { HomeScreen, type HomeWorkspace } from './components/HomeScreen';
+import type { DraftTakeoverSelection } from './components/DailyOperationsPanel';
 import { AuthScreen } from './components/AuthScreen';
 import { SetPasswordScreen } from './components/SetPasswordScreen';
 import { RecorderSessionGate } from './components/RecorderSessionGate';
@@ -95,7 +96,6 @@ import {
   updateTransportRunStatus,
 } from './services/dataService';
 import { createRecordDraftKey, getDeviceId } from './utils/deviceId';
-import { isDraftCurrent } from './utils/draftExpiry';
 import {
   enqueueRecordSync,
   loadPendingRecordSyncs,
@@ -354,13 +354,7 @@ export default function App() {
           const selectedChildIds = Array.isArray(payload.selectedChildIds)
             ? payload.selectedChildIds.filter((value): value is string => typeof value === 'string')
             : [];
-          if (
-            selectedChildIds.length === 0
-            || !isDraftCurrent(typeof payload.draftCycleKey === 'string' ? payload.draftCycleKey : undefined, updatedAt)
-          ) {
-            localStorage.removeItem(key);
-            return [];
-          }
+          if (selectedChildIds.length === 0) return [];
           return [{
             draftKey: key.split(':').at(-1) || key.slice(prefix.length - 'record-'.length),
             revision: 0,
@@ -380,16 +374,7 @@ export default function App() {
     }
     try {
       const drafts = await listRecordDrafts(organizationId);
-      const current = drafts.filter((draft) =>
-        draft.selectedChildIds.length > 0 && isDraftCurrent(undefined, draft.updatedAt)
-      );
-      const expired = drafts.filter((draft) =>
-        draft.selectedChildIds.length === 0 || !isDraftCurrent(undefined, draft.updatedAt)
-      );
-      setRecordDrafts(current);
-      if (expired.length > 0) {
-        await Promise.allSettled(expired.map((draft) => deleteRecordDraft(organizationId, draft.draftKey)));
-      }
+      setRecordDrafts(drafts.filter((draft) => draft.selectedChildIds.length > 0));
     } catch {
       // Draft list failure does not block the main workspace.
     }
@@ -1094,30 +1079,36 @@ export default function App() {
     setActiveTab('form');
   };
 
-  const handleTakeOverDraft = async (draftKey: string, ownerName: string | undefined, childId: string) => {
+  const handleTakeOverDrafts = async (items: DraftTakeoverSelection[]): Promise<boolean> => {
+    if (items.length === 0) return false;
     const nextRecorderName = activeRecorder?.displayName || auth.profile?.displayName || '現在の職員';
-    const childName = childrenList.find((child) => child.id === childId)?.name || '選択した児童';
+    const childNames = items.map((item) => item.childName).join('、');
+    const ownerNames = [...new Set(items.map((item) => item.ownerName || '別の職員'))].join('、');
     const confirmed = window.confirm(
-      `${ownerName || '別の職員'}が入力中の「${childName}」の記録だけを、${nextRecorderName}へ引き継ぎます。\n\n`
-      + '同じ下書きに含まれる他児童の記録は、元の入力者に残ります。よろしいですか？'
+      `${ownerNames}が入力中の記録から、次の${items.length}名を${nextRecorderName}へ引き継ぎます。\n\n`
+      + `${childNames}\n\n`
+      + '選択していない児童の記録は元の入力者に残ります。よろしいですか？'
     );
-    if (!confirmed) return;
+    if (!confirmed) return false;
 
     try {
-      const targetDraftKey = createRecordDraftKey();
-      if (organizationId) {
+      if (!organizationId) throw new Error('共有データベースへ接続されていないため、記録を引き継げません。');
+      for (const item of items) {
+        const targetDraftKey = createRecordDraftKey();
         await takeOverRecordDraftChild(
           organizationId,
-          draftKey,
-          childId,
+          item.draftKey,
+          item.childId,
           targetDraftKey,
           activeRecorder?.id,
         );
-        await refreshRecordDrafts();
       }
-      handleResumeDraft(targetDraftKey);
+      await refreshRecordDrafts();
+      return true;
     } catch (error) {
+      await refreshRecordDrafts();
       persistError(error);
+      return false;
     }
   };
 
@@ -1386,7 +1377,7 @@ export default function App() {
             onStartRecord={handleStartRecord}
             onResumeDraft={handleResumeDraft}
             onViewDraft={handleViewDraft}
-            onTakeOverDraft={(draftKey, ownerName, childId) => void handleTakeOverDraft(draftKey, ownerName, childId)}
+            onTakeOverDrafts={handleTakeOverDrafts}
             onDeleteDraft={(draftKey) => void handleDeleteDraft(draftKey)}
             onOpenRecord={(record) => {
               setCurrentRecord(record);
@@ -1449,7 +1440,7 @@ export default function App() {
             lockedChildren={Object.fromEntries(recordDrafts
               .filter((draft) => draft.draftKey !== activeDraftKey)
               .flatMap((draft) => draft.selectedChildIds.map((childId) => [
-                childId,
+                `${draft.date || ''}:${childId}`,
                 draft.recorderName || '別職員',
               ])))}
             onSaveRecords={handleSaveRecords}

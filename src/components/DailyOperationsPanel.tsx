@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { CalendarCheck2, CheckCircle2, Clock3, Eye, FileEdit, Info, PlayCircle, Trash2, UserRoundCheck } from 'lucide-react';
 import type { ChildProfile, RecordDraftSummary, SupportRecord } from '../types';
 import { getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
@@ -16,9 +16,16 @@ interface DailyOperationsPanelProps {
   onStartRecord: (childId: string, date: string) => void;
   onResumeDraft: (draftKey: string) => void;
   onViewDraft: (draftKey: string, ownerName?: string, childId?: string) => void;
-  onTakeOverDraft: (draftKey: string, ownerName: string | undefined, childId: string) => void;
+  onTakeOverDrafts: (items: DraftTakeoverSelection[]) => Promise<boolean>;
   onDeleteDraft: (draftKey: string) => void;
   onOpenRecord: (record: SupportRecord) => void;
+}
+
+export interface DraftTakeoverSelection {
+  draftKey: string;
+  ownerName?: string;
+  childId: string;
+  childName: string;
 }
 
 export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
@@ -33,11 +40,14 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
   onStartRecord,
   onResumeDraft,
   onViewDraft,
-  onTakeOverDraft,
+  onTakeOverDrafts,
   onDeleteDraft,
   onOpenRecord,
 }) => {
   const [infoChild, setInfoChild] = useState<ChildProfile | null>(null);
+  const [selectedTakeoverKeys, setSelectedTakeoverKeys] = useState<string[]>([]);
+  const [takingOver, setTakingOver] = useState(false);
+  const [takeoverMessage, setTakeoverMessage] = useState<string | null>(null);
   const weekday = getWeekdayFromDate(targetDate);
 
   const rows = useMemo(() => {
@@ -76,6 +86,59 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
     saved: rows.filter((row) => row.record).length,
   };
 
+  const takeoverCandidates = useMemo<DraftTakeoverSelection[]>(() => rows.flatMap(({ child, draft }) => {
+    if (!draft) return [];
+    const sameAccount = !draft.userId || !currentUserId || draft.userId === currentUserId;
+    const ownedByAnotherRecorder = Boolean(
+      draft.recorderId
+      && currentRecorderId
+      && draft.recorderId !== currentRecorderId
+    );
+    const canResumeDraft = sameAccount && !ownedByAnotherRecorder;
+    if (!currentUserId || canResumeDraft) return [];
+    return [{
+      draftKey: draft.draftKey,
+      ownerName: draft.recorderName,
+      childId: child.id,
+      childName: child.name,
+    }];
+  }), [currentRecorderId, currentUserId, rows]);
+
+  const takeoverCandidateKeys = useMemo(
+    () => new Set(takeoverCandidates.map((item) => `${item.draftKey}:${item.childId}`)),
+    [takeoverCandidates]
+  );
+  const selectedTakeovers = takeoverCandidates.filter((item) =>
+    selectedTakeoverKeys.includes(`${item.draftKey}:${item.childId}`)
+  );
+
+  useEffect(() => {
+    setSelectedTakeoverKeys((previous) => previous.filter((key) => takeoverCandidateKeys.has(key)));
+  }, [takeoverCandidateKeys]);
+
+  const toggleTakeoverSelection = (draftKey: string, childId: string) => {
+    const key = `${draftKey}:${childId}`;
+    setTakeoverMessage(null);
+    setSelectedTakeoverKeys((previous) => previous.includes(key)
+      ? previous.filter((candidate) => candidate !== key)
+      : [...previous, key]);
+  };
+
+  const handleTakeOverSelected = async () => {
+    if (selectedTakeovers.length === 0 || takingOver) return;
+    setTakingOver(true);
+    setTakeoverMessage(null);
+    try {
+      const completed = await onTakeOverDrafts(selectedTakeovers);
+      if (!completed) return;
+      const count = selectedTakeovers.length;
+      setSelectedTakeoverKeys([]);
+      setTakeoverMessage(`${count}名の記録を引き継ぎました。「入力を再開」から続けられます。`);
+    } finally {
+      setTakingOver(false);
+    }
+  };
+
   return (
     <section className="overflow-hidden rounded-2xl border border-teal-200 bg-white shadow-sm">
       <div className="border-b border-teal-100 bg-teal-50/70 p-5 sm:p-6">
@@ -101,6 +164,39 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
           <StatusCount label="入力中" value={counts.drafting} tone="amber" />
           <StatusCount label="保存済み" value={counts.saved} tone="emerald" />
         </div>
+        {takeoverCandidates.length > 0 && (
+          <div className="mt-4 rounded-xl border border-amber-300 bg-white p-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs font-black text-amber-950">別職員が入力中の記録を引き継ぐ</p>
+                <p className="mt-1 text-[11px] text-slate-600">下の児童一覧で対象を選択してから、まとめて引き継げます。</p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setSelectedTakeoverKeys(
+                    selectedTakeoverKeys.length === takeoverCandidates.length
+                      ? []
+                      : takeoverCandidates.map((item) => `${item.draftKey}:${item.childId}`)
+                  )}
+                  className="min-h-11 rounded-xl border border-amber-300 bg-white px-3 text-xs font-bold text-amber-950"
+                >
+                  {selectedTakeoverKeys.length === takeoverCandidates.length ? '選択を解除' : 'すべて選択'}
+                </button>
+                <button
+                  type="button"
+                  disabled={selectedTakeovers.length === 0 || takingOver}
+                  onClick={() => void handleTakeOverSelected()}
+                  className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-amber-600 px-4 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <UserRoundCheck className="h-4 w-4" />
+                  {takingOver ? '引き継ぎ中…' : `記録を引き継ぐ（${selectedTakeovers.length}名）`}
+                </button>
+              </div>
+            </div>
+            {takeoverMessage && <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800" role="status">{takeoverMessage}</p>}
+          </div>
+        )}
       </div>
 
       {rows.length === 0 ? (
@@ -118,10 +214,23 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
             );
             const canResumeDraft = sameAccount && !ownedByAnotherRecorder;
             const canTakeOverDraft = Boolean(currentUserId) && !canResumeDraft;
+            const takeoverKey = draft ? `${draft.draftKey}:${child.id}` : '';
+            const selectedForTakeover = Boolean(takeoverKey && selectedTakeoverKeys.includes(takeoverKey));
             return (
             <article key={child.id} className="p-4 sm:flex sm:items-center sm:gap-4">
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
+                  {canTakeOverDraft && draft && (
+                    <label className={`flex min-h-10 cursor-pointer items-center gap-2 rounded-xl border px-3 text-xs font-black ${selectedForTakeover ? 'border-amber-500 bg-amber-100 text-amber-950' : 'border-slate-300 bg-white text-slate-700'}`}>
+                      <input
+                        type="checkbox"
+                        checked={selectedForTakeover}
+                        onChange={() => toggleTakeoverSelection(draft.draftKey, child.id)}
+                        className="h-4 w-4 accent-amber-600"
+                      />
+                      引き継ぎ対象
+                    </label>
+                  )}
                   <button type="button" onClick={() => setInfoChild(child)} className="flex min-h-10 items-center gap-1 rounded-lg px-1 text-left text-base font-black text-slate-900 hover:bg-slate-100">
                     {child.name}<Info className="h-4 w-4 text-teal-700" />
                   </button>
@@ -185,15 +294,6 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                     >
                       <Eye className="h-4 w-4" />入力状況を見る
                     </button>
-                    {canTakeOverDraft && (
-                      <button
-                        type="button"
-                        onClick={() => onTakeOverDraft(draft.draftKey, draft.recorderName, child.id)}
-                        className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl border border-amber-400 bg-amber-50 px-4 text-xs font-black text-amber-950 sm:flex-none"
-                      >
-                        <UserRoundCheck className="h-4 w-4" />引き継ぐ
-                      </button>
-                    )}
                     {(canResumeDraft || canManageDrafts) && (
                       <button
                         type="button"
@@ -240,7 +340,6 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                 && draft.recorderId !== currentRecorderId
               );
               const canResumeDraft = sameAccount && !ownedByAnotherRecorder;
-              const canTakeOverDraft = Boolean(currentUserId) && !canResumeDraft;
               return (
                 <div key={draft.draftKey} className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-white p-3 sm:flex-row sm:items-center">
                   <div className="min-w-0 flex-1">
@@ -259,20 +358,6 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                     <button type="button" onClick={() => onViewDraft(draft.draftKey, draft.recorderName, draft.selectedChildIds[0])} className="flex min-h-10 items-center gap-1 rounded-lg border border-sky-300 bg-sky-50 px-3 text-[10px] font-black text-sky-900">
                       <Eye className="h-3.5 w-3.5" />入力状況を見る
                     </button>
-                    {canTakeOverDraft && draft.selectedChildIds.map((childId) => {
-                      const childName = childrenList.find((child) => child.id === childId)?.name || '児童';
-                      return (
-                        <button
-                          key={childId}
-                          type="button"
-                          onClick={() => onTakeOverDraft(draft.draftKey, draft.recorderName, childId)}
-                          className="flex min-h-10 items-center gap-1 rounded-lg border border-amber-400 bg-amber-50 px-3 text-[10px] font-black text-amber-950"
-                        >
-                          <UserRoundCheck className="h-3.5 w-3.5" />
-                          {draft.selectedChildIds.length > 1 ? `${childName}だけ引き継ぐ` : '引き継ぐ'}
-                        </button>
-                      );
-                    })}
                     {(canResumeDraft || canManageDrafts) && (
                       <button type="button" onClick={() => onDeleteDraft(draft.draftKey)} className="flex min-h-10 min-w-10 items-center justify-center rounded-lg border border-rose-200 text-rose-700" aria-label="下書きを削除">
                         <Trash2 className="h-4 w-4" />
