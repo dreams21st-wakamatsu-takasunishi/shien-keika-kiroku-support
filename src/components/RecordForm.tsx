@@ -1810,6 +1810,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const [checksAcknowledged, setChecksAcknowledged] = useState(false);
   const [expandedGroupStepId, setExpandedGroupStepId] = useState<string | null>(null);
   const [pendingModuleStepId, setPendingModuleStepId] = useState<string | null>(null);
+  const [pendingModuleType, setPendingModuleType] = useState<RecordModuleType | null>(null);
   const [reorderingChildTabs, setReorderingChildTabs] = useState(false);
   const [draggingChildId, setDraggingChildId] = useState<string | null>(null);
   const childTabSensors = useSensors(
@@ -1871,6 +1872,15 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     });
     return () => window.cancelAnimationFrame(animationFrame);
   }, [wizard]);
+
+  useEffect(() => {
+    if (!pendingModuleType) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setPendingModuleType(null);
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => document.removeEventListener('keydown', closeOnEscape);
+  }, [pendingModuleType]);
 
   const templateForChild = (childId?: string) => {
     if (initialRecord) return initialTemplate;
@@ -2220,7 +2230,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         id: 'module-menu',
         kind: 'modules',
         title: '何を記録しますか？',
-        help: '本日行った内容だけを選んで入力してください。同じ項目を複数回追加できます。',
+        help: '本日行った内容だけを選んで入力してください。入力済みの項目を選ぶと、続きの再開または新規追加を選べます。',
       });
       (childDraft?.recordModules || []).forEach((module) => {
         const sectionId = moduleSectionId(module.id);
@@ -2539,13 +2549,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     setPendingModuleStepId(step);
   };
 
-  const addRecordModule = (type: RecordModuleType) => {
+  const createAndOpenRecordModule = (type: RecordModuleType) => {
     if (!wizard.activeChildId || editingDisabled) return;
-    const existing = activeChildDraft?.recordModules.find((module) => module.type === type);
-    if (existing && SINGLE_RECORD_MODULES.has(type)) {
-      openRecordModule(existing);
-      return;
-    }
     const module = createRecordModule(type);
     updateChildDraft(wizard.activeChildId, (draft) => ({
       ...draft,
@@ -2556,6 +2561,16 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       },
     }));
     openRecordModule(module);
+  };
+
+  const addRecordModule = (type: RecordModuleType) => {
+    if (!wizard.activeChildId || editingDisabled) return;
+    const existing = activeChildDraft?.recordModules.filter((module) => module.type === type) || [];
+    if (existing.length > 0) {
+      setPendingModuleType(type);
+      return;
+    }
+    createAndOpenRecordModule(type);
   };
 
   const removeRecordModule = (moduleId: string) => {
@@ -4004,7 +4019,13 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                   >
                     <span className={`grid h-10 w-10 place-items-center rounded-xl ${count ? 'bg-teal-600 text-white' : 'bg-slate-100 text-slate-700'}`}><Icon className="h-5 w-5" /></span>
                     <strong className="mt-2 block text-sm text-slate-950">{RECORD_MODULE_LABELS[type]}</strong>
-                    <span className="mt-0.5 block text-[10px] leading-relaxed text-slate-500">{singleExisting ? '入力内容を開く' : hint}</span>
+                    <span className="mt-0.5 block text-[10px] leading-relaxed text-slate-500">
+                      {count > 0
+                        ? singleExisting
+                          ? '既存内容を再開'
+                          : '入力済みあり・再開または新規追加'
+                        : hint}
+                    </span>
                     {count > 0 && <span className="absolute right-2 top-2 rounded-full bg-teal-700 px-2 py-0.5 text-[9px] font-black text-white">{count}件</span>}
                     {recommended.has(type) && count === 0 && <span className="absolute right-2 top-2 rounded-full bg-amber-300 px-2 py-0.5 text-[9px] font-black text-amber-950">本日の予定</span>}
                   </button>
@@ -4033,7 +4054,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                         <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full ${complete ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>{complete ? <Check className="h-4 w-4" /> : <Circle className="h-4 w-4" />}</span>
                         <button type="button" onClick={() => openRecordModule(module)} className="min-w-0 flex-1 text-left">
                           <strong className="block truncate text-sm text-slate-900">{RECORD_MODULE_LABELS[module.type]}{activeChildDraft.recordModules.filter((item) => item.type === module.type).length > 1 ? ` ${activeChildDraft.recordModules.filter((item) => item.type === module.type).indexOf(module) + 1}` : ''}</strong>
-                          <span className={`text-[10px] font-bold ${complete ? 'text-emerald-700' : 'text-amber-700'}`}>{complete ? '入力済み' : '入力を確認'}</span>
+                          <span className={`text-[10px] font-bold ${complete ? 'text-emerald-700' : 'text-amber-700'}`}>{complete ? '入力済み・開く' : '続きから入力'}</span>
                         </button>
                         <button type="button" disabled={index === 0} onClick={() => moveRecordModule(module.id, -1)} aria-label="1つ上へ" className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 disabled:opacity-25"><ArrowUp className="h-4 w-4" /></button>
                         <button type="button" disabled={index === activeChildDraft.recordModules.length - 1} onClick={() => moveRecordModule(module.id, 1)} aria-label="1つ下へ" className="grid h-9 w-9 place-items-center rounded-lg border border-slate-200 text-slate-600 disabled:opacity-25"><ArrowDown className="h-4 w-4" /></button>
@@ -4474,6 +4495,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     ? childrenList.find((child) => child.id === draggingChildId)
     : undefined;
   const draggingChildUnanswered = draggingChildId ? unansweredForChild(draggingChildId).length : 0;
+  const pendingModuleCandidates = pendingModuleType
+    ? activeChildDraft?.recordModules.filter((module) => module.type === pendingModuleType) || []
+    : [];
 
   return (
     <form
@@ -4543,6 +4567,104 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             </div>
           </div>
         </div>
+      )}
+      {pendingModuleType && typeof document !== 'undefined' && createPortal(
+        <div
+          className="ui-fade-in fixed inset-0 z-[110] flex items-end justify-center bg-slate-950/55 p-0 sm:items-center sm:p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="record-module-choice-title"
+        >
+          <button
+            type="button"
+            aria-label="記録項目の選択を閉じる"
+            onClick={() => setPendingModuleType(null)}
+            className="absolute inset-0 h-full w-full cursor-default"
+          />
+          <section className="ui-panel-enter relative w-full max-w-lg overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
+            <header className="border-b border-slate-200 bg-teal-50 px-5 py-4 sm:px-6">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-black uppercase tracking-[0.15em] text-teal-700">入力内容は残っています</p>
+                  <h2 id="record-module-choice-title" className="mt-1 text-lg font-black text-slate-950">
+                    {RECORD_MODULE_LABELS[pendingModuleType]}の記録がすでにあります
+                  </h2>
+                  <p className="mt-1 text-xs leading-relaxed text-slate-600">
+                    {SINGLE_RECORD_MODULES.has(pendingModuleType)
+                      ? '入力内容は消えていません。既存の記録を選んで続きから入力してください。'
+                      : '続きを入力する記録を選ぶか、新しい入力項目を追加してください。'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPendingModuleType(null)}
+                  aria-label="閉じる"
+                  className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white text-slate-600 shadow-sm"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </header>
+            <div className="max-h-[58dvh] space-y-3 overflow-y-auto p-4 sm:p-6">
+              <div className="space-y-2">
+                {pendingModuleCandidates.map((module, index) => {
+                  const moduleSteps = steps.filter((step) => step.moduleId === module.id);
+                  const answered = moduleSteps.filter((step) => answerStatus(step, activeChildDraft) === 'answered').length;
+                  const complete = moduleSteps.length > 0 && answered === moduleSteps.length;
+                  return (
+                    <button
+                      key={module.id}
+                      type="button"
+                      onClick={() => {
+                        setPendingModuleType(null);
+                        openRecordModule(module);
+                      }}
+                      className="flex min-h-16 w-full items-center gap-3 rounded-2xl border-2 border-slate-200 bg-white p-3 text-left hover:border-teal-400 hover:bg-teal-50"
+                    >
+                      <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-full ${complete ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}`}>
+                        {complete ? <Check className="h-5 w-5" /> : <Circle className="h-5 w-5" />}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <strong className="block text-sm text-slate-950">
+                          {RECORD_MODULE_LABELS[module.type]}{pendingModuleCandidates.length > 1 ? ` ${index + 1}` : ''}
+                        </strong>
+                        <span className={`mt-0.5 block text-xs font-bold ${complete ? 'text-emerald-700' : 'text-amber-700'}`}>
+                          {complete ? '入力済み' : `${answered} / ${moduleSteps.length}項目を入力済み`}
+                        </span>
+                      </span>
+                      <span className="shrink-0 rounded-xl bg-teal-700 px-3 py-2 text-xs font-black text-white">再開</span>
+                    </button>
+                  );
+                })}
+              </div>
+              {SINGLE_RECORD_MODULES.has(pendingModuleType) ? (
+                <p className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-xs font-bold leading-relaxed text-sky-900">
+                  {RECORD_MODULE_LABELS[pendingModuleType]}は1日につき1件です。上の「再開」から既存内容を編集してください。
+                </p>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const type = pendingModuleType;
+                    setPendingModuleType(null);
+                    createAndOpenRecordModule(type);
+                  }}
+                  className="min-h-12 w-full rounded-2xl border-2 border-dashed border-teal-400 bg-teal-50 px-4 text-sm font-black text-teal-800"
+                >
+                  ＋ 新しい{RECORD_MODULE_LABELS[pendingModuleType]}を追加
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setPendingModuleType(null)}
+                className="min-h-11 w-full rounded-xl border border-slate-300 bg-white px-4 text-sm font-bold text-slate-600"
+              >
+                キャンセル
+              </button>
+            </div>
+          </section>
+        </div>,
+        document.body,
       )}
       {readOnly && (
         <div className="flex items-start gap-3 rounded-xl border-2 border-sky-300 bg-sky-50 p-4 text-sky-950">

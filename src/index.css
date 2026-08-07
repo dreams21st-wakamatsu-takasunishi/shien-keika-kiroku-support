@@ -59,6 +59,16 @@ body {
 .quick-memo-trigger {
   right: calc(1rem + var(--app-safe-area-right));
   bottom: calc(5rem + var(--app-safe-area-bottom));
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.quick-memo-drag-active,
+.quick-memo-drag-active * {
+  -webkit-touch-callout: none !important;
+  -webkit-user-select: none !important;
+  user-select: none !important;
 }
 
 @media (min-width: 640px) {

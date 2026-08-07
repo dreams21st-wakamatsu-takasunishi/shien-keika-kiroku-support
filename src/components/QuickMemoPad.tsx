@@ -232,6 +232,10 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
     setPosition(stored ? clampMemoPosition(stored) : null);
   }, [positionStorageKey]);
 
+  useEffect(() => () => {
+    document.documentElement.classList.remove('quick-memo-drag-active');
+  }, []);
+
   const updateSheetTransformOrigin = () => {
     const sheet = sheetRef.current;
     const trigger = triggerRef.current;
@@ -276,6 +280,8 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
 
   const handlePointerDown = (event: React.PointerEvent<HTMLButtonElement>) => {
     if (event.button !== 0) return;
+    event.preventDefault();
+    window.getSelection()?.removeAllRanges();
     const rect = triggerRef.current?.getBoundingClientRect();
     if (!rect) return;
     clearLongPressTimer();
@@ -291,6 +297,8 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
       if (!dragState.current || dragState.current.pointerId !== event.pointerId) return;
       dragState.current.active = true;
       triggerRef.current?.setPointerCapture(event.pointerId);
+      document.documentElement.classList.add('quick-memo-drag-active');
+      window.getSelection()?.removeAllRanges();
       setDragging(true);
       navigator.vibrate?.(35);
     }, 430);
@@ -326,6 +334,7 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
         return next;
       });
       setDragging(false);
+      document.documentElement.classList.remove('quick-memo-drag-active');
       if (triggerRef.current?.hasPointerCapture(event.pointerId)) triggerRef.current.releasePointerCapture(event.pointerId);
       window.setTimeout(() => { suppressNextClick.current = false; }, 0);
     }
@@ -450,6 +459,8 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
         onPointerUp={finishPointerInteraction}
         onPointerCancel={finishPointerInteraction}
         onContextMenu={(event) => event.preventDefault()}
+        onDragStart={(event) => event.preventDefault()}
+        draggable={false}
         aria-expanded={open}
         aria-label={open ? 'メモ帳をしまう' : 'クイックメモを開く'}
         title="タップで開く・長押しして移動"
