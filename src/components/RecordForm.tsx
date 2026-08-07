@@ -100,6 +100,7 @@ import {
 } from '../data/weekdayTemplate';
 import { generateStructuredWeekdaySummary } from '../utils/weekdayRecordSummary';
 import { isIntegratedHolidayTemplate, isStructuredHolidayTemplate, STANDARD_HOLIDAY_TEMPLATE } from '../data/holidayTemplate';
+import { UNIFIED_TEMPLATE, UNIFIED_TEMPLATE_ID } from '../data/unifiedTemplate';
 import { generateStructuredHolidaySummary } from '../utils/holidayRecordSummary';
 import { generateUnifiedRecordSummary } from '../utils/unifiedRecordSummary';
 
@@ -251,24 +252,7 @@ interface TakeoverNotice {
   syncFailed: boolean;
 }
 
-const UNIFIED_TEMPLATE_ID = 'template-unified';
 const MODULE_META_SECTION_ID = '__record_modules';
-
-const UNIFIED_TEMPLATE: Template = {
-  id: UNIFIED_TEMPLATE_ID,
-  name: '支援経過記録（統合）',
-  type: 'カスタム',
-  isDefault: true,
-  description: 'その日に行った内容だけを選んで記録する統合フォーマット',
-  wizardQuestions: STANDARD_WEEKDAY_TEMPLATE.wizardQuestions,
-  sections: [
-    {
-      id: 'life',
-      title: '来所時の様子',
-      fields: (STANDARD_WEEKDAY_TEMPLATE.sections.find((section) => section.id === 'life')?.fields || []).map((field) => ({ ...field })),
-    },
-  ],
-};
 
 const RECORD_MODULE_LABELS: Record<RecordModuleType, string> = {
   study: '学習',

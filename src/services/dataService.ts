@@ -1108,6 +1108,12 @@ export async function saveRecords(organizationId: string, records: SupportRecord
     if (error.message.includes('RECORD_CONFLICT')) {
       throw new Error('別端末で記録が更新されたため、この端末の内容では上書きしませんでした。最新の記録を読み直してください。');
     }
+    if (
+      error.code === '23503'
+      && `${error.details || ''} ${error.message}`.includes('support_records_organization_id_template_id_fkey')
+    ) {
+      throw new Error('記録フォーマットの同期が完了していないため保存できませんでした。画面を開き直してから再度保存してください。解消しない場合は管理者へお知らせください。');
+    }
     throw error;
   }
   return ((data || []) as Array<{ record_id: string; new_version: number; outcome: SaveRecordResult['outcome'] }>).map((result) => ({

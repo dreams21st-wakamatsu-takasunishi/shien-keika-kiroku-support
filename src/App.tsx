@@ -32,7 +32,8 @@ import {
   TransportRunStatus,
   Vehicle,
 } from './types';
-import { defaultTemplates } from './data/defaultTemplates';
+import { defaultTemplates, requiredRecordTemplates } from './data/defaultTemplates';
+import { UNIFIED_TEMPLATE_ID } from './data/unifiedTemplate';
 import { sampleRecords, sampleChildren, sampleRecorderProfiles } from './data/sampleData';
 import { Header, ActiveTab } from './components/Header';
 import { RecordForm } from './components/RecordForm';
@@ -350,14 +351,17 @@ export default function App() {
     if (showLoading) setDataLoading(true);
     try {
       let workspace = await loadWorkspaceData(auth.profile.organizationId);
-      if (workspace.templates.length === 0 && auth.profile.role !== 'staff') {
-        await seedDefaultTemplates(auth.profile.organizationId, defaultTemplates);
-        workspace = { ...workspace, templates: defaultTemplates };
+      const missingRequiredTemplates = requiredRecordTemplates.filter(
+        (requiredTemplate) => !workspace.templates.some((template) => template.id === requiredTemplate.id),
+      );
+      if (missingRequiredTemplates.length > 0 && auth.profile.role !== 'staff') {
+        await seedDefaultTemplates(auth.profile.organizationId, missingRequiredTemplates);
+        workspace = await loadWorkspaceData(auth.profile.organizationId);
       }
       const queued = loadPendingRecordSyncs(auth.profile.organizationId, auth.profile.id);
       setPendingSyncs(queued);
       setRecords(mergePendingRecords(workspace.records, queued));
-      setTemplates(workspace.templates);
+      setTemplates(workspace.templates.filter((template) => template.id !== UNIFIED_TEMPLATE_ID));
       setChildrenList(workspace.children);
       setRecorderProfiles(workspace.recorderProfiles);
       setHandoverItems(workspace.handoverItems);
