@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, BellRing, ChevronRight, HardDrive, House, LoaderCircle, RefreshCw, WifiOff, X } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { AlertTriangle, BellRing, ChevronRight, HardDrive, House, LoaderCircle, RefreshCw, ShieldCheck, WifiOff, X } from 'lucide-react';
 import {
   AiWritingSettings,
   Announcement,
@@ -48,6 +48,7 @@ import type { DraftTakeoverSelection } from './components/DailyOperationsPanel';
 import { AuthScreen } from './components/AuthScreen';
 import { SetPasswordScreen } from './components/SetPasswordScreen';
 import { RecorderSessionGate } from './components/RecorderSessionGate';
+import { PrivacyReauthGate } from './components/PrivacyReauthGate';
 import { useAuth } from './hooks/useAuth';
 import { supabase } from './lib/supabase';
 import { FEATURE_FLAGS } from './config/features';
@@ -113,6 +114,8 @@ import {
 } from './utils/offlineQueue';
 import { showAnnouncementNotification } from './utils/deviceNotifications';
 import { getLocalDateString } from './utils/weekdays';
+
+const FIELD_MODE_REAUTH_AFTER_MS = 30_000;
 
 export default function App() {
   const auth = useAuth();
@@ -234,6 +237,10 @@ export default function App() {
     setInAppAnnouncementQueue((current) => current.filter((item) => item.id !== announcementId));
   }, []);
   const [activeRecorder, setActiveRecorder] = useState<RecorderProfile | null>(null);
+  const [privacyShielded, setPrivacyShielded] = useState(false);
+  const [privacyLocked, setPrivacyLocked] = useState(false);
+  const privacyHiddenAt = useRef<number | null>(null);
+  const privacySessionProfileId = useRef<string | null>(null);
   const [activeDraftKey, setActiveDraftKey] = useState(createRecordDraftKey);
   const [online, setOnline] = useState(() => navigator.onLine);
   const [pendingSyncs, setPendingSyncs] = useState<PendingRecordSync[]>([]);
@@ -256,10 +263,49 @@ export default function App() {
   });
 
   useEffect(() => {
-    const handleVisibilityChange = () => setAppVisible(document.visibilityState === 'visible');
+    const fieldModeOnly = Boolean(auth.profile?.fieldModeOnly);
+    const hideSensitiveScreen = () => {
+      if (!fieldModeOnly) return;
+      if (privacyHiddenAt.current === null) privacyHiddenAt.current = Date.now();
+      setPrivacyShielded(true);
+    };
+    const handleVisibilityChange = () => {
+      const visible = document.visibilityState === 'visible';
+      setAppVisible(visible);
+      if (!fieldModeOnly) return;
+      if (!visible) {
+        hideSensitiveScreen();
+        return;
+      }
+      const hiddenFor = privacyHiddenAt.current === null ? 0 : Date.now() - privacyHiddenAt.current;
+      privacyHiddenAt.current = null;
+      setPrivacyShielded(false);
+      if (hiddenFor >= FIELD_MODE_REAUTH_AFTER_MS) setPrivacyLocked(true);
+    };
+    const handlePageHide = () => hideSensitiveScreen();
+    handleVisibilityChange();
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, []);
+    window.addEventListener('pagehide', handlePageHide);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('pagehide', handlePageHide);
+    };
+  }, [auth.profile?.fieldModeOnly]);
+
+  useEffect(() => {
+    const profileId = auth.profile?.id || null;
+    if (auth.profile?.fieldModeOnly && profileId) {
+      if (privacySessionProfileId.current !== profileId) {
+        privacySessionProfileId.current = profileId;
+        setPrivacyLocked(true);
+      }
+      return;
+    }
+    privacySessionProfileId.current = null;
+    privacyHiddenAt.current = null;
+    setPrivacyLocked(false);
+    setPrivacyShielded(false);
+  }, [auth.profile?.fieldModeOnly, auth.profile?.id]);
 
   useEffect(() => {
     if (!activeInAppAnnouncement || !appVisible) return;
@@ -614,6 +660,23 @@ export default function App() {
     );
   }
   if (dataLoading) return <LoadingScreen text="事業所データを読み込んでいます..." />;
+  const privacyRecorder = recorderProfiles.find((recorder) =>
+    recorder.id === auth.profile?.recorderProfileId
+  ) || activeRecorder || undefined;
+  if (remoteMode && auth.profile?.fieldModeOnly && privacyLocked) {
+    return (
+      <PrivacyReauthGate
+        organizationId={auth.profile.organizationId}
+        organizationName={auth.profile.organizationName}
+        recorder={privacyRecorder}
+        onUnlock={(recorder) => {
+          setActiveRecorder(recorder);
+          setPrivacyLocked(false);
+        }}
+        onSignOut={auth.signOut}
+      />
+    );
+  }
   if (remoteMode && auth.profile?.role === 'staff' && !activeRecorder) {
     return (
       <RecorderSessionGate
@@ -1451,6 +1514,15 @@ export default function App() {
 
   return (
     <div className="app-background min-h-screen pb-8 font-sans text-slate-900 antialiased sm:pb-12">
+      {auth.profile?.fieldModeOnly && privacyShielded && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950 p-6 text-center text-white" role="presentation">
+          <div>
+            <ShieldCheck className="mx-auto h-12 w-12 text-teal-300" />
+            <p className="mt-4 text-lg font-black">個人情報を保護しています</p>
+            <p className="mt-1 text-xs text-slate-400">30秒以上離れた場合は、復帰時に本人確認を行います。</p>
+          </div>
+        </div>
+      )}
       <Header
         activeTab={activeTab === 'preview' ? 'records' : activeTab}
         setActiveTab={(tab) => {
@@ -1498,7 +1570,7 @@ export default function App() {
               : 'border-slate-200 bg-white text-slate-700'
         }`}>
           <div className="flex flex-wrap items-center gap-2">
-            {!online && <><WifiOff className="h-4 w-4" /><span className="min-w-0 flex-1">オフラインです。入力は端末に保持され、通信復旧後に送信されます。</span></>}
+            {!online && <><WifiOff className="h-4 w-4" /><span className="min-w-0 flex-1">{auth.profile?.fieldModeOnly ? 'オフラインです。個人端末用の現場モードでは入力を端末内に保存しません。通信復旧後に入力してください。' : 'オフラインです。入力は端末に保持され、通信復旧後に送信されます。'}</span></>}
             {online && !remoteMode && <><HardDrive className="h-4 w-4" /><span className="min-w-0 flex-1">ローカル試用モード：データはこのブラウザだけに保存されます。</span></>}
             {pendingSyncs.length > 0 && (
               <button
