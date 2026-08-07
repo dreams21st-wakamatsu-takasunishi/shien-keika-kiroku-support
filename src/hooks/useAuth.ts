@@ -98,6 +98,7 @@ export function useAuth() {
   const [error, setError] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(!isSupabaseConfigured);
   const [profileReloadKey, setProfileReloadKey] = useState(0);
+  const [lastInteractiveAuthAt, setLastInteractiveAuthAt] = useState(0);
 
   useEffect(() => {
     if (!supabase) {
@@ -219,6 +220,7 @@ export function useAuth() {
 
     // Authイベントだけに依存せず、成功時のセッションを確実に画面へ反映する。
     setSession(data.session);
+    setLastInteractiveAuthAt(Date.now());
     setInitialized(true);
     return { error: null };
   };
@@ -261,6 +263,7 @@ export function useAuth() {
       return { error: sessionError || new Error('ログイン状態を開始できませんでした。') };
     }
     setSession(sessionData.session);
+    setLastInteractiveAuthAt(Date.now());
     setInitialized(true);
     return { error: null };
   };
@@ -277,6 +280,7 @@ export function useAuth() {
     }
     setSession(null);
     setProfile(null);
+    setLastInteractiveAuthAt(0);
     setLoading(false);
   };
 
@@ -297,6 +301,7 @@ export function useAuth() {
     const { data, error: refreshError } = await supabase.auth.refreshSession();
     if (refreshError) return { error: refreshError };
     setSession(data.session);
+    setLastInteractiveAuthAt(Date.now());
     return { error: null };
   };
 
@@ -308,6 +313,7 @@ export function useAuth() {
     configured: isSupabaseConfigured,
     session,
     profile,
+    lastInteractiveAuthAt,
     needsPasswordSetup: Boolean(session?.user.user_metadata?.needs_password_setup),
     loading,
     error,

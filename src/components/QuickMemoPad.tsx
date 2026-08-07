@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Check, Cloud, Send, StickyNote, Trash2, X } from 'lucide-react';
 import { deleteRecordDraft, loadRecordDraft, saveRecordDraft } from '../services/dataService';
@@ -101,12 +101,14 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
   const [position, setPosition] = useState<MemoPosition | null>(() => readMemoPosition(positionStorageKey));
   const [dragging, setDragging] = useState(false);
   const skipNextSave = useRef(false);
+  const sheetRef = useRef<HTMLElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const longPressTimer = useRef<number | null>(null);
   const dragState = useRef<MemoDragState | null>(null);
   const suppressNextClick = useRef(false);
   const deviceId = useRef(getDeviceId()).current;
   const remoteRevision = useRef<number | null>(null);
+  const [sheetTransformOrigin, setSheetTransformOrigin] = useState('100% 100%');
   const writeLocalMemo = (payload: QuickMemoPayload, remoteConfirmed = false) => {
     try {
       if (allowLocalSensitiveStorage) localStorage.setItem(storageKey, JSON.stringify(payload));
@@ -230,6 +232,27 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
     setPosition(stored ? clampMemoPosition(stored) : null);
   }, [positionStorageKey]);
 
+  const updateSheetTransformOrigin = () => {
+    const sheet = sheetRef.current;
+    const trigger = triggerRef.current;
+    if (!sheet || !trigger) return;
+    const triggerRect = trigger.getBoundingClientRect();
+    const computed = getComputedStyle(sheet);
+    const left = computed.left !== 'auto'
+      ? Number.parseFloat(computed.left)
+      : window.innerWidth - Number.parseFloat(computed.right || '0') - sheet.offsetWidth;
+    const top = computed.top !== 'auto'
+      ? Number.parseFloat(computed.top)
+      : window.innerHeight - Number.parseFloat(computed.bottom || '0') - sheet.offsetHeight;
+    const originX = triggerRect.left + triggerRect.width / 2 - left;
+    const originY = triggerRect.top + triggerRect.height / 2 - top;
+    setSheetTransformOrigin(`${originX}px ${originY}px`);
+  };
+
+  useLayoutEffect(() => {
+    updateSheetTransformOrigin();
+  }, [position, open]);
+
   useEffect(() => {
     const handleResize = () => {
       setPosition((current) => {
@@ -238,6 +261,7 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
         localStorage.setItem(positionStorageKey, JSON.stringify(next));
         return next;
       });
+      window.requestAnimationFrame(updateSheetTransformOrigin);
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
@@ -344,10 +368,12 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
   return createPortal(
     <>
       <section
+        ref={sheetRef}
         aria-label="クイックメモ"
         aria-hidden={!open}
-        className={`quick-memo-sheet fixed inset-x-3 z-50 max-h-[min(68vh,34rem)] origin-bottom-right overflow-hidden rounded-2xl border border-amber-200 bg-amber-50 shadow-2xl transition-all duration-300 ease-out sm:inset-x-auto sm:w-96 ${
-          open ? 'pointer-events-auto translate-y-0 scale-100 opacity-100' : 'pointer-events-none translate-y-5 scale-90 opacity-0'
+        style={{ transformOrigin: sheetTransformOrigin }}
+        className={`quick-memo-sheet fixed inset-x-3 z-50 max-h-[min(68vh,34rem)] overflow-hidden rounded-2xl border border-amber-200 bg-amber-50 shadow-2xl transition-[transform,opacity] duration-300 ease-out sm:inset-x-auto sm:w-96 ${
+          open ? 'pointer-events-auto scale-100 opacity-100' : 'pointer-events-none scale-[0.08] opacity-0'
         }`}
       >
         <div className="flex items-center justify-between border-b border-amber-200 bg-amber-100/80 px-4 py-3">

@@ -116,6 +116,7 @@ import { showAnnouncementNotification } from './utils/deviceNotifications';
 import { getLocalDateString } from './utils/weekdays';
 
 const FIELD_MODE_REAUTH_AFTER_MS = 30_000;
+const RECENT_PASSWORD_AUTH_WINDOW_MS = 120_000;
 
 export default function App() {
   const auth = useAuth();
@@ -297,7 +298,9 @@ export default function App() {
     if (auth.profile?.fieldModeOnly && profileId) {
       if (privacySessionProfileId.current !== profileId) {
         privacySessionProfileId.current = profileId;
-        setPrivacyLocked(true);
+        const passwordJustVerified = auth.lastInteractiveAuthAt > 0
+          && Date.now() - auth.lastInteractiveAuthAt <= RECENT_PASSWORD_AUTH_WINDOW_MS;
+        setPrivacyLocked(!passwordJustVerified);
       }
       return;
     }
@@ -305,7 +308,7 @@ export default function App() {
     privacyHiddenAt.current = null;
     setPrivacyLocked(false);
     setPrivacyShielded(false);
-  }, [auth.profile?.fieldModeOnly, auth.profile?.id]);
+  }, [auth.profile?.fieldModeOnly, auth.profile?.id, auth.lastInteractiveAuthAt]);
 
   useEffect(() => {
     if (!activeInAppAnnouncement || !appVisible) return;
