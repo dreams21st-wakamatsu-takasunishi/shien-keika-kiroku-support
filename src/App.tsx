@@ -650,6 +650,9 @@ export default function App() {
       const message = error instanceof Error ? error.message : String(error);
       const networkFailure = !navigator.onLine || /network|fetch|connection|offline/i.test(message);
       if (!networkFailure) throw error;
+      if (auth.profile.fieldModeOnly) {
+        throw new Error('個人端末用の現場モードでは、個人情報を端末内へ保存しません。通信が復旧してから、クラウド保存済みの下書きを開いて保存してください。');
+      }
       const queued = enqueueRecordSync(organizationId, auth.profile.id, items);
       setPendingSyncs(queued);
       setDataError('通信できないため端末に保存しました。通信復旧後に自動送信します。');
@@ -1608,6 +1611,7 @@ export default function App() {
             organizationId={organizationId}
             userId={auth.profile?.id}
             userDisplayName={auth.profile?.displayName}
+            allowLocalSensitiveStorage={!auth.profile?.fieldModeOnly}
             draftKey={activeDraftKey}
             activeRecorder={activeRecorder || undefined}
             assistantPrefill={assistantRecordPrefill}

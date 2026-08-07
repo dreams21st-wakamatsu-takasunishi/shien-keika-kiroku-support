@@ -9,6 +9,7 @@ interface QuickMemoPadProps {
   organizationId?: string;
   userId?: string;
   recorderId?: string;
+  allowLocalSensitiveStorage?: boolean;
   onCreateHandover?: (content: string) => Promise<void> | void;
 }
 
@@ -84,6 +85,7 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
   organizationId,
   userId,
   recorderId,
+  allowLocalSensitiveStorage = true,
   onCreateHandover,
 }) => {
   const draftKey = `quick-memo-${recorderId || 'account'}`;
@@ -105,6 +107,15 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
   const suppressNextClick = useRef(false);
   const deviceId = useRef(getDeviceId()).current;
   const remoteRevision = useRef<number | null>(null);
+  const writeLocalMemo = (payload: QuickMemoPayload, remoteConfirmed = false) => {
+    try {
+      if (allowLocalSensitiveStorage) localStorage.setItem(storageKey, JSON.stringify(payload));
+      else if (remoteConfirmed) localStorage.removeItem(storageKey);
+      return true;
+    } catch {
+      return false;
+    }
+  };
 
   useEffect(() => {
     if (!organizationId || !userId) return;
@@ -128,7 +139,7 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
           const restored = { ...remote.payload, updatedAt: remote.updatedAt };
           setContent(restored.content);
           localUpdatedAt.current = restored.updatedAt;
-          localStorage.setItem(storageKey, JSON.stringify(restored));
+          writeLocalMemo(restored, true);
           setStatus('restored');
         }
       })
@@ -139,7 +150,7 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
     return () => {
       alive = false;
     };
-  }, [draftKey, organizationId, storageKey, userId]);
+  }, [draftKey, organizationId, storageKey, userId, allowLocalSensitiveStorage]);
 
   useEffect(() => {
     if (!ready) return;
@@ -168,9 +179,7 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
       updatedAt,
       draftCycleKey: getCurrentDraftCycleKey(),
     };
-    try {
-      localStorage.setItem(storageKey, JSON.stringify(payload));
-    } catch {
+    if (!writeLocalMemo(payload)) {
       setStatus('error');
       return;
     }
@@ -189,12 +198,13 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
       })
         .then((saved) => {
           remoteRevision.current = saved.revision;
+          if (!allowLocalSensitiveStorage) localStorage.removeItem(storageKey);
           setStatus('saved');
         })
         .catch(() => setStatus('error'));
     }, 700);
     return () => window.clearTimeout(timer);
-  }, [content, deviceId, draftKey, organizationId, ready, recorderId, storageKey, userId]);
+  }, [content, deviceId, draftKey, organizationId, ready, recorderId, storageKey, userId, allowLocalSensitiveStorage]);
 
   useEffect(() => {
     let timer: number;
@@ -324,8 +334,12 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
         : status === 'reset'
           ? '午前3時にリセットしました'
         : status === 'error'
-          ? '端末には保存済み・共有保存に失敗'
-          : '入力すると自動保存';
+          ? allowLocalSensitiveStorage
+            ? '端末には保存済み・共有保存に失敗'
+            : 'クラウド保存に失敗・端末保存なし'
+          : allowLocalSensitiveStorage
+            ? '入力すると自動保存'
+            : '入力するとクラウドだけに保存';
 
   return createPortal(
     <>
@@ -341,7 +355,9 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
             <h3 className="flex items-center gap-2 text-sm font-bold text-amber-950">
               <StickyNote className="h-4 w-4" />クイックメモ
             </h3>
-            <p className="mt-0.5 text-[11px] text-amber-800">自動保存・毎日午前3時リセット／アイコンは長押しで移動</p>
+            <p className="mt-0.5 text-[11px] text-amber-800">
+              {allowLocalSensitiveStorage ? '自動保存' : 'クラウド保存・端末内保存なし'}・毎日午前3時リセット／アイコンは長押しで移動
+            </p>
           </div>
           <button
             type="button"

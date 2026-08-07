@@ -27,7 +27,12 @@ function storePendingRecordSyncs(
   userId: string | undefined,
   items: PendingRecordSync[]
 ) {
-  localStorage.setItem(queueKey(organizationId, userId), JSON.stringify(items));
+  const key = queueKey(organizationId, userId);
+  if (items.length === 0) {
+    localStorage.removeItem(key);
+    return;
+  }
+  localStorage.setItem(key, JSON.stringify(items));
 }
 
 export function enqueueRecordSync(

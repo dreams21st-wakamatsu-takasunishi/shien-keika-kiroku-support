@@ -114,6 +114,7 @@ interface RecordFormProps {
   organizationId?: string;
   userId?: string;
   userDisplayName?: string;
+  allowLocalSensitiveStorage?: boolean;
   draftKey?: string;
   activeRecorder?: RecorderProfile;
   assistantPrefill?: { childId: string; date: string; requestId: string } | null;
@@ -1664,15 +1665,19 @@ function normalizeWizardDraft(value: unknown): WizardDraft | null {
   return (draft.version || 0) < 9 ? migrateLegacyHolidayDraft(normalized) : normalized;
 }
 
-function describeDraftSaveError(error: unknown) {
+function describeDraftSaveError(error: unknown, allowLocalSensitiveStorage = true) {
   const message = error instanceof Error ? error.message : String(error || '原因不明のエラー');
   if (/failed to fetch|network|load failed|通信|offline/i.test(message)) {
-    return '通信状態を確認できず、共有データベースへ保存できませんでした。入力内容はこの端末内に残っています。';
+    return allowLocalSensitiveStorage
+      ? '通信状態を確認できず、共有データベースへ保存できませんでした。入力内容はこの端末内に残っています。'
+      : '通信状態を確認できず、共有データベースへ保存できませんでした。個人端末用の現場モードでは端末内に保存しないため、通信が復旧するまでこの画面を閉じずに再試行してください。';
   }
   if (/jwt|session|unauthorized|not authenticated/i.test(message)) {
     return 'ログイン状態を確認できず、共有保存できませんでした。画面を再読み込みせず、まず再試行してください。';
   }
-  return `共有データベースへの保存に失敗しました。入力内容はこの端末内に残っています。詳細: ${message.slice(0, 240)}`;
+  return allowLocalSensitiveStorage
+    ? `共有データベースへの保存に失敗しました。入力内容はこの端末内に残っています。詳細: ${message.slice(0, 240)}`
+    : `共有データベースへの保存に失敗しました。個人端末用の現場モードでは端末内に保存しません。詳細: ${message.slice(0, 240)}`;
 }
 
 export const RecordForm: React.FC<RecordFormProps> = ({
@@ -1685,6 +1690,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   organizationId,
   userId,
   userDisplayName,
+  allowLocalSensitiveStorage = true,
   draftKey: requestedDraftKey,
   activeRecorder,
   assistantPrefill,
@@ -1721,6 +1727,15 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       || (initialRecord ? `record-edit-${initialRecord.id}` : createRecordDraftKey())
   ).current;
   const storageKey = `support-record-draft-v2:${organizationId || 'local'}:${userId || 'local'}:${draftKey}`;
+  const writeLocalDraft = (payload: WizardDraft, remoteConfirmed = false) => {
+    try {
+      if (allowLocalSensitiveStorage) localStorage.setItem(storageKey, JSON.stringify(payload));
+      else if (remoteConfirmed) localStorage.removeItem(storageKey);
+      return true;
+    } catch {
+      return false;
+    }
+  };
 
   const createBaseDraft = (): WizardDraft => {
     const initialRecorder = activeRecorder || (initialRecord
@@ -1907,20 +1922,20 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         if (readOnly || remoteTime > localTime) {
           setWizard({ ...restored, updatedAt: remote.updatedAt });
           if (!readOnly) {
-            localStorage.setItem(storageKey, JSON.stringify({ ...restored, updatedAt: remote.updatedAt }));
+            writeLocalDraft({ ...restored, updatedAt: remote.updatedAt }, true);
           }
           setDraftStatus('restored');
         }
       })
       .catch((error) => {
-        setDraftSaveError(describeDraftSaveError(error));
+        setDraftSaveError(describeDraftSaveError(error, allowLocalSensitiveStorage));
         setDraftStatus('error');
       })
       .finally(() => { if (alive) setDraftReady(true); });
     return () => { alive = false; };
     // The initial local draft is intentionally compared once per form session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [organizationId, userId, draftKey, storageKey, readOnly]);
+  }, [organizationId, userId, draftKey, storageKey, readOnly, allowLocalSensitiveStorage]);
 
   useEffect(() => {
     if (
@@ -1973,7 +1988,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         skipNextDraftSave.current = true;
         const latest = { ...restored, updatedAt: remote.updatedAt };
         setWizard(latest);
-        localStorage.setItem(storageKey, JSON.stringify(latest));
+        writeLocalDraft(latest, true);
         setTakeoverNotice((previous) => previous ? {
           ...previous,
           allTransferred: restored.selectedChildIds.length === 0,
@@ -1995,7 +2010,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     return () => { alive = false; };
     // The target signature is emitted by the shared draft Realtime refresh.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [takeoverTargetSignature, organizationId, draftKey, draftReady, initialRecord, readOnly, storageKey]);
+  }, [takeoverTargetSignature, organizationId, draftKey, draftReady, initialRecord, readOnly, storageKey, allowLocalSensitiveStorage]);
 
   useEffect(() => {
     if (
@@ -2036,7 +2051,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         skipNextDraftSave.current = true;
         const latest = { ...restored, updatedAt: remote.updatedAt };
         setWizard(latest);
-        localStorage.setItem(storageKey, JSON.stringify(latest));
+        writeLocalDraft(latest, true);
         setTakeoverNotice((previous) => previous?.kind === 'received' ? {
           ...previous,
           syncing: false,
@@ -2057,7 +2072,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     return () => { alive = false; };
     // Realtime and the form-only polling refresh this summary signature.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveCurrentDraftSignature, organizationId, draftKey, draftReady, initialRecord, readOnly, storageKey]);
+  }, [liveCurrentDraftSignature, organizationId, draftKey, draftReady, initialRecord, readOnly, storageKey, allowLocalSensitiveStorage]);
 
   useEffect(() => {
     if (editingDisabled || !draftReady || draftCleared.current) return;
@@ -2080,9 +2095,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         draftCycleKey: getCurrentDraftCycleKey(),
         updatedAt: new Date().toISOString(),
       };
-      try {
-        localStorage.setItem(storageKey, JSON.stringify(payload));
-      } catch {
+      if (!writeLocalDraft(payload)) {
         setDraftStatus('error');
       }
       if (organizationId && userId) {
@@ -2095,6 +2108,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             });
             if (cancelled) return;
             remoteRevision.current = saved.revision;
+            if (!allowLocalSensitiveStorage) localStorage.removeItem(storageKey);
             setDraftSaveError(null);
             setDraftStatus('saved');
             onDraftChanged?.();
@@ -2118,7 +2132,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
               retryTimer = window.setTimeout(() => void saveSharedDraft(attempt + 1), 1500 * (attempt + 1));
               return;
             }
-            setDraftSaveError(describeDraftSaveError(error));
+            setDraftSaveError(describeDraftSaveError(error, allowLocalSensitiveStorage));
             setDraftStatus('error');
           }
         };
@@ -2133,7 +2147,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       window.clearTimeout(timer);
       if (retryTimer) window.clearTimeout(retryTimer);
     };
-  }, [wizard, draftReady, storageKey, organizationId, userId, draftKey, deviceId, onDraftChanged, editingDisabled, initialRecord, draftRetryToken]);
+  }, [wizard, draftReady, storageKey, organizationId, userId, draftKey, deviceId, onDraftChanged, editingDisabled, initialRecord, draftRetryToken, allowLocalSensitiveStorage]);
 
   useEffect(() => {
     if (!readOnly || !organizationId) return;
@@ -4390,7 +4404,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           recorderId: wizard.recorderId || null,
         });
         remoteRevision.current = saved.revision;
-        localStorage.setItem(storageKey, JSON.stringify(payload));
+        writeLocalDraft(payload, true);
         setDraftStatus('saved');
       } else {
         if (!window.confirm('この端末の未保存変更を破棄して、別端末の最新内容を読み込みますか？')) return;
@@ -4399,7 +4413,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         remoteRevision.current = remote.revision;
         skipNextDraftSave.current = true;
         setWizard({ ...restored, updatedAt: remote.updatedAt });
-        localStorage.setItem(storageKey, JSON.stringify({ ...restored, updatedAt: remote.updatedAt }));
+        writeLocalDraft({ ...restored, updatedAt: remote.updatedAt }, true);
         setDraftStatus('restored');
       }
       onDraftChanged?.();
@@ -4453,7 +4467,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             ? '下書きの共有保存に失敗'
             : wizard.selectedChildIds.length === 0
               ? '児童選択後に自動保存'
-              : '下書き自動保存';
+              : allowLocalSensitiveStorage
+                ? '下書き自動保存'
+                : 'クラウド下書き自動保存';
   const draggingChild = draggingChildId
     ? childrenList.find((child) => child.id === draggingChildId)
     : undefined;
@@ -4564,7 +4580,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           <p className="text-xs leading-relaxed text-slate-600">
             {wizard.selectedChildIds.length === 0
               ? '児童を選択するまでは入力中の記録として保存されません。'
-              : '入力内容は自動保存され、保存または削除するまで入力中の記録として残ります。'}
+              : allowLocalSensitiveStorage
+                ? '入力内容は自動保存され、保存または削除するまで入力中の記録として残ります。'
+                : '個人端末用の現場モードでは、入力内容を端末内へ残さずクラウドだけに自動保存します。'}
           </p>
           {!editingDisabled && (wizard.selectedChildIds.length > 0 || Boolean(initialRecord)) && <button
             type="button"
@@ -4793,6 +4811,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         organizationId={organizationId}
         userId={userId}
         recorderId={activeRecorder?.id}
+        allowLocalSensitiveStorage={allowLocalSensitiveStorage}
         onCreateHandover={onCreateHandover}
       />
       <ChildInfoDialog child={infoChild} onClose={() => setInfoChild(null)} />
