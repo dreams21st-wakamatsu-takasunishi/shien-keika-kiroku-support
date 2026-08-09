@@ -15,12 +15,12 @@ interface DevicePolicy {
 
 interface StaffDeviceRow {
   id: string;
-  recorder_profile_id: string;
+  owner_recorder_profile_id: string | null;
   label: string;
   platform: string | null;
-  device_kind: 'managed' | 'personal';
+  device_kind: 'facility_shared' | 'personal';
   status: 'pending' | 'approved' | 'revoked';
-  field_mode_only: boolean;
+  transport_mode_only: boolean;
   requested_at: string;
   approved_at: string | null;
   revoked_at: string | null;
@@ -49,6 +49,7 @@ const defaultPolicy: DevicePolicy = {
 };
 
 const recorderName = (row: StaffDeviceRow) => {
+  if (row.device_kind === 'facility_shared') return '事業所共有端末';
   const profile = Array.isArray(row.recorder_profiles) ? row.recorder_profiles[0] : row.recorder_profiles;
   return profile?.display_name || '職員名不明';
 };
@@ -74,8 +75,8 @@ export const StaffDeviceManager: React.FC<{ currentUser: UserProfile }> = ({ cur
         .eq('id', currentUser.organizationId)
         .single(),
       supabase
-        .from('staff_devices')
-        .select('id, recorder_profile_id, label, platform, device_kind, status, field_mode_only, requested_at, approved_at, revoked_at, last_seen_at, recorder_profiles(display_name)')
+        .from('organization_devices')
+        .select('id, owner_recorder_profile_id, label, platform, device_kind, status, transport_mode_only, requested_at, approved_at, revoked_at, last_seen_at, recorder_profiles(display_name)')
         .eq('organization_id', currentUser.organizationId)
         .order('requested_at', { ascending: false }),
     ]);
@@ -127,17 +128,15 @@ export const StaffDeviceManager: React.FC<{ currentUser: UserProfile }> = ({ cur
   const reviewDevice = async (
     device: StaffDeviceRow,
     action: 'approve' | 'revoke',
-    fieldModeOnly = device.field_mode_only,
     deviceKind = device.device_kind,
   ) => {
     if (!supabase) return;
     if (action === 'revoke' && !window.confirm(`${recorderName(device)}さんの「${device.label}」を利用停止にしますか？`)) return;
     setBusy(true);
     setMessage('');
-    const { error } = await supabase.rpc('review_staff_device', {
+    const { error } = await supabase.rpc('review_organization_device', {
       p_device_id: device.id,
       p_action: action,
-      p_field_mode_only: fieldModeOnly,
       p_device_kind: deviceKind,
     });
     setMessage(error
@@ -178,12 +177,6 @@ export const StaffDeviceManager: React.FC<{ currentUser: UserProfile }> = ({ cur
             description="全職員への職員ID発行が終わるまでは有効のままにしてください。"
             checked={policy.sharedStaffLoginAllowed}
             onChange={(checked) => setPolicy((current) => ({ ...current, sharedStaffLoginAllowed: checked }))}
-          />
-          <PolicyToggle
-            title="個人端末は現場モードを初期値にする"
-            description="記録作成とホームだけを表示し、名簿・全記録・設定画面を隠します。"
-            checked={policy.defaultPersonalFieldMode}
-            onChange={(checked) => setPolicy((current) => ({ ...current, defaultPersonalFieldMode: checked }))}
           />
           <PolicyToggle
             title="個人端末の利用時間を制限"
@@ -243,7 +236,7 @@ export const StaffDeviceManager: React.FC<{ currentUser: UserProfile }> = ({ cur
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 p-4">
           <div>
             <h3 className="text-sm font-black text-slate-900">登録端末</h3>
-            <p className="mt-1 text-[11px] text-slate-500">承認待ち {pendingCount}件・全{devices.length}件</p>
+            <p className="mt-1 text-[11px] text-slate-500">物理端末ごとに1件だけ登録します。承認待ち {pendingCount}件・全{devices.length}件</p>
           </div>
           {pendingCount > 0 && <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-900">承認待ちあり</span>}
         </div>
@@ -258,7 +251,7 @@ export const StaffDeviceManager: React.FC<{ currentUser: UserProfile }> = ({ cur
               <div key={device.id} className="grid gap-3 p-4 lg:grid-cols-[1.3fr_1fr_auto] lg:items-center">
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
-                    {device.device_kind === 'managed' ? <Laptop className="h-5 w-5 text-indigo-700" /> : <Smartphone className="h-5 w-5 text-teal-700" />}
+                    {device.device_kind === 'facility_shared' ? <Laptop className="h-5 w-5 text-indigo-700" /> : <Smartphone className="h-5 w-5 text-teal-700" />}
                     <strong className="text-sm text-slate-900">{recorderName(device)}</strong>
                     <span className={`rounded-full px-2 py-1 text-[10px] font-black ${
                       device.status === 'approved' ? 'bg-emerald-100 text-emerald-800' : device.status === 'pending' ? 'bg-amber-100 text-amber-900' : 'bg-rose-100 text-rose-800'
@@ -275,39 +268,33 @@ export const StaffDeviceManager: React.FC<{ currentUser: UserProfile }> = ({ cur
                     <select
                       value={device.device_kind}
                       disabled={busy || device.status !== 'approved'}
-                      onChange={(event) => void reviewDevice(device, 'approve', device.field_mode_only, event.target.value as StaffDeviceRow['device_kind'])}
+                      onChange={(event) => void reviewDevice(device, 'approve', event.target.value as StaffDeviceRow['device_kind'])}
                       className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-2"
                     >
-                      <option value="personal">個人端末</option>
-                      <option value="managed">事業所端末</option>
+                      <option value="personal" disabled={device.device_kind === 'facility_shared'}>個人端末</option>
+                      <option value="facility_shared">事業所共有端末</option>
                     </select>
                   </label>
-                  <label className="font-bold text-slate-600">表示範囲
-                    <select
-                      value={device.field_mode_only ? 'field' : 'full'}
-                      disabled={busy || device.status !== 'approved'}
-                      onChange={(event) => void reviewDevice(device, 'approve', event.target.value === 'field', device.device_kind)}
-                      className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-2"
-                    >
-                      <option value="field">現場モード</option>
-                      <option value="full">全機能</option>
-                    </select>
-                  </label>
+                  <div className="font-bold text-slate-600">利用範囲
+                    <p className="mt-1 flex min-h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-2 text-[11px] text-slate-700">
+                      {device.device_kind === 'personal' ? '送迎専用' : '職員権限に応じた全機能'}
+                    </p>
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap justify-end gap-2">
                   {device.status !== 'approved' && (
-                    <button type="button" disabled={busy} onClick={() => void reviewDevice(device, 'approve')} className="flex min-h-10 items-center gap-1 rounded-lg bg-teal-700 px-3 text-xs font-black text-white disabled:bg-slate-400">
+                    <button type="button" disabled={busy} onClick={() => void reviewDevice(device, 'approve', device.device_kind)} className="flex min-h-10 items-center gap-1 rounded-lg bg-teal-700 px-3 text-xs font-black text-white disabled:bg-slate-400">
                       <ShieldCheck className="h-4 w-4" />承認
                     </button>
                   )}
                   {device.status !== 'revoked' && (
-                    <button type="button" disabled={busy} onClick={() => void reviewDevice(device, 'revoke')} className="flex min-h-10 items-center gap-1 rounded-lg border border-rose-200 px-3 text-xs font-black text-rose-700 disabled:text-slate-400">
+                    <button type="button" disabled={busy} onClick={() => void reviewDevice(device, 'revoke', device.device_kind)} className="flex min-h-10 items-center gap-1 rounded-lg border border-rose-200 px-3 text-xs font-black text-rose-700 disabled:text-slate-400">
                       <ShieldX className="h-4 w-4" />停止
                     </button>
                   )}
                   {device.status === 'revoked' && (
-                    <button type="button" disabled={busy} onClick={() => void reviewDevice(device, 'approve')} className="flex min-h-10 items-center gap-1 rounded-lg border border-teal-200 px-3 text-xs font-black text-teal-700">
+                    <button type="button" disabled={busy} onClick={() => void reviewDevice(device, 'approve', device.device_kind)} className="flex min-h-10 items-center gap-1 rounded-lg border border-teal-200 px-3 text-xs font-black text-teal-700">
                       <LockKeyhole className="h-4 w-4" />再承認
                     </button>
                   )}

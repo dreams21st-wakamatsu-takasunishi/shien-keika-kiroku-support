@@ -12,6 +12,7 @@ function mapProfile(
   loginMethod: UserProfile['loginMethod'] = 'email',
   fieldModeOnly = false,
   accessDeviceId?: string,
+  accessDeviceKind?: UserProfile['accessDeviceKind'],
 ): UserProfile {
   return {
     id: row.id,
@@ -24,6 +25,7 @@ function mapProfile(
     loginMethod,
     fieldModeOnly,
     accessDeviceId,
+    accessDeviceKind,
   };
 }
 
@@ -64,6 +66,7 @@ async function fetchProfile(activeSession: Session): Promise<UserProfile> {
 
   let fieldModeOnly = false;
   let accessDeviceId: string | undefined;
+  let accessDeviceKind: UserProfile['accessDeviceKind'];
   const { data: deviceAccessRows, error: deviceAccessError } = await supabase.rpc(
     'get_current_staff_device_access',
     { p_device_token: getAccessDeviceToken() },
@@ -78,6 +81,9 @@ async function fetchProfile(activeSession: Session): Promise<UserProfile> {
   if (deviceAccess) {
     fieldModeOnly = deviceAccess.field_mode_only === true;
     accessDeviceId = typeof deviceAccess.device_id === 'string' ? deviceAccess.device_id : undefined;
+    accessDeviceKind = ['personal', 'facility_shared', 'unmanaged'].includes(deviceAccess.device_kind)
+      ? deviceAccess.device_kind
+      : undefined;
   }
 
   return mapProfile(
@@ -88,6 +94,7 @@ async function fetchProfile(activeSession: Session): Promise<UserProfile> {
     loginMethod,
     fieldModeOnly,
     accessDeviceId,
+    accessDeviceKind,
   );
 }
 
@@ -194,6 +201,7 @@ export function useAuth() {
       if (profile && access && (
         profile.fieldModeOnly !== (access.field_mode_only === true)
         || profile.accessDeviceId !== (access.device_id || undefined)
+        || profile.accessDeviceKind !== (access.device_kind || undefined)
       )) {
         setProfileReloadKey((current) => current + 1);
       }

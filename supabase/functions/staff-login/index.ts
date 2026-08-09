@@ -109,9 +109,9 @@ Deno.serve(async (request) => {
 
   const tokenHash = await sha256Hex(deviceToken);
   const { data: existingDevice } = await serviceClient
-    .from('staff_devices')
-    .select('id, status, device_kind, field_mode_only')
-    .eq('auth_user_id', recorder.auth_user_id)
+    .from('organization_devices')
+    .select('id, status, device_kind, owner_recorder_profile_id, transport_mode_only')
+    .eq('organization_id', organization.id)
     .eq('token_hash', tokenHash)
     .maybeSingle();
 
@@ -119,31 +119,43 @@ Deno.serve(async (request) => {
   if (!device) {
     const initiallyApproved = organization.device_approval_enabled !== true;
     const { data: inserted, error: deviceError } = await serviceClient
-      .from('staff_devices')
+      .from('organization_devices')
       .insert({
         organization_id: organization.id,
-        recorder_profile_id: recorder.id,
-        auth_user_id: recorder.auth_user_id,
         token_hash: tokenHash,
         label: deviceLabel,
         platform,
         device_kind: 'personal',
+        owner_recorder_profile_id: recorder.id,
         status: initiallyApproved ? 'approved' : 'pending',
-        field_mode_only: initiallyApproved ? false : organization.default_personal_field_mode !== false,
+        transport_mode_only: true,
         approved_at: initiallyApproved ? new Date().toISOString() : null,
         last_seen_at: new Date().toISOString(),
       })
-      .select('id, status, device_kind, field_mode_only')
+      .select('id, status, device_kind, owner_recorder_profile_id, transport_mode_only')
       .single();
     if (deviceError || !inserted) {
       return jsonResponse({ error: '端末情報を登録できませんでした。管理者にお問い合わせください。' }, 500);
     }
     device = inserted;
   } else {
+    if (device.device_kind === 'personal' && device.owner_recorder_profile_id !== recorder.id) {
+      return jsonResponse({ error: 'この個人端末は別の職員に登録されています。管理者へ確認してください。', code: 'DEVICE_OWNER_MISMATCH' }, 403);
+    }
     await serviceClient
-      .from('staff_devices')
-      .update({ label: deviceLabel, platform, last_seen_at: new Date().toISOString() })
+      .from('organization_devices')
+      .update({
+        label: deviceLabel,
+        platform,
+        last_seen_at: new Date().toISOString(),
+        ...(!organization.device_approval_enabled && device.status === 'pending'
+          ? { status: 'approved', approved_at: new Date().toISOString() }
+          : {}),
+      })
       .eq('id', device.id);
+    if (!organization.device_approval_enabled && device.status === 'pending') {
+      device = { ...device, status: 'approved' };
+    }
   }
 
   if (device.status === 'revoked') {
@@ -166,7 +178,7 @@ Deno.serve(async (request) => {
     },
     device: {
       id: device.id,
-      fieldModeOnly: device.field_mode_only,
+      fieldModeOnly: device.device_kind === 'personal',
       kind: device.device_kind,
     },
   });

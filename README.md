@@ -11,6 +11,9 @@
 - 職員のメール招待、編集、利用停止、完全削除
 - 児童名簿、記録、テンプレートの共有DB保存
 - 複数児童をタブで切り替える一括記録
+- 個人端末用の送迎専用モード（支援記録・名簿は非表示）
+- 事業所共有端末の物理端末単位承認
+- 児童ごとの送迎到着・乗車・降車時刻と応援引き継ぎ
 - 端末内とSupabaseの本人専用下書き自動保存
 - ABC分析入力とAI要約
 - AIの文体・文章量・追加指示の事業所設定
@@ -59,7 +62,7 @@ VITE_SUPABASE_ANON_KEY=YOUR_PUBLISHABLE_OR_ANON_KEY
 
 ## 4. Edge FunctionsとAI
 
-PowerShellでGeminiキーをEdge FunctionのSecretへ登録し、3つのFunctionをデプロイします。
+PowerShellでGeminiキーをEdge FunctionのSecretへ登録し、利用するFunctionをデプロイします。
 
 ```powershell
 npx.cmd supabase secrets set GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
@@ -67,6 +70,8 @@ npx.cmd supabase functions deploy polish-record
 npx.cmd supabase functions deploy invite-member
 npx.cmd supabase functions deploy manage-member
 npx.cmd supabase functions deploy optimize-transport-route
+npx.cmd supabase functions deploy staff-login
+npx.cmd supabase functions deploy send-transport-notification
 ```
 
 送迎経路最適化を利用する場合は、Google Cloudで課金を有効にしたプロジェクトにRoutes APIを追加し、Routes APIだけに制限したサーバー用APIキーをSupabase Secretへ登録します。APIキーを`.env.local`やGitHub Actionsへ登録しないでください。

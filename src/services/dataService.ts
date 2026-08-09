@@ -28,6 +28,8 @@ import {
   SupportRecord,
   Template,
   TransportRun,
+  TransportFieldAction,
+  TransportFieldDashboard,
   TransportRouteOptimizationRequest,
   TransportRouteOptimizationResult,
   TransportRouteSettings,
@@ -39,6 +41,7 @@ import { upgradeStandardWeekdayTemplate } from '../data/weekdayTemplate';
 import { upgradeStandardHolidayTemplate } from '../data/holidayTemplate';
 import { calculateSchoolGrade } from '../utils/schoolGrade';
 import { getLocalDateString } from '../utils/weekdays';
+import { getAccessDeviceToken } from '../utils/accessDevice';
 
 export interface WorkspaceData {
   children: ChildProfile[];
@@ -846,6 +849,62 @@ export async function updateTransportRunStatus(
     p_recorder_profile_id: recorderProfileId,
     p_pin: pin,
     p_status: status,
+  });
+  if (error) throw error;
+}
+
+export async function loadPersonalTransportDashboard(serviceDate: string): Promise<TransportFieldDashboard> {
+  const { data, error } = await assertSupabase().rpc('get_personal_transport_dashboard', {
+    p_service_date: serviceDate,
+    p_device_token: getAccessDeviceToken(),
+  });
+  if (error) throw error;
+  const dashboard = data as TransportFieldDashboard | null;
+  return dashboard || {
+    serviceDate,
+    recorderProfileId: '',
+    myRuns: [],
+    allRuns: [],
+  };
+}
+
+export async function recordTransportFieldAction(
+  runId: string,
+  stopId: string | undefined,
+  action: TransportFieldAction,
+  note?: string,
+) {
+  const client = assertSupabase();
+  const { data, error } = await client.rpc('record_transport_field_action', {
+    p_transport_run_id: runId,
+    p_stop_id: stopId || null,
+    p_action: action,
+    p_device_token: getAccessDeviceToken(),
+    p_note: note?.trim() || null,
+  });
+  if (error) throw error;
+  const eventId = String(data || '');
+  if (eventId) {
+    void client.functions.invoke('send-transport-notification', {
+      body: { eventId },
+    }).catch(() => undefined);
+  }
+  return eventId;
+}
+
+export async function cancelTransportFieldAction(eventId: string) {
+  const { error } = await assertSupabase().rpc('cancel_transport_field_action', {
+    p_event_id: eventId,
+    p_device_token: getAccessDeviceToken(),
+  });
+  if (error) throw error;
+}
+
+export async function setTransportCover(runId: string, active: boolean) {
+  const { error } = await assertSupabase().rpc('set_transport_cover', {
+    p_transport_run_id: runId,
+    p_active: active,
+    p_device_token: getAccessDeviceToken(),
   });
   if (error) throw error;
 }

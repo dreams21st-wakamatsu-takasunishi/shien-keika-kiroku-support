@@ -49,6 +49,7 @@ import { AuthScreen } from './components/AuthScreen';
 import { SetPasswordScreen } from './components/SetPasswordScreen';
 import { RecorderSessionGate } from './components/RecorderSessionGate';
 import { PrivacyReauthGate } from './components/PrivacyReauthGate';
+import { PersonalTransportMode } from './components/PersonalTransportMode';
 import { useAuth } from './hooks/useAuth';
 import { supabase } from './lib/supabase';
 import { FEATURE_FLAGS } from './config/features';
@@ -128,6 +129,7 @@ export default function App() {
   const [recordStatusDate, setRecordStatusDate] = useState(getLocalDateString());
   const [dataLoading, setDataLoading] = useState(remoteMode);
   const [dataError, setDataError] = useState<string | null>(null);
+  const [transportUpdateToast, setTransportUpdateToast] = useState('');
 
   const [records, setRecords] = useState<SupportRecord[]>(() => {
     if (remoteMode) return [];
@@ -320,6 +322,12 @@ export default function App() {
   }, [activeInAppAnnouncement, appVisible, dismissInAppAnnouncement]);
 
   useEffect(() => {
+    if (!transportUpdateToast) return;
+    const timer = window.setTimeout(() => setTransportUpdateToast(''), 6000);
+    return () => window.clearTimeout(timer);
+  }, [transportUpdateToast]);
+
+  useEffect(() => {
     if (!remoteMode) localStorage.setItem('support_records_data', JSON.stringify(records));
   }, [records, remoteMode]);
   useEffect(() => {
@@ -399,6 +407,32 @@ export default function App() {
     if (!auth.profile) return;
     if (showLoading) setDataLoading(true);
     try {
+      if (auth.profile.fieldModeOnly) {
+        // Personal devices use the narrowly scoped transport RPC inside
+        // PersonalTransportMode. Do not download records, drafts or rosters.
+        setRecords([]);
+        setTemplates([]);
+        setChildrenList([]);
+        setRecorderProfiles([]);
+        setHandoverItems([]);
+        setHandoverConfirmations([]);
+        setMorningMeetingRecords([]);
+        setMorningMeetingTemplates([]);
+        setMorningMeetingConfirmations([]);
+        setSupportPlans([]);
+        setAnnouncements([]);
+        setAnnouncementConfirmations([]);
+        setStaffScheduleItems([]);
+        setCalendarEvents([]);
+        setDailyChildPlans([]);
+        setAttendanceRecords([]);
+        setAttendanceCorrections([]);
+        setVehicles([]);
+        setTransportRuns([]);
+        setPendingSyncs([]);
+        setDataError(null);
+        return;
+      }
       let workspace = await loadWorkspaceData(auth.profile.organizationId);
       const missingRequiredTemplates = requiredRecordTemplates.filter(
         (requiredTemplate) => !workspace.templates.some((template) => template.id === requiredTemplate.id),
@@ -439,6 +473,10 @@ export default function App() {
   }, [auth.profile]);
 
   const refreshRecordDrafts = useCallback(async () => {
+    if (auth.profile?.fieldModeOnly) {
+      setRecordDrafts([]);
+      return;
+    }
     if (!organizationId) {
       const prefix = 'support-record-draft-v2:local:local:record-';
       const localDrafts = Object.keys(localStorage).flatMap((key): RecordDraftSummary[] => {
@@ -473,7 +511,7 @@ export default function App() {
     } catch {
       // Draft list failure does not block the main workspace.
     }
-  }, [organizationId]);
+  }, [auth.profile?.fieldModeOnly, organizationId]);
 
   useEffect(() => {
     if (activeTab === 'home') void refreshRecordDrafts();
@@ -500,7 +538,7 @@ export default function App() {
   }, [remoteMode, auth.profile, refreshRemoteData, refreshRecordDrafts]);
 
   useEffect(() => {
-    if (!supabase || !auth.profile) return;
+    if (!supabase || !auth.profile || auth.profile.fieldModeOnly) return;
     const organizationId = auth.profile.organizationId;
     const channel = supabase
       .channel(`workspace-${organizationId}`)
@@ -562,6 +600,22 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_correction_requests', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_runs', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'transport_stop_events', filter: `organization_id=eq.${organizationId}` }, (payload) => {
+        const row = payload.new as { event_type?: string };
+        const labels: Record<string, string> = {
+          departed: '送迎便が出発しました',
+          arrived: '乗降場所への到着が登録されました',
+          boarded: '児童の乗車が登録されました',
+          dropped_off: '児童の降車が登録されました',
+          facility_arrived: '迎え便が事業所へ到着しました',
+          returned: '送り便が事業所へ帰着しました',
+          delay: '送迎の遅延連絡があります',
+          help_requested: '送迎の応援要請があります',
+        };
+        setTransportUpdateToast(labels[row.event_type || ''] || '送迎状況が更新されました');
+        void refreshRemoteData(false);
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_run_covers', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_route_settings', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .subscribe();
     return () => { void supabase.removeChannel(channel); };
@@ -627,7 +681,7 @@ export default function App() {
 
   useEffect(() => {
     if (!auth.profile?.fieldModeOnly) return;
-    if (!['home', 'form'].includes(activeTab)) {
+    if (activeTab !== 'home') {
       setActiveTab('home');
       setHomeWorkspace('menu');
     }
@@ -665,7 +719,12 @@ export default function App() {
   if (dataLoading) return <LoadingScreen text="事業所データを読み込んでいます..." />;
   const privacyRecorder = recorderProfiles.find((recorder) =>
     recorder.id === auth.profile?.recorderProfileId
-  ) || activeRecorder || undefined;
+  ) || activeRecorder || (auth.profile?.recorderProfileId ? {
+    id: auth.profile.recorderProfileId,
+    displayName: auth.profile.displayName,
+    active: true,
+    pinConfigured: true,
+  } : undefined);
   if (remoteMode && auth.profile?.fieldModeOnly && privacyLocked) {
     return (
       <PrivacyReauthGate
@@ -679,6 +738,9 @@ export default function App() {
         onSignOut={auth.signOut}
       />
     );
+  }
+  if (remoteMode && auth.profile?.fieldModeOnly) {
+    return <PersonalTransportMode currentUser={auth.profile} onSignOut={auth.signOut} />;
   }
   if (remoteMode && auth.profile?.role === 'staff' && !activeRecorder) {
     return (
@@ -1561,6 +1623,14 @@ export default function App() {
           }}
           onDismiss={() => dismissInAppAnnouncement(activeInAppAnnouncement.id)}
         />
+      )}
+
+      {transportUpdateToast && appVisible && (
+        <div className="fixed left-1/2 top-[max(5rem,calc(env(safe-area-inset-top)+4rem))] z-[95] flex w-[calc(100%-2rem)] max-w-md -translate-x-1/2 items-center gap-3 rounded-xl bg-sky-950 px-4 py-3 text-sm font-bold text-white shadow-2xl" role="status">
+          <BellRing className="h-5 w-5 shrink-0 text-sky-300" />
+          <span className="min-w-0 flex-1">{transportUpdateToast}</span>
+          <button type="button" onClick={() => setTransportUpdateToast('')} className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-white/10" aria-label="閉じる"><X className="h-4 w-4" /></button>
+        </div>
       )}
 
       <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-3 sm:pt-6">

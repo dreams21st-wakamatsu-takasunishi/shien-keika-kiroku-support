@@ -242,6 +242,7 @@ export interface UserProfile {
   loginMethod?: 'email' | 'staff_id';
   fieldModeOnly?: boolean;
   accessDeviceId?: string;
+  accessDeviceKind?: 'personal' | 'facility_shared' | 'unmanaged';
 }
 
 export interface RecorderProfile {
@@ -443,6 +444,60 @@ export interface TransportRun {
   statusUpdatedByRecorderId?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export type TransportFieldAction =
+  | 'departed'
+  | 'arrived'
+  | 'boarded'
+  | 'dropped_off'
+  | 'facility_arrived'
+  | 'returned'
+  | 'delay'
+  | 'help_requested';
+
+export interface TransportFieldEvent {
+  id: string;
+  eventType: TransportFieldAction;
+  eventAt: string;
+  recorderProfileId: string;
+  recorderName?: string;
+  cancelledAt?: string;
+}
+
+export interface TransportFieldStop extends TransportStop {
+  events: TransportFieldEvent[];
+}
+
+export interface TransportFieldRun {
+  id: string;
+  date: string;
+  name: string;
+  direction: TransportDirection;
+  startTime: string;
+  endTime: string;
+  driverRecorderProfileId?: string;
+  driverName?: string;
+  assistantRecorderProfileIds: string[];
+  assistantNames: string[];
+  vehicleId?: string;
+  vehicleName?: string;
+  status: TransportRunStatus;
+  statusUpdatedAt?: string;
+  passengerCount: number;
+  isAssigned: boolean;
+  isCovering: boolean;
+  hasHelpRequest: boolean;
+  hasDelay: boolean;
+  stops: TransportFieldStop[];
+  runEvents: TransportFieldEvent[];
+}
+
+export interface TransportFieldDashboard {
+  serviceDate: string;
+  recorderProfileId: string;
+  myRuns: TransportFieldRun[];
+  allRuns: TransportFieldRun[];
 }
 
 export interface TransportRouteSettings {

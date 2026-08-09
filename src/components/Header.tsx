@@ -71,7 +71,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [draftHidden, setDraftHidden] = useState<RecorderMenuItemId[]>([]);
   const [savingMenu, setSavingMenu] = useState(false);
   const [menuMessage, setMenuMessage] = useState('');
-  const fieldModeItems = new Set<RecorderMenuItemId>(['home', 'form']);
+  const fieldModeItems = new Set<RecorderMenuItemId>(['home']);
   const roleItems = navigationItems.filter((item) =>
     (!item.managerOnly || !currentUser || currentUser.role !== 'staff')
     && (!currentUser?.fieldModeOnly || fieldModeItems.has(item.tab))
@@ -210,7 +210,7 @@ export const Header: React.FC<HeaderProps> = ({
                 </p>
                 {currentUser?.fieldModeOnly && (
                   <p className="mt-2 rounded-lg bg-amber-300/15 px-2 py-1.5 text-[10px] font-bold text-amber-100">
-                    個人端末用の現場モードで表示しています
+                    個人端末用の送迎モードで表示しています
                   </p>
                 )}
                 {activeRecorder && onChangeRecorder && (
