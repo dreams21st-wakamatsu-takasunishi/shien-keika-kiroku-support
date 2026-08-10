@@ -1051,13 +1051,29 @@ export async function replaceMonthlyTransportRequirements(
     revision: Math.max(1, requirement.revision),
     note: requirement.note?.trim() || null,
   }));
-  const { data, error } = await assertSupabase().rpc('replace_monthly_transport_requirements', {
+  const { error } = await assertSupabase().rpc('replace_monthly_transport_requirements', {
     p_organization_id: organizationId,
     p_month: `${month}-01`,
     p_requirements: payload,
   });
   if (error) throw error;
-  return Number(data || 0);
+
+  const monthStart = `${month}-01`;
+  const nextMonthDate = new Date(`${monthStart}T00:00:00Z`);
+  nextMonthDate.setUTCMonth(nextMonthDate.getUTCMonth() + 1);
+  const nextMonthStart = nextMonthDate.toISOString().slice(0, 10);
+  const { data: refreshedRows, error: refreshError } = await assertSupabase()
+    .from('daily_transport_requirements')
+    .select('*')
+    .eq('organization_id', organizationId)
+    .gte('service_date', monthStart)
+    .lt('service_date', nextMonthStart)
+    .order('service_date')
+    .order('pickup_target_time');
+  if (refreshError) throw refreshError;
+
+  const refreshed = (refreshedRows || []).map(mapDailyTransportRequirement);
+  return refreshed;
 }
 
 export async function deleteDailyTransportRequirement(

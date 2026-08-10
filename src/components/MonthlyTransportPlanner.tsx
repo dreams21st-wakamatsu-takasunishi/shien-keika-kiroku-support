@@ -38,7 +38,7 @@ interface MonthlyTransportPlannerProps {
   canManage: boolean;
   onSavePlanDay: (day: TransportPlanDay) => Promise<void> | void;
   onSaveRequirements: (requirements: DailyTransportRequirement[]) => Promise<void> | void;
-  onReplaceMonthRequirements: (month: string, requirements: DailyTransportRequirement[]) => Promise<void> | void;
+  onReplaceMonthRequirements: (month: string, requirements: DailyTransportRequirement[]) => Promise<DailyTransportRequirement[]>;
 }
 
 const createUuid = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -151,6 +151,31 @@ function missingFields(requirement: DailyTransportRequirement) {
   return missing;
 }
 
+function comparableRequirement(requirement: DailyTransportRequirement) {
+  return JSON.stringify({
+    childId: requirement.childId,
+    date: requirement.date,
+    pickupEnabled: requirement.pickupEnabled,
+    dropoffEnabled: requirement.dropoffEnabled,
+    pickupPattern: requirement.pickupPattern,
+    pickupLocationProfileId: requirement.pickupLocationProfileId || '',
+    pickupLocationName: requirement.pickupLocationName || '',
+    pickupAddress: requirement.pickupAddress || '',
+    pickupArea: requirement.pickupArea || '',
+    pickupTargetTime: timeValue(requirement.pickupTargetTime),
+    dropoffLocationProfileId: requirement.dropoffLocationProfileId || '',
+    dropoffLocationName: requirement.dropoffLocationName || '',
+    dropoffAddress: requirement.dropoffAddress || '',
+    dropoffArea: requirement.dropoffArea || '',
+    dropoffTargetTime: timeValue(requirement.dropoffTargetTime),
+    stopDurationMinutes: requirement.stopDurationMinutes,
+    keepSiblingsTogether: requirement.keepSiblingsTogether,
+    source: requirement.source,
+    status: requirement.status,
+    note: requirement.note || '',
+  });
+}
+
 export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = ({
   initialDate,
   childrenList,
@@ -255,14 +280,28 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
     setError('');
     setMessage('');
     try {
-      await onReplaceMonthRequirements(month, nextRequirements);
-      setDrafts(nextRequirements.filter((item) => item.date === selectedDate));
+      const appliedRequirements = await onReplaceMonthRequirements(month, nextRequirements);
+      setDrafts(appliedRequirements.filter((item) => item.date === selectedDate));
       const selectedPlan = planDays.find((day) => day.date === selectedDate);
       setDayDraft(selectedPlan
         ? { ...selectedPlan, status: 'draft', confirmedAt: undefined, revision: selectedPlan.revision + 1, updatedAt: new Date().toISOString() }
         : defaultPlanDay(selectedDate, routeSettings));
       setExpandedChildId(undefined);
-      setMessage(`${year}年${Number(monthNumber)}月の基本情報を${nextRequirements.length}件再反映しました。各日の内容を確認してから確定してください。`);
+      const previousByKey = new Map<string, DailyTransportRequirement>(
+        monthRequirements.map((item) => [`${item.childId}:${item.date}`, item] as const),
+      );
+      const appliedKeys = new Set(appliedRequirements.map((item) => `${item.childId}:${item.date}`));
+      const createdCount = appliedRequirements.filter((item) => !previousByKey.has(`${item.childId}:${item.date}`)).length;
+      const updatedCount = appliedRequirements.filter((item) => {
+        const previous = previousByKey.get(`${item.childId}:${item.date}`);
+        return previous && comparableRequirement(previous) !== comparableRequirement(item);
+      }).length;
+      const unchangedCount = appliedRequirements.length - createdCount - updatedCount;
+      const removedCount = monthRequirements.filter((item) => !appliedKeys.has(`${item.childId}:${item.date}`)).length;
+      const resultSummary = updatedCount === 0 && createdCount === 0 && removedCount === 0
+        ? `全${unchangedCount}件がすでに最新の基本情報でした。`
+        : `新規${createdCount}件・更新${updatedCount}件・変更なし${unchangedCount}件・対象外削除${removedCount}件です。`;
+      setMessage(`${year}年${Number(monthNumber)}月をDBから再取得し、${appliedRequirements.length}件の反映を確認しました。${resultSummary}各日の内容を確認してから確定してください。`);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : '月全体の基本情報を再反映できませんでした。');
     } finally {

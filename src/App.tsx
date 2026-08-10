@@ -1287,14 +1287,17 @@ export default function App() {
   const handleReplaceMonthlyTransportRequirements = async (month: string, requirements: DailyTransportRequirement[]) => {
     if (!canManageSettings) throw new Error('月間送迎予定を変更できるのは児発管または管理者です。');
     try {
-      if (organizationId) await replaceMonthlyTransportRequirements(organizationId, month, requirements);
+      const appliedRequirements = organizationId
+        ? await replaceMonthlyTransportRequirements(organizationId, month, requirements)
+        : requirements;
       setDailyTransportRequirements((previous) => [
-        ...requirements,
+        ...appliedRequirements,
         ...previous.filter((candidate) => !candidate.date.startsWith(month)),
       ]);
       setTransportPlanDays((previous) => previous.map((day) => day.date.startsWith(month)
         ? { ...day, status: 'draft', confirmedAt: undefined, revision: day.revision + 1, updatedAt: new Date().toISOString() }
         : day));
+      return appliedRequirements;
     } catch (error) {
       persistError(error);
       throw error;
