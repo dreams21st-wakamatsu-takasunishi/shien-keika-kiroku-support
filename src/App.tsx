@@ -262,6 +262,9 @@ export default function App() {
   const [privacyLocked, setPrivacyLocked] = useState(false);
   const privacyHiddenAt = useRef<number | null>(null);
   const privacySessionProfileId = useRef<string | null>(null);
+  const remoteRefreshInFlightRef = useRef(false);
+  const remoteRefreshQueuedRef = useRef(false);
+  const remoteRefreshTimerRef = useRef<number | null>(null);
   const [activeDraftKey, setActiveDraftKey] = useState(createRecordDraftKey);
   const [online, setOnline] = useState(() => navigator.onLine);
   const [pendingSyncs, setPendingSyncs] = useState<PendingRecordSync[]>([]);
@@ -429,76 +432,95 @@ export default function App() {
 
   const refreshRemoteData = useCallback(async (showLoading = true) => {
     if (!auth.profile) return;
+    if (remoteRefreshInFlightRef.current) {
+      remoteRefreshQueuedRef.current = true;
+      return;
+    }
+    remoteRefreshInFlightRef.current = true;
     if (showLoading) setDataLoading(true);
     try {
-      if (auth.profile.fieldModeOnly) {
-        // Personal devices use the narrowly scoped transport RPC inside
-        // PersonalTransportMode. Do not download records, drafts or rosters.
-        setRecords([]);
-        setTemplates([]);
-        setChildrenList([]);
-        setRecorderProfiles([]);
-        setHandoverItems([]);
-        setHandoverConfirmations([]);
-        setMorningMeetingRecords([]);
-        setMorningMeetingTemplates([]);
-        setMorningMeetingConfirmations([]);
-        setSupportPlans([]);
-        setAnnouncements([]);
-        setAnnouncementConfirmations([]);
-        setStaffScheduleItems([]);
-        setCalendarEvents([]);
-        setDailyChildPlans([]);
-        setAttendanceRecords([]);
-        setAttendanceCorrections([]);
-        setVehicles([]);
-        setTransportRuns([]);
-        setTransportPlanDays([]);
-        setDailyTransportRequirements([]);
-        setPendingSyncs([]);
+      do {
+        remoteRefreshQueuedRef.current = false;
+        if (auth.profile.fieldModeOnly) {
+          // Personal devices use the narrowly scoped transport RPC inside
+          // PersonalTransportMode. Do not download records, drafts or rosters.
+          setRecords([]);
+          setTemplates([]);
+          setChildrenList([]);
+          setRecorderProfiles([]);
+          setHandoverItems([]);
+          setHandoverConfirmations([]);
+          setMorningMeetingRecords([]);
+          setMorningMeetingTemplates([]);
+          setMorningMeetingConfirmations([]);
+          setSupportPlans([]);
+          setAnnouncements([]);
+          setAnnouncementConfirmations([]);
+          setStaffScheduleItems([]);
+          setCalendarEvents([]);
+          setDailyChildPlans([]);
+          setAttendanceRecords([]);
+          setAttendanceCorrections([]);
+          setVehicles([]);
+          setTransportRuns([]);
+          setTransportPlanDays([]);
+          setDailyTransportRequirements([]);
+          setPendingSyncs([]);
+          setDataError(null);
+          return;
+        }
+        let workspace = await loadWorkspaceData(auth.profile.organizationId);
+        const missingRequiredTemplates = requiredRecordTemplates.filter(
+          (requiredTemplate) => !workspace.templates.some((template) => template.id === requiredTemplate.id),
+        );
+        if (missingRequiredTemplates.length > 0 && auth.profile.role !== 'staff') {
+          await seedDefaultTemplates(auth.profile.organizationId, missingRequiredTemplates);
+          workspace = await loadWorkspaceData(auth.profile.organizationId);
+        }
+        const queued = loadPendingRecordSyncs(auth.profile.organizationId, auth.profile.id);
+        setPendingSyncs(queued);
+        setRecords(mergePendingRecords(workspace.records, queued));
+        setTemplates(workspace.templates.filter((template) => template.id !== UNIFIED_TEMPLATE_ID));
+        setChildrenList(workspace.children);
+        setRecorderProfiles(workspace.recorderProfiles);
+        setHandoverItems(workspace.handoverItems);
+        setHandoverConfirmations(workspace.handoverConfirmations);
+        setMorningMeetingRecords(workspace.morningMeetingRecords);
+        setMorningMeetingTemplates(workspace.morningMeetingTemplates);
+        setMorningMeetingConfirmations(workspace.morningMeetingConfirmations);
+        setSupportPlans(workspace.supportPlans);
+        setAiWritingSettings(workspace.aiWritingSettings);
+        setAnnouncements(workspace.announcements);
+        setAnnouncementConfirmations(workspace.announcementConfirmations);
+        setStaffScheduleItems(workspace.staffScheduleItems);
+        setCalendarEvents(workspace.calendarEvents);
+        setDailyChildPlans(workspace.dailyChildPlans);
+        setAttendanceRecords(workspace.attendanceRecords);
+        setAttendanceCorrections(workspace.attendanceCorrectionRequests);
+        setVehicles(workspace.vehicles);
+        setTransportRuns(workspace.transportRuns);
+        setTransportPlanDays(workspace.transportPlanDays);
+        setDailyTransportRequirements(workspace.dailyTransportRequirements);
+        setTransportRouteSettings(workspace.transportRouteSettings);
         setDataError(null);
-        return;
-      }
-      let workspace = await loadWorkspaceData(auth.profile.organizationId);
-      const missingRequiredTemplates = requiredRecordTemplates.filter(
-        (requiredTemplate) => !workspace.templates.some((template) => template.id === requiredTemplate.id),
-      );
-      if (missingRequiredTemplates.length > 0 && auth.profile.role !== 'staff') {
-        await seedDefaultTemplates(auth.profile.organizationId, missingRequiredTemplates);
-        workspace = await loadWorkspaceData(auth.profile.organizationId);
-      }
-      const queued = loadPendingRecordSyncs(auth.profile.organizationId, auth.profile.id);
-      setPendingSyncs(queued);
-      setRecords(mergePendingRecords(workspace.records, queued));
-      setTemplates(workspace.templates.filter((template) => template.id !== UNIFIED_TEMPLATE_ID));
-      setChildrenList(workspace.children);
-      setRecorderProfiles(workspace.recorderProfiles);
-      setHandoverItems(workspace.handoverItems);
-      setHandoverConfirmations(workspace.handoverConfirmations);
-      setMorningMeetingRecords(workspace.morningMeetingRecords);
-      setMorningMeetingTemplates(workspace.morningMeetingTemplates);
-      setMorningMeetingConfirmations(workspace.morningMeetingConfirmations);
-      setSupportPlans(workspace.supportPlans);
-      setAiWritingSettings(workspace.aiWritingSettings);
-      setAnnouncements(workspace.announcements);
-      setAnnouncementConfirmations(workspace.announcementConfirmations);
-      setStaffScheduleItems(workspace.staffScheduleItems);
-      setCalendarEvents(workspace.calendarEvents);
-      setDailyChildPlans(workspace.dailyChildPlans);
-      setAttendanceRecords(workspace.attendanceRecords);
-      setAttendanceCorrections(workspace.attendanceCorrectionRequests);
-      setVehicles(workspace.vehicles);
-      setTransportRuns(workspace.transportRuns);
-      setTransportPlanDays(workspace.transportPlanDays);
-      setDailyTransportRequirements(workspace.dailyTransportRequirements);
-      setTransportRouteSettings(workspace.transportRouteSettings);
-      setDataError(null);
+      } while (remoteRefreshQueuedRef.current);
     } catch (error) {
       setDataError(error instanceof Error ? error.message : '共有データを取得できませんでした。');
     } finally {
+      remoteRefreshInFlightRef.current = false;
       setDataLoading(false);
     }
   }, [auth.profile]);
+
+  const scheduleRemoteRefresh = useCallback(() => {
+    if (remoteRefreshTimerRef.current !== null) {
+      window.clearTimeout(remoteRefreshTimerRef.current);
+    }
+    remoteRefreshTimerRef.current = window.setTimeout(() => {
+      remoteRefreshTimerRef.current = null;
+      void refreshRemoteData(false);
+    }, 350);
+  }, [refreshRemoteData]);
 
   const refreshRecordDrafts = useCallback(async () => {
     if (auth.profile?.fieldModeOnly) {
@@ -547,7 +569,9 @@ export default function App() {
 
   useEffect(() => {
     if (activeTab !== 'form' || !remoteMode || !auth.profile) return;
-    const timer = window.setInterval(() => void refreshRecordDrafts(), 3000);
+    // Realtime handles normal updates. This slower poll is only a fallback for
+    // temporarily disconnected clients and avoids constant duplicate reads.
+    const timer = window.setInterval(() => void refreshRecordDrafts(), 10000);
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') void refreshRecordDrafts();
     };
@@ -570,18 +594,18 @@ export default function App() {
     const organizationId = auth.profile.organizationId;
     const channel = supabase
       .channel(`workspace-${organizationId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'support_records', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'children', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'child_regular_day_schedules', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_child_plans', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'recorder_profiles', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'record_templates', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'support_plans', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'handover_items', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'handover_confirmations', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'morning_meeting_records', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'morning_meeting_templates', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'morning_meeting_confirmations', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'support_records', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'children', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'child_regular_day_schedules', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_child_plans', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'recorder_profiles', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'record_templates', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'support_plans', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'handover_items', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'handover_confirmations', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'morning_meeting_records', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'morning_meeting_templates', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'morning_meeting_confirmations', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'record_drafts', filter: `organization_id=eq.${organizationId}` }, () => void refreshRecordDrafts())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'announcements', filter: `organization_id=eq.${organizationId}` }, (payload) => {
         if (payload.eventType === 'INSERT') {
@@ -619,17 +643,17 @@ export default function App() {
             void showAnnouncementNotification(row.title || '新しいお知らせ', row.content || '', row.id);
           }
         }
-        void refreshRemoteData(false);
+        scheduleRemoteRefresh();
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'announcement_confirmations', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_schedule_items', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'calendar_events', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_records', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_correction_requests', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_runs', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_plan_days', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_transport_requirements', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'announcement_confirmations', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_schedule_items', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'calendar_events', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_records', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_correction_requests', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_runs', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_plan_days', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_transport_requirements', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'transport_stop_events', filter: `organization_id=eq.${organizationId}` }, (payload) => {
         const row = payload.new as { event_type?: string };
         const labels: Record<string, string> = {
@@ -643,13 +667,19 @@ export default function App() {
           help_requested: '送迎の応援要請があります',
         };
         setTransportUpdateToast(labels[row.event_type || ''] || '送迎状況が更新されました');
-        void refreshRemoteData(false);
+        scheduleRemoteRefresh();
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_run_covers', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_route_settings', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_run_covers', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_route_settings', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .subscribe();
-    return () => { void supabase.removeChannel(channel); };
-  }, [auth.profile, enqueueInAppAnnouncement, refreshRemoteData, refreshRecordDrafts]);
+    return () => {
+      if (remoteRefreshTimerRef.current !== null) {
+        window.clearTimeout(remoteRefreshTimerRef.current);
+        remoteRefreshTimerRef.current = null;
+      }
+      void supabase.removeChannel(channel);
+    };
+  }, [auth.profile, enqueueInAppAnnouncement, refreshRecordDrafts, scheduleRemoteRefresh]);
 
   const syncPendingRecords = useCallback(async () => {
     if (!organizationId || !auth.profile || !navigator.onLine || syncing) return;

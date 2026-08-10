@@ -80,6 +80,25 @@ function assertSupabase() {
   return supabase;
 }
 
+async function loadSupportRecordsWithRetry(organizationId: string) {
+  const client = assertSupabase();
+  const retryDelays = [350, 900];
+
+  for (let attempt = 0; ; attempt += 1) {
+    const result = await client
+      .from('support_records')
+      .select('*')
+      .eq('organization_id', organizationId)
+      .is('deleted_at', null)
+      .order('record_date', { ascending: false });
+
+    const isTransientServerError = result.status >= 500 && result.status < 600;
+    if (!result.error || !isTransientServerError || attempt >= retryDelays.length) return result;
+
+    await new Promise((resolve) => window.setTimeout(resolve, retryDelays[attempt]));
+  }
+}
+
 function mapChild(row: any): ChildProfile {
   return {
     id: row.id,
@@ -602,7 +621,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     client.from('child_regular_day_schedules').select('*').eq('organization_id', organizationId).order('effective_from'),
     client.from('recorder_profiles').select('id, display_name, active, pin_configured, employee_code, job_title, individual_login_enabled, menu_preferences, created_at').eq('organization_id', organizationId).eq('active', true).order('display_name'),
     client.from('record_templates').select('*').eq('organization_id', organizationId).is('archived_at', null).order('created_at'),
-    client.from('support_records').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('record_date', { ascending: false }),
+    loadSupportRecordsWithRetry(organizationId),
     client.from('handover_items').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }),
     client.from('handover_confirmations').select('*').eq('organization_id', organizationId).order('confirmed_at', { ascending: false }),
     client.from('morning_meeting_records').select('*').eq('organization_id', organizationId).order('meeting_date', { ascending: false }),
@@ -624,7 +643,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     client.from('transport_route_settings').select('*').eq('organization_id', organizationId).eq('id', 'default').maybeSingle(),
   ]);
 
-  for (const result of [
+  const requiredResults = [
     childrenResult,
     schedulesResult,
     recorderProfilesResult,
@@ -637,8 +656,29 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     morningMeetingConfirmationsResult,
     plansResult,
     aiSettingsResult,
-  ]) {
-    if (result.error) throw result.error;
+  ];
+  const requiredResultLabels = [
+    '児童情報',
+    '定期利用予定',
+    '職員情報',
+    '記録フォーマット',
+    '支援記録',
+    '申し送り',
+    '申し送り確認',
+    '朝礼記録',
+    '朝礼テンプレート',
+    '朝礼確認',
+    '支援計画',
+    'AI設定',
+  ];
+
+  for (const [index, result] of requiredResults.entries()) {
+    if (result.error) {
+      const detail = [result.error.code, result.error.message, result.error.details]
+        .filter(Boolean)
+        .join(' / ');
+      throw new Error(`${requiredResultLabels[index]}の取得に失敗しました${detail ? `: ${detail}` : ''}`);
+    }
   }
 
   const schedulesByChild = new Map<string, RegularDaySchedule[]>();
