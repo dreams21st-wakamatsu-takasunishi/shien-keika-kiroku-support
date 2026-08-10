@@ -38,6 +38,7 @@ import type {
   StaffScheduleItem,
   SupportRecord,
   TransportRun,
+  TransportAssignmentChangeInput,
   TransportPlanDay,
   TransportRouteSettings,
   TransportRunStatus,
@@ -118,6 +119,7 @@ interface HomeScreenProps {
   onSaveTransportPlanDay: (day: TransportPlanDay) => Promise<void> | void;
   onSaveDailyTransportRequirements: (requirements: DailyTransportRequirement[]) => Promise<void> | void;
   onSaveTransportRun: (run: TransportRun) => Promise<void> | void;
+  onChangeTransportAssignment: (change: TransportAssignmentChangeInput) => Promise<void> | void;
   onDeleteTransportRun: (runId: string) => Promise<void> | void;
   onSaveTransportRouteSettings: (settings: TransportRouteSettings) => Promise<void> | void;
   onUpdateTransportStatus: (run: TransportRun, recorder: RecorderProfile, pin: string, status: TransportRunStatus) => Promise<void> | void;
@@ -191,6 +193,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onSaveTransportPlanDay,
   onSaveDailyTransportRequirements,
   onSaveTransportRun,
+  onChangeTransportAssignment,
   onDeleteTransportRun,
   onSaveTransportRouteSettings,
   onUpdateTransportStatus,
@@ -384,6 +387,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             onSaveTransportPlanDay={onSaveTransportPlanDay}
             onSaveDailyTransportRequirements={onSaveDailyTransportRequirements}
             onSaveTransportRun={onSaveTransportRun}
+            onChangeTransportAssignment={onChangeTransportAssignment}
             onDeleteTransportRun={onDeleteTransportRun}
             onSaveTransportRouteSettings={onSaveTransportRouteSettings}
             onUpdateTransportStatus={onUpdateTransportStatus}
@@ -396,6 +400,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             records={records}
             drafts={drafts}
             dailyChildPlans={dailyChildPlans}
+            transportRouteSettings={transportRouteSettings}
             targetDate={recordStatusDate}
             onTargetDateChange={onRecordStatusDateChange}
             currentUserId={currentUser?.id}

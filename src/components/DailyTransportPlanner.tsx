@@ -53,6 +53,7 @@ import type {
 import { calculateTransportMatrix } from '../services/dataService';
 import { getSuggestedTransportLocation, getTransportLocationOptions } from '../utils/transportLocations';
 import { getTransportScheduleForDate, getTransportTargetTime } from '../utils/transportSchedule';
+import { getDefaultDepartureTime } from '../utils/transportDeparture';
 import { getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
 
 interface DailyTransportPlannerProps {
@@ -112,6 +113,8 @@ function childStop(
   date: string,
   dailyPlan?: DailyChildPlan,
   requirement?: DailyTransportRequirement,
+  routeSettings?: TransportRouteSettings,
+  pickupMode?: TransportPlanDay['pickupMode'],
 ): TransportStop {
   const suggestion = getSuggestedTransportLocation(child, direction, date);
   const requirementAddress = direction === '迎え' ? requirement?.pickupAddress : requirement?.dropoffAddress;
@@ -126,7 +129,7 @@ function childStop(
     locationType: suggestion?.type || (direction === '迎え' ? '学校' : '自宅'),
     locationName: requirementName || suggestion?.name,
     locationProfileId: requirementProfileId || (suggestion?.source === 'registered' ? suggestion.id : undefined),
-    plannedTime: (direction === '迎え' ? requirement?.pickupTargetTime : requirement?.dropoffTargetTime) || dailyTransportTargetTime(child, date, direction, dailyPlan) || undefined,
+    plannedTime: (direction === '迎え' ? requirement?.pickupTargetTime : requirement?.dropoffTargetTime) || dailyTransportTargetTime(child, date, direction, dailyPlan, routeSettings, pickupMode) || undefined,
     area: requirementArea || suggestion?.area,
     stopDurationMinutes: requirement?.stopDurationMinutes,
     order: 1,
@@ -134,9 +137,11 @@ function childStop(
   };
 }
 
-function dailyTransportTargetTime(child: ChildProfile, date: string, direction: TransportDirection, dailyPlan?: DailyChildPlan) {
-  if (direction === '迎え') return dailyPlan?.schoolEndTime || dailyPlan?.arrivalTime || getTransportTargetTime(child, date, direction);
-  return dailyPlan?.departureTime || getTransportTargetTime(child, date, direction);
+function dailyTransportTargetTime(child: ChildProfile, date: string, direction: TransportDirection, dailyPlan?: DailyChildPlan, settings?: TransportRouteSettings, pickupMode?: TransportPlanDay['pickupMode']) {
+  if (direction === '迎え') return dailyPlan?.schoolEndTime || getTransportTargetTime(child, date, direction);
+  if (dailyPlan?.departureTime) return dailyPlan.departureTime;
+  if (settings) return getDefaultDepartureTime(child, pickupMode === 'home' ? '休日' : '平日', settings);
+  return getTransportTargetTime(child, date, direction);
 }
 
 function minutes(time?: string) {
@@ -305,7 +310,7 @@ const ChildCardContent: React.FC<{
           <strong className="block truncate text-xs text-slate-900">{child.name}</strong>
           <span className="block truncate text-[9px] font-black text-slate-600">{location ? `${location.type}｜${location.name}${location.area ? `・${location.area}` : ''}` : `${direction}先未登録`}</span>
           {!compact && <span title={location?.address} className="block truncate text-[9px] text-slate-400">{location?.address || '住所を児童情報で登録してください'}</span>}
-          <span className="mt-1 block text-[9px] text-slate-500">迎え基準 {schedule?.schoolEndTime || '―'}／乗車 {schedule?.pickupTime || '―'}／送り {schedule?.dropoffTime || '―'}</span>
+          <span className="mt-1 block text-[9px] text-slate-500">迎え基準 {schedule?.schoolEndTime || schedule?.pickupTime || '―'}{direction === '送り' ? '／退所時刻は当日予定から自動' : ''}</span>
         </div>
       </div>
       {!compact && (
@@ -567,7 +572,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
     setDrafts((current) => current.map((run) => {
       const withoutSameDirection = run.direction === targetRun.direction ? run.stops.filter((stop) => stop.childId !== childId) : run.stops;
       if (run.id !== targetRunId) return { ...run, stops: withoutSameDirection.map((stop, index) => ({ ...stop, order: index + 1 })) };
-      const nextStop = childStop(child, run.direction, date, dayPlansByChild.get(child.id), requirementByChild.get(child.id));
+      const nextStop = childStop(child, run.direction, date, dayPlansByChild.get(child.id), requirementByChild.get(child.id), routeSettings, transportPlanDay?.pickupMode);
       return finalizeRunTimes({ ...run, routeOptimizedAt: undefined, stops: [...withoutSameDirection, { ...nextStop, order: withoutSameDirection.length + 1 }] }, transportPlanDay, routeSettings);
     }));
   };
@@ -703,7 +708,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
           nextDrafts.push(target);
           lanes.push(target);
         }
-        const additions = group.map((child, index) => ({ ...childStop(child, direction, date, dayPlansByChild.get(child.id), requirementByChild.get(child.id)), order: target!.stops.length + index + 1 }));
+        const additions = group.map((child, index) => ({ ...childStop(child, direction, date, dayPlansByChild.get(child.id), requirementByChild.get(child.id), routeSettings, transportPlanDay?.pickupMode), order: target!.stops.length + index + 1 }));
         const updated = finalizeRunTimes({ ...target, stops: [...target.stops, ...additions] }, transportPlanDay, routeSettings);
         nextDrafts = nextDrafts.map((run) => run.id === target!.id ? updated : run);
         lanes = lanes.map((run) => run.id === target!.id ? updated : run);

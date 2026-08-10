@@ -3,6 +3,7 @@ import { CalendarDays, GraduationCap, Info, X } from 'lucide-react';
 import type { ChildProfile } from '../types';
 import { calculateSchoolGrade } from '../utils/schoolGrade';
 import { formatRegularDays } from '../utils/weekdays';
+import { getTransportProgram } from '../utils/transportDeparture';
 
 interface ChildInfoDialogProps {
   child: ChildProfile | null;
@@ -59,6 +60,7 @@ export const ChildInfoDialog: React.FC<ChildInfoDialogProps> = ({ child, onClose
             <InfoCard icon={CalendarDays} label="生年月日" value={child.birthDate || '未設定'} />
             <InfoCard icon={CalendarDays} label="定期利用曜日" value={formatRegularDays(child.regularDays || [])} />
             <InfoCard icon={Info} label="サービス・予約" value={child.careType || '未設定'} />
+            <InfoCard icon={Info} label="所属区分" value={getTransportProgram(child)} />
           </div>
           <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
             <p className="text-xs font-black text-amber-900">留意事項・アレルギー等</p>

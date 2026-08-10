@@ -1,18 +1,20 @@
 import React, { useMemo, useState } from 'react';
-import { CalendarClock, Save, Trash2, X } from 'lucide-react';
-import type { ChildProfile, DailyChildPlan, Weekday } from '../types';
+import { CalendarClock, RotateCcw, Save, Trash2, X } from 'lucide-react';
+import type { ChildProfile, DailyChildPlan, TransportRouteSettings, Weekday } from '../types';
+import { getDefaultDepartureTime, getTransportProgram } from '../utils/transportDeparture';
 
 interface DailyChildPlanDialogProps {
   child: ChildProfile;
   date: string;
   weekday: Weekday;
   plan?: DailyChildPlan;
+  routeSettings: TransportRouteSettings;
   onClose: () => void;
   onSave: (plan: DailyChildPlan) => Promise<void> | void;
   onDelete: (childId: string, date: string) => Promise<void> | void;
 }
 
-function createDefaultPlan(child: ChildProfile, date: string, weekday: Weekday): DailyChildPlan {
+function createDefaultPlan(child: ChildProfile, date: string, weekday: Weekday, routeSettings: TransportRouteSettings): DailyChildPlan {
   const now = new Date().toISOString();
   const holidayLike = weekday === '土' || weekday === '日';
   const transport = child.transportSchedule?.find((schedule) => schedule.weekday === weekday);
@@ -29,8 +31,7 @@ function createDefaultPlan(child: ChildProfile, date: string, weekday: Weekday):
     hasAfternoonProgram: true,
     hasSnack: true,
     schoolEndTime: transport?.schoolEndTime,
-    arrivalTime: transport?.pickupTime,
-    departureTime: transport?.dropoffTime,
+    departureTime: getDefaultDepartureTime(child, holidayLike ? '休日' : '平日', routeSettings),
     createdAt: now,
     updatedAt: now,
   };
@@ -41,14 +42,19 @@ export const DailyChildPlanDialog: React.FC<DailyChildPlanDialogProps> = ({
   date,
   weekday,
   plan,
+  routeSettings,
   onClose,
   onSave,
   onDelete,
 }) => {
-  const initial = useMemo(() => plan || createDefaultPlan(child, date, weekday), [child, date, plan, weekday]);
+  const initial = useMemo(() => {
+    const fallback = createDefaultPlan(child, date, weekday, routeSettings);
+    return plan ? { ...plan, departureTime: plan.departureTime || fallback.departureTime } : fallback;
+  }, [child, date, plan, routeSettings, weekday]);
   const [draft, setDraft] = useState<DailyChildPlan>(initial);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const defaultDepartureTime = getDefaultDepartureTime(child, draft.serviceCategory, routeSettings);
 
   const update = (updates: Partial<DailyChildPlan>) => setDraft((previous) => ({ ...previous, ...updates }));
   const handleSave = async () => {
@@ -117,16 +123,20 @@ export const DailyChildPlanDialog: React.FC<DailyChildPlanDialogProps> = ({
             </div>
           </section>
 
-          <section className="grid gap-3 sm:grid-cols-3">
-            {([
-              ['schoolEndTime', '迎え時刻'],
-              ['arrivalTime', '来所予定'],
-              ['departureTime', '退所予定'],
-            ] as const).map(([key, label]) => (
-              <label key={key} className="text-xs font-black text-slate-700">{label}
-                <input type="time" value={draft[key] || ''} onChange={(event) => update({ [key]: event.target.value || undefined })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm" />
-              </label>
-            ))}
+          <section className="grid gap-3 sm:grid-cols-2">
+            <label className="text-xs font-black text-slate-700">迎え基準時刻
+              <input type="time" value={draft.schoolEndTime || ''} onChange={(event) => update({ schoolEndTime: event.target.value || undefined })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm" />
+              <span className="mt-1 block text-[10px] font-normal text-slate-500">学校の下校時刻や、自宅等へ迎えに向かう基準時刻です。</span>
+            </label>
+            <div className="rounded-xl border border-violet-200 bg-violet-50 p-3">
+              <div className="flex items-start justify-between gap-2">
+                <label className="min-w-0 flex-1 text-xs font-black text-violet-950">退所予定時刻
+                  <input type="time" value={draft.departureTime || ''} onChange={(event) => update({ departureTime: event.target.value || undefined })} className="mt-1 min-h-11 w-full rounded-xl border border-violet-300 bg-white px-3 text-sm" />
+                </label>
+                {draft.departureTime !== defaultDepartureTime && <button type="button" onClick={() => update({ departureTime: defaultDepartureTime })} className="mt-5 grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-violet-200 bg-white text-violet-700" aria-label="基本時刻へ戻す"><RotateCcw className="h-4 w-4" /></button>}
+              </div>
+              <p className="mt-1 text-[10px] leading-relaxed text-violet-900">基本：{draft.serviceCategory}・{getTransportProgram(child)} {defaultDepartureTime}{draft.departureTime !== defaultDepartureTime ? '（早退・延長などの当日変更）' : ''}</p>
+            </div>
           </section>
 
           <label className="block text-xs font-black text-slate-700">当日の補足

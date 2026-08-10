@@ -23,6 +23,7 @@ import type {
 } from '../types';
 import { getTransportLocationOptions } from '../utils/transportLocations';
 import { getTransportScheduleForDate } from '../utils/transportSchedule';
+import { getDefaultDepartureTime } from '../utils/transportDeparture';
 import { getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
 
 interface MonthlyTransportPlannerProps {
@@ -109,12 +110,12 @@ function buildRequirement(
     pickupArea: pickup?.area || child.pickupArea,
     pickupTargetTime: pickupMode === 'home'
       ? undefined
-      : timeValue(dailyPlan?.schoolEndTime || dailyPlan?.arrivalTime || schedule?.schoolEndTime || schedule?.pickupTime) || undefined,
+      : timeValue(dailyPlan?.schoolEndTime || schedule?.schoolEndTime) || undefined,
     dropoffLocationProfileId: dropoff?.source === 'registered' ? dropoff.id : undefined,
     dropoffLocationName: dropoff?.name,
     dropoffAddress: dropoff?.address,
     dropoffArea: dropoff?.area || child.dropoffArea,
-    dropoffTargetTime: timeValue(dailyPlan?.departureTime || schedule?.dropoffTime) || undefined,
+    dropoffTargetTime: timeValue(dailyPlan?.departureTime || getDefaultDepartureTime(child, pickupMode === 'home' ? '休日' : '平日', settings)) || undefined,
     stopDurationMinutes: settings.stopDurationMinutes,
     keepSiblingsTogether: true,
     source: 'baseline',

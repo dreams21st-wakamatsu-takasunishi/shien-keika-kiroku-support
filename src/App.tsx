@@ -29,6 +29,7 @@ import {
   SupportRecord,
   Template,
   TransportRun,
+  TransportAssignmentChangeInput,
   TransportPlanDay,
   TransportRouteSettings,
   TransportRunStatus,
@@ -62,6 +63,7 @@ import {
   archiveMorningMeetingTemplate,
   archiveAnnouncement,
   archiveTemplate,
+  changeTransportAssignment,
   closeSupportPlan,
   deleteCalendarEvent,
   deleteDailyChildPlan,
@@ -1262,6 +1264,26 @@ export default function App() {
     }
   };
 
+  const handleChangeTransportAssignment = async (change: TransportAssignmentChangeInput) => {
+    const run = transportRuns.find((candidate) => candidate.id === change.runId);
+    if (!run) throw new Error('変更対象の送迎便が見つかりません。');
+    try {
+      if (organizationId) await changeTransportAssignment(organizationId, change);
+      const now = new Date().toISOString();
+      const driver = recorderProfiles.find((profile) => profile.id === change.driverRecorderProfileId);
+      setTransportRuns((previous) => previous.map((candidate) => candidate.id === change.runId ? {
+        ...candidate,
+        driverRecorderProfileId: change.driverRecorderProfileId,
+        driverName: driver?.displayName,
+        assistantRecorderProfileIds: [...change.assistantRecorderProfileIds],
+        updatedAt: now,
+      } : candidate));
+    } catch (error) {
+      persistError(error);
+      throw error;
+    }
+  };
+
   const handleDeleteTransportRun = async (runId: string) => {
     if (!canManageSettings) throw new Error('送迎便を変更できるのは児発管または管理者です。');
     try {
@@ -1808,6 +1830,7 @@ export default function App() {
             onSaveTransportPlanDay={handleSaveTransportPlanDay}
             onSaveDailyTransportRequirements={handleSaveDailyTransportRequirements}
             onSaveTransportRun={handleSaveTransportRun}
+            onChangeTransportAssignment={handleChangeTransportAssignment}
             onDeleteTransportRun={handleDeleteTransportRun}
             onSaveTransportRouteSettings={handleSaveTransportRouteSettings}
             onUpdateTransportStatus={handleUpdateTransportStatus}
@@ -1881,7 +1904,7 @@ export default function App() {
           />
         )}
         {activeTab === 'children' && (
-          <ChildrenManager childrenList={childrenList} onAddChild={handleAddChild} onUpdateChild={handleUpdateChild} onDeleteChild={handleDeleteChild} />
+          <ChildrenManager childrenList={childrenList} transportRouteSettings={transportRouteSettings} onAddChild={handleAddChild} onUpdateChild={handleUpdateChild} onDeleteChild={handleDeleteChild} />
         )}
         {FEATURE_FLAGS.supportPlansAndFiveDomains && activeTab === 'plans' && (
           <SupportPlanManager childrenList={childrenList} supportPlans={supportPlans} canEdit={canManageSettings} onSavePlan={handleSavePlan} onClosePlan={handleClosePlan} />

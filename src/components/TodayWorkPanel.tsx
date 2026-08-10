@@ -21,6 +21,7 @@ import type {
   RecorderProfile,
   StaffScheduleItem,
   TransportRun,
+  TransportAssignmentChangeInput,
   TransportPlanDay,
   TransportRouteSettings,
   TransportRunStatus,
@@ -62,6 +63,7 @@ interface TodayWorkPanelProps {
   onSaveTransportPlanDay: (day: TransportPlanDay) => Promise<void> | void;
   onSaveDailyTransportRequirements: (requirements: DailyTransportRequirement[]) => Promise<void> | void;
   onSaveTransportRun: (run: TransportRun) => Promise<void> | void;
+  onChangeTransportAssignment: (change: TransportAssignmentChangeInput) => Promise<void> | void;
   onDeleteTransportRun: (runId: string) => Promise<void> | void;
   onSaveTransportRouteSettings: (settings: TransportRouteSettings) => Promise<void> | void;
   onUpdateTransportStatus: (run: TransportRun, recorder: RecorderProfile, pin: string, status: TransportRunStatus) => Promise<void> | void;
@@ -95,6 +97,7 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
   onSaveTransportPlanDay,
   onSaveDailyTransportRequirements,
   onSaveTransportRun,
+  onChangeTransportAssignment,
   onDeleteTransportRun,
   onSaveTransportRouteSettings,
   onUpdateTransportStatus,
@@ -200,6 +203,7 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
           warningsByRunId={warningsByRunId}
           focusRunId={focusRunId}
           onSaveRun={onSaveTransportRun}
+          onChangeAssignment={onChangeTransportAssignment}
           onDeleteRun={onDeleteTransportRun}
           onSaveVehicle={onSaveVehicle}
           onDeleteVehicle={onDeleteVehicle}

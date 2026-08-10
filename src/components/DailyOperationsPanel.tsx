@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CalendarCheck2, CalendarClock, CheckCircle2, Clock3, Eye, FileEdit, Info, PlayCircle, Trash2, UserRoundCheck } from 'lucide-react';
-import type { ChildProfile, DailyChildPlan, RecordDraftSummary, SupportRecord } from '../types';
+import type { ChildProfile, DailyChildPlan, RecordDraftSummary, SupportRecord, TransportRouteSettings } from '../types';
 import { getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
 import { ChildInfoDialog } from './ChildInfoDialog';
 import { DailyChildPlanDialog } from './DailyChildPlanDialog';
@@ -10,6 +10,7 @@ interface DailyOperationsPanelProps {
   records: SupportRecord[];
   drafts: RecordDraftSummary[];
   dailyChildPlans: DailyChildPlan[];
+  transportRouteSettings: TransportRouteSettings;
   currentUserId?: string;
   currentRecorderId?: string;
   canManageDrafts?: boolean;
@@ -37,6 +38,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
   records,
   drafts,
   dailyChildPlans,
+  transportRouteSettings,
   currentUserId,
   currentRecorderId,
   canManageDrafts = false,
@@ -448,6 +450,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
           date={targetDate}
           weekday={weekday}
           plan={dailyChildPlans.find((plan) => plan.childId === planChild.id && plan.date === targetDate)}
+          routeSettings={transportRouteSettings}
           onClose={() => setPlanChild(null)}
           onSave={onSaveDailyChildPlan}
           onDelete={onDeleteDailyChildPlan}

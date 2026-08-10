@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   AlertTriangle,
   ArrowDown,
@@ -18,6 +18,8 @@ import {
   Settings2,
   Trash2,
   UserRoundCheck,
+  UserRoundPlus,
+  ArrowRightLeft,
   X,
 } from "lucide-react";
 import type {
@@ -30,6 +32,7 @@ import type {
   StaffScheduleItem,
   TransportDirection,
   TransportRun,
+  TransportAssignmentChangeInput,
   TransportPlanDay,
   TransportRouteOptimizationResult,
   TransportRouteSettings,
@@ -56,6 +59,28 @@ const TRANSPORT_LOCATION_TYPES: TransportLocationType[] = [
   "その他",
 ];
 
+function rangesOverlap(startA: string, endA: string, startB: string, endB: string) {
+  return startA < endB && startB < endA;
+}
+
+function assignmentAvailabilityLabel(
+  recorder: RecorderProfile,
+  date: string,
+  attendance: AttendanceRecord[],
+  runs: TransportRun[],
+  currentRun: TransportRun,
+) {
+  const work = attendance.find((record) => record.date === date && record.recorderProfileId === recorder.id);
+  if (work && ['欠勤', '有給', '公休'].includes(work.status)) return `${recorder.displayName}（${work.status}）`;
+  const overlap = runs.find((run) => run.id !== currentRun.id
+    && rangesOverlap(run.startTime, run.endTime, currentRun.startTime, currentRun.endTime)
+    && (run.driverRecorderProfileId === recorder.id || run.assistantRecorderProfileIds.includes(recorder.id)));
+  if (overlap) return `${recorder.displayName}（${overlap.name}と重複）`;
+  if (!work) return `${recorder.displayName}（出勤未確認）`;
+  if (work.status === '休憩中') return `${recorder.displayName}（休憩中）`;
+  return `${recorder.displayName}（対応可能）`;
+}
+
 interface TransportPanelProps {
   runs: TransportRun[];
   vehicles: Vehicle[];
@@ -74,6 +99,7 @@ interface TransportPanelProps {
   warningsByRunId?: Map<string, string[]>;
   focusRunId?: string;
   onSaveRun: (run: TransportRun) => Promise<void> | void;
+  onChangeAssignment: (change: TransportAssignmentChangeInput) => Promise<void> | void;
   onDeleteRun: (runId: string) => Promise<void> | void;
   onSaveVehicle: (vehicle: Vehicle) => Promise<void> | void;
   onDeleteVehicle: (vehicleId: string) => Promise<void> | void;
@@ -108,6 +134,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
   warningsByRunId = new Map(),
   focusRunId,
   onSaveRun,
+  onChangeAssignment,
   onDeleteRun,
   onSaveVehicle,
   onDeleteVehicle,
@@ -133,6 +160,17 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
   const [optimizingRoute, setOptimizingRoute] = useState(false);
   const [savingRouteSettings, setSavingRouteSettings] = useState(false);
   const [routeMessage, setRouteMessage] = useState("");
+  const [assignmentRun, setAssignmentRun] = useState<TransportRun | null>(null);
+  const [assignmentMode, setAssignmentMode] = useState<'assist' | 'reassign'>('assist');
+  const [assignmentActorId, setAssignmentActorId] = useState(activeRecorder?.id || '');
+  const [assignmentPin, setAssignmentPin] = useState('');
+  const [assignmentDriverId, setAssignmentDriverId] = useState('');
+  const [assignmentAssistantIds, setAssignmentAssistantIds] = useState<string[]>([]);
+  const [assignmentReason, setAssignmentReason] = useState('支援対応');
+  const [assignmentNote, setAssignmentNote] = useState('');
+  const [assignmentSaving, setAssignmentSaving] = useState(false);
+  const [assignmentNotice, setAssignmentNotice] = useState('');
+  const assignmentSnapshotRef = useRef<Map<string, string> | undefined>(undefined);
   const activeRecorders = useMemo(
     () => recorderProfiles.filter((profile) => profile.active),
     [recorderProfiles],
@@ -144,6 +182,60 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
         .sort((left, right) => left.startTime.localeCompare(right.startTime)),
     [runs, selectedDate],
   );
+
+  useEffect(() => {
+    const next = new Map(dayRuns.map((run) => [run.id, `${run.driverRecorderProfileId || ''}|${run.assistantRecorderProfileIds.join(',')}`]));
+    const previous = assignmentSnapshotRef.current;
+    assignmentSnapshotRef.current = next;
+    if (!previous) return;
+    const changed = dayRuns.find((run) => previous.has(run.id) && previous.get(run.id) !== next.get(run.id));
+    if (!changed) return;
+    setAssignmentNotice(`${changed.name}の送迎担当が更新されました。`);
+    const timer = window.setTimeout(() => setAssignmentNotice(''), 5000);
+    return () => window.clearTimeout(timer);
+  }, [dayRuns]);
+
+  const openAssignmentDialog = (run: TransportRun, mode: 'assist' | 'reassign') => {
+    setAssignmentRun(run);
+    setAssignmentMode(mode);
+    setAssignmentActorId(activeRecorder?.id || run.driverRecorderProfileId || '');
+    setAssignmentPin('');
+    setAssignmentDriverId(run.driverRecorderProfileId || '');
+    setAssignmentAssistantIds([...run.assistantRecorderProfileIds]);
+    setAssignmentReason(mode === 'assist' ? '支援対応' : '体調不良');
+    setAssignmentNote('');
+    setError('');
+  };
+
+  const submitAssignmentChange = async () => {
+    if (!assignmentRun) return;
+    if (!assignmentActorId || !assignmentPin) return setError('操作する職員と個人PINを入力してください。');
+    if (assignmentMode === 'reassign' && !assignmentDriverId) return setError('変更後の運転担当者を選択してください。');
+    const assistants = assignmentAssistantIds.filter((id) => id !== assignmentDriverId);
+    const beforeDriver = assignmentRun.driverName || '未設定';
+    const afterDriver = activeRecorders.find((profile) => profile.id === assignmentDriverId)?.displayName || '未設定';
+    const changeLabel = assignmentMode === 'assist'
+      ? `「${assignmentRun.name}」へ応援職員を追加・変更しますか？`
+      : `「${assignmentRun.name}」の運転担当を ${beforeDriver} から ${afterDriver} へ変更しますか？`;
+    if (!window.confirm(`${changeLabel}\n進行中の乗降状況はそのまま引き継がれます。`)) return;
+    setAssignmentSaving(true);
+    setError('');
+    try {
+      await onChangeAssignment({
+        runId: assignmentRun.id,
+        actorRecorderProfileId: assignmentActorId,
+        actorPin: assignmentPin,
+        driverRecorderProfileId: assignmentDriverId || undefined,
+        assistantRecorderProfileIds: assistants,
+        reason: `${assignmentReason}${assignmentNote.trim() ? `：${assignmentNote.trim()}` : ''}`,
+      });
+      setAssignmentRun(null);
+    } catch (changeError) {
+      setError(changeError instanceof Error ? changeError.message : '送迎担当を変更できませんでした。');
+    } finally {
+      setAssignmentSaving(false);
+    }
+  };
 
   const openRunEditor = (run: TransportRun) => {
     setRunForm({
@@ -414,6 +506,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
 
   return (
     <div className="space-y-4">
+      {assignmentNotice && <div className="fixed left-1/2 top-[max(5rem,calc(env(safe-area-inset-top)+4rem))] z-[95] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-bold text-white shadow-2xl" role="status"><CheckCircle2 className="mr-2 inline h-5 w-5 text-teal-300" />{assignmentNotice}</div>}
       <section className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
         <div className="grid grid-cols-3 gap-1">
           <button
@@ -613,6 +706,26 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
                             運行状態を更新
                           </button>
                         )}
+                      {(assigned || canManage) && run.status !== "帰着" && run.status !== "事業所到着" && (
+                        <button
+                          type="button"
+                          onClick={() => openAssignmentDialog(run, 'assist')}
+                          className="min-h-10 rounded-xl border border-sky-200 bg-sky-50 px-3 text-xs font-black text-sky-800"
+                        >
+                          <UserRoundPlus className="mr-1 inline h-4 w-4" />
+                          応援を追加
+                        </button>
+                      )}
+                      {(assigned || canManage) && run.status !== "帰着" && run.status !== "事業所到着" && (
+                        <button
+                          type="button"
+                          onClick={() => openAssignmentDialog(run, 'reassign')}
+                          className="min-h-10 rounded-xl border border-violet-200 bg-violet-50 px-3 text-xs font-black text-violet-800"
+                        >
+                          <ArrowRightLeft className="mr-1 inline h-4 w-4" />
+                          担当変更
+                        </button>
+                      )}
                       {canManage && (
                         <button
                           type="button"
@@ -1129,6 +1242,15 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
             <label className="block text-sm font-bold">学校待機許容（分）<input type="number" min="0" max="60" value={routeSettingsForm.schoolWaitToleranceMinutes} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, schoolWaitToleranceMinutes: Number(event.target.value) })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3" /></label>
             <label className="block text-sm font-bold">施設内の最低職員数<input type="number" min="0" max="30" value={routeSettingsForm.minimumFacilityStaff} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, minimumFacilityStaff: Number(event.target.value) })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3" /></label>
           </div>
+          <fieldset className="rounded-xl border border-violet-200 bg-violet-50 p-3">
+            <legend className="px-1 text-sm font-black text-violet-950">退所予定時刻の基本設定</legend>
+            <p className="mb-3 text-[10px] leading-relaxed text-violet-800">児童の所属区分と当日の利用形態から自動設定します。早退・延長は日別利用予定で当日だけ変更できます。</p>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <label className="block text-xs font-bold text-violet-950">平日・小学部<input type="time" value={routeSettingsForm.weekdayElementaryDepartureTime} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, weekdayElementaryDepartureTime: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm" /></label>
+              <label className="block text-xs font-bold text-violet-950">平日・キャリアズ<input type="time" value={routeSettingsForm.weekdayCareersDepartureTime} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, weekdayCareersDepartureTime: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm" /></label>
+              <label className="block text-xs font-bold text-violet-950">休日・共通<input type="time" value={routeSettingsForm.holidayDepartureTime} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, holidayDepartureTime: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-violet-200 bg-white px-3 text-sm" /></label>
+            </div>
+          </fieldset>
           <div className="grid gap-2 sm:grid-cols-2">
             <label className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-300 px-3 text-sm font-bold"><input type="checkbox" checked={routeSettingsForm.avoidTolls} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, avoidTolls: event.target.checked })} />有料道路を避ける</label>
             <label className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-300 px-3 text-sm font-bold"><input type="checkbox" checked={routeSettingsForm.avoidHighways} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, avoidHighways: event.target.checked })} />高速道路を避ける</label>
@@ -1271,6 +1393,66 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
         </Modal>
       )}
 
+      {assignmentRun && (
+        <Modal
+          title={assignmentMode === 'assist' ? '応援職員を追加' : '送迎担当を変更'}
+          onClose={() => !assignmentSaving && setAssignmentRun(null)}
+        >
+          <section className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <p className="text-[10px] font-black text-teal-700">{assignmentRun.date}・{assignmentRun.direction}</p>
+            <h4 className="mt-1 text-base font-black text-slate-950">{assignmentRun.name}</h4>
+            <p className="mt-1 text-xs text-slate-600">{assignmentRun.startTime}～{assignmentRun.endTime}・現在の運転 {assignmentRun.driverName || '未設定'}</p>
+          </section>
+
+          {assignmentMode === 'reassign' && (
+            <label className="block text-sm font-black text-slate-800">変更後の運転担当者
+              <select value={assignmentDriverId} onChange={(event) => { const driverId = event.target.value; setAssignmentDriverId(driverId); setAssignmentAssistantIds((ids) => ids.filter((id) => id !== driverId)); }} className="mt-1 min-h-12 w-full rounded-xl border border-violet-300 bg-violet-50 px-3 text-sm font-bold">
+                <option value="">選択してください</option>
+                {activeRecorders.map((profile) => <option key={profile.id} value={profile.id}>{assignmentAvailabilityLabel(profile, selectedDate, attendanceRecords, dayRuns, assignmentRun)}</option>)}
+              </select>
+            </label>
+          )}
+
+          <fieldset>
+            <legend className="text-sm font-black text-slate-800">{assignmentMode === 'assist' ? '追加する応援職員' : '添乗・応援職員'}</legend>
+            <p className="mt-1 text-[10px] leading-relaxed text-slate-500">対応可能状態を確認し、必要な職員だけを選択してください。運転担当者は重複選択できません。</p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {activeRecorders.filter((profile) => profile.id !== assignmentDriverId).map((profile) => {
+                const selected = assignmentAssistantIds.includes(profile.id);
+                return <label key={profile.id} className={`flex min-h-11 cursor-pointer items-center gap-2 rounded-xl border px-3 text-xs font-bold ${selected ? 'border-sky-400 bg-sky-50 text-sky-950' : 'border-slate-200 bg-white text-slate-600'}`}><input type="checkbox" checked={selected} onChange={() => setAssignmentAssistantIds((ids) => selected ? ids.filter((id) => id !== profile.id) : [...ids, profile.id])} className="h-4 w-4 accent-sky-600" /><span>{assignmentAvailabilityLabel(profile, selectedDate, attendanceRecords, dayRuns, assignmentRun)}</span></label>;
+              })}
+            </div>
+          </fieldset>
+
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-sm font-black text-slate-800">変更理由
+              <select value={assignmentReason} onChange={(event) => setAssignmentReason(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm">
+                {['支援対応', '体調不良', '車両対応', '遅延対応', '休憩調整', 'その他'].map((reason) => <option key={reason}>{reason}</option>)}
+              </select>
+            </label>
+            <label className="block text-sm font-black text-slate-800">補足（任意）
+              <input value={assignmentNote} onChange={(event) => setAssignmentNote(event.target.value)} maxLength={200} placeholder="交代理由や引継事項" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm" />
+            </label>
+          </div>
+
+          <section className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+            <p className="text-xs font-black text-amber-950">操作する職員を記録します</p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              <label className="text-xs font-bold text-amber-950">職員
+                <select value={assignmentActorId} onChange={(event) => setAssignmentActorId(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-amber-300 bg-white px-3 text-sm"><option value="">選択してください</option>{activeRecorders.map((profile) => <option key={profile.id} value={profile.id}>{profile.displayName}</option>)}</select>
+              </label>
+              <label className="text-xs font-bold text-amber-950">個人PIN
+                <input type="password" inputMode="numeric" value={assignmentPin} onChange={(event) => setAssignmentPin(event.target.value.replace(/\D/g, '').slice(0, 8))} className="mt-1 min-h-11 w-full rounded-xl border border-amber-300 bg-white px-3 text-sm" />
+              </label>
+            </div>
+          </section>
+
+          <p className="rounded-xl bg-teal-50 p-3 text-[11px] leading-relaxed text-teal-900">乗降順・運行状況・登録済み時刻は変更せず、新しい担当者へ引き継ぎます。確定後は開いている各端末へ即時反映されます。</p>
+          {error && <ErrorMessage text={error} />}
+          <button type="button" disabled={assignmentSaving} onClick={() => void submitAssignmentChange()} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-violet-700 px-4 text-sm font-black text-white disabled:opacity-60">{assignmentSaving ? <LoaderCircle className="h-5 w-5 animate-spin" /> : assignmentMode === 'assist' ? <UserRoundPlus className="h-5 w-5" /> : <ArrowRightLeft className="h-5 w-5" />}{assignmentSaving ? '変更中…' : assignmentMode === 'assist' ? '応援職員を反映' : '担当変更を確定'}</button>
+        </Modal>
+      )}
+
       {statusRun && (
         <Modal
           title={`${statusRun.name}の運行状態`}
@@ -1330,6 +1512,12 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
           recorderProfiles={recorderProfiles}
           childrenList={childrenList}
           dailyChildPlans={dailyChildPlans}
+          transportPlanDay={transportPlanDays.find((day) => day.date === selectedDate)}
+          dailyTransportRequirements={dailyTransportRequirements.filter((requirement) => requirement.date === selectedDate)}
+          routeSettings={routeSettings}
+          staffScheduleItems={staffScheduleItems}
+          attendanceRecords={attendanceRecords}
+          calendarEvents={calendarEvents}
           onSaveRun={onSaveRun}
           onDeleteRun={onDeleteRun}
           onClose={() => setDayPlannerOpen(false)}

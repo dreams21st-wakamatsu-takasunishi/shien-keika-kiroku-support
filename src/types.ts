@@ -197,6 +197,7 @@ export interface ChildProfile {
   regularDaysEffectiveFrom?: string;
   regularDaySchedules?: RegularDaySchedule[];
   careType?: '児童発達支援' | '放課後等デイサービス';
+  transportProgram?: '小学部' | 'キャリアズ';
   transportationRequired?: boolean;
   schoolName?: string;
   siblingGroup?: string;
@@ -212,7 +213,9 @@ export interface ChildProfile {
 export interface ChildTransportSchedule {
   weekday: Weekday;
   schoolEndTime?: string;
+  /** @deprecated 迎え基準時刻へ統合。既存データの読み取り互換用。 */
   pickupTime?: string;
+  /** @deprecated 退所時刻は所属区分・利用形態と日別変更から決定する。 */
   dropoffTime?: string;
 }
 
@@ -506,6 +509,15 @@ export interface TransportRun {
   updatedAt: string;
 }
 
+export interface TransportAssignmentChangeInput {
+  runId: string;
+  actorRecorderProfileId: string;
+  actorPin: string;
+  driverRecorderProfileId?: string;
+  assistantRecorderProfileIds: string[];
+  reason: string;
+}
+
 export type TransportFieldAction =
   | 'departed'
   | 'arrived'
@@ -564,6 +576,9 @@ export interface TransportRouteSettings {
   facilityAddress: string;
   stopDurationMinutes: number;
   holidayArrivalTime: string;
+  weekdayElementaryDepartureTime: string;
+  weekdayCareersDepartureTime: string;
+  holidayDepartureTime: string;
   schoolWaitToleranceMinutes: number;
   minimumFacilityStaff: number;
   avoidTolls: boolean;
@@ -575,6 +590,9 @@ export const DEFAULT_TRANSPORT_ROUTE_SETTINGS: TransportRouteSettings = {
   facilityAddress: '',
   stopDurationMinutes: 5,
   holidayArrivalTime: '10:00',
+  weekdayElementaryDepartureTime: '17:45',
+  weekdayCareersDepartureTime: '19:20',
+  holidayDepartureTime: '16:00',
   schoolWaitToleranceMinutes: 10,
   minimumFacilityStaff: 2,
   avoidTolls: false,

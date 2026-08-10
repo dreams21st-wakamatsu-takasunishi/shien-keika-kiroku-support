@@ -3,8 +3,10 @@ import {
   ChildProfile,
   ChildTransportLocation,
   ChildTransportSchedule,
+  DEFAULT_TRANSPORT_ROUTE_SETTINGS,
   TransportDirection,
   TransportLocationType,
+  TransportRouteSettings,
   Weekday,
 } from '../types';
 import {
@@ -32,6 +34,7 @@ import { ChildTransportSettings } from './ChildTransportSettings';
 
 interface ChildrenManagerProps {
   childrenList: ChildProfile[];
+  transportRouteSettings?: TransportRouteSettings;
   onAddChild: (child: ChildProfile) => void;
   onUpdateChild: (child: ChildProfile) => void;
   onDeleteChild: (childId: string) => void;
@@ -140,6 +143,7 @@ const loadRosterPreferences = (): RosterPreferences => {
 
 export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   childrenList,
+  transportRouteSettings = DEFAULT_TRANSPORT_ROUTE_SETTINGS,
   onAddChild,
   onUpdateChild,
   onDeleteChild,
@@ -166,6 +170,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   const [grade, setGrade] = useState('小学3年生');
   const [regularDays, setRegularDays] = useState<Weekday[]>([]);
   const [careType, setCareType] = useState<'児童発達支援' | '放課後等デイサービス'>('放課後等デイサービス');
+  const [transportProgram, setTransportProgram] = useState<'小学部' | 'キャリアズ'>('小学部');
   const [transportationRequired, setTransportationRequired] = useState(false);
   const [siblingGroup, setSiblingGroup] = useState('');
   const [transportSchedule, setTransportSchedule] = useState<ChildTransportSchedule[]>([]);
@@ -191,6 +196,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setGrade('未就学');
     setRegularDays([]);
     setCareType('放課後等デイサービス');
+    setTransportProgram('小学部');
     setTransportationRequired(false);
     setSiblingGroup('');
     setTransportSchedule([]);
@@ -209,6 +215,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setGrade(child.grade || '小学3年生');
     setRegularDays(getRegularDaysForDate(child, today));
     setCareType(child.careType || '放課後等デイサービス');
+    setTransportProgram(child.transportProgram || (child.grade?.startsWith('小学') || child.grade === '未就学' ? '小学部' : 'キャリアズ'));
     setTransportationRequired(Boolean(child.transportationRequired));
     setSiblingGroup(child.siblingGroup || '');
     setTransportSchedule((child.transportSchedule || []).map((schedule) => ({ ...schedule })));
@@ -282,6 +289,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         regularDays,
         regularDaysEffectiveFrom: today,
         careType,
+        transportProgram,
         transportationRequired,
         schoolName: schoolLocation?.name || undefined,
         siblingGroup: siblingGroup.trim() || undefined,
@@ -303,6 +311,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         regularDays,
         regularDaysEffectiveFrom: today,
         careType,
+        transportProgram,
         transportationRequired,
         schoolName: schoolLocation?.name || undefined,
         siblingGroup: siblingGroup.trim() || undefined,
@@ -886,6 +895,23 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                 </select>
               </div>
 
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">
+                  所属区分
+                </label>
+                <select
+                  value={transportProgram}
+                  onChange={(event) => setTransportProgram(event.target.value as '小学部' | 'キャリアズ')}
+                  className="w-full rounded-md border border-slate-300 bg-slate-50 p-2"
+                >
+                  <option value="小学部">小学部</option>
+                  <option value="キャリアズ">キャリアズ</option>
+                </select>
+                <p className="mt-1 text-[10px] leading-relaxed text-slate-500">
+                  平日の基本退所時刻は{transportProgram === '小学部' ? transportRouteSettings.weekdayElementaryDepartureTime : transportRouteSettings.weekdayCareersDepartureTime}、休日は{transportRouteSettings.holidayDepartureTime}です。当日だけの早退・延長は日別予定で変更できます。
+                </p>
+              </div>
+
               <fieldset>
                 <legend className="font-bold text-slate-700 mb-2">定期利用曜日</legend>
                 <div className="grid grid-cols-7 gap-1.5">
@@ -911,6 +937,8 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                 enabled={transportationRequired}
                 onEnabledChange={handleTransportEnabledChange}
                 regularDays={regularDays}
+                transportProgram={transportProgram}
+                routeSettings={transportRouteSettings}
                 siblingGroup={siblingGroup}
                 onSiblingGroupChange={setSiblingGroup}
                 schedule={transportSchedule}

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   Bell,
@@ -90,6 +90,11 @@ export const PersonalTransportMode: React.FC<PersonalTransportModeProps> = ({ cu
   const [toast, setToast] = useState('');
   const [lastEvent, setLastEvent] = useState<{ id: string; label: string } | null>(null);
   const [online, setOnline] = useState(navigator.onLine);
+  const assignedRunIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    assignedRunIdsRef.current = new Set(dashboard?.myRuns.filter((run) => run.isAssigned).map((run) => run.id) || []);
+  }, [dashboard]);
 
   const refresh = useCallback(async (showLoading = true) => {
     if (showLoading) setLoading(true);
@@ -128,7 +133,19 @@ export const PersonalTransportMode: React.FC<PersonalTransportModeProps> = ({ cu
       .on('postgres_changes', {
         event: '*', schema: 'public', table: 'transport_runs',
         filter: `organization_id=eq.${currentUser.organizationId}`,
-      }, () => void refresh(false))
+      }, (payload) => {
+        const previous = payload.old as { id?: string; driver_recorder_profile_id?: string; assistant_recorder_profile_ids?: string[] };
+        const next = payload.new as { id?: string; driver_recorder_profile_id?: string; assistant_recorder_profile_ids?: string[] };
+        const runId = next?.id || previous?.id || '';
+        const wasAssigned = assignedRunIdsRef.current.has(runId)
+          || previous?.driver_recorder_profile_id === currentUser.recorderProfileId
+          || previous?.assistant_recorder_profile_ids?.includes(currentUser.recorderProfileId || '');
+        const isAssigned = next?.driver_recorder_profile_id === currentUser.recorderProfileId
+          || next?.assistant_recorder_profile_ids?.includes(currentUser.recorderProfileId || '');
+        if (!wasAssigned && isAssigned) setToast('新しい送迎担当が割り当てられました');
+        if (wasAssigned && !isAssigned) setToast('送迎担当が別の職員へ引き継がれました');
+        void refresh(false);
+      })
       .on('postgres_changes', {
         event: 'INSERT', schema: 'public', table: 'transport_stop_events',
         filter: `organization_id=eq.${currentUser.organizationId}`,

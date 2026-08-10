@@ -29,6 +29,7 @@ import {
   SupportRecord,
   Template,
   TransportRun,
+  TransportAssignmentChangeInput,
   TransportFieldAction,
   TransportFieldDashboard,
   TransportRouteOptimizationRequest,
@@ -88,6 +89,7 @@ function mapChild(row: any): ChildProfile {
     regularDays: Array.isArray(row.regular_days) ? row.regular_days as Weekday[] : [],
     regularDaysEffectiveFrom: row.regular_days_effective_from || undefined,
     careType: row.care_type || undefined,
+    transportProgram: row.transport_program || undefined,
     transportationRequired: row.transportation_required === true,
     schoolName: row.school_name || undefined,
     siblingGroup: row.sibling_group || undefined,
@@ -459,6 +461,9 @@ function mapTransportRouteSettings(row: any): TransportRouteSettings {
     facilityAddress: row?.facility_address || '',
     stopDurationMinutes: Math.max(0, Math.min(30, Number.isFinite(stopDuration) ? stopDuration : 5)),
     holidayArrivalTime: String(row?.holiday_arrival_time || '10:00').slice(0, 5),
+    weekdayElementaryDepartureTime: String(row?.weekday_elementary_departure_time || '17:45').slice(0, 5),
+    weekdayCareersDepartureTime: String(row?.weekday_careers_departure_time || '19:20').slice(0, 5),
+    holidayDepartureTime: String(row?.holiday_departure_time || '16:00').slice(0, 5),
     schoolWaitToleranceMinutes: Math.max(0, Math.min(60, Number.isFinite(waitTolerance) ? waitTolerance : 10)),
     minimumFacilityStaff: Math.max(0, Math.min(30, Number.isFinite(minimumStaff) ? minimumStaff : 2)),
     avoidTolls: row?.avoid_tolls === true,
@@ -1004,6 +1009,23 @@ export async function saveTransportRun(organizationId: string, run: TransportRun
   if (error) throw error;
 }
 
+export async function changeTransportAssignment(
+  organizationId: string,
+  change: TransportAssignmentChangeInput,
+) {
+  const { data, error } = await assertSupabase().rpc('change_transport_assignment', {
+    p_organization_id: organizationId,
+    p_transport_run_id: change.runId,
+    p_actor_recorder_profile_id: change.actorRecorderProfileId,
+    p_actor_pin: change.actorPin,
+    p_driver_recorder_profile_id: change.driverRecorderProfileId || null,
+    p_assistant_recorder_profile_ids: change.assistantRecorderProfileIds,
+    p_reason: change.reason.trim(),
+  });
+  if (error) throw error;
+  return data as string | null;
+}
+
 export async function deleteTransportRun(organizationId: string, runId: string) {
   const { error } = await assertSupabase().from('transport_runs').delete()
     .eq('organization_id', organizationId).eq('id', runId);
@@ -1093,6 +1115,9 @@ export async function saveTransportRouteSettings(
     facility_address: settings.facilityAddress.trim(),
     stop_duration_minutes: Math.max(0, Math.min(30, Math.round(settings.stopDurationMinutes))),
     holiday_arrival_time: settings.holidayArrivalTime,
+    weekday_elementary_departure_time: settings.weekdayElementaryDepartureTime,
+    weekday_careers_departure_time: settings.weekdayCareersDepartureTime,
+    holiday_departure_time: settings.holidayDepartureTime,
     school_wait_tolerance_minutes: Math.max(0, Math.min(60, Math.round(settings.schoolWaitToleranceMinutes))),
     minimum_facility_staff: Math.max(0, Math.min(30, Math.round(settings.minimumFacilityStaff))),
     avoid_tolls: settings.avoidTolls,
@@ -1221,6 +1246,7 @@ export async function saveChild(organizationId: string, child: ChildProfile) {
       regular_days: child.regularDays || [],
       regular_days_effective_from: getLocalDateString(),
       care_type: child.careType || null,
+      transport_program: child.transportProgram || null,
       transportation_required: child.transportationRequired === true,
       school_name: child.schoolName?.trim() || null,
       sibling_group: child.siblingGroup?.trim() || null,

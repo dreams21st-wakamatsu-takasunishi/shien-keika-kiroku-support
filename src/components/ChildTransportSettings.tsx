@@ -15,6 +15,7 @@ import type {
   ChildTransportSchedule,
   TransportDirection,
   TransportLocationType,
+  TransportRouteSettings,
   Weekday,
 } from '../types';
 import { WEEKDAYS } from '../utils/weekdays';
@@ -23,6 +24,8 @@ interface ChildTransportSettingsProps {
   enabled: boolean;
   onEnabledChange: (enabled: boolean) => void;
   regularDays: Weekday[];
+  transportProgram: '小学部' | 'キャリアズ';
+  routeSettings: TransportRouteSettings;
   siblingGroup: string;
   onSiblingGroupChange: (value: string) => void;
   schedule: ChildTransportSchedule[];
@@ -55,6 +58,8 @@ export const ChildTransportSettings: React.FC<ChildTransportSettingsProps> = ({
   enabled,
   onEnabledChange,
   regularDays,
+  transportProgram,
+  routeSettings,
   siblingGroup,
   onSiblingGroupChange,
   schedule,
@@ -178,14 +183,19 @@ export const ChildTransportSettings: React.FC<ChildTransportSettingsProps> = ({
           </section>
 
           <section className="rounded-2xl border border-slate-200 bg-white p-3 sm:p-4">
-            <div><p className="text-sm font-black text-slate-900">曜日別の基本時刻</p><p className="mt-0.5 text-[10px] text-slate-500">定期利用曜日だけを色付きで表示します。時間変更は月間予定で当日だけ上書きできます。</p></div>
+            <div><p className="text-sm font-black text-slate-900">曜日別の迎え基準時刻</p><p className="mt-0.5 text-[10px] text-slate-500">学校の下校時刻など、迎えに向かう基準時刻を登録します。定期利用曜日だけを色付きで表示します。</p></div>
             <div className="mt-3 overflow-hidden rounded-xl border border-slate-200">
-              <div className="grid grid-cols-[2.5rem_repeat(3,minmax(0,1fr))] gap-px bg-slate-200 text-center text-[9px] font-black text-slate-600"><span className="bg-slate-50 px-1 py-2">曜日</span><span className="bg-slate-50 px-1 py-2">迎え時刻</span><span className="bg-slate-50 px-1 py-2">乗車目安</span><span className="bg-slate-50 px-1 py-2">送り時刻</span></div>
+              <div className="grid grid-cols-[3.5rem_minmax(0,1fr)] gap-px bg-slate-200 text-center text-[10px] font-black text-slate-600"><span className="bg-slate-50 px-1 py-2">曜日</span><span className="bg-slate-50 px-1 py-2">迎え基準時刻</span></div>
               {WEEKDAYS.map((day) => {
                 const daySchedule = schedule.find((item) => item.weekday === day);
                 const regular = regularDays.includes(day);
-                return <div key={day} className={`grid grid-cols-[2.5rem_repeat(3,minmax(0,1fr))] items-center gap-px border-t border-slate-100 ${regular ? 'bg-teal-50' : 'bg-white'}`}><strong className={`text-center text-xs ${regular ? 'text-teal-800' : 'text-slate-400'}`}>{day}</strong><input aria-label={`${day}曜日の迎え時刻`} type="time" value={daySchedule?.schoolEndTime || ''} onChange={(event) => onScheduleChange(day, { schoolEndTime: event.target.value || undefined })} className="min-h-11 min-w-0 border-0 bg-transparent px-1 text-center text-[11px] font-bold" /><input aria-label={`${day}曜日の乗車目安`} type="time" value={daySchedule?.pickupTime || ''} onChange={(event) => onScheduleChange(day, { pickupTime: event.target.value || undefined })} className="min-h-11 min-w-0 border-0 bg-transparent px-1 text-center text-[11px] font-bold" /><input aria-label={`${day}曜日の送り時刻`} type="time" value={daySchedule?.dropoffTime || ''} onChange={(event) => onScheduleChange(day, { dropoffTime: event.target.value || undefined })} className="min-h-11 min-w-0 border-0 bg-transparent px-1 text-center text-[11px] font-bold" /></div>;
+                return <div key={day} className={`grid grid-cols-[3.5rem_minmax(0,1fr)] items-center gap-px border-t border-slate-100 ${regular ? 'bg-teal-50' : 'bg-white'}`}><strong className={`text-center text-xs ${regular ? 'text-teal-800' : 'text-slate-400'}`}>{day}</strong><input aria-label={`${day}曜日の迎え基準時刻`} type="time" value={daySchedule?.schoolEndTime || ''} onChange={(event) => onScheduleChange(day, { schoolEndTime: event.target.value || undefined })} className="min-h-11 min-w-0 border-0 bg-transparent px-3 text-center text-sm font-bold" /></div>;
               })}
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-2 rounded-xl border border-violet-200 bg-violet-50 p-3 text-center">
+              <div><span className="block text-[9px] font-black text-violet-700">平日・{transportProgram}</span><strong className="mt-0.5 block text-base text-slate-950">{transportProgram === '小学部' ? routeSettings.weekdayElementaryDepartureTime : routeSettings.weekdayCareersDepartureTime}</strong></div>
+              <div className="border-l border-violet-200"><span className="block text-[9px] font-black text-violet-700">休日・共通</span><strong className="mt-0.5 block text-base text-slate-950">{routeSettings.holidayDepartureTime}</strong></div>
+              <p className="col-span-2 text-left text-[10px] leading-relaxed text-violet-900">退所予定は自動設定されます。早退・延長など当日だけ異なる場合は「日別利用予定」で変更してください。</p>
             </div>
           </section>
 
