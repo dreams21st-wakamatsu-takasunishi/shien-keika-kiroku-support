@@ -106,7 +106,7 @@ interface TransportPanelProps {
   onDeleteVehicle: (vehicleId: string) => Promise<void> | void;
   onSaveTransportPlanDay: (day: TransportPlanDay) => Promise<void> | void;
   onSaveDailyTransportRequirements: (requirements: DailyTransportRequirement[]) => Promise<void> | void;
-  onReplaceMonthlyTransportRequirements: (month: string, requirements: DailyTransportRequirement[]) => Promise<void> | void;
+  onReplaceMonthlyTransportRequirements: (month: string, requirements: DailyTransportRequirement[]) => Promise<DailyTransportRequirement[]>;
   onSaveRouteSettings: (settings: TransportRouteSettings) => Promise<void> | void;
   onUpdateStatus: (
     run: TransportRun,

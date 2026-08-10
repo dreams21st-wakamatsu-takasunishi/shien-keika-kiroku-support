@@ -62,6 +62,7 @@ interface TodayWorkPanelProps {
   onDeleteVehicle: (vehicleId: string) => Promise<void> | void;
   onSaveTransportPlanDay: (day: TransportPlanDay) => Promise<void> | void;
   onSaveDailyTransportRequirements: (requirements: DailyTransportRequirement[]) => Promise<void> | void;
+  onReplaceMonthlyTransportRequirements: (month: string, requirements: DailyTransportRequirement[]) => Promise<DailyTransportRequirement[]>;
   onSaveTransportRun: (run: TransportRun) => Promise<void> | void;
   onChangeTransportAssignment: (change: TransportAssignmentChangeInput) => Promise<void> | void;
   onDeleteTransportRun: (runId: string) => Promise<void> | void;
@@ -96,6 +97,7 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
   onDeleteVehicle,
   onSaveTransportPlanDay,
   onSaveDailyTransportRequirements,
+  onReplaceMonthlyTransportRequirements,
   onSaveTransportRun,
   onChangeTransportAssignment,
   onDeleteTransportRun,
@@ -209,6 +211,7 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
           onDeleteVehicle={onDeleteVehicle}
           onSaveTransportPlanDay={onSaveTransportPlanDay}
           onSaveDailyTransportRequirements={onSaveDailyTransportRequirements}
+          onReplaceMonthlyTransportRequirements={onReplaceMonthlyTransportRequirements}
           onSaveRouteSettings={onSaveTransportRouteSettings}
           onUpdateStatus={onUpdateTransportStatus}
         />
