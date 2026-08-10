@@ -106,6 +106,7 @@ interface TransportPanelProps {
   onDeleteVehicle: (vehicleId: string) => Promise<void> | void;
   onSaveTransportPlanDay: (day: TransportPlanDay) => Promise<void> | void;
   onSaveDailyTransportRequirements: (requirements: DailyTransportRequirement[]) => Promise<void> | void;
+  onReplaceMonthlyTransportRequirements: (month: string, requirements: DailyTransportRequirement[]) => Promise<void> | void;
   onSaveRouteSettings: (settings: TransportRouteSettings) => Promise<void> | void;
   onUpdateStatus: (
     run: TransportRun,
@@ -141,6 +142,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
   onDeleteVehicle,
   onSaveTransportPlanDay,
   onSaveDailyTransportRequirements,
+  onReplaceMonthlyTransportRequirements,
   onSaveRouteSettings,
   onUpdateStatus,
 }) => {
@@ -772,6 +774,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
           canManage={canManage}
           onSavePlanDay={onSaveTransportPlanDay}
           onSaveRequirements={onSaveDailyTransportRequirements}
+          onReplaceMonthRequirements={onReplaceMonthlyTransportRequirements}
         />
       ) : (
         <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">

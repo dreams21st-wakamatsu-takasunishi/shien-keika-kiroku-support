@@ -77,6 +77,7 @@ import {
   loadWorkspaceData,
   punchAttendance,
   requestAttendanceCorrection,
+  replaceMonthlyTransportRequirements,
   reviewAttendanceCorrection,
   saveChild,
   saveHandoverConfirmation,
@@ -1253,6 +1254,23 @@ export default function App() {
     }
   };
 
+  const handleReplaceMonthlyTransportRequirements = async (month: string, requirements: DailyTransportRequirement[]) => {
+    if (!canManageSettings) throw new Error('月間送迎予定を変更できるのは児発管または管理者です。');
+    try {
+      if (organizationId) await replaceMonthlyTransportRequirements(organizationId, month, requirements);
+      setDailyTransportRequirements((previous) => [
+        ...requirements,
+        ...previous.filter((candidate) => !candidate.date.startsWith(month)),
+      ]);
+      setTransportPlanDays((previous) => previous.map((day) => day.date.startsWith(month)
+        ? { ...day, status: 'draft', confirmedAt: undefined, revision: day.revision + 1, updatedAt: new Date().toISOString() }
+        : day));
+    } catch (error) {
+      persistError(error);
+      throw error;
+    }
+  };
+
   const handleSaveTransportRun = async (run: TransportRun) => {
     if (!canManageSettings) throw new Error('送迎便を変更できるのは児発管または管理者です。');
     try {
@@ -1829,6 +1847,7 @@ export default function App() {
             onDeleteVehicle={handleDeleteVehicle}
             onSaveTransportPlanDay={handleSaveTransportPlanDay}
             onSaveDailyTransportRequirements={handleSaveDailyTransportRequirements}
+            onReplaceMonthlyTransportRequirements={handleReplaceMonthlyTransportRequirements}
             onSaveTransportRun={handleSaveTransportRun}
             onChangeTransportAssignment={handleChangeTransportAssignment}
             onDeleteTransportRun={handleDeleteTransportRun}

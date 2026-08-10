@@ -984,6 +984,42 @@ export async function saveDailyTransportRequirements(
   if (error) throw error;
 }
 
+export async function replaceMonthlyTransportRequirements(
+  organizationId: string,
+  month: string,
+  requirements: DailyTransportRequirement[],
+) {
+  const payload = requirements.map((requirement) => ({
+    id: requirement.id,
+    child_id: requirement.childId,
+    service_date: requirement.date,
+    pickup_enabled: requirement.pickupEnabled,
+    dropoff_enabled: requirement.dropoffEnabled,
+    pickup_pattern: requirement.pickupPattern,
+    pickup_location_profile_id: requirement.pickupLocationProfileId || null,
+    pickup_location_name: requirement.pickupLocationName?.trim() || null,
+    pickup_address: requirement.pickupAddress?.trim() || null,
+    pickup_area: resolvedTransportArea(requirement.pickupAddress, requirement.pickupArea) || null,
+    pickup_target_time: requirement.pickupTargetTime || null,
+    dropoff_location_profile_id: requirement.dropoffLocationProfileId || null,
+    dropoff_location_name: requirement.dropoffLocationName?.trim() || null,
+    dropoff_address: requirement.dropoffAddress?.trim() || null,
+    dropoff_area: resolvedTransportArea(requirement.dropoffAddress, requirement.dropoffArea) || null,
+    dropoff_target_time: requirement.dropoffTargetTime || null,
+    stop_duration_minutes: Math.max(0, Math.min(60, Math.round(requirement.stopDurationMinutes))),
+    keep_siblings_together: requirement.keepSiblingsTogether,
+    revision: Math.max(1, requirement.revision),
+    note: requirement.note?.trim() || null,
+  }));
+  const { data, error } = await assertSupabase().rpc('replace_monthly_transport_requirements', {
+    p_organization_id: organizationId,
+    p_month: `${month}-01`,
+    p_requirements: payload,
+  });
+  if (error) throw error;
+  return Number(data || 0);
+}
+
 export async function deleteDailyTransportRequirement(
   organizationId: string,
   childId: string,

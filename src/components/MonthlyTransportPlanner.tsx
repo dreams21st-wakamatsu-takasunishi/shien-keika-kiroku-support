@@ -10,6 +10,7 @@ import {
   Home,
   LoaderCircle,
   MapPin,
+  RotateCcw,
   Save,
 } from 'lucide-react';
 import type {
@@ -37,6 +38,7 @@ interface MonthlyTransportPlannerProps {
   canManage: boolean;
   onSavePlanDay: (day: TransportPlanDay) => Promise<void> | void;
   onSaveRequirements: (requirements: DailyTransportRequirement[]) => Promise<void> | void;
+  onReplaceMonthRequirements: (month: string, requirements: DailyTransportRequirement[]) => Promise<void> | void;
 }
 
 const createUuid = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -159,6 +161,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
   canManage,
   onSavePlanDay,
   onSaveRequirements,
+  onReplaceMonthRequirements,
 }) => {
   const [month, setMonth] = useState(initialDate.slice(0, 7));
   const [selectedDate, setSelectedDate] = useState(initialDate);
@@ -235,6 +238,33 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
       setMessage(`${additions.length}件の基本予定を追加しました。手動変更済みの予定は上書きしていません。`);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : '基本予定を反映できませんでした。');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const reapplyMonth = async () => {
+    if (!canManage) return;
+    const [year, monthNumber] = month.split('-');
+    if (!window.confirm(`${year}年${Number(monthNumber)}月の基本情報をすべて再反映しますか？\n\n児童情報の定期曜日・送迎先・住所・エリア・基準時刻で作り直します。月間予定で手動修正した内容と確定状態はリセットされます。作成済みの配車便と過去の運行履歴は変更しません。`)) return;
+    const nextRequirements = dates.flatMap((date) => {
+      const planDay = planDays.find((candidate) => candidate.date === date);
+      return createForDate(date, planDay?.pickupMode || 'school', true);
+    });
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      await onReplaceMonthRequirements(month, nextRequirements);
+      setDrafts(nextRequirements.filter((item) => item.date === selectedDate));
+      const selectedPlan = planDays.find((day) => day.date === selectedDate);
+      setDayDraft(selectedPlan
+        ? { ...selectedPlan, status: 'draft', confirmedAt: undefined, revision: selectedPlan.revision + 1, updatedAt: new Date().toISOString() }
+        : defaultPlanDay(selectedDate, routeSettings));
+      setExpandedChildId(undefined);
+      setMessage(`${year}年${Number(monthNumber)}月の基本情報を${nextRequirements.length}件再反映しました。各日の内容を確認してから確定してください。`);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : '月全体の基本情報を再反映できませんでした。');
     } finally {
       setSaving(false);
     }
@@ -347,6 +377,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
             <input type="month" value={month} onChange={(event) => changeMonth(event.target.value)} className="min-h-11 rounded-xl border border-slate-300 px-3 text-sm font-bold" />
             <button type="button" onClick={() => changeMonth(nextMonthValue(initialDate.slice(0, 7)))} className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-xs font-black text-slate-700">翌月を開く</button>
             {canManage && <button type="button" disabled={saving} onClick={() => void reflectMonth()} className="flex min-h-11 items-center gap-2 rounded-xl bg-teal-600 px-4 text-xs font-black text-white disabled:opacity-50"><CopyCheck className="h-4 w-4" />基本予定を反映</button>}
+            {canManage && <button type="button" disabled={saving} onClick={() => void reapplyMonth()} className="flex min-h-11 items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 text-xs font-black text-amber-900 disabled:opacity-50"><RotateCcw className="h-4 w-4" />月全体を再反映</button>}
             {canManage && <button type="button" onClick={() => setHolidayRangeOpen((current) => !current)} className="flex min-h-11 items-center gap-2 rounded-xl border border-sky-300 bg-sky-50 px-4 text-xs font-black text-sky-800"><Home className="h-4 w-4" />長期休暇期間</button>}
           </div>
         </div>
