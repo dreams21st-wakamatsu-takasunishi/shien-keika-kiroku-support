@@ -281,6 +281,7 @@ function finalizeRunTimes(
 const ChildCardContent: React.FC<{
   child: ChildProfile;
   date: string;
+  direction: TransportDirection;
   pickupAssigned: boolean;
   dropoffAssigned: boolean;
   compact?: boolean;
@@ -288,19 +289,22 @@ const ChildCardContent: React.FC<{
 }> = ({
   child,
   date,
+  direction,
   pickupAssigned,
   dropoffAssigned,
   compact = false,
   preview = false,
 }) => {
   const schedule = getTransportScheduleForDate(child, date);
+  const location = getSuggestedTransportLocation(child, direction, date);
   return (
     <>
       <div className="flex min-w-0 items-start gap-1.5">
         <span className={`grid h-9 w-8 shrink-0 place-items-center rounded-lg ${preview ? 'bg-teal-100 text-teal-700' : 'bg-slate-100 text-slate-500'}`}><GripVertical className="h-4 w-4" /></span>
         <div className="min-w-0 flex-1">
           <strong className="block truncate text-xs text-slate-900">{child.name}</strong>
-          <span className="block truncate text-[9px] font-bold text-slate-500">{child.schoolName || child.pickupLocation || '学校・迎え先未登録'}</span>
+          <span className="block truncate text-[9px] font-black text-slate-600">{location ? `${location.type}｜${location.name}${location.area ? `・${location.area}` : ''}` : `${direction}先未登録`}</span>
+          {!compact && <span title={location?.address} className="block truncate text-[9px] text-slate-400">{location?.address || '住所を児童情報で登録してください'}</span>}
           <span className="mt-1 block text-[9px] text-slate-500">迎え基準 {schedule?.schoolEndTime || '―'}／乗車 {schedule?.pickupTime || '―'}／送り {schedule?.dropoffTime || '―'}</span>
         </div>
       </div>
@@ -318,11 +322,12 @@ const ChildCardContent: React.FC<{
 const DraggableChildCard: React.FC<{
   child: ChildProfile;
   date: string;
+  direction: TransportDirection;
   data: DragChildData;
   pickupAssigned: boolean;
   dropoffAssigned: boolean;
   compact?: boolean;
-}> = ({ child, date, data, pickupAssigned, dropoffAssigned, compact = false }) => {
+}> = ({ child, date, direction, data, pickupAssigned, dropoffAssigned, compact = false }) => {
   const dragId = data.sourceStopId ? `stop-${data.sourceStopId}` : `pool-${child.id}`;
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: dragId, data });
   return (
@@ -339,7 +344,7 @@ const DraggableChildCard: React.FC<{
         {...listeners}
         className="absolute left-0 top-0 z-10 h-12 w-12 touch-none rounded-xl opacity-0"
       />
-      <ChildCardContent child={child} date={date} pickupAssigned={pickupAssigned} dropoffAssigned={dropoffAssigned} compact={compact} />
+      <ChildCardContent child={child} date={date} direction={direction} pickupAssigned={pickupAssigned} dropoffAssigned={dropoffAssigned} compact={compact} />
     </article>
   );
 };
@@ -347,11 +352,12 @@ const DraggableChildCard: React.FC<{
 const DraggedChildPreview: React.FC<{
   child: ChildProfile;
   date: string;
+  direction: TransportDirection;
   pickupAssigned: boolean;
   dropoffAssigned: boolean;
-}> = ({ child, date, pickupAssigned, dropoffAssigned }) => (
+}> = ({ child, date, direction, pickupAssigned, dropoffAssigned }) => (
   <article className="pointer-events-none min-w-0 rotate-[0.4deg] rounded-xl border-2 border-teal-400 bg-white p-2.5 shadow-[0_18px_45px_rgba(15,23,42,0.24)]">
-    <ChildCardContent child={child} date={date} pickupAssigned={pickupAssigned} dropoffAssigned={dropoffAssigned} compact preview />
+    <ChildCardContent child={child} date={date} direction={direction} pickupAssigned={pickupAssigned} dropoffAssigned={dropoffAssigned} compact preview />
   </article>
 );
 
@@ -420,9 +426,9 @@ const TransportRunLane: React.FC<{
           const selectedLocationId = stop.locationProfileId || options.find((option) => option.address === stop.location && option.type === stop.locationType)?.id || '';
           return (
             <div key={stop.id} className="rounded-xl border border-slate-200 bg-white p-1.5">
-              <DraggableChildCard child={child} date={date} data={{ childId: child.id, sourceRunId: run.id, sourceStopId: stop.id }} pickupAssigned={pickupAssignedIds.has(child.id)} dropoffAssigned={dropoffAssignedIds.has(child.id)} compact />
+              <DraggableChildCard child={child} date={date} direction={run.direction} data={{ childId: child.id, sourceRunId: run.id, sourceStopId: stop.id }} pickupAssigned={pickupAssignedIds.has(child.id)} dropoffAssigned={dropoffAssignedIds.has(child.id)} compact />
               <div className="mt-1 flex items-center gap-1">
-                <span className="min-w-0 flex-1 truncate text-[9px] font-bold text-slate-500">{stop.plannedTime || '時刻未設定'}・{stop.locationName || stop.location || '場所未設定'}</span>
+                <span title={stop.location} className="min-w-0 flex-1 truncate text-[9px] font-bold text-slate-500">{stop.plannedTime || '時刻未設定'}・{stop.locationType}｜{stop.locationName || stop.location || '場所未設定'}{stop.area ? `・${stop.area}` : ''}</span>
                 <button type="button" onClick={() => onUpdateStop(run.id, stop.id, { sequenceLocked: !stop.sequenceLocked })} aria-label={stop.sequenceLocked ? '順番固定を解除' : '順番を固定'} className={`grid h-8 w-8 place-items-center rounded-md ${stop.sequenceLocked ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-500'}`}><LockKeyhole className="h-3.5 w-3.5" /></button>
                 <button type="button" disabled={index === 0} onClick={() => onMoveStop(run.id, stop.id, -1)} aria-label="上へ" className="grid h-8 w-8 place-items-center rounded-md bg-slate-100 disabled:opacity-30"><ArrowUp className="h-3.5 w-3.5" /></button>
                 <button type="button" disabled={index === run.stops.length - 1} onClick={() => onMoveStop(run.id, stop.id, 1)} aria-label="下へ" className="grid h-8 w-8 place-items-center rounded-md bg-slate-100 disabled:opacity-30"><ArrowDown className="h-3.5 w-3.5" /></button>
@@ -431,7 +437,7 @@ const TransportRunLane: React.FC<{
               </div>
               {expanded && (
                 <div className="ui-panel-enter mt-2 space-y-2 border-t border-slate-100 pt-2">
-                  <label className="block text-[9px] font-black text-slate-500">登録送迎先<select value={selectedLocationId} onChange={(event) => { const option = options.find((item) => item.id === event.target.value); onUpdateStop(run.id, stop.id, option ? { location: option.address, locationType: option.type, locationName: option.name, locationProfileId: option.source === 'registered' ? option.id : undefined, note: option.note } : { locationProfileId: undefined, locationName: '今回のみの送迎先' }); }} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-[10px] font-bold"><option value="">今回のみ・直接入力</option>{options.map((option) => <option key={option.id} value={option.id}>{option.recommended ? '★ ' : ''}{option.name}</option>)}</select></label>
+                  <label className="block text-[9px] font-black text-slate-500">登録送迎先<select value={selectedLocationId} onChange={(event) => { const option = options.find((item) => item.id === event.target.value); onUpdateStop(run.id, stop.id, option ? { location: option.address, locationType: option.type, locationName: option.name, locationProfileId: option.source === 'registered' ? option.id : undefined, area: option.area, note: option.note } : { locationProfileId: undefined, locationName: '今回のみの送迎先', area: undefined }); }} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-[10px] font-bold"><option value="">今回のみ・直接入力</option>{options.map((option) => <option key={option.id} value={option.id}>{option.recommended ? '★ ' : ''}{option.type}｜{option.name}</option>)}</select></label>
                   <div className="grid grid-cols-[5.5rem_1fr] gap-1.5">
                     <select value={stop.locationType} onChange={(event) => onUpdateStop(run.id, stop.id, { locationType: event.target.value as TransportLocationType, locationProfileId: undefined })} className="min-h-9 rounded-lg border border-slate-300 px-1 text-[10px] font-bold">{LOCATION_TYPES.map((type) => <option key={type}>{type}</option>)}</select>
                     <input value={stop.location} onChange={(event) => onUpdateStop(run.id, stop.id, { location: event.target.value, locationProfileId: undefined, locationName: '今回のみの送迎先' })} placeholder="住所・乗降場所" className="min-h-9 min-w-0 rounded-lg border border-slate-300 px-2 text-[10px]" />
@@ -781,7 +787,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
             <aside className="min-w-0 rounded-2xl border border-emerald-300 bg-emerald-50/70 p-2 md:sticky md:top-0">
               <div className="mb-2 flex items-center justify-between gap-1 px-1"><div><p className="text-[9px] font-black text-emerald-700">{weekday}曜日・{activeDirection}</p><h3 className="text-sm font-black text-slate-950">対象児童</h3></div><span className="rounded-full bg-white px-2 py-1 text-[9px] font-black text-emerald-800">{directionChildren.length}名</span></div>
               <div className="space-y-1.5 md:max-h-[calc(100dvh-15rem)] md:overflow-y-auto md:pr-0.5">
-                {directionChildren.map((child) => <DraggableChildCard key={child.id} child={child} date={date} data={{ childId: child.id }} pickupAssigned={pickupAssignedIds.has(child.id)} dropoffAssigned={dropoffAssignedIds.has(child.id)} />)}
+                {directionChildren.map((child) => <DraggableChildCard key={child.id} child={child} date={date} direction={activeDirection} data={{ childId: child.id }} pickupAssigned={pickupAssignedIds.has(child.id)} dropoffAssigned={dropoffAssignedIds.has(child.id)} />)}
                 {directionChildren.length === 0 && <div className="rounded-xl border-2 border-dashed border-emerald-200 bg-white p-4 text-center"><Users className="mx-auto h-7 w-7 text-emerald-300" /><p className="mt-1 text-[10px] font-bold text-slate-400">対象児童がいません。「児童を追加」から追加できます。</p></div>}
               </div>
             </aside>
@@ -799,6 +805,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
               <DraggedChildPreview
                 child={activeDragChild}
                 date={date}
+                direction={activeDirection}
                 pickupAssigned={pickupAssignedIds.has(activeDragChild.id)}
                 dropoffAssigned={dropoffAssignedIds.has(activeDragChild.id)}
               />

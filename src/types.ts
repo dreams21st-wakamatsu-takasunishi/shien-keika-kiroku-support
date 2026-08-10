@@ -35,6 +35,8 @@ export interface ChildTransportLocation {
   address: string;
   area?: string;
   directions: Array<'迎え' | '送り'>;
+  /** Directions for which this is the normal location. One normal location per direction. */
+  defaultDirections?: Array<'迎え' | '送り'>;
   weekdays?: Weekday[];
   validFrom?: string;
   validTo?: string;
