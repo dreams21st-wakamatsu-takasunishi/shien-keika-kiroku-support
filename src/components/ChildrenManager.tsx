@@ -30,6 +30,7 @@ import { calculateSchoolGrade, formatBirthDate } from '../utils/schoolGrade';
 import { formatJapaneseDate, formatRegularDays, getLocalDateString, getRegularDaysForDate, WEEKDAYS } from '../utils/weekdays';
 import { updateTransportSchedule } from '../utils/transportSchedule';
 import { getCanonicalTransportLocations, getDefaultTransportLocation } from '../utils/transportLocations';
+import { resolvedTransportArea } from '../utils/transportArea';
 import { ChildTransportSettings } from './ChildTransportSettings';
 
 interface ChildrenManagerProps {
@@ -257,7 +258,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
       ...location,
       name: location.name.trim(),
       address: location.address.trim(),
-      area: location.area?.trim() || undefined,
+      area: resolvedTransportArea(location.address, location.area),
       note: location.note?.trim() || undefined,
       defaultDirections: (location.defaultDirections || []).filter((direction) => location.directions.includes(direction)),
       weekdays: location.weekdays || [],

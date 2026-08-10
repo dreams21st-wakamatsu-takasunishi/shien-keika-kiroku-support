@@ -6,6 +6,7 @@ import type {
   Weekday,
 } from '../types';
 import { getWeekdayFromDate } from './weekdays';
+import { resolvedTransportArea } from './transportArea';
 
 export interface TransportLocationOption {
   id: string;
@@ -25,6 +26,7 @@ const STANDARD_DROPOFF_ID = 'standard-dropoff';
 function clonedLocation(location: ChildTransportLocation): ChildTransportLocation {
   return {
     ...location,
+    area: resolvedTransportArea(location.address, location.area),
     directions: [...location.directions],
     defaultDirections: [...(location.defaultDirections || [])],
     weekdays: [...(location.weekdays || [])],
@@ -53,7 +55,7 @@ export function getCanonicalTransportLocations(child: ChildProfile): ChildTransp
     );
     if (matched) {
       matched.defaultDirections = Array.from(new Set([...(matched.defaultDirections || []), direction]));
-      matched.area ||= area;
+      matched.area = resolvedTransportArea(matched.address, matched.area || area);
       return;
     }
     locations.push({
@@ -61,7 +63,7 @@ export function getCanonicalTransportLocations(child: ChildProfile): ChildTransp
       name,
       type,
       address: address.trim(),
-      area,
+      area: resolvedTransportArea(address, area),
       directions: [direction],
       defaultDirections: [direction],
       weekdays: [],
@@ -149,7 +151,10 @@ export function getTransportLocationOptions(
           name: direction === '迎え' ? '通常の迎え先' : '通常の送り先',
           type: direction === '迎え' ? '学校' : '自宅',
           address: standardAddress,
-          area: direction === '迎え' ? child.pickupArea : child.dropoffArea,
+          area: resolvedTransportArea(
+            standardAddress,
+            direction === '迎え' ? child.pickupArea : child.dropoffArea,
+          ),
           activeOnDate: true,
           recommended: !recommendedLocation,
           source: 'standard',
@@ -168,7 +173,7 @@ export function getTransportLocationOptions(
       name: location.name,
       type: location.type,
       address: location.address,
-      area: location.area,
+      area: resolvedTransportArea(location.address, location.area),
       note: location.note,
       activeOnDate,
       recommended: location.id === recommendedLocation?.id,

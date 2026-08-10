@@ -55,6 +55,7 @@ import { getSuggestedTransportLocation, getTransportLocationOptions } from '../u
 import { getTransportScheduleForDate, getTransportTargetTime } from '../utils/transportSchedule';
 import { getDefaultDepartureTime } from '../utils/transportDeparture';
 import { getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
+import { inferTransportArea, resolvedTransportArea } from '../utils/transportArea';
 
 interface DailyTransportPlannerProps {
   date: string;
@@ -130,7 +131,10 @@ function childStop(
     locationName: requirementName || suggestion?.name,
     locationProfileId: requirementProfileId || (suggestion?.source === 'registered' ? suggestion.id : undefined),
     plannedTime: (direction === '迎え' ? requirement?.pickupTargetTime : requirement?.dropoffTargetTime) || dailyTransportTargetTime(child, date, direction, dailyPlan, routeSettings, pickupMode) || undefined,
-    area: requirementArea || suggestion?.area,
+    area: resolvedTransportArea(
+      requirementAddress || suggestion?.address,
+      requirementArea || suggestion?.area,
+    ),
     stopDurationMinutes: requirement?.stopDurationMinutes,
     order: 1,
     note: suggestion?.note,
@@ -445,7 +449,7 @@ const TransportRunLane: React.FC<{
                   <label className="block text-[9px] font-black text-slate-500">登録送迎先<select value={selectedLocationId} onChange={(event) => { const option = options.find((item) => item.id === event.target.value); onUpdateStop(run.id, stop.id, option ? { location: option.address, locationType: option.type, locationName: option.name, locationProfileId: option.source === 'registered' ? option.id : undefined, area: option.area, note: option.note } : { locationProfileId: undefined, locationName: '今回のみの送迎先', area: undefined }); }} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-[10px] font-bold"><option value="">今回のみ・直接入力</option>{options.map((option) => <option key={option.id} value={option.id}>{option.recommended ? '★ ' : ''}{option.type}｜{option.name}</option>)}</select></label>
                   <div className="grid grid-cols-[5.5rem_1fr] gap-1.5">
                     <select value={stop.locationType} onChange={(event) => onUpdateStop(run.id, stop.id, { locationType: event.target.value as TransportLocationType, locationProfileId: undefined })} className="min-h-9 rounded-lg border border-slate-300 px-1 text-[10px] font-bold">{LOCATION_TYPES.map((type) => <option key={type}>{type}</option>)}</select>
-                    <input value={stop.location} onChange={(event) => onUpdateStop(run.id, stop.id, { location: event.target.value, locationProfileId: undefined, locationName: '今回のみの送迎先' })} placeholder="住所・乗降場所" className="min-h-9 min-w-0 rounded-lg border border-slate-300 px-2 text-[10px]" />
+                    <input value={stop.location} onChange={(event) => { const location = event.target.value; onUpdateStop(run.id, stop.id, { location, locationProfileId: undefined, locationName: '今回のみの送迎先', area: inferTransportArea(location) }); }} placeholder="住所・乗降場所" className="min-h-9 min-w-0 rounded-lg border border-slate-300 px-2 text-[10px]" />
                   </div>
                   <label className="block text-[9px] font-black text-slate-500">予定時刻<input type="time" value={stop.plannedTime || ''} onChange={(event) => onUpdateStop(run.id, stop.id, { plannedTime: event.target.value || undefined })} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-[10px] font-bold" /></label>
                 </div>

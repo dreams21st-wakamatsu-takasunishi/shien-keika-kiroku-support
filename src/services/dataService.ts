@@ -47,6 +47,7 @@ import { upgradeStandardHolidayTemplate } from '../data/holidayTemplate';
 import { calculateSchoolGrade } from '../utils/schoolGrade';
 import { getLocalDateString } from '../utils/weekdays';
 import { getAccessDeviceToken } from '../utils/accessDevice';
+import { resolvedTransportArea } from '../utils/transportArea';
 
 export interface WorkspaceData {
   children: ChildProfile[];
@@ -96,10 +97,13 @@ function mapChild(row: any): ChildProfile {
     transportSchedule: Array.isArray(row.transport_schedule) ? row.transport_schedule : [],
     pickupLocation: row.pickup_location || undefined,
     dropoffLocation: row.dropoff_location || undefined,
-    pickupArea: row.pickup_area || undefined,
-    dropoffArea: row.dropoff_area || undefined,
+    pickupArea: resolvedTransportArea(row.pickup_location, row.pickup_area),
+    dropoffArea: resolvedTransportArea(row.dropoff_location, row.dropoff_area),
     transportLocations: Array.isArray(row.transport_locations)
-      ? row.transport_locations
+      ? row.transport_locations.map((location: any) => ({
+          ...location,
+          area: resolvedTransportArea(location.address, location.area),
+        }))
       : [],
     notes: row.notes || undefined,
   };
@@ -402,12 +406,12 @@ function mapDailyTransportRequirement(row: any): DailyTransportRequirement {
     pickupLocationProfileId: row.pickup_location_profile_id || undefined,
     pickupLocationName: row.pickup_location_name || undefined,
     pickupAddress: row.pickup_address || undefined,
-    pickupArea: row.pickup_area || undefined,
+    pickupArea: resolvedTransportArea(row.pickup_address, row.pickup_area),
     pickupTargetTime: row.pickup_target_time ? String(row.pickup_target_time).slice(0, 5) : undefined,
     dropoffLocationProfileId: row.dropoff_location_profile_id || undefined,
     dropoffLocationName: row.dropoff_location_name || undefined,
     dropoffAddress: row.dropoff_address || undefined,
-    dropoffArea: row.dropoff_area || undefined,
+    dropoffArea: resolvedTransportArea(row.dropoff_address, row.dropoff_area),
     dropoffTargetTime: row.dropoff_target_time ? String(row.dropoff_target_time).slice(0, 5) : undefined,
     stopDurationMinutes: Number(row.stop_duration_minutes || 5),
     keepSiblingsTogether: row.keep_siblings_together !== false,
@@ -439,7 +443,12 @@ function mapTransportRun(
     assistantRecorderProfileIds: stringArray(row.assistant_recorder_profile_ids),
     vehicleId: row.vehicle_id || undefined,
     vehicleName: row.vehicle_id ? vehicleNames?.get(row.vehicle_id) : undefined,
-    stops: Array.isArray(row.stops) ? row.stops : [],
+    stops: Array.isArray(row.stops)
+      ? row.stops.map((stop: any) => ({
+          ...stop,
+          area: resolvedTransportArea(stop.location, stop.area),
+        }))
+      : [],
     guardianNote: row.guardian_note || undefined,
     operationNote: row.operation_note || undefined,
     routeOrigin: row.route_origin || undefined,
@@ -921,12 +930,12 @@ export async function saveDailyTransportRequirement(
     pickup_location_profile_id: requirement.pickupLocationProfileId || null,
     pickup_location_name: requirement.pickupLocationName?.trim() || null,
     pickup_address: requirement.pickupAddress?.trim() || null,
-    pickup_area: requirement.pickupArea?.trim() || null,
+    pickup_area: resolvedTransportArea(requirement.pickupAddress, requirement.pickupArea) || null,
     pickup_target_time: requirement.pickupTargetTime || null,
     dropoff_location_profile_id: requirement.dropoffLocationProfileId || null,
     dropoff_location_name: requirement.dropoffLocationName?.trim() || null,
     dropoff_address: requirement.dropoffAddress?.trim() || null,
-    dropoff_area: requirement.dropoffArea?.trim() || null,
+    dropoff_area: resolvedTransportArea(requirement.dropoffAddress, requirement.dropoffArea) || null,
     dropoff_target_time: requirement.dropoffTargetTime || null,
     stop_duration_minutes: Math.max(0, Math.min(60, Math.round(requirement.stopDurationMinutes))),
     keep_siblings_together: requirement.keepSiblingsTogether,
@@ -954,12 +963,12 @@ export async function saveDailyTransportRequirements(
     pickup_location_profile_id: requirement.pickupLocationProfileId || null,
     pickup_location_name: requirement.pickupLocationName?.trim() || null,
     pickup_address: requirement.pickupAddress?.trim() || null,
-    pickup_area: requirement.pickupArea?.trim() || null,
+    pickup_area: resolvedTransportArea(requirement.pickupAddress, requirement.pickupArea) || null,
     pickup_target_time: requirement.pickupTargetTime || null,
     dropoff_location_profile_id: requirement.dropoffLocationProfileId || null,
     dropoff_location_name: requirement.dropoffLocationName?.trim() || null,
     dropoff_address: requirement.dropoffAddress?.trim() || null,
-    dropoff_area: requirement.dropoffArea?.trim() || null,
+    dropoff_area: resolvedTransportArea(requirement.dropoffAddress, requirement.dropoffArea) || null,
     dropoff_target_time: requirement.dropoffTargetTime || null,
     stop_duration_minutes: Math.max(0, Math.min(60, Math.round(requirement.stopDurationMinutes))),
     keep_siblings_together: requirement.keepSiblingsTogether,
@@ -998,7 +1007,10 @@ export async function saveTransportRun(organizationId: string, run: TransportRun
     driver_recorder_profile_id: run.driverRecorderProfileId || null,
     assistant_recorder_profile_ids: run.assistantRecorderProfileIds,
     vehicle_id: run.vehicleId || null,
-    stops: run.stops,
+    stops: run.stops.map((stop) => ({
+      ...stop,
+      area: resolvedTransportArea(stop.location, stop.area),
+    })),
     guardian_note: run.guardianNote?.trim() || null,
     operation_note: run.operationNote?.trim() || null,
     route_origin: run.routeOrigin?.trim() || null,
@@ -1253,9 +1265,12 @@ export async function saveChild(organizationId: string, child: ChildProfile) {
       transport_schedule: child.transportSchedule || [],
       pickup_location: child.pickupLocation?.trim() || null,
       dropoff_location: child.dropoffLocation?.trim() || null,
-      pickup_area: child.pickupArea?.trim() || null,
-      dropoff_area: child.dropoffArea?.trim() || null,
-      transport_locations: child.transportLocations || [],
+      pickup_area: resolvedTransportArea(child.pickupLocation, child.pickupArea) || null,
+      dropoff_area: resolvedTransportArea(child.dropoffLocation, child.dropoffArea) || null,
+      transport_locations: (child.transportLocations || []).map((location) => ({
+        ...location,
+        area: resolvedTransportArea(location.address, location.area),
+      })),
       notes: child.notes || null,
       deleted_at: null,
     },

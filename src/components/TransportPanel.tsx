@@ -48,6 +48,7 @@ import {
 } from "../utils/transportLocations";
 import { DailyTransportPlanner } from "./DailyTransportPlanner";
 import { MonthlyTransportPlanner } from "./MonthlyTransportPlanner";
+import { inferTransportArea, resolvedTransportArea } from "../utils/transportArea";
 
 const TRANSPORT_LOCATION_TYPES: TransportLocationType[] = [
   "自宅",
@@ -321,6 +322,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
       locationType:
         suggestion?.type || (runForm.direction === "迎え" ? "学校" : "自宅"),
       location: suggestion?.address || "",
+      area: resolvedTransportArea(suggestion?.address, suggestion?.area),
       note: suggestion?.note,
     });
   };
@@ -333,6 +335,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
         locationProfileId: undefined,
         locationName: "今回のみの送迎先",
         location: "",
+        area: undefined,
         note: undefined,
       });
       return;
@@ -349,6 +352,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
       locationName: location.name,
       locationType: location.type,
       location: location.address,
+      area: resolvedTransportArea(location.address, location.area),
       note: location.note,
     });
   };
@@ -1110,7 +1114,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
 
                     <label className="mt-2 block text-xs font-bold">
                       住所・乗降場所
-                      <input value={stop.location} onChange={(event) => updateStop(index, { locationProfileId: undefined, locationName: "今回のみの送迎先", location: event.target.value })} placeholder="都道府県・市区町村・番地、入口など" className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3" />
+                      <input value={stop.location} onChange={(event) => { const location = event.target.value; updateStop(index, { locationProfileId: undefined, locationName: "今回のみの送迎先", location, area: inferTransportArea(location) }); }} placeholder="都道府県・市区町村・番地、入口など" className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3" />
                     </label>
                     <label className="mt-2 block text-xs font-bold">
                       乗降時の注意（任意）

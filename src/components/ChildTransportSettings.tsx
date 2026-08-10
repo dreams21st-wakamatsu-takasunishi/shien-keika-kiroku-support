@@ -19,6 +19,7 @@ import type {
   Weekday,
 } from '../types';
 import { WEEKDAYS } from '../utils/weekdays';
+import { inferTransportArea } from '../utils/transportArea';
 
 interface ChildTransportSettingsProps {
   enabled: boolean;
@@ -147,8 +148,8 @@ export const ChildTransportSettings: React.FC<ChildTransportSettingsProps> = ({
                             <label className="text-xs font-bold text-slate-700">場所の区分<select value={location.type} onChange={(event) => onUpdateLocation(location.id, { type: event.target.value as TransportLocationType })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-bold">{LOCATION_TYPES.map((type) => <option key={type}>{type}</option>)}</select></label>
                           </div>
                           <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_12rem]">
-                            <label className="text-xs font-bold text-slate-700">住所・乗降場所<input value={location.address} onChange={(event) => onUpdateLocation(location.id, { address: event.target.value })} placeholder="都道府県・市区町村・番地、門や入口" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm" /></label>
-                            <label className="text-xs font-bold text-slate-700">送迎エリア<input value={location.area || ''} onChange={(event) => onUpdateLocation(location.id, { area: event.target.value })} placeholder="例：高須北方面" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm" /></label>
+                            <label className="text-xs font-bold text-slate-700">住所・乗降場所<input value={location.address} onChange={(event) => { const address = event.target.value; onUpdateLocation(location.id, { address, area: inferTransportArea(address) || '' }); }} placeholder="都道府県・市区町村・番地、門や入口" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm" /></label>
+                            <label className="text-xs font-bold text-slate-700">送迎エリア（住所から自動）<div className="mt-1 flex gap-1.5"><input value={location.area || ''} onChange={(event) => onUpdateLocation(location.id, { area: event.target.value })} placeholder="住所入力後に自動反映" className="min-h-11 min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-3 text-sm" /><button type="button" disabled={!inferTransportArea(location.address)} onClick={() => onUpdateLocation(location.id, { area: inferTransportArea(location.address) })} className="shrink-0 rounded-xl border border-teal-300 bg-teal-50 px-2 text-[10px] font-black text-teal-800 disabled:opacity-40">再判定</button></div><span className="mt-1 block text-[9px] font-normal text-slate-500">区・市町村・町域から自動判定します。必要な場合は直接修正できます。</span></label>
                           </div>
                         </div>
 
