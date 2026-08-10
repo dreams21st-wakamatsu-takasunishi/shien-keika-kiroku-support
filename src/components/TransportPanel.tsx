@@ -4,6 +4,7 @@ import {
   ArrowDown,
   ArrowUp,
   BusFront,
+  CalendarRange,
   CarFront,
   CheckCircle2,
   ExternalLink,
@@ -21,10 +22,15 @@ import {
 } from "lucide-react";
 import type {
   ChildProfile,
+  AttendanceRecord,
+  CalendarEvent,
   DailyChildPlan,
+  DailyTransportRequirement,
   RecorderProfile,
+  StaffScheduleItem,
   TransportDirection,
   TransportRun,
+  TransportPlanDay,
   TransportRouteOptimizationResult,
   TransportRouteSettings,
   TransportRunStatus,
@@ -38,6 +44,7 @@ import {
   getTransportLocationOptions,
 } from "../utils/transportLocations";
 import { DailyTransportPlanner } from "./DailyTransportPlanner";
+import { MonthlyTransportPlanner } from "./MonthlyTransportPlanner";
 
 const TRANSPORT_LOCATION_TYPES: TransportLocationType[] = [
   "自宅",
@@ -56,6 +63,11 @@ interface TransportPanelProps {
   recorderProfiles: RecorderProfile[];
   childrenList: ChildProfile[];
   dailyChildPlans: DailyChildPlan[];
+  transportPlanDays: TransportPlanDay[];
+  dailyTransportRequirements: DailyTransportRequirement[];
+  staffScheduleItems: StaffScheduleItem[];
+  attendanceRecords: AttendanceRecord[];
+  calendarEvents: CalendarEvent[];
   selectedDate: string;
   canManage: boolean;
   activeRecorder?: RecorderProfile;
@@ -65,6 +77,8 @@ interface TransportPanelProps {
   onDeleteRun: (runId: string) => Promise<void> | void;
   onSaveVehicle: (vehicle: Vehicle) => Promise<void> | void;
   onDeleteVehicle: (vehicleId: string) => Promise<void> | void;
+  onSaveTransportPlanDay: (day: TransportPlanDay) => Promise<void> | void;
+  onSaveDailyTransportRequirements: (requirements: DailyTransportRequirement[]) => Promise<void> | void;
   onSaveRouteSettings: (settings: TransportRouteSettings) => Promise<void> | void;
   onUpdateStatus: (
     run: TransportRun,
@@ -74,7 +88,7 @@ interface TransportPanelProps {
   ) => Promise<void> | void;
 }
 
-type ViewMode = "runs" | "vehicles";
+type ViewMode = "runs" | "monthly" | "vehicles";
 
 export const TransportPanel: React.FC<TransportPanelProps> = ({
   runs,
@@ -83,6 +97,11 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
   recorderProfiles,
   childrenList,
   dailyChildPlans,
+  transportPlanDays,
+  dailyTransportRequirements,
+  staffScheduleItems,
+  attendanceRecords,
+  calendarEvents,
   selectedDate,
   canManage,
   activeRecorder,
@@ -92,6 +111,8 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
   onDeleteRun,
   onSaveVehicle,
   onDeleteVehicle,
+  onSaveTransportPlanDay,
+  onSaveDailyTransportRequirements,
   onSaveRouteSettings,
   onUpdateStatus,
 }) => {
@@ -394,7 +415,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
   return (
     <div className="space-y-4">
       <section className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-        <div className="grid grid-cols-2 gap-1">
+        <div className="grid grid-cols-3 gap-1">
           <button
             type="button"
             onClick={() => setView("runs")}
@@ -402,6 +423,14 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
           >
             <BusFront className="mr-2 inline h-5 w-5" />
             送迎便
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("monthly")}
+            className={`min-h-11 rounded-xl text-sm font-black ${view === "monthly" ? "bg-slate-900 text-white" : "text-slate-600"}`}
+          >
+            <CalendarRange className="mr-2 inline h-5 w-5" />
+            月間予定
           </button>
           <button
             type="button"
@@ -614,6 +643,18 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
             </div>
           )}
         </section>
+      ) : view === "monthly" ? (
+        <MonthlyTransportPlanner
+          initialDate={selectedDate}
+          childrenList={childrenList}
+          dailyChildPlans={dailyChildPlans}
+          requirements={dailyTransportRequirements}
+          planDays={transportPlanDays}
+          routeSettings={routeSettings}
+          canManage={canManage}
+          onSavePlanDay={onSaveTransportPlanDay}
+          onSaveRequirements={onSaveDailyTransportRequirements}
+        />
       ) : (
         <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between gap-3 border-b border-slate-200 p-4">
@@ -633,6 +674,9 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
                     name: "",
                     capacity: 7,
                     wheelchairAccessible: false,
+                    vehicleKind: 'facility',
+                    assignmentPriority: 100,
+                    autoAssignmentPolicy: 'always',
                     available: true,
                     createdAt: now,
                     updatedAt: now,
@@ -667,6 +711,11 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
                 <p className="mt-3 text-sm">
                   定員 {vehicle.capacity}名
                   {vehicle.wheelchairAccessible ? "・車椅子対応" : ""}
+                </p>
+                <p className="mt-1 text-xs font-bold text-slate-600">
+                  {vehicle.vehicleKind === 'private' ? '自家用車' : vehicle.vehicleKind === 'reserve' ? '予備車' : '通常使用車'}
+                  ・優先 {vehicle.assignmentPriority || 100}
+                  ・{vehicle.autoAssignmentPolicy === 'manual_only' ? '手動のみ' : vehicle.autoAssignmentPolicy === 'when_needed' ? '不足時のみ' : '自動配車'}
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
                   点検・車検期限：{vehicle.inspectionDueDate || "未登録"}
@@ -1075,6 +1124,11 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
             <input type="number" min="0" max="30" value={routeSettingsForm.stopDurationMinutes} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, stopDurationMinutes: Number(event.target.value) })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3" />
             <span className="mt-1 block text-[10px] font-normal text-slate-500">到着予定時刻の計算に使用します。乗降・確認に必要な平均時間を設定してください。</span>
           </label>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <label className="block text-sm font-bold">長期休暇の来所目標<input type="time" value={routeSettingsForm.holidayArrivalTime} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, holidayArrivalTime: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3" /></label>
+            <label className="block text-sm font-bold">学校待機許容（分）<input type="number" min="0" max="60" value={routeSettingsForm.schoolWaitToleranceMinutes} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, schoolWaitToleranceMinutes: Number(event.target.value) })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3" /></label>
+            <label className="block text-sm font-bold">施設内の最低職員数<input type="number" min="0" max="30" value={routeSettingsForm.minimumFacilityStaff} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, minimumFacilityStaff: Number(event.target.value) })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3" /></label>
+          </div>
           <div className="grid gap-2 sm:grid-cols-2">
             <label className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-300 px-3 text-sm font-bold"><input type="checkbox" checked={routeSettingsForm.avoidTolls} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, avoidTolls: event.target.checked })} />有料道路を避ける</label>
             <label className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-300 px-3 text-sm font-bold"><input type="checkbox" checked={routeSettingsForm.avoidHighways} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, avoidHighways: event.target.checked })} />高速道路を避ける</label>
@@ -1125,6 +1179,35 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
               className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3"
             />
           </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="block text-sm font-bold">
+              車両区分
+              <select value={vehicleForm.vehicleKind || 'facility'} onChange={(event) => setVehicleForm({ ...vehicleForm, vehicleKind: event.target.value as Vehicle['vehicleKind'], autoAssignmentPolicy: event.target.value === 'private' ? 'manual_only' : vehicleForm.autoAssignmentPolicy || 'always' })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3">
+                <option value="facility">通常使用車</option>
+                <option value="reserve">予備車</option>
+                <option value="private">職員の自家用車</option>
+              </select>
+            </label>
+            <label className="block text-sm font-bold">
+              使用優先順
+              <input type="number" min="1" max="999" value={vehicleForm.assignmentPriority || 100} onChange={(event) => setVehicleForm({ ...vehicleForm, assignmentPriority: Number(event.target.value) })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3" />
+              <span className="mt-1 block text-[10px] font-normal text-slate-500">小さい数値の車両から使用します。</span>
+            </label>
+          </div>
+          <label className="block text-sm font-bold">
+            自動配車での使用
+            <select value={vehicleForm.autoAssignmentPolicy || 'always'} onChange={(event) => setVehicleForm({ ...vehicleForm, autoAssignmentPolicy: event.target.value as Vehicle['autoAssignmentPolicy'] })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3">
+              <option value="always">優先順に自動使用</option>
+              <option value="when_needed">通常車で不足した場合のみ</option>
+              <option value="manual_only">自動では使用しない</option>
+            </select>
+          </label>
+          {vehicleForm.vehicleKind === 'private' && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="block text-sm font-bold">所有職員<select value={vehicleForm.ownerRecorderProfileId || ''} onChange={(event) => setVehicleForm({ ...vehicleForm, ownerRecorderProfileId: event.target.value || undefined })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3"><option value="">未設定</option>{recorderProfiles.filter((profile) => profile.active).map((profile) => <option key={profile.id} value={profile.id}>{profile.displayName}</option>)}</select></label>
+              <label className="block text-sm font-bold">保険期限<input type="date" value={vehicleForm.insuranceDueDate || ''} onChange={(event) => setVehicleForm({ ...vehicleForm, insuranceDueDate: event.target.value || undefined })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3" /></label>
+            </div>
+          )}
           <label className="block text-sm font-bold">
             点検・車検期限
             <input

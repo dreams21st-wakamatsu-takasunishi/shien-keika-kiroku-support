@@ -24,6 +24,7 @@ import type {
   AttendanceRecord,
   CalendarEvent,
   DailyChildPlan,
+  DailyTransportRequirement,
   HandoverConfirmation,
   HandoverItem,
   HandoverStatus,
@@ -37,6 +38,7 @@ import type {
   StaffScheduleItem,
   SupportRecord,
   TransportRun,
+  TransportPlanDay,
   TransportRouteSettings,
   TransportRunStatus,
   UserProfile,
@@ -70,6 +72,8 @@ interface HomeScreenProps {
   attendanceCorrections: AttendanceCorrectionRequest[];
   vehicles: Vehicle[];
   transportRuns: TransportRun[];
+  transportPlanDays: TransportPlanDay[];
+  dailyTransportRequirements: DailyTransportRequirement[];
   transportRouteSettings: TransportRouteSettings;
   handoverItems: HandoverItem[];
   handoverConfirmations: HandoverConfirmation[];
@@ -111,6 +115,8 @@ interface HomeScreenProps {
   onReviewAttendanceCorrection: (request: AttendanceCorrectionRequest, approved: boolean, note?: string) => Promise<void> | void;
   onSaveVehicle: (vehicle: Vehicle) => Promise<void> | void;
   onDeleteVehicle: (vehicleId: string) => Promise<void> | void;
+  onSaveTransportPlanDay: (day: TransportPlanDay) => Promise<void> | void;
+  onSaveDailyTransportRequirements: (requirements: DailyTransportRequirement[]) => Promise<void> | void;
   onSaveTransportRun: (run: TransportRun) => Promise<void> | void;
   onDeleteTransportRun: (runId: string) => Promise<void> | void;
   onSaveTransportRouteSettings: (settings: TransportRouteSettings) => Promise<void> | void;
@@ -139,6 +145,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   attendanceCorrections,
   vehicles,
   transportRuns,
+  transportPlanDays,
+  dailyTransportRequirements,
   transportRouteSettings,
   handoverItems,
   handoverConfirmations,
@@ -180,6 +188,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onReviewAttendanceCorrection,
   onSaveVehicle,
   onDeleteVehicle,
+  onSaveTransportPlanDay,
+  onSaveDailyTransportRequirements,
   onSaveTransportRun,
   onDeleteTransportRun,
   onSaveTransportRouteSettings,
@@ -354,6 +364,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             attendanceCorrections={attendanceCorrections}
             vehicles={vehicles}
             transportRuns={transportRuns}
+            transportPlanDays={transportPlanDays}
+            dailyTransportRequirements={dailyTransportRequirements}
             transportRouteSettings={transportRouteSettings}
             recorderProfiles={recorderProfiles}
             childrenList={childrenList}
@@ -369,6 +381,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             onReviewAttendanceCorrection={onReviewAttendanceCorrection}
             onSaveVehicle={onSaveVehicle}
             onDeleteVehicle={onDeleteVehicle}
+            onSaveTransportPlanDay={onSaveTransportPlanDay}
+            onSaveDailyTransportRequirements={onSaveDailyTransportRequirements}
             onSaveTransportRun={onSaveTransportRun}
             onDeleteTransportRun={onDeleteTransportRun}
             onSaveTransportRouteSettings={onSaveTransportRouteSettings}
@@ -675,6 +689,7 @@ function getAssistantActionLabel(actionType: HomeAssistantProposal['actionType']
     schedule_regular_days: '定期利用曜日',
     update_child_profile: '児童基本情報',
     update_child_notes: '指導上の留意点',
+    update_daily_transport: '日別送迎予定',
     start_support_record: '記録作成',
     open_child_records: '記録一覧',
     summarize_recent_records: '最近の記録要約',

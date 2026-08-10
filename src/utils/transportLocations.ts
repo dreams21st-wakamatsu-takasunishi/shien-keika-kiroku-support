@@ -12,6 +12,7 @@ export interface TransportLocationOption {
   name: string;
   type: TransportLocationType;
   address: string;
+  area?: string;
   note?: string;
   activeOnDate: boolean;
   recommended: boolean;
@@ -73,6 +74,7 @@ export function getTransportLocationOptions(
           name: direction === '迎え' ? '通常の迎え先' : '通常の送り先',
           type: direction === '迎え' ? '学校' : '自宅',
           address: standardAddress,
+          area: direction === '迎え' ? child.pickupArea : child.dropoffArea,
           activeOnDate: true,
           recommended: !recommendedLocation,
           source: 'standard',
@@ -91,6 +93,7 @@ export function getTransportLocationOptions(
       name: location.name,
       type: location.type,
       address: location.address,
+      area: location.area,
       note: location.note,
       activeOnDate,
       recommended: location.id === recommendedLocation?.id,

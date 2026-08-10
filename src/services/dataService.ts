@@ -8,6 +8,7 @@ import {
   CalendarEvent,
   ChildProfile,
   DailyChildPlan,
+  DailyTransportRequirement,
   DEFAULT_AI_WRITING_SETTINGS,
   ExpressionType,
   HandoverConfirmation,
@@ -33,6 +34,9 @@ import {
   TransportRouteOptimizationRequest,
   TransportRouteOptimizationResult,
   TransportRouteSettings,
+  TransportMatrixRequest,
+  TransportMatrixResult,
+  TransportPlanDay,
   Vehicle,
   Weekday,
 } from '../types';
@@ -64,6 +68,8 @@ export interface WorkspaceData {
   attendanceCorrectionRequests: AttendanceCorrectionRequest[];
   vehicles: Vehicle[];
   transportRuns: TransportRun[];
+  transportPlanDays: TransportPlanDay[];
+  dailyTransportRequirements: DailyTransportRequirement[];
   transportRouteSettings: TransportRouteSettings;
 }
 
@@ -88,6 +94,8 @@ function mapChild(row: any): ChildProfile {
     transportSchedule: Array.isArray(row.transport_schedule) ? row.transport_schedule : [],
     pickupLocation: row.pickup_location || undefined,
     dropoffLocation: row.dropoff_location || undefined,
+    pickupArea: row.pickup_area || undefined,
+    dropoffArea: row.dropoff_area || undefined,
     transportLocations: Array.isArray(row.transport_locations)
       ? row.transport_locations
       : [],
@@ -355,7 +363,55 @@ function mapVehicle(row: any): Vehicle {
     capacity: Number(row.capacity || 1),
     wheelchairAccessible: row.wheelchair_accessible === true,
     inspectionDueDate: row.inspection_due_date || undefined,
+    vehicleKind: row.vehicle_kind || 'facility',
+    assignmentPriority: Number(row.assignment_priority || 100),
+    autoAssignmentPolicy: row.auto_assignment_policy || 'always',
+    ownerRecorderProfileId: row.owner_recorder_profile_id || undefined,
+    insuranceDueDate: row.insurance_due_date || undefined,
     available: row.available !== false,
+    note: row.note || undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapTransportPlanDay(row: any): TransportPlanDay {
+  return {
+    date: row.service_date,
+    pickupMode: row.pickup_mode || 'school',
+    targetArrivalTime: String(row.target_arrival_time || '10:00').slice(0, 5),
+    status: row.status || 'draft',
+    revision: Number(row.revision || 1),
+    note: row.note || undefined,
+    confirmedAt: row.confirmed_at || undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapDailyTransportRequirement(row: any): DailyTransportRequirement {
+  return {
+    id: row.id,
+    childId: row.child_id,
+    date: row.service_date,
+    pickupEnabled: row.pickup_enabled !== false,
+    dropoffEnabled: row.dropoff_enabled !== false,
+    pickupPattern: row.pickup_pattern || 'school',
+    pickupLocationProfileId: row.pickup_location_profile_id || undefined,
+    pickupLocationName: row.pickup_location_name || undefined,
+    pickupAddress: row.pickup_address || undefined,
+    pickupArea: row.pickup_area || undefined,
+    pickupTargetTime: row.pickup_target_time ? String(row.pickup_target_time).slice(0, 5) : undefined,
+    dropoffLocationProfileId: row.dropoff_location_profile_id || undefined,
+    dropoffLocationName: row.dropoff_location_name || undefined,
+    dropoffAddress: row.dropoff_address || undefined,
+    dropoffArea: row.dropoff_area || undefined,
+    dropoffTargetTime: row.dropoff_target_time ? String(row.dropoff_target_time).slice(0, 5) : undefined,
+    stopDurationMinutes: Number(row.stop_duration_minutes || 5),
+    keepSiblingsTogether: row.keep_siblings_together !== false,
+    source: row.source || 'baseline',
+    status: row.status || 'draft',
+    revision: Number(row.revision || 1),
     note: row.note || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -396,9 +452,15 @@ function mapTransportRun(
 }
 
 function mapTransportRouteSettings(row: any): TransportRouteSettings {
+  const stopDuration = Number(row?.stop_duration_minutes);
+  const waitTolerance = Number(row?.school_wait_tolerance_minutes);
+  const minimumStaff = Number(row?.minimum_facility_staff);
   return {
     facilityAddress: row?.facility_address || '',
-    stopDurationMinutes: Math.max(0, Math.min(30, Number(row?.stop_duration_minutes) || 5)),
+    stopDurationMinutes: Math.max(0, Math.min(30, Number.isFinite(stopDuration) ? stopDuration : 5)),
+    holidayArrivalTime: String(row?.holiday_arrival_time || '10:00').slice(0, 5),
+    schoolWaitToleranceMinutes: Math.max(0, Math.min(60, Number.isFinite(waitTolerance) ? waitTolerance : 10)),
+    minimumFacilityStaff: Math.max(0, Math.min(30, Number.isFinite(minimumStaff) ? minimumStaff : 2)),
     avoidTolls: row?.avoid_tolls === true,
     avoidHighways: row?.avoid_highways === true,
     updatedAt: row?.updated_at || undefined,
@@ -517,6 +579,8 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     attendanceCorrectionsResult,
     vehiclesResult,
     transportRunsResult,
+    transportPlanDaysResult,
+    dailyTransportRequirementsResult,
     transportRouteSettingsResult,
   ] = await Promise.all([
     client.from('children').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('name'),
@@ -540,6 +604,8 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     client.from('attendance_correction_requests').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }),
     client.from('vehicles').select('*').eq('organization_id', organizationId).order('name'),
     client.from('transport_runs').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }).order('start_time'),
+    client.from('transport_plan_days').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }),
+    client.from('daily_transport_requirements').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }),
     client.from('transport_route_settings').select('*').eq('organization_id', organizationId).eq('id', 'default').maybeSingle(),
   ]);
 
@@ -606,6 +672,12 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     transportRuns: transportRunsResult.error
       ? []
       : (transportRunsResult.data || []).map((row) => mapTransportRun(row, recorderNames, vehicleNames)),
+    transportPlanDays: transportPlanDaysResult.error
+      ? []
+      : (transportPlanDaysResult.data || []).map(mapTransportPlanDay),
+    dailyTransportRequirements: dailyTransportRequirementsResult.error
+      ? []
+      : (dailyTransportRequirementsResult.data || []).map(mapDailyTransportRequirement),
     transportRouteSettings: transportRouteSettingsResult.error
       ? mapTransportRouteSettings(null)
       : mapTransportRouteSettings(transportRouteSettingsResult.data),
@@ -795,6 +867,11 @@ export async function saveVehicle(organizationId: string, vehicle: Vehicle) {
     capacity: vehicle.capacity,
     wheelchair_accessible: vehicle.wheelchairAccessible,
     inspection_due_date: vehicle.inspectionDueDate || null,
+    vehicle_kind: vehicle.vehicleKind || 'facility',
+    assignment_priority: Math.max(1, Math.min(999, Math.round(vehicle.assignmentPriority || 100))),
+    auto_assignment_policy: vehicle.autoAssignmentPolicy || 'always',
+    owner_recorder_profile_id: vehicle.ownerRecorderProfileId || null,
+    insurance_due_date: vehicle.insuranceDueDate || null,
     available: vehicle.available,
     note: vehicle.note?.trim() || null,
   }, { onConflict: 'organization_id,id' });
@@ -804,6 +881,103 @@ export async function saveVehicle(organizationId: string, vehicle: Vehicle) {
 export async function deleteVehicle(organizationId: string, vehicleId: string) {
   const { error } = await assertSupabase().from('vehicles').delete()
     .eq('organization_id', organizationId).eq('id', vehicleId);
+  if (error) throw error;
+}
+
+export async function saveTransportPlanDay(
+  organizationId: string,
+  day: TransportPlanDay,
+) {
+  const { error } = await assertSupabase().from('transport_plan_days').upsert({
+    organization_id: organizationId,
+    service_date: day.date,
+    pickup_mode: day.pickupMode,
+    target_arrival_time: day.targetArrivalTime,
+    status: day.status,
+    revision: day.revision,
+    note: day.note?.trim() || null,
+    confirmed_at: day.confirmedAt || null,
+  }, { onConflict: 'organization_id,service_date' });
+  if (error) throw error;
+}
+
+export async function saveDailyTransportRequirement(
+  organizationId: string,
+  requirement: DailyTransportRequirement,
+) {
+  const { error } = await assertSupabase().from('daily_transport_requirements').upsert({
+    organization_id: organizationId,
+    id: requirement.id,
+    child_id: requirement.childId,
+    service_date: requirement.date,
+    pickup_enabled: requirement.pickupEnabled,
+    dropoff_enabled: requirement.dropoffEnabled,
+    pickup_pattern: requirement.pickupPattern,
+    pickup_location_profile_id: requirement.pickupLocationProfileId || null,
+    pickup_location_name: requirement.pickupLocationName?.trim() || null,
+    pickup_address: requirement.pickupAddress?.trim() || null,
+    pickup_area: requirement.pickupArea?.trim() || null,
+    pickup_target_time: requirement.pickupTargetTime || null,
+    dropoff_location_profile_id: requirement.dropoffLocationProfileId || null,
+    dropoff_location_name: requirement.dropoffLocationName?.trim() || null,
+    dropoff_address: requirement.dropoffAddress?.trim() || null,
+    dropoff_area: requirement.dropoffArea?.trim() || null,
+    dropoff_target_time: requirement.dropoffTargetTime || null,
+    stop_duration_minutes: Math.max(0, Math.min(60, Math.round(requirement.stopDurationMinutes))),
+    keep_siblings_together: requirement.keepSiblingsTogether,
+    source: requirement.source,
+    status: requirement.status,
+    revision: requirement.revision,
+    note: requirement.note?.trim() || null,
+  }, { onConflict: 'organization_id,child_id,service_date' });
+  if (error) throw error;
+}
+
+export async function saveDailyTransportRequirements(
+  organizationId: string,
+  requirements: DailyTransportRequirement[],
+) {
+  if (requirements.length === 0) return;
+  const rows = requirements.map((requirement) => ({
+    organization_id: organizationId,
+    id: requirement.id,
+    child_id: requirement.childId,
+    service_date: requirement.date,
+    pickup_enabled: requirement.pickupEnabled,
+    dropoff_enabled: requirement.dropoffEnabled,
+    pickup_pattern: requirement.pickupPattern,
+    pickup_location_profile_id: requirement.pickupLocationProfileId || null,
+    pickup_location_name: requirement.pickupLocationName?.trim() || null,
+    pickup_address: requirement.pickupAddress?.trim() || null,
+    pickup_area: requirement.pickupArea?.trim() || null,
+    pickup_target_time: requirement.pickupTargetTime || null,
+    dropoff_location_profile_id: requirement.dropoffLocationProfileId || null,
+    dropoff_location_name: requirement.dropoffLocationName?.trim() || null,
+    dropoff_address: requirement.dropoffAddress?.trim() || null,
+    dropoff_area: requirement.dropoffArea?.trim() || null,
+    dropoff_target_time: requirement.dropoffTargetTime || null,
+    stop_duration_minutes: Math.max(0, Math.min(60, Math.round(requirement.stopDurationMinutes))),
+    keep_siblings_together: requirement.keepSiblingsTogether,
+    source: requirement.source,
+    status: requirement.status,
+    revision: requirement.revision,
+    note: requirement.note?.trim() || null,
+  }));
+  const { error } = await assertSupabase().from('daily_transport_requirements').upsert(rows, {
+    onConflict: 'organization_id,child_id,service_date',
+  });
+  if (error) throw error;
+}
+
+export async function deleteDailyTransportRequirement(
+  organizationId: string,
+  childId: string,
+  date: string,
+) {
+  const { error } = await assertSupabase().from('daily_transport_requirements').delete()
+    .eq('organization_id', organizationId)
+    .eq('child_id', childId)
+    .eq('service_date', date);
   if (error) throw error;
 }
 
@@ -918,6 +1092,9 @@ export async function saveTransportRouteSettings(
     id: 'default',
     facility_address: settings.facilityAddress.trim(),
     stop_duration_minutes: Math.max(0, Math.min(30, Math.round(settings.stopDurationMinutes))),
+    holiday_arrival_time: settings.holidayArrivalTime,
+    school_wait_tolerance_minutes: Math.max(0, Math.min(60, Math.round(settings.schoolWaitToleranceMinutes))),
+    minimum_facility_staff: Math.max(0, Math.min(30, Math.round(settings.minimumFacilityStaff))),
     avoid_tolls: settings.avoidTolls,
     avoid_highways: settings.avoidHighways,
   }, { onConflict: 'organization_id,id' });
@@ -941,6 +1118,25 @@ export async function optimizeTransportRoute(
   if (!data || typeof data !== 'object') throw new Error('経路候補を取得できませんでした。');
   if (typeof data.error === 'string') throw new Error(data.error);
   return data as TransportRouteOptimizationResult;
+}
+
+export async function calculateTransportMatrix(
+  request: TransportMatrixRequest,
+): Promise<TransportMatrixResult> {
+  const { data, error } = await assertSupabase().functions.invoke('calculate-transport-matrix', {
+    body: request,
+  });
+  if (error) {
+    const context = (error as unknown as { context?: Response }).context;
+    if (context) {
+      const payload = await context.clone().json().catch(() => null) as { error?: string } | null;
+      if (payload?.error) throw new Error(payload.error);
+    }
+    throw error;
+  }
+  if (!data || typeof data !== 'object') throw new Error('道路所要時間を取得できませんでした。');
+  if (typeof data.error === 'string') throw new Error(data.error);
+  return data as TransportMatrixResult;
 }
 
 export async function saveAnnouncement(organizationId: string, announcement: Announcement) {
@@ -1031,6 +1227,8 @@ export async function saveChild(organizationId: string, child: ChildProfile) {
       transport_schedule: child.transportSchedule || [],
       pickup_location: child.pickupLocation?.trim() || null,
       dropoff_location: child.dropoffLocation?.trim() || null,
+      pickup_area: child.pickupArea?.trim() || null,
+      dropoff_area: child.dropoffArea?.trim() || null,
       transport_locations: child.transportLocations || [],
       notes: child.notes || null,
       deleted_at: null,

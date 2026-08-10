@@ -173,6 +173,8 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   const [transportSchedule, setTransportSchedule] = useState<ChildTransportSchedule[]>([]);
   const [pickupLocation, setPickupLocation] = useState('');
   const [dropoffLocation, setDropoffLocation] = useState('');
+  const [pickupArea, setPickupArea] = useState('');
+  const [dropoffArea, setDropoffArea] = useState('');
   const [transportLocations, setTransportLocations] = useState<ChildTransportLocation[]>([]);
   const [expandedTransportLocationId, setExpandedTransportLocationId] = useState<string>();
   const [formError, setFormError] = useState('');
@@ -201,6 +203,8 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setTransportSchedule([]);
     setPickupLocation('');
     setDropoffLocation('');
+    setPickupArea('');
+    setDropoffArea('');
     setTransportLocations([]);
     setExpandedTransportLocationId(undefined);
     setFormError('');
@@ -222,6 +226,8 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setTransportSchedule((child.transportSchedule || []).map((schedule) => ({ ...schedule })));
     setPickupLocation(child.pickupLocation || '');
     setDropoffLocation(child.dropoffLocation || '');
+    setPickupArea(child.pickupArea || '');
+    setDropoffArea(child.dropoffArea || '');
     setTransportLocations((child.transportLocations || []).map((location) => ({
       ...location,
       directions: [...location.directions],
@@ -257,6 +263,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
       ...location,
       name: location.name.trim(),
       address: location.address.trim(),
+      area: location.area?.trim() || undefined,
       note: location.note?.trim() || undefined,
       weekdays: location.weekdays || [],
       validFrom: location.validFrom || undefined,
@@ -280,6 +287,8 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         transportSchedule,
         pickupLocation: pickupLocation.trim() || undefined,
         dropoffLocation: dropoffLocation.trim() || undefined,
+        pickupArea: pickupArea.trim() || undefined,
+        dropoffArea: dropoffArea.trim() || undefined,
         transportLocations: normalizedTransportLocations,
         notes: notes.trim(),
       });
@@ -299,6 +308,8 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         transportSchedule,
         pickupLocation: pickupLocation.trim() || undefined,
         dropoffLocation: dropoffLocation.trim() || undefined,
+        pickupArea: pickupArea.trim() || undefined,
+        dropoffArea: dropoffArea.trim() || undefined,
         transportLocations: normalizedTransportLocations,
         notes: notes.trim(),
       });
@@ -911,8 +922,8 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                       <p className="mt-2 text-[9px] leading-relaxed text-slate-500">迎え基準は学校・自宅などへ向かう目安、乗車は実際に乗せる予定時刻、送りは自宅等への到着希望時刻です。定期利用曜日は色付きで表示します。</p>
                     </section>
                     <div className="grid gap-2 sm:grid-cols-2">
-                      <label className="font-bold text-slate-700">通常の迎え先<input value={pickupLocation} onChange={(event) => setPickupLocation(event.target.value)} placeholder="例：○○小学校 正門・住所" className="mt-1 w-full rounded-md border border-slate-300 bg-white p-2" /></label>
-                      <label className="font-bold text-slate-700">通常の送り先<input value={dropoffLocation} onChange={(event) => setDropoffLocation(event.target.value)} placeholder="例：自宅・住所" className="mt-1 w-full rounded-md border border-slate-300 bg-white p-2" /></label>
+                      <div className="rounded-xl border border-sky-100 bg-white p-2"><label className="font-bold text-slate-700">通常の迎え先<input value={pickupLocation} onChange={(event) => setPickupLocation(event.target.value)} placeholder="例：○○小学校 正門・住所" className="mt-1 w-full rounded-md border border-slate-300 bg-white p-2" /></label><label className="mt-2 block text-xs font-bold text-slate-600">送迎エリア<input value={pickupArea} onChange={(event) => setPickupArea(event.target.value)} placeholder="例：高須北・青葉台方面" className="mt-1 min-h-9 w-full rounded-md border border-slate-300 px-2 text-sm" /></label></div>
+                      <div className="rounded-xl border border-violet-100 bg-white p-2"><label className="font-bold text-slate-700">通常の送り先<input value={dropoffLocation} onChange={(event) => setDropoffLocation(event.target.value)} placeholder="例：自宅・住所" className="mt-1 w-full rounded-md border border-slate-300 bg-white p-2" /></label><label className="mt-2 block text-xs font-bold text-slate-600">送迎エリア<input value={dropoffArea} onChange={(event) => setDropoffArea(event.target.value)} placeholder="例：高須北・青葉台方面" className="mt-1 min-h-9 w-full rounded-md border border-slate-300 px-2 text-sm" /></label></div>
                     </div>
 
                     <section className="rounded-xl border border-slate-200 bg-white p-3">
@@ -971,7 +982,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                                     <label className="text-xs font-bold text-slate-700">名称<input value={location.name} onChange={(event) => updateTransportLocation(location.id, { name: event.target.value })} placeholder="例：長期休暇・自宅／祖母宅" className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3 text-sm" /></label>
                                     <label className="text-xs font-bold text-slate-700">種類<select value={location.type} onChange={(event) => updateTransportLocation(location.id, { type: event.target.value as TransportLocationType })} className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3 text-sm">{TRANSPORT_LOCATION_TYPES.map((type) => <option key={type}>{type}</option>)}</select></label>
                                   </div>
-                                  <label className="block text-xs font-bold text-slate-700">住所・乗降場所<input value={location.address} onChange={(event) => updateTransportLocation(location.id, { address: event.target.value })} placeholder="都道府県・市区町村・番地、入口など" className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3 text-sm" /></label>
+                                  <div className="grid gap-2 sm:grid-cols-[1fr_12rem]"><label className="block text-xs font-bold text-slate-700">住所・乗降場所<input value={location.address} onChange={(event) => updateTransportLocation(location.id, { address: event.target.value })} placeholder="都道府県・市区町村・番地、入口など" className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3 text-sm" /></label><label className="block text-xs font-bold text-slate-700">送迎エリア<input value={location.area || ''} onChange={(event) => updateTransportLocation(location.id, { area: event.target.value })} placeholder="例：高須北方面" className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3 text-sm" /></label></div>
                                   <div className="grid gap-2 sm:grid-cols-2">
                                     <label className="text-xs font-bold text-slate-700">送迎方向<select value={location.directions.length === 2 ? 'both' : location.directions[0] || 'both'} onChange={(event) => setTransportDirection(location.id, event.target.value as 'both' | TransportDirection)} className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"><option value="both">迎え・送り両方</option><option value="迎え">迎えのみ</option><option value="送り">送りのみ</option></select></label>
                                     <label className="flex min-h-10 items-center gap-2 self-end rounded-lg border border-slate-300 px-3 text-xs font-bold text-slate-700"><input type="checkbox" checked={Boolean(location.autoSelect)} onChange={(event) => updateTransportLocation(location.id, { autoSelect: event.target.checked })} />条件に合う日は自動提案</label>

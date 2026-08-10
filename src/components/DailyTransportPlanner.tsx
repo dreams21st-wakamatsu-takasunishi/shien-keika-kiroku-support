@@ -18,6 +18,7 @@ import {
 import {
   ArrowDown,
   ArrowUp,
+  AlertTriangle,
   BusFront,
   ChevronDown,
   ChevronUp,
@@ -26,21 +27,30 @@ import {
   Save,
   Search,
   Sparkles,
+  LockKeyhole,
   Trash2,
   UserPlus,
   Users,
   X,
 } from 'lucide-react';
 import type {
+  AttendanceRecord,
+  CalendarEvent,
   ChildProfile,
   DailyChildPlan,
+  DailyTransportRequirement,
   RecorderProfile,
+  StaffScheduleItem,
   TransportDirection,
+  TransportPlanDay,
+  TransportMatrixResult,
+  TransportRouteSettings,
   TransportLocationType,
   TransportRun,
   TransportStop,
   Vehicle,
 } from '../types';
+import { calculateTransportMatrix } from '../services/dataService';
 import { getSuggestedTransportLocation, getTransportLocationOptions } from '../utils/transportLocations';
 import { getTransportScheduleForDate, getTransportTargetTime } from '../utils/transportSchedule';
 import { getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
@@ -52,6 +62,12 @@ interface DailyTransportPlannerProps {
   recorderProfiles: RecorderProfile[];
   childrenList: ChildProfile[];
   dailyChildPlans: DailyChildPlan[];
+  transportPlanDay?: TransportPlanDay;
+  dailyTransportRequirements: DailyTransportRequirement[];
+  routeSettings: TransportRouteSettings;
+  staffScheduleItems: StaffScheduleItem[];
+  attendanceRecords: AttendanceRecord[];
+  calendarEvents: CalendarEvent[];
   onSaveRun: (run: TransportRun) => Promise<void> | void;
   onDeleteRun: (runId: string) => Promise<void> | void;
   onClose: () => void;
@@ -90,17 +106,29 @@ function createRun(date: string, direction: TransportDirection, sequence: number
   };
 }
 
-function childStop(child: ChildProfile, direction: TransportDirection, date: string, dailyPlan?: DailyChildPlan): TransportStop {
+function childStop(
+  child: ChildProfile,
+  direction: TransportDirection,
+  date: string,
+  dailyPlan?: DailyChildPlan,
+  requirement?: DailyTransportRequirement,
+): TransportStop {
   const suggestion = getSuggestedTransportLocation(child, direction, date);
+  const requirementAddress = direction === '迎え' ? requirement?.pickupAddress : requirement?.dropoffAddress;
+  const requirementName = direction === '迎え' ? requirement?.pickupLocationName : requirement?.dropoffLocationName;
+  const requirementProfileId = direction === '迎え' ? requirement?.pickupLocationProfileId : requirement?.dropoffLocationProfileId;
+  const requirementArea = direction === '迎え' ? requirement?.pickupArea : requirement?.dropoffArea;
   return {
     id: createUuid(),
     childId: child.id,
     childName: child.name,
-    location: suggestion?.address || '',
+    location: requirementAddress || suggestion?.address || '',
     locationType: suggestion?.type || (direction === '迎え' ? '学校' : '自宅'),
-    locationName: suggestion?.name,
-    locationProfileId: suggestion?.source === 'registered' ? suggestion.id : undefined,
-    plannedTime: dailyTransportTargetTime(child, date, direction, dailyPlan) || undefined,
+    locationName: requirementName || suggestion?.name,
+    locationProfileId: requirementProfileId || (suggestion?.source === 'registered' ? suggestion.id : undefined),
+    plannedTime: (direction === '迎え' ? requirement?.pickupTargetTime : requirement?.dropoffTargetTime) || dailyTransportTargetTime(child, date, direction, dailyPlan) || undefined,
+    area: requirementArea || suggestion?.area,
+    stopDurationMinutes: requirement?.stopDurationMinutes,
     order: 1,
     note: suggestion?.note,
   };
@@ -122,6 +150,103 @@ function shiftedTime(time: string, offset: number) {
   return `${String(Math.floor(value / 60)).padStart(2, '0')}:${String(value % 60).padStart(2, '0')}`;
 }
 
+function formattedMinutes(value: number) {
+  const normalized = Math.max(0, Math.min(23 * 60 + 59, Math.round(value)));
+  return `${String(Math.floor(normalized / 60)).padStart(2, '0')}:${String(normalized % 60).padStart(2, '0')}`;
+}
+
+function matrixMinutes(matrix: TransportMatrixResult | undefined, fromId: string, toId: string) {
+  if (fromId === toId) return 0;
+  const entry = matrix?.entries.find((candidate) => candidate.fromId === fromId && candidate.toId === toId && candidate.reachable);
+  return entry ? Math.max(1, Math.ceil(entry.durationSeconds / 60)) : 15;
+}
+
+function orderedStopsByRoad(
+  run: TransportRun,
+  matrix: TransportMatrixResult | undefined,
+  planDay: TransportPlanDay | undefined,
+) {
+  if (!matrix || run.stops.some((stop) => stop.sequenceLocked)) return run.stops;
+  if (run.direction === '迎え' && planDay?.pickupMode !== 'home') {
+    return [...run.stops].sort((left, right) => minutes(left.plannedTime) - minutes(right.plannedTime)
+      || matrixMinutes(matrix, 'facility', left.childId || left.id) - matrixMinutes(matrix, 'facility', right.childId || right.id));
+  }
+  const remaining = [...run.stops];
+  const ordered: TransportStop[] = [];
+  let currentId = 'facility';
+  if (run.direction === '迎え' && planDay?.pickupMode === 'home') {
+    remaining.sort((left, right) => matrixMinutes(matrix, 'facility', right.childId || right.id) - matrixMinutes(matrix, 'facility', left.childId || left.id));
+    const first = remaining.shift();
+    if (first) {
+      ordered.push(first);
+      currentId = first.childId || first.id;
+    }
+  }
+  while (remaining.length) {
+    remaining.sort((left, right) => matrixMinutes(matrix, currentId, left.childId || left.id) - matrixMinutes(matrix, currentId, right.childId || right.id));
+    const next = remaining.shift()!;
+    ordered.push(next);
+    currentId = next.childId || next.id;
+  }
+  return ordered;
+}
+
+function scheduleRunWithRoadTimes(
+  run: TransportRun,
+  matrix: TransportMatrixResult | undefined,
+  planDay: TransportPlanDay | undefined,
+  settings: TransportRouteSettings,
+) {
+  if (!matrix || run.stops.length === 0) return finalizeRunTimes(run, planDay, settings);
+  const ordered = orderedStopsByRoad(run, matrix, planDay);
+  const dwell = (stop: TransportStop) => stop.stopDurationMinutes ?? settings.stopDurationMinutes;
+  let startMinute = minutes(run.startTime);
+  let endMinute = minutes(run.endTime);
+
+  if (run.direction === '迎え' && planDay?.pickupMode === 'home') {
+    endMinute = minutes(planDay.targetArrivalTime || settings.holidayArrivalTime);
+    let total = 0;
+    let fromId = 'facility';
+    ordered.forEach((stop) => {
+      total += matrixMinutes(matrix, fromId, stop.childId || stop.id) + dwell(stop);
+      fromId = stop.childId || stop.id;
+    });
+    total += matrixMinutes(matrix, fromId, 'facility');
+    startMinute = endMinute - total;
+  } else if (run.direction === '迎え') {
+    const first = ordered[0];
+    const firstTarget = first?.plannedTime ? minutes(first.plannedTime) : minutes(run.startTime) + matrixMinutes(matrix, 'facility', first?.childId || first?.id || 'facility');
+    startMinute = firstTarget - matrixMinutes(matrix, 'facility', first?.childId || first?.id || 'facility');
+  } else {
+    const earliestDeparture = ordered.map((stop) => stop.plannedTime).filter((value): value is string => Boolean(value)).sort()[0];
+    startMinute = earliestDeparture ? minutes(earliestDeparture) : minutes(run.startTime);
+  }
+
+  let clock = startMinute;
+  let fromId = 'facility';
+  const stops = ordered.map((stop, index) => {
+    clock += matrixMinutes(matrix, fromId, stop.childId || stop.id);
+    if (run.direction === '迎え' && planDay?.pickupMode !== 'home' && stop.plannedTime) {
+      clock = Math.max(clock, minutes(stop.plannedTime));
+    }
+    const plannedTime = formattedMinutes(clock);
+    clock += dwell(stop);
+    fromId = stop.childId || stop.id;
+    return { ...stop, plannedTime, order: index + 1 };
+  });
+  clock += matrixMinutes(matrix, fromId, 'facility');
+  endMinute = run.direction === '迎え' && planDay?.pickupMode === 'home' ? endMinute : clock;
+  return {
+    ...run,
+    startTime: formattedMinutes(startMinute),
+    endTime: formattedMinutes(endMinute),
+    routeOrigin: settings.facilityAddress,
+    routeDestination: settings.facilityAddress,
+    routeOptimizedAt: new Date().toISOString(),
+    stops,
+  };
+}
+
 function adjustRunTimes(run: TransportRun): TransportRun {
   const times = run.stops.map((stop) => stop.plannedTime).filter((time): time is string => Boolean(time)).sort();
   if (!times.length) return run;
@@ -130,6 +255,27 @@ function adjustRunTimes(run: TransportRun): TransportRun {
     startTime: shiftedTime(times[0], run.direction === '迎え' ? -30 : -20),
     endTime: shiftedTime(times[times.length - 1], 30),
   };
+}
+
+function finalizeRunTimes(
+  run: TransportRun,
+  planDay: TransportPlanDay | undefined,
+  settings: TransportRouteSettings,
+) {
+  if (run.direction !== '迎え' || planDay?.pickupMode !== 'home' || run.stops.length === 0) {
+    return adjustRunTimes(run);
+  }
+  const arrival = planDay.targetArrivalTime || settings.holidayArrivalTime;
+  const travelEstimate = (run.stops.length + 1) * 15;
+  const serviceEstimate = run.stops.reduce((sum, stop) => sum + (stop.stopDurationMinutes ?? settings.stopDurationMinutes), 0);
+  const startTime = shiftedTime(arrival, -(travelEstimate + serviceEstimate));
+  let elapsed = 15;
+  const stops = run.stops.map((stop) => {
+    const plannedTime = shiftedTime(startTime, elapsed);
+    elapsed += (stop.stopDurationMinutes ?? settings.stopDurationMinutes) + 15;
+    return { ...stop, plannedTime };
+  });
+  return { ...run, startTime, endTime: arrival, stops };
 }
 
 const ChildCardContent: React.FC<{
@@ -277,6 +423,7 @@ const TransportRunLane: React.FC<{
               <DraggableChildCard child={child} date={date} data={{ childId: child.id, sourceRunId: run.id, sourceStopId: stop.id }} pickupAssigned={pickupAssignedIds.has(child.id)} dropoffAssigned={dropoffAssignedIds.has(child.id)} compact />
               <div className="mt-1 flex items-center gap-1">
                 <span className="min-w-0 flex-1 truncate text-[9px] font-bold text-slate-500">{stop.plannedTime || '時刻未設定'}・{stop.locationName || stop.location || '場所未設定'}</span>
+                <button type="button" onClick={() => onUpdateStop(run.id, stop.id, { sequenceLocked: !stop.sequenceLocked })} aria-label={stop.sequenceLocked ? '順番固定を解除' : '順番を固定'} className={`grid h-8 w-8 place-items-center rounded-md ${stop.sequenceLocked ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-500'}`}><LockKeyhole className="h-3.5 w-3.5" /></button>
                 <button type="button" disabled={index === 0} onClick={() => onMoveStop(run.id, stop.id, -1)} aria-label="上へ" className="grid h-8 w-8 place-items-center rounded-md bg-slate-100 disabled:opacity-30"><ArrowUp className="h-3.5 w-3.5" /></button>
                 <button type="button" disabled={index === run.stops.length - 1} onClick={() => onMoveStop(run.id, stop.id, 1)} aria-label="下へ" className="grid h-8 w-8 place-items-center rounded-md bg-slate-100 disabled:opacity-30"><ArrowDown className="h-3.5 w-3.5" /></button>
                 <button type="button" onClick={() => onExpandStop(expanded ? undefined : stop.id)} aria-label="送迎先を編集" className="grid h-8 w-8 place-items-center rounded-md bg-slate-100">{expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}</button>
@@ -307,6 +454,12 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
   recorderProfiles,
   childrenList,
   dailyChildPlans,
+  transportPlanDay,
+  dailyTransportRequirements,
+  routeSettings,
+  staffScheduleItems,
+  attendanceRecords,
+  calendarEvents,
   onSaveRun,
   onDeleteRun,
   onClose,
@@ -317,15 +470,20 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
   const [childPickerOpen, setChildPickerOpen] = useState(false);
   const [childSearch, setChildSearch] = useState('');
   const [expandedStopId, setExpandedStopId] = useState<string>();
+  const [activeDirection, setActiveDirection] = useState<TransportDirection>('迎え');
   const [activeDragData, setActiveDragData] = useState<DragChildData>();
   const [error, setError] = useState('');
+  const [routingNotice, setRoutingNotice] = useState('');
+  const [autoRouting, setAutoRouting] = useState(false);
   const [saving, setSaving] = useState(false);
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 120, tolerance: 10 } }),
   );
   const activeRecorders = useMemo(() => recorderProfiles.filter((profile) => profile.active), [recorderProfiles]);
-  const boardVehicles = useMemo(() => vehicles.filter((vehicle) => vehicle.available || drafts.some((run) => run.vehicleId === vehicle.id)), [drafts, vehicles]);
+  const boardVehicles = useMemo(() => vehicles
+    .filter((vehicle) => vehicle.available || drafts.some((run) => run.vehicleId === vehicle.id))
+    .sort((left, right) => (left.assignmentPriority || 100) - (right.assignmentPriority || 100) || left.name.localeCompare(right.name)), [drafts, vehicles]);
   const vehicleSlots = useMemo<Array<Vehicle | undefined>>(() => [
     ...boardVehicles,
     ...(boardVehicles.length === 0 || drafts.some((run) => !run.vehicleId) ? [undefined] : []),
@@ -333,15 +491,44 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
   const weekday = getWeekdayFromDate(date);
   const dayPlans = useMemo(() => dailyChildPlans.filter((plan) => plan.date === date), [dailyChildPlans, date]);
   const dayPlansByChild = useMemo(() => new Map(dayPlans.map((plan) => [plan.childId, plan])), [dayPlans]);
+  const requirementByChild = useMemo(() => new Map(dailyTransportRequirements.map((item) => [item.childId, item])), [dailyTransportRequirements]);
   const scheduledChildren = useMemo(() => childrenList.filter((child) => {
     const plan = dayPlansByChild.get(child.id);
+    if (requirementByChild.has(child.id)) return true;
     return plan ? plan.attendancePlan !== '欠席' : getRegularDaysForDate(child, date).includes(weekday);
-  }), [childrenList, date, dayPlansByChild, weekday]);
+  }), [childrenList, date, dayPlansByChild, requirementByChild, weekday]);
   const assignedChildIds = useMemo(() => new Set(drafts.flatMap((run) => run.stops.map((stop) => stop.childId).filter((id): id is string => Boolean(id)))), [drafts]);
   const poolChildren = useMemo(() => childrenList.filter((child) => scheduledChildren.some((scheduled) => scheduled.id === child.id) || additionalChildIds.includes(child.id) || assignedChildIds.has(child.id)), [additionalChildIds, assignedChildIds, childrenList, scheduledChildren]);
   const pickupAssignedIds = useMemo(() => new Set(drafts.filter((run) => run.direction === '迎え').flatMap((run) => run.stops.map((stop) => stop.childId).filter((id): id is string => Boolean(id)))), [drafts]);
   const dropoffAssignedIds = useMemo(() => new Set(drafts.filter((run) => run.direction === '送り').flatMap((run) => run.stops.map((stop) => stop.childId).filter((id): id is string => Boolean(id)))), [drafts]);
   const activeDragChild = useMemo(() => childrenList.find((child) => child.id === activeDragData?.childId), [activeDragData?.childId, childrenList]);
+  const directionChildren = useMemo(() => poolChildren
+    .filter((child) => {
+      const requirement = requirementByChild.get(child.id);
+      if (!requirement) return true;
+      return activeDirection === '迎え' ? requirement.pickupEnabled : requirement.dropoffEnabled;
+    })
+    .sort((left, right) => {
+      const leftRequirement = requirementByChild.get(left.id);
+      const rightRequirement = requirementByChild.get(right.id);
+      const leftArea = activeDirection === '迎え' ? leftRequirement?.pickupArea : leftRequirement?.dropoffArea;
+      const rightArea = activeDirection === '迎え' ? rightRequirement?.pickupArea : rightRequirement?.dropoffArea;
+      if (activeDirection === '迎え' && transportPlanDay?.pickupMode === 'home') return (leftArea || '').localeCompare(rightArea || '') || left.name.localeCompare(right.name);
+      const leftTime = activeDirection === '迎え' ? leftRequirement?.pickupTargetTime : leftRequirement?.dropoffTargetTime;
+      const rightTime = activeDirection === '迎え' ? rightRequirement?.pickupTargetTime : rightRequirement?.dropoffTargetTime;
+      return minutes(leftTime) - minutes(rightTime) || (leftArea || '').localeCompare(rightArea || '') || left.name.localeCompare(right.name);
+    }), [activeDirection, poolChildren, requirementByChild, transportPlanDay?.pickupMode]);
+  const planningWarnings = useMemo(() => getDraftPlanningWarnings({
+    date,
+    direction: activeDirection,
+    drafts,
+    vehicles,
+    activeRecorders,
+    attendanceRecords,
+    staffScheduleItems,
+    calendarEvents,
+    minimumFacilityStaff: routeSettings.minimumFacilityStaff,
+  }), [activeDirection, activeRecorders, attendanceRecords, calendarEvents, date, drafts, routeSettings.minimumFacilityStaff, staffScheduleItems, vehicles]);
 
   const updateRun = (runId: string, patch: Partial<TransportRun>) => setDrafts((current) => current.map((run) => run.id === runId ? { ...run, ...patch, routeOptimizedAt: undefined } : run));
   const updateStop = (runId: string, stopId: string, patch: Partial<TransportStop>) => setDrafts((current) => current.map((run) => run.id === runId ? { ...run, routeOptimizedAt: undefined, stops: run.stops.map((stop) => stop.id === stopId ? { ...stop, ...patch } : stop) } : run));
@@ -374,8 +561,8 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
     setDrafts((current) => current.map((run) => {
       const withoutSameDirection = run.direction === targetRun.direction ? run.stops.filter((stop) => stop.childId !== childId) : run.stops;
       if (run.id !== targetRunId) return { ...run, stops: withoutSameDirection.map((stop, index) => ({ ...stop, order: index + 1 })) };
-      const nextStop = childStop(child, run.direction, date, dayPlansByChild.get(child.id));
-      return adjustRunTimes({ ...run, routeOptimizedAt: undefined, stops: [...withoutSameDirection, { ...nextStop, order: withoutSameDirection.length + 1 }] });
+      const nextStop = childStop(child, run.direction, date, dayPlansByChild.get(child.id), requirementByChild.get(child.id));
+      return finalizeRunTimes({ ...run, routeOptimizedAt: undefined, stops: [...withoutSameDirection, { ...nextStop, order: withoutSameDirection.length + 1 }] }, transportPlanDay, routeSettings);
     }));
   };
 
@@ -391,30 +578,85 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
     if (data?.childId && targetRunId) assignChild(data.childId, targetRunId);
   };
 
-  const autoAllocate = () => {
-    const eligible = poolChildren.filter((child) => child.transportationRequired === true);
+  const autoAllocate = async () => {
+    const eligible = poolChildren.filter((child) => {
+      const requirement = requirementByChild.get(child.id);
+      if (!requirement) return child.transportationRequired === true;
+      return activeDirection === '迎え' ? requirement.pickupEnabled : requirement.dropoffEnabled;
+    });
     if (!eligible.length) return setError('送迎利用が有効な児童がいません。児童名簿の送迎情報を確認してください。');
-    if (drafts.some((run) => run.stops.length) && !window.confirm('現在の配車を、登録情報を基に振り分け直しますか？')) return;
-    let nextDrafts = drafts.map((run) => ({ ...run, routeOptimizedAt: undefined, stops: [] as TransportStop[] }));
-    const usableVehicles = boardVehicles.length ? boardVehicles : [undefined];
+    if (drafts.some((run) => run.direction === activeDirection && run.stops.some((stop) => !stop.sequenceLocked)) && !window.confirm(`現在の${activeDirection}配車を振り分け直しますか？「順番固定」の児童は残します。`)) return;
+    let nextDrafts = drafts.map((run) => run.direction === activeDirection
+      ? { ...run, routeOptimizedAt: undefined, stops: run.stops.filter((stop) => stop.sequenceLocked).map((stop, index) => ({ ...stop, order: index + 1 })) }
+      : run);
+    const preferredVehicles = boardVehicles.filter((vehicle) => (vehicle.autoAssignmentPolicy || 'always') === 'always');
+    const reserveVehicles = boardVehicles.filter((vehicle) => vehicle.autoAssignmentPolicy === 'when_needed');
+    const retainedCount = nextDrafts.filter((run) => run.direction === activeDirection).reduce((sum, run) => sum + run.stops.length, 0);
+    const neededSeats = Math.max(0, eligible.length - retainedCount);
+    const preferredCapacity = preferredVehicles.reduce((sum, vehicle) => sum + vehicle.capacity, 0);
+    const selectedVehicles = neededSeats > preferredCapacity ? [...preferredVehicles, ...reserveVehicles] : preferredVehicles;
+    const usableVehicles: Array<Vehicle | undefined> = selectedVehicles.length ? selectedVehicles : boardVehicles.length === 0 ? [undefined] : [];
+    if (usableVehicles.length === 0) return setError('自動配車に使用できる車両がありません。「手動のみ」の車両は自動では使用しません。');
 
-    (['迎え', '送り'] as TransportDirection[]).forEach((direction) => {
-      let lanes = nextDrafts.filter((run) => run.direction === direction);
-      usableVehicles.forEach((vehicle) => {
-        if (!lanes.some((run) => run.vehicleId === vehicle?.id)) {
-          const created = createRun(date, direction, 1, vehicle);
-          nextDrafts.push(created);
-          lanes.push(created);
-        }
-      });
+    const direction = activeDirection;
+    let routeMatrix: TransportMatrixResult | undefined;
+    const matrixLocations = eligible.map((child) => {
+      const requirement = requirementByChild.get(child.id);
+      const suggestion = getSuggestedTransportLocation(child, direction, date);
+      return {
+        id: child.id,
+        label: child.name,
+        address: direction === '迎え'
+          ? requirement?.pickupAddress || suggestion?.address || ''
+          : requirement?.dropoffAddress || suggestion?.address || '',
+      };
+    });
+    setAutoRouting(true);
+    setRoutingNotice('');
+    if (routeSettings.facilityAddress && matrixLocations.length <= 24 && matrixLocations.every((location) => location.address)) {
+      try {
+        routeMatrix = await calculateTransportMatrix({
+          locations: [{ id: 'facility', label: '事業所', address: routeSettings.facilityAddress }, ...matrixLocations],
+          avoidTolls: routeSettings.avoidTolls,
+          avoidHighways: routeSettings.avoidHighways,
+        });
+        setRoutingNotice(`道路所要時間を反映しました。${routeMatrix.warnings.join(' ')}`.trim());
+      } catch (matrixError) {
+        setRoutingNotice(`${matrixError instanceof Error ? matrixError.message : '道路所要時間を取得できませんでした。'} 地域・時刻による概算で配車しています。`);
+      }
+    } else {
+      setRoutingNotice(!routeSettings.facilityAddress
+        ? '事業所住所が未設定のため、地域・時刻による概算で配車しています。'
+        : matrixLocations.length > 24
+          ? '対象地点が24件を超えるため、地域・時刻による概算で配車しています。'
+          : '住所未入力の児童がいるため、地域・時刻による概算で配車しています。');
+    }
+    let lanes = nextDrafts.filter((run) => run.direction === direction);
+    usableVehicles.forEach((vehicle) => {
+      if (!lanes.some((run) => run.vehicleId === vehicle?.id)) {
+        const created = createRun(date, direction, 1, vehicle);
+        nextDrafts.push(created);
+        lanes.push(created);
+      }
+    });
+      const retainedChildIds = new Set(lanes.flatMap((run) => run.stops.map((stop) => stop.childId).filter((id): id is string => Boolean(id))));
       const familyGroups = new Map<string, ChildProfile[]>();
-      eligible.forEach((child) => {
-        const key = child.siblingGroup?.trim() || `child-${child.id}`;
+      eligible.filter((child) => !retainedChildIds.has(child.id)).forEach((child) => {
+        const requirement = requirementByChild.get(child.id);
+        const key = requirement?.keepSiblingsTogether !== false && child.siblingGroup?.trim() ? child.siblingGroup.trim() : `child-${child.id}`;
         familyGroups.set(key, [...(familyGroups.get(key) || []), child]);
       });
       const maximumVehicleCapacity = Math.max(...usableVehicles.map((vehicle) => vehicle?.capacity || 30));
       const groups = Array.from(familyGroups.values())
-        .sort((left, right) => minutes(dailyTransportTargetTime(left[0], date, direction, dayPlansByChild.get(left[0].id))) - minutes(dailyTransportTargetTime(right[0], date, direction, dayPlansByChild.get(right[0].id))))
+        .sort((left, right) => {
+          const leftRequirement = requirementByChild.get(left[0].id);
+          const rightRequirement = requirementByChild.get(right[0].id);
+          const leftArea = direction === '迎え' ? leftRequirement?.pickupArea : leftRequirement?.dropoffArea;
+          const rightArea = direction === '迎え' ? rightRequirement?.pickupArea : rightRequirement?.dropoffArea;
+          if (transportPlanDay?.pickupMode === 'home' && direction === '迎え') return (leftArea || '').localeCompare(rightArea || '') || left[0].name.localeCompare(right[0].name);
+          return minutes(direction === '迎え' ? leftRequirement?.pickupTargetTime : leftRequirement?.dropoffTargetTime) - minutes(direction === '迎え' ? rightRequirement?.pickupTargetTime : rightRequirement?.dropoffTargetTime)
+            || (leftArea || '').localeCompare(rightArea || '');
+        })
         .flatMap((family) => {
           if (family.length <= maximumVehicleCapacity) return [family];
           const divided: ChildProfile[][] = [];
@@ -422,13 +664,27 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
           return divided;
         });
       groups.forEach((group) => {
+        const firstRequirement = requirementByChild.get(group[0].id);
         const firstSuggestion = getSuggestedTransportLocation(group[0], direction, date);
+        const firstAddress = direction === '迎え' ? firstRequirement?.pickupAddress : firstRequirement?.dropoffAddress;
+        const firstArea = direction === '迎え' ? firstRequirement?.pickupArea : firstRequirement?.dropoffArea;
         const ranked = lanes.map((run) => {
           const vehicle = usableVehicles.find((candidate) => candidate?.id === run.vehicleId);
           const capacity = vehicle?.capacity || 30;
-          const sameLocation = run.stops.some((stop) => stop.location === firstSuggestion?.address);
+          const sameLocation = run.stops.some((stop) => stop.location === (firstAddress || firstSuggestion?.address));
+          const sameArea = Boolean(firstArea) && run.stops.some((stop) => stop.area === firstArea);
           const hasCapacity = run.stops.length + group.length <= capacity;
-          return { run, score: (hasCapacity ? 100 : -1000) + (sameLocation ? 40 : 0) - run.stops.length * 3 };
+          const lastStop = run.stops.at(-1);
+          const roadMinutes = matrixMinutes(routeMatrix, lastStop?.childId || 'facility', group[0].id);
+          const schoolTarget = direction === '迎え' && transportPlanDay?.pickupMode !== 'home'
+            ? firstRequirement?.pickupTargetTime
+            : undefined;
+          const estimatedArrival = lastStop?.plannedTime
+            ? minutes(lastStop.plannedTime) + (lastStop.stopDurationMinutes ?? routeSettings.stopDurationMinutes) + roadMinutes
+            : schoolTarget ? minutes(schoolTarget) : 0;
+          const lateMinutes = schoolTarget ? Math.max(0, estimatedArrival - minutes(schoolTarget)) : 0;
+          const excessiveWait = schoolTarget ? Math.max(0, minutes(schoolTarget) - estimatedArrival - routeSettings.schoolWaitToleranceMinutes) : 0;
+          return { run, score: (hasCapacity ? 100 : -1000) + (sameLocation ? 60 : 0) + (sameArea ? 35 : 0) - run.stops.length * 3 - roadMinutes - lateMinutes * 25 - excessiveWait * 0.5 - ((vehicle?.assignmentPriority || 100) / 100) };
         }).sort((left, right) => right.score - left.score);
         let target = ranked[0]?.score >= 0 ? ranked[0].run : undefined;
         if (!target) {
@@ -441,14 +697,17 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
           nextDrafts.push(target);
           lanes.push(target);
         }
-        const additions = group.map((child, index) => ({ ...childStop(child, direction, date, dayPlansByChild.get(child.id)), order: target!.stops.length + index + 1 }));
-        const updated = adjustRunTimes({ ...target, stops: [...target.stops, ...additions] });
+        const additions = group.map((child, index) => ({ ...childStop(child, direction, date, dayPlansByChild.get(child.id), requirementByChild.get(child.id)), order: target!.stops.length + index + 1 }));
+        const updated = finalizeRunTimes({ ...target, stops: [...target.stops, ...additions] }, transportPlanDay, routeSettings);
         nextDrafts = nextDrafts.map((run) => run.id === target!.id ? updated : run);
         lanes = lanes.map((run) => run.id === target!.id ? updated : run);
       });
-    });
+    nextDrafts = nextDrafts.map((run) => run.direction === direction
+      ? scheduleRunWithRoadTimes(run, routeMatrix, transportPlanDay, routeSettings)
+      : run);
     setDrafts(nextDrafts);
     setError('');
+    setAutoRouting(false);
   };
 
   const saveAll = async () => {
@@ -503,9 +762,12 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         <button type="button" onClick={onClose} aria-label="閉じる" className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-100"><X className="h-5 w-5" /></button>
       </header>
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-3 py-2">
-        <button type="button" onClick={autoAllocate} className="flex min-h-10 items-center gap-1 rounded-xl bg-gradient-to-r from-teal-600 to-cyan-600 px-3 text-xs font-black text-white"><Sparkles className="h-4 w-4" />登録情報から自動振り分け</button>
+        <div className="grid min-w-52 grid-cols-2 rounded-xl bg-slate-100 p-1">
+          {(['迎え', '送り'] as TransportDirection[]).map((direction) => <button key={direction} type="button" onClick={() => setActiveDirection(direction)} className={`min-h-9 rounded-lg text-xs font-black ${activeDirection === direction ? direction === '迎え' ? 'bg-sky-600 text-white shadow-sm' : 'bg-violet-600 text-white shadow-sm' : 'text-slate-500'}`}>{direction}配車</button>)}
+        </div>
+        <button type="button" disabled={autoRouting} onClick={() => void autoAllocate()} className="flex min-h-10 items-center gap-1 rounded-xl bg-gradient-to-r from-teal-600 to-cyan-600 px-3 text-xs font-black text-white disabled:opacity-60"><Sparkles className={`h-4 w-4 ${autoRouting ? 'animate-spin' : ''}`} />{autoRouting ? '道路時間を計算中…' : `${activeDirection}を自動配車`}</button>
         <button type="button" onClick={() => setChildPickerOpen(true)} className="flex min-h-10 items-center gap-1 rounded-xl border border-teal-300 bg-teal-50 px-3 text-xs font-black text-teal-800"><UserPlus className="h-4 w-4" />児童を追加</button>
-        <p className="min-w-0 flex-1 text-[10px] font-bold leading-relaxed text-slate-500">児童カードを車両の便へドラッグして配車します。自動振り分け後も移動・順番変更・送迎先編集ができます。</p>
+        <p className="min-w-0 flex-1 text-[10px] font-bold leading-relaxed text-slate-500">{routingNotice || '児童カードを車両の便へドラッグして配車します。自動振り分け後も移動・順番変更・送迎先編集ができます。'}</p>
       </div>
       <DndContext
         sensors={sensors}
@@ -515,17 +777,17 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         onDragEnd={handleDragEnd}
       >
         <div className="ui-scrollbar flex-1 overflow-y-auto p-2 sm:p-3">
-          <div className="mx-auto grid max-w-[1600px] items-start gap-2 md:grid-cols-[180px_minmax(0,1fr)_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)_minmax(0,1fr)]">
+          <div className="mx-auto grid max-w-[1600px] items-start gap-2 md:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[280px_minmax(0,1fr)]">
             <aside className="min-w-0 rounded-2xl border border-emerald-300 bg-emerald-50/70 p-2 md:sticky md:top-0">
-              <div className="mb-2 flex items-center justify-between gap-1 px-1"><div><p className="text-[9px] font-black text-emerald-700">{weekday}曜日の利用予定</p><h3 className="text-sm font-black text-slate-950">対象児童</h3></div><span className="rounded-full bg-white px-2 py-1 text-[9px] font-black text-emerald-800">{poolChildren.length}名</span></div>
+              <div className="mb-2 flex items-center justify-between gap-1 px-1"><div><p className="text-[9px] font-black text-emerald-700">{weekday}曜日・{activeDirection}</p><h3 className="text-sm font-black text-slate-950">対象児童</h3></div><span className="rounded-full bg-white px-2 py-1 text-[9px] font-black text-emerald-800">{directionChildren.length}名</span></div>
               <div className="space-y-1.5 md:max-h-[calc(100dvh-15rem)] md:overflow-y-auto md:pr-0.5">
-                {poolChildren.map((child) => <DraggableChildCard key={child.id} child={child} date={date} data={{ childId: child.id }} pickupAssigned={pickupAssignedIds.has(child.id)} dropoffAssigned={dropoffAssignedIds.has(child.id)} />)}
-                {poolChildren.length === 0 && <div className="rounded-xl border-2 border-dashed border-emerald-200 bg-white p-4 text-center"><Users className="mx-auto h-7 w-7 text-emerald-300" /><p className="mt-1 text-[10px] font-bold text-slate-400">定期利用児童がいません。「児童を追加」から追加できます。</p></div>}
+                {directionChildren.map((child) => <DraggableChildCard key={child.id} child={child} date={date} data={{ childId: child.id }} pickupAssigned={pickupAssignedIds.has(child.id)} dropoffAssigned={dropoffAssignedIds.has(child.id)} />)}
+                {directionChildren.length === 0 && <div className="rounded-xl border-2 border-dashed border-emerald-200 bg-white p-4 text-center"><Users className="mx-auto h-7 w-7 text-emerald-300" /><p className="mt-1 text-[10px] font-bold text-slate-400">対象児童がいません。「児童を追加」から追加できます。</p></div>}
               </div>
             </aside>
-            {renderDirection('迎え')}
-            {renderDirection('送り')}
+            {renderDirection(activeDirection)}
           </div>
+          <DraftTransportGantt date={date} direction={activeDirection} drafts={drafts} recorders={activeRecorders} warnings={planningWarnings} minimumFacilityStaff={routeSettings.minimumFacilityStaff} />
         </div>
         {createPortal(
           <DragOverlay
@@ -559,5 +821,89 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         </div>
       )}
     </div>
+  );
+};
+
+function rangesOverlap(startA: string, endA: string, startB: string, endB: string) {
+  return startA < endB && startB < endA;
+}
+
+function getDraftPlanningWarnings({
+  date,
+  direction,
+  drafts,
+  vehicles,
+  activeRecorders,
+  attendanceRecords,
+  staffScheduleItems,
+  calendarEvents,
+  minimumFacilityStaff,
+}: {
+  date: string;
+  direction: TransportDirection;
+  drafts: TransportRun[];
+  vehicles: Vehicle[];
+  activeRecorders: RecorderProfile[];
+  attendanceRecords: AttendanceRecord[];
+  staffScheduleItems: StaffScheduleItem[];
+  calendarEvents: CalendarEvent[];
+  minimumFacilityStaff: number;
+}) {
+  const warnings: string[] = [];
+  const dayRuns = drafts.filter((run) => run.direction === direction && run.stops.length > 0);
+  const dayAttendance = attendanceRecords.filter((record) => record.date === date);
+  const workingIds = new Set(dayAttendance
+    .filter((record) => ['勤務予定', '出勤中', '休憩中', '遅刻', '早退'].includes(record.status))
+    .map((record) => record.recorderProfileId));
+  const availableCount = dayAttendance.length > 0 ? workingIds.size : activeRecorders.length;
+
+  dayRuns.forEach((run) => {
+    const vehicle = vehicles.find((candidate) => candidate.id === run.vehicleId);
+    if (!run.vehicleId) warnings.push(`${run.name}：車両が未設定です。`);
+    if (!run.driverRecorderProfileId) warnings.push(`${run.name}：運転者が未設定です。`);
+    if (vehicle && run.stops.length > vehicle.capacity) warnings.push(`${run.name}：定員${vehicle.capacity}名を超えています。`);
+    if (vehicle?.vehicleKind === 'private') warnings.push(`${run.name}：職員の自家用車を使用します。使用許可・保険を確認してください。`);
+    if (run.stops.some((stop) => !stop.location.trim())) warnings.push(`${run.name}：送迎先が未入力の児童がいます。`);
+    if (run.driverRecorderProfileId && dayAttendance.length > 0 && !workingIds.has(run.driverRecorderProfileId)) warnings.push(`${run.name}：運転者が出勤予定として確認できません。`);
+    const assigned = new Set([run.driverRecorderProfileId, ...run.assistantRecorderProfileIds].filter((id): id is string => Boolean(id)));
+    staffScheduleItems.filter((item) => item.date === date && assigned.has(item.recorderProfileId) && rangesOverlap(run.startTime, run.endTime, item.startTime, item.endTime)).forEach((item) => warnings.push(`${run.name}：${item.recorderName}さんの「${item.title}」と重複しています。`));
+    calendarEvents.filter((event) => event.date === date && !event.allDay && event.startTime && event.endTime && event.recorderProfileIds.some((id) => assigned.has(id)) && rangesOverlap(run.startTime, run.endTime, event.startTime, event.endTime)).forEach((event) => warnings.push(`${run.name}：予定「${event.title}」と重複しています。`));
+    const awayIds = new Set(dayRuns.filter((candidate) => rangesOverlap(run.startTime, run.endTime, candidate.startTime, candidate.endTime)).flatMap((candidate) => [candidate.driverRecorderProfileId, ...candidate.assistantRecorderProfileIds].filter((id): id is string => Boolean(id))));
+    if (Math.max(0, availableCount - awayIds.size) < minimumFacilityStaff) warnings.push(`${run.startTime}～${run.endTime}：施設内職員が${Math.max(0, availableCount - awayIds.size)}名となり、最低${minimumFacilityStaff}名を下回ります。`);
+  });
+
+  dayRuns.forEach((run, index) => dayRuns.slice(index + 1).forEach((other) => {
+    if (!rangesOverlap(run.startTime, run.endTime, other.startTime, other.endTime)) return;
+    if (run.vehicleId && run.vehicleId === other.vehicleId) warnings.push(`${run.name}と${other.name}で車両が重複しています。`);
+    const runStaff = new Set([run.driverRecorderProfileId, ...run.assistantRecorderProfileIds].filter(Boolean));
+    if ([other.driverRecorderProfileId, ...other.assistantRecorderProfileIds].some((id) => id && runStaff.has(id))) warnings.push(`${run.name}と${other.name}で担当職員が重複しています。`);
+  }));
+  return [...new Set(warnings)];
+}
+
+const DraftTransportGantt: React.FC<{
+  date: string;
+  direction: TransportDirection;
+  drafts: TransportRun[];
+  recorders: RecorderProfile[];
+  warnings: string[];
+  minimumFacilityStaff: number;
+}> = ({ date, direction, drafts, recorders, warnings, minimumFacilityStaff }) => {
+  const runs = drafts.filter((run) => run.direction === direction && run.stops.length > 0);
+  const assignedIds = new Set(runs.flatMap((run) => [run.driverRecorderProfileId, ...run.assistantRecorderProfileIds].filter((id): id is string => Boolean(id))));
+  const rows = recorders.filter((recorder) => assignedIds.has(recorder.id));
+  const startMinute = 8 * 60;
+  const endMinute = 20 * 60;
+  const width = endMinute - startMinute;
+  const position = (time: string) => {
+    const [hour, minute] = time.split(':').map(Number);
+    return Math.max(0, Math.min(100, (((hour * 60 + minute) - startMinute) / width) * 100));
+  };
+  return (
+    <section className="mx-auto mt-3 max-w-[1600px] rounded-2xl border border-slate-300 bg-white p-3 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-[9px] font-black text-teal-700">保存前の配車を即時反映</p><h3 className="text-sm font-black text-slate-950">職員配置ガント・{date} {direction}</h3></div><span className="rounded-full bg-slate-100 px-2 py-1 text-[9px] font-black text-slate-600">施設内最低 {minimumFacilityStaff}名</span></div>
+      {runs.length === 0 ? <p className="mt-3 rounded-xl bg-slate-50 p-4 text-center text-xs text-slate-400">児童を配車すると、ここに職員の対応時間が表示されます。</p> : <div className="mt-3 overflow-x-auto"><div className="min-w-[680px]"><div className="ml-28 grid grid-cols-7 text-[9px] font-bold text-slate-400">{[8,10,12,14,16,18,20].map((hour) => <span key={hour}>{hour}:00</span>)}</div><div className="mt-1 space-y-1">{rows.length === 0 && <div className="rounded-lg bg-amber-50 p-2 text-xs font-bold text-amber-800">運転者・添乗者が未設定です。</div>}{rows.map((recorder) => <div key={recorder.id} className="grid grid-cols-[7rem_1fr] items-center gap-2"><span className="truncate text-[10px] font-black text-slate-700">{recorder.displayName}</span><div className="relative h-8 overflow-hidden rounded-lg bg-[linear-gradient(to_right,#e2e8f0_1px,transparent_1px)] bg-[size:16.666%_100%] bg-slate-50">{runs.filter((run) => run.driverRecorderProfileId === recorder.id || run.assistantRecorderProfileIds.includes(recorder.id)).map((run) => <div key={run.id} title={`${run.name} ${run.startTime}～${run.endTime}`} className={`absolute top-1 h-6 overflow-hidden rounded-md px-2 text-[9px] font-black leading-6 text-white ${direction === '迎え' ? 'bg-sky-600' : 'bg-violet-600'}`} style={{ left: `${position(run.startTime)}%`, width: `${Math.max(2, position(run.endTime) - position(run.startTime))}%` }}>{run.name}</div>)}</div></div>)}</div></div></div>}
+      {warnings.length > 0 && <details className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3" open><summary className="cursor-pointer text-xs font-black text-amber-950"><AlertTriangle className="mr-1 inline h-4 w-4" />要確認 {warnings.length}件</summary><ul className="mt-2 space-y-1 text-[10px] font-bold text-amber-900">{warnings.map((warning) => <li key={warning}>・{warning}</li>)}</ul></details>}
+    </section>
   );
 };

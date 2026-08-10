@@ -9,6 +9,7 @@ import {
   CalendarEvent,
   ChildProfile,
   DailyChildPlan,
+  DailyTransportRequirement,
   DEFAULT_AI_WRITING_SETTINGS,
   DEFAULT_TRANSPORT_ROUTE_SETTINGS,
   HandoverConfirmation,
@@ -28,6 +29,7 @@ import {
   SupportRecord,
   Template,
   TransportRun,
+  TransportPlanDay,
   TransportRouteSettings,
   TransportRunStatus,
   Vehicle,
@@ -90,10 +92,13 @@ import {
   saveAttendanceRecord,
   saveCalendarEvent,
   saveDailyChildPlan,
+  saveDailyTransportRequirement,
+  saveDailyTransportRequirements,
   saveSupportPlan,
   sendAnnouncementNotification,
   saveTemplate,
   saveTransportRun,
+  saveTransportPlanDay,
   saveTransportRouteSettings,
   saveVehicle,
   seedDefaultTemplates,
@@ -213,10 +218,20 @@ export default function App() {
     const saved = localStorage.getItem('support_transport_runs_data');
     return saved ? JSON.parse(saved) : [];
   });
+  const [transportPlanDays, setTransportPlanDays] = useState<TransportPlanDay[]>(() => {
+    if (remoteMode) return [];
+    const saved = localStorage.getItem('support_transport_plan_days_data');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [dailyTransportRequirements, setDailyTransportRequirements] = useState<DailyTransportRequirement[]>(() => {
+    if (remoteMode) return [];
+    const saved = localStorage.getItem('support_daily_transport_requirements_data');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [transportRouteSettings, setTransportRouteSettings] = useState<TransportRouteSettings>(() => {
     if (remoteMode) return DEFAULT_TRANSPORT_ROUTE_SETTINGS;
     const saved = localStorage.getItem('support_transport_route_settings_data');
-    return saved ? JSON.parse(saved) : DEFAULT_TRANSPORT_ROUTE_SETTINGS;
+    return saved ? { ...DEFAULT_TRANSPORT_ROUTE_SETTINGS, ...JSON.parse(saved) } : DEFAULT_TRANSPORT_ROUTE_SETTINGS;
   });
   const [announcements, setAnnouncements] = useState<Announcement[]>(() => {
     if (remoteMode) return [];
@@ -400,6 +415,12 @@ export default function App() {
     if (!remoteMode) localStorage.setItem('support_transport_runs_data', JSON.stringify(transportRuns));
   }, [transportRuns, remoteMode]);
   useEffect(() => {
+    if (!remoteMode) localStorage.setItem('support_transport_plan_days_data', JSON.stringify(transportPlanDays));
+  }, [transportPlanDays, remoteMode]);
+  useEffect(() => {
+    if (!remoteMode) localStorage.setItem('support_daily_transport_requirements_data', JSON.stringify(dailyTransportRequirements));
+  }, [dailyTransportRequirements, remoteMode]);
+  useEffect(() => {
     if (!remoteMode) localStorage.setItem('support_transport_route_settings_data', JSON.stringify(transportRouteSettings));
   }, [transportRouteSettings, remoteMode]);
 
@@ -429,6 +450,8 @@ export default function App() {
         setAttendanceCorrections([]);
         setVehicles([]);
         setTransportRuns([]);
+        setTransportPlanDays([]);
+        setDailyTransportRequirements([]);
         setPendingSyncs([]);
         setDataError(null);
         return;
@@ -463,6 +486,8 @@ export default function App() {
       setAttendanceCorrections(workspace.attendanceCorrectionRequests);
       setVehicles(workspace.vehicles);
       setTransportRuns(workspace.transportRuns);
+      setTransportPlanDays(workspace.transportPlanDays);
+      setDailyTransportRequirements(workspace.dailyTransportRequirements);
       setTransportRouteSettings(workspace.transportRouteSettings);
       setDataError(null);
     } catch (error) {
@@ -600,6 +625,8 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_correction_requests', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_runs', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_plan_days', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_transport_requirements', filter: `organization_id=eq.${organizationId}` }, () => void refreshRemoteData(false))
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'transport_stop_events', filter: `organization_id=eq.${organizationId}` }, (payload) => {
         const row = payload.new as { event_type?: string };
         const labels: Record<string, string> = {
@@ -1192,12 +1219,47 @@ export default function App() {
     } catch (error) { persistError(error); }
   };
 
+  const handleSaveTransportPlanDay = async (day: TransportPlanDay) => {
+    if (!canManageSettings) throw new Error('月間送迎予定を変更できるのは児発管または管理者です。');
+    try {
+      if (organizationId) await saveTransportPlanDay(organizationId, day);
+      setTransportPlanDays((previous) => [
+        day,
+        ...previous.filter((candidate) => candidate.date !== day.date),
+      ]);
+    } catch (error) {
+      persistError(error);
+      throw error;
+    }
+  };
+
+  const handleSaveDailyTransportRequirements = async (requirements: DailyTransportRequirement[]) => {
+    if (!canManageSettings) throw new Error('月間送迎予定を変更できるのは児発管または管理者です。');
+    try {
+      if (organizationId) {
+        if (requirements.length === 1) await saveDailyTransportRequirement(organizationId, requirements[0]);
+        else await saveDailyTransportRequirements(organizationId, requirements);
+      }
+      const keys = new Set(requirements.map((item) => `${item.childId}:${item.date}`));
+      setDailyTransportRequirements((previous) => [
+        ...requirements,
+        ...previous.filter((candidate) => !keys.has(`${candidate.childId}:${candidate.date}`)),
+      ]);
+    } catch (error) {
+      persistError(error);
+      throw error;
+    }
+  };
+
   const handleSaveTransportRun = async (run: TransportRun) => {
     if (!canManageSettings) throw new Error('送迎便を変更できるのは児発管または管理者です。');
     try {
       if (organizationId) await saveTransportRun(organizationId, run);
       setTransportRuns((previous) => [run, ...previous.filter((candidate) => candidate.id !== run.id)]);
-    } catch (error) { persistError(error); }
+    } catch (error) {
+      persistError(error);
+      throw error;
+    }
   };
 
   const handleDeleteTransportRun = async (runId: string) => {
@@ -1205,7 +1267,10 @@ export default function App() {
     try {
       if (organizationId) await deleteTransportRun(organizationId, runId);
       setTransportRuns((previous) => previous.filter((run) => run.id !== runId));
-    } catch (error) { persistError(error); }
+    } catch (error) {
+      persistError(error);
+      throw error;
+    }
   };
 
   const handleSaveTransportRouteSettings = async (settings: TransportRouteSettings) => {
@@ -1691,6 +1756,8 @@ export default function App() {
             attendanceCorrections={attendanceCorrections}
             vehicles={vehicles}
             transportRuns={transportRuns}
+            transportPlanDays={transportPlanDays}
+            dailyTransportRequirements={dailyTransportRequirements}
             transportRouteSettings={transportRouteSettings}
             handoverItems={handoverItems}
             handoverConfirmations={handoverConfirmations}
@@ -1738,6 +1805,8 @@ export default function App() {
             onReviewAttendanceCorrection={handleReviewAttendanceCorrection}
             onSaveVehicle={handleSaveVehicle}
             onDeleteVehicle={handleDeleteVehicle}
+            onSaveTransportPlanDay={handleSaveTransportPlanDay}
+            onSaveDailyTransportRequirements={handleSaveDailyTransportRequirements}
             onSaveTransportRun={handleSaveTransportRun}
             onDeleteTransportRun={handleDeleteTransportRun}
             onSaveTransportRouteSettings={handleSaveTransportRouteSettings}

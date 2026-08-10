@@ -33,6 +33,7 @@ export interface ChildTransportLocation {
   name: string;
   type: TransportLocationType;
   address: string;
+  area?: string;
   directions: Array<'迎え' | '送り'>;
   weekdays?: Weekday[];
   validFrom?: string;
@@ -45,6 +46,7 @@ export type HomeAssistantActionType =
   | 'schedule_regular_days'
   | 'update_child_profile'
   | 'update_child_notes'
+  | 'update_daily_transport'
   | 'start_support_record'
   | 'open_child_records'
   | 'summarize_recent_records';
@@ -70,6 +72,9 @@ export interface HomeAssistantProposal {
   notesText?: string;
   recordDate?: string;
   periodDays?: number;
+  transportDate?: string;
+  transportDirection?: TransportDirection;
+  transportTargetTime?: string;
 }
 
 export interface HomeAssistantExecutionResult {
@@ -77,6 +82,7 @@ export interface HomeAssistantExecutionResult {
   schedule?: RegularDaySchedule;
   updatedChild?: Partial<ChildProfile>;
   output?: string;
+  updatedTransportRequirement?: DailyTransportRequirement;
   clientAction?: {
     type: 'start_support_record' | 'open_child_records';
     childId: string;
@@ -195,6 +201,8 @@ export interface ChildProfile {
   transportSchedule?: ChildTransportSchedule[];
   pickupLocation?: string;
   dropoffLocation?: string;
+  pickupArea?: string;
+  dropoffArea?: string;
   transportLocations?: ChildTransportLocation[];
   notes?: string;
 }
@@ -393,7 +401,54 @@ export interface Vehicle {
   capacity: number;
   wheelchairAccessible: boolean;
   inspectionDueDate?: string;
+  vehicleKind?: 'facility' | 'reserve' | 'private';
+  assignmentPriority?: number;
+  autoAssignmentPolicy?: 'always' | 'when_needed' | 'manual_only';
+  ownerRecorderProfileId?: string;
+  insuranceDueDate?: string;
   available: boolean;
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type TransportPickupMode = 'school' | 'home' | 'custom';
+export type TransportPlanDayStatus = 'draft' | 'requirements_confirmed' | 'dispatch_draft' | 'dispatch_confirmed';
+
+export interface TransportPlanDay {
+  date: string;
+  pickupMode: TransportPickupMode;
+  targetArrivalTime: string;
+  status: TransportPlanDayStatus;
+  revision: number;
+  note?: string;
+  confirmedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DailyTransportRequirement {
+  id: string;
+  childId: string;
+  date: string;
+  pickupEnabled: boolean;
+  dropoffEnabled: boolean;
+  pickupPattern: TransportPickupMode;
+  pickupLocationProfileId?: string;
+  pickupLocationName?: string;
+  pickupAddress?: string;
+  pickupArea?: string;
+  pickupTargetTime?: string;
+  dropoffLocationProfileId?: string;
+  dropoffLocationName?: string;
+  dropoffAddress?: string;
+  dropoffArea?: string;
+  dropoffTargetTime?: string;
+  stopDurationMinutes: number;
+  keepSiblingsTogether: boolean;
+  source: 'baseline' | 'manual' | 'assistant';
+  status: 'draft' | 'confirmed';
+  revision: number;
   note?: string;
   createdAt: string;
   updatedAt: string;
@@ -417,6 +472,9 @@ export interface TransportStop {
   locationType: TransportLocationType;
   location: string;
   plannedTime?: string;
+  area?: string;
+  stopDurationMinutes?: number;
+  sequenceLocked?: boolean;
   order: number;
   note?: string;
 }
@@ -503,6 +561,9 @@ export interface TransportFieldDashboard {
 export interface TransportRouteSettings {
   facilityAddress: string;
   stopDurationMinutes: number;
+  holidayArrivalTime: string;
+  schoolWaitToleranceMinutes: number;
+  minimumFacilityStaff: number;
   avoidTolls: boolean;
   avoidHighways: boolean;
   updatedAt?: string;
@@ -511,6 +572,9 @@ export interface TransportRouteSettings {
 export const DEFAULT_TRANSPORT_ROUTE_SETTINGS: TransportRouteSettings = {
   facilityAddress: '',
   stopDurationMinutes: 5,
+  holidayArrivalTime: '10:00',
+  schoolWaitToleranceMinutes: 10,
+  minimumFacilityStaff: 2,
   avoidTolls: false,
   avoidHighways: false,
 };
@@ -538,6 +602,33 @@ export interface TransportRouteOptimizationRequest {
   origin: string;
   destination: string;
   stops: Array<{ id: string; label: string; location: string }>;
+  avoidTolls: boolean;
+  avoidHighways: boolean;
+}
+
+export interface TransportMatrixLocation {
+  id: string;
+  label: string;
+  address: string;
+}
+
+export interface TransportMatrixEntry {
+  fromId: string;
+  toId: string;
+  distanceMeters: number;
+  durationSeconds: number;
+  reachable: boolean;
+}
+
+export interface TransportMatrixResult {
+  provider: 'google_route_matrix';
+  locations: TransportMatrixLocation[];
+  entries: TransportMatrixEntry[];
+  warnings: string[];
+}
+
+export interface TransportMatrixRequest {
+  locations: TransportMatrixLocation[];
   avoidTolls: boolean;
   avoidHighways: boolean;
 }

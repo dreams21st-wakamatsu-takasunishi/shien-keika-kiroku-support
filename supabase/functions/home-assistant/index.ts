@@ -11,6 +11,7 @@ const ALLOWED_ACTIONS = [
   'schedule_regular_days',
   'update_child_profile',
   'update_child_notes',
+  'update_daily_transport',
   'start_support_record',
   'open_child_records',
   'summarize_recent_records',
@@ -18,7 +19,11 @@ const ALLOWED_ACTIONS = [
 
 type Weekday = typeof WEEKDAYS[number];
 type ActionType = typeof ALLOWED_ACTIONS[number];
-type ServiceClient = ReturnType<typeof createClient>;
+// This function intentionally accesses several tables without generated
+// Database types. Supabase JS 2.5x otherwise infers every dynamic table as
+// `never` under Deno 2 even though the runtime client is valid.
+// deno-lint-ignore no-explicit-any
+type ServiceClient = any;
 
 type RequestBody = {
   mode?: 'propose' | 'execute';
@@ -43,6 +48,10 @@ type ChildRow = {
   notes?: string | null;
   regular_days?: string[] | null;
   regular_days_effective_from?: string | null;
+  pickup_location?: string | null;
+  dropoff_location?: string | null;
+  pickup_area?: string | null;
+  dropoff_area?: string | null;
 };
 
 function jsonResponse(body: unknown, status = 200) {
@@ -67,6 +76,15 @@ function normalizeDate(value: unknown) {
   const match = String(value || '').match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
   if (!match) return '';
   return `${match[1]}-${match[2].padStart(2, '0')}-${match[3].padStart(2, '0')}`;
+}
+
+function normalizeTime(value: unknown) {
+  const match = String(value || '').trim().match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return '';
+  const hour = Number(match[1]);
+  const minute = Number(match[2]);
+  if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return '';
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
 }
 
 function isValidDate(value: string) {
@@ -286,6 +304,31 @@ function buildProposal(
     };
   }
 
+  if (actionType === 'update_daily_transport') {
+    const transportDate = normalizeDate(payload.date) || today;
+    const transportDirection = payload.direction === '送り' ? '送り' : payload.direction === '迎え' ? '迎え' : '';
+    const transportTargetTime = normalizeTime(payload.targetTime);
+    if (!isValidDate(transportDate) || !transportDirection || !transportTargetTime) {
+      return { error: '送迎日、迎え・送り、変更後の時刻を特定できませんでした。' };
+    }
+    return {
+      proposal: {
+        ...base,
+        transportDate,
+        transportDirection,
+        transportTargetTime,
+        summary: `${formatJapaneseDate(transportDate)}の${child.name}さんの${transportDirection}予定を${transportTargetTime}に変更します。よろしいですか？`,
+        details: [
+          { label: '対象児童', value: child.name },
+          { label: '対象日', value: formatJapaneseDate(transportDate) },
+          { label: '変更項目', value: `${transportDirection}予定時刻` },
+          { label: '変更後', value: transportTargetTime },
+        ],
+        confirmationNote: '日別送迎予定へ反映します。すでに作成済みの確定配車は自動変更しないため、配車画面で再確認してください。',
+      },
+    };
+  }
+
   if (actionType === 'start_support_record') {
     const recordDate = normalizeDate(payload.recordDate) || today;
     if (!isValidDate(recordDate)) return { error: '記録日を特定できませんでした。' };
@@ -482,6 +525,94 @@ Deno.serve(async (request) => {
         return jsonResponse({ message, updatedChild: { notes: notes.slice(0, 4000) } });
       }
 
+      if (actionType === 'update_daily_transport') {
+        const transportDate = normalizeDate(proposal.transportDate);
+        const transportDirection = proposal.transportDirection === '送り' ? '送り' : proposal.transportDirection === '迎え' ? '迎え' : '';
+        const transportTargetTime = normalizeTime(proposal.transportTargetTime);
+        if (!isValidDate(transportDate) || !transportDirection || !transportTargetTime) {
+          return jsonResponse({ error: '実行案の送迎情報が不正です。' }, 400);
+        }
+        const { data: child, error: childError } = await serviceClient
+          .from('children')
+          .select('name, pickup_location, dropoff_location, pickup_area, dropoff_area')
+          .eq('organization_id', profile.organization_id)
+          .eq('id', action.child_id)
+          .is('deleted_at', null)
+          .single();
+        if (childError) throw childError;
+        const { data: current, error: currentError } = await serviceClient
+          .from('daily_transport_requirements')
+          .select('*')
+          .eq('organization_id', profile.organization_id)
+          .eq('child_id', action.child_id)
+          .eq('service_date', transportDate)
+          .maybeSingle();
+        if (currentError) throw currentError;
+        const now = new Date().toISOString();
+        const row = {
+          id: current?.id || crypto.randomUUID(),
+          organization_id: profile.organization_id,
+          child_id: action.child_id,
+          service_date: transportDate,
+          pickup_enabled: current?.pickup_enabled ?? true,
+          dropoff_enabled: current?.dropoff_enabled ?? true,
+          pickup_pattern: current?.pickup_pattern || 'school',
+          pickup_location_profile_id: current?.pickup_location_profile_id || null,
+          pickup_location_name: current?.pickup_location_name || null,
+          pickup_address: current?.pickup_address || child.pickup_location || null,
+          pickup_area: current?.pickup_area || child.pickup_area || null,
+          pickup_target_time: transportDirection === '迎え' ? transportTargetTime : current?.pickup_target_time || null,
+          dropoff_location_profile_id: current?.dropoff_location_profile_id || null,
+          dropoff_location_name: current?.dropoff_location_name || null,
+          dropoff_address: current?.dropoff_address || child.dropoff_location || null,
+          dropoff_area: current?.dropoff_area || child.dropoff_area || null,
+          dropoff_target_time: transportDirection === '送り' ? transportTargetTime : current?.dropoff_target_time || null,
+          stop_duration_minutes: current?.stop_duration_minutes ?? 5,
+          keep_siblings_together: current?.keep_siblings_together ?? true,
+          source: 'assistant',
+          status: 'draft',
+          revision: Number(current?.revision || 0) + 1,
+          note: current?.note || null,
+          created_by: current?.created_by || userId,
+          updated_at: now,
+        };
+        const { data: saved, error } = await serviceClient
+          .from('daily_transport_requirements')
+          .upsert(row, { onConflict: 'organization_id,child_id,service_date' })
+          .select('*')
+          .single();
+        if (error) throw error;
+        const message = `${formatJapaneseDate(transportDate)}の${child.name}さんの${transportDirection}予定を${transportTargetTime}に変更しました。配車は再確認してください。`;
+        await completeAction(serviceClient, action.id, message);
+        return jsonResponse({
+          message,
+          updatedTransportRequirement: {
+            id: saved.id,
+            childId: saved.child_id,
+            date: saved.service_date,
+            pickupEnabled: saved.pickup_enabled,
+            dropoffEnabled: saved.dropoff_enabled,
+            pickupPattern: saved.pickup_pattern,
+            pickupLocationName: saved.pickup_location_name || undefined,
+            pickupAddress: saved.pickup_address || undefined,
+            pickupArea: saved.pickup_area || undefined,
+            pickupTargetTime: saved.pickup_target_time || undefined,
+            dropoffLocationName: saved.dropoff_location_name || undefined,
+            dropoffAddress: saved.dropoff_address || undefined,
+            dropoffArea: saved.dropoff_area || undefined,
+            dropoffTargetTime: saved.dropoff_target_time || undefined,
+            stopDurationMinutes: saved.stop_duration_minutes,
+            keepSiblingsTogether: saved.keep_siblings_together,
+            source: saved.source,
+            status: saved.status,
+            revision: saved.revision,
+            note: saved.note || undefined,
+            createdAt: saved.created_at,
+            updatedAt: saved.updated_at,
+          },
+        });
+      }
+
       if (actionType === 'start_support_record') {
         const recordDate = normalizeDate(proposal.recordDate);
         if (!isValidDate(recordDate)) return jsonResponse({ error: '記録日が不正です。' }, 400);
@@ -576,7 +707,7 @@ ${JSON.stringify(deidentifiedRecords).slice(0, 14000)}`;
 
   const { data: child, error: childError } = await serviceClient
     .from('children')
-    .select('id, name, kana, birth_date, care_type, notes, regular_days, regular_days_effective_from')
+    .select('id, name, kana, birth_date, care_type, notes, regular_days, regular_days_effective_from, pickup_location, dropoff_location, pickup_area, dropoff_area')
     .eq('organization_id', profile.organization_id)
     .eq('id', childId)
     .is('deleted_at', null)
@@ -630,6 +761,10 @@ ${JSON.stringify(deidentifiedRecords).slice(0, 14000)}`;
 6. summarize_recent_records
    対象児童の最近の記録をAIで要約。
    payload: {"periodDays":30}
+7. update_daily_transport
+   児童1名について、指定日の迎えまたは送りの予定時刻を変更。
+   payload: {"date":"YYYY-MM-DD","direction":"迎え または 送り","targetTime":"HH:MM"}
+   「下校」「迎え」「乗車」はdirection=迎え、「帰り」「送り」「帰宅」はdirection=送りとする。
 
 安全規則:
 - 児童、記録、職員、テンプレートの削除は対応しない
@@ -637,6 +772,7 @@ ${JSON.stringify(deidentifiedRecords).slice(0, 14000)}`;
 - 複数の異なる操作が混在する場合はsupported=falseとし、指示を分けるよう理由へ書く
 - 日付指定がない曜日変更と記録開始は現在日を使う
 - 過去日にさかのぼる曜日変更は対応しない
+- 日別送迎変更は必ず日付、迎え・送り、時刻を一つずつ特定する
 - 児童名などの個人情報を回答へ含めない
 
 次のJSONだけを返すこと:

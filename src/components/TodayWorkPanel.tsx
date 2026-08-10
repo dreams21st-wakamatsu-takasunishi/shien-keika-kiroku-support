@@ -17,9 +17,11 @@ import type {
   CalendarEvent,
   ChildProfile,
   DailyChildPlan,
+  DailyTransportRequirement,
   RecorderProfile,
   StaffScheduleItem,
   TransportRun,
+  TransportPlanDay,
   TransportRouteSettings,
   TransportRunStatus,
   Vehicle,
@@ -39,6 +41,8 @@ interface TodayWorkPanelProps {
   attendanceCorrections: AttendanceCorrectionRequest[];
   vehicles: Vehicle[];
   transportRuns: TransportRun[];
+  transportPlanDays: TransportPlanDay[];
+  dailyTransportRequirements: DailyTransportRequirement[];
   transportRouteSettings: TransportRouteSettings;
   recorderProfiles: RecorderProfile[];
   childrenList: ChildProfile[];
@@ -55,6 +59,8 @@ interface TodayWorkPanelProps {
   onReviewAttendanceCorrection: (request: AttendanceCorrectionRequest, approved: boolean, note?: string) => Promise<void> | void;
   onSaveVehicle: (vehicle: Vehicle) => Promise<void> | void;
   onDeleteVehicle: (vehicleId: string) => Promise<void> | void;
+  onSaveTransportPlanDay: (day: TransportPlanDay) => Promise<void> | void;
+  onSaveDailyTransportRequirements: (requirements: DailyTransportRequirement[]) => Promise<void> | void;
   onSaveTransportRun: (run: TransportRun) => Promise<void> | void;
   onDeleteTransportRun: (runId: string) => Promise<void> | void;
   onSaveTransportRouteSettings: (settings: TransportRouteSettings) => Promise<void> | void;
@@ -68,6 +74,8 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
   attendanceCorrections,
   vehicles,
   transportRuns,
+  transportPlanDays,
+  dailyTransportRequirements,
   transportRouteSettings,
   recorderProfiles,
   childrenList,
@@ -84,6 +92,8 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
   onReviewAttendanceCorrection,
   onSaveVehicle,
   onDeleteVehicle,
+  onSaveTransportPlanDay,
+  onSaveDailyTransportRequirements,
   onSaveTransportRun,
   onDeleteTransportRun,
   onSaveTransportRouteSettings,
@@ -171,7 +181,34 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
       )}
       {view === 'calendar' && <CalendarPanel events={calendarEvents} recorderProfiles={recorderProfiles} childrenList={childrenList} selectedDate={selectedDate} onDateChange={setSelectedDate} canEdit={canManage} onSave={onSaveCalendarEvent} onDelete={onDeleteCalendarEvent} />}
       {view === 'attendance' && <AttendancePanel records={attendanceRecords} corrections={attendanceCorrections} recorderProfiles={recorderProfiles} selectedDate={selectedDate} activeRecorder={activeRecorder} canManage={canManage} onSaveRecord={onSaveAttendance} onPunch={onPunchAttendance} onRequestCorrection={onRequestAttendanceCorrection} onReviewCorrection={onReviewAttendanceCorrection} />}
-      {view === 'transport' && <TransportPanel runs={transportRuns} vehicles={vehicles} routeSettings={transportRouteSettings} recorderProfiles={recorderProfiles} childrenList={childrenList} dailyChildPlans={dailyChildPlans} selectedDate={selectedDate} canManage={canManage} activeRecorder={activeRecorder} warningsByRunId={warningsByRunId} focusRunId={focusRunId} onSaveRun={onSaveTransportRun} onDeleteRun={onDeleteTransportRun} onSaveVehicle={onSaveVehicle} onDeleteVehicle={onDeleteVehicle} onSaveRouteSettings={onSaveTransportRouteSettings} onUpdateStatus={onUpdateTransportStatus} />}
+      {view === 'transport' && (
+        <TransportPanel
+          runs={transportRuns}
+          vehicles={vehicles}
+          routeSettings={transportRouteSettings}
+          recorderProfiles={recorderProfiles}
+          childrenList={childrenList}
+          dailyChildPlans={dailyChildPlans}
+          transportPlanDays={transportPlanDays}
+          dailyTransportRequirements={dailyTransportRequirements}
+          staffScheduleItems={staffScheduleItems}
+          attendanceRecords={attendanceRecords}
+          calendarEvents={calendarEvents}
+          selectedDate={selectedDate}
+          canManage={canManage}
+          activeRecorder={activeRecorder}
+          warningsByRunId={warningsByRunId}
+          focusRunId={focusRunId}
+          onSaveRun={onSaveTransportRun}
+          onDeleteRun={onDeleteTransportRun}
+          onSaveVehicle={onSaveVehicle}
+          onDeleteVehicle={onDeleteVehicle}
+          onSaveTransportPlanDay={onSaveTransportPlanDay}
+          onSaveDailyTransportRequirements={onSaveDailyTransportRequirements}
+          onSaveRouteSettings={onSaveTransportRouteSettings}
+          onUpdateStatus={onUpdateTransportStatus}
+        />
+      )}
     </div>
   );
 };
