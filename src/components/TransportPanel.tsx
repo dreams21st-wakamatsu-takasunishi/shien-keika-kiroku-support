@@ -311,6 +311,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
   const selectStopChild = (index: number, childId: string) => {
     if (!runForm) return;
     const child = childrenList.find((candidate) => candidate.id === childId);
+    if (child?.serviceSuspended) return;
     const suggestion = child
       ? getSuggestedTransportLocation(child, runForm.direction, runForm.date)
       : undefined;
@@ -1080,7 +1081,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
                       <label className="text-[10px] font-black text-slate-500">児童
                         <select value={stop.childId || ""} onChange={(event) => selectStopChild(index, event.target.value)} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm text-slate-900">
                           <option value="">児童を選択</option>
-                          {childrenList.map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
+                          {childrenList.filter((candidate) => !candidate.serviceSuspended).map((candidate) => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
                         </select>
                       </label>
                       <label className="text-[10px] font-black text-slate-500">予定時刻

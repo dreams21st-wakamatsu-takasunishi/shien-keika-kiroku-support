@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   DndContext,
@@ -54,7 +54,7 @@ import { calculateTransportMatrix } from '../services/dataService';
 import { getSuggestedTransportLocation, getTransportLocationOptions } from '../utils/transportLocations';
 import { getTransportScheduleForDate, getTransportTargetTime } from '../utils/transportSchedule';
 import { getDefaultDepartureTime } from '../utils/transportDeparture';
-import { getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
+import { getLocalDateString, getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
 import { inferTransportArea, resolvedTransportArea } from '../utils/transportArea';
 
 interface DailyTransportPlannerProps {
@@ -479,7 +479,17 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
   onDeleteRun,
   onClose,
 }) => {
-  const [drafts, setDrafts] = useState<TransportRun[]>(() => runs.map((run) => ({ ...run, stops: run.stops.map((stop) => ({ ...stop })), assistantRecorderProfileIds: [...run.assistantRecorderProfileIds] })));
+  const [drafts, setDrafts] = useState<TransportRun[]>(() => {
+    const suspendedIds = new Set(childrenList.filter((child) => child.serviceSuspended).map((child) => child.id));
+    const excludeSuspended = date >= getLocalDateString();
+    return runs.map((run) => ({
+      ...run,
+      stops: run.stops
+        .filter((stop) => !excludeSuspended || !stop.childId || !suspendedIds.has(stop.childId))
+        .map((stop, index) => ({ ...stop, order: index + 1 })),
+      assistantRecorderProfileIds: [...run.assistantRecorderProfileIds],
+    }));
+  });
   const [deletedIds, setDeletedIds] = useState<string[]>([]);
   const [additionalChildIds, setAdditionalChildIds] = useState<string[]>([]);
   const [childPickerOpen, setChildPickerOpen] = useState(false);
@@ -495,6 +505,21 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
     useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 120, tolerance: 10 } }),
   );
+  useEffect(() => {
+    if (date < getLocalDateString()) return;
+    const suspendedIds = new Set(childrenList.filter((child) => child.serviceSuspended).map((child) => child.id));
+    if (suspendedIds.size === 0) return;
+    setAdditionalChildIds((current) => current.filter((childId) => !suspendedIds.has(childId)));
+    setDrafts((current) => current.map((run) => {
+      const stops = run.stops.filter((stop) => !stop.childId || !suspendedIds.has(stop.childId));
+      if (stops.length === run.stops.length) return run;
+      return {
+        ...run,
+        routeOptimizedAt: undefined,
+        stops: stops.map((stop, index) => ({ ...stop, order: index + 1 })),
+      };
+    }));
+  }, [childrenList, date]);
   const activeRecorders = useMemo(() => recorderProfiles.filter((profile) => profile.active), [recorderProfiles]);
   const boardVehicles = useMemo(() => vehicles
     .filter((vehicle) => vehicle.available || drafts.some((run) => run.vehicleId === vehicle.id))
@@ -506,14 +531,16 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
   const weekday = getWeekdayFromDate(date);
   const dayPlans = useMemo(() => dailyChildPlans.filter((plan) => plan.date === date), [dailyChildPlans, date]);
   const dayPlansByChild = useMemo(() => new Map(dayPlans.map((plan) => [plan.childId, plan])), [dayPlans]);
-  const requirementByChild = useMemo(() => new Map(dailyTransportRequirements.map((item) => [item.childId, item])), [dailyTransportRequirements]);
+  const activeChildIds = useMemo(() => new Set(childrenList.filter((child) => !child.serviceSuspended).map((child) => child.id)), [childrenList]);
+  const requirementByChild = useMemo(() => new Map(dailyTransportRequirements.filter((item) => activeChildIds.has(item.childId)).map((item) => [item.childId, item])), [activeChildIds, dailyTransportRequirements]);
   const scheduledChildren = useMemo(() => childrenList.filter((child) => {
+    if (child.serviceSuspended) return false;
     const plan = dayPlansByChild.get(child.id);
     if (requirementByChild.has(child.id)) return true;
     return plan ? plan.attendancePlan !== '欠席' : getRegularDaysForDate(child, date).includes(weekday);
   }), [childrenList, date, dayPlansByChild, requirementByChild, weekday]);
   const assignedChildIds = useMemo(() => new Set(drafts.flatMap((run) => run.stops.map((stop) => stop.childId).filter((id): id is string => Boolean(id)))), [drafts]);
-  const poolChildren = useMemo(() => childrenList.filter((child) => scheduledChildren.some((scheduled) => scheduled.id === child.id) || additionalChildIds.includes(child.id) || assignedChildIds.has(child.id)), [additionalChildIds, assignedChildIds, childrenList, scheduledChildren]);
+  const poolChildren = useMemo(() => childrenList.filter((child) => !child.serviceSuspended && (scheduledChildren.some((scheduled) => scheduled.id === child.id) || additionalChildIds.includes(child.id) || assignedChildIds.has(child.id))), [additionalChildIds, assignedChildIds, childrenList, scheduledChildren]);
   const pickupAssignedIds = useMemo(() => new Set(drafts.filter((run) => run.direction === '迎え').flatMap((run) => run.stops.map((stop) => stop.childId).filter((id): id is string => Boolean(id)))), [drafts]);
   const dropoffAssignedIds = useMemo(() => new Set(drafts.filter((run) => run.direction === '送り').flatMap((run) => run.stops.map((stop) => stop.childId).filter((id): id is string => Boolean(id)))), [drafts]);
   const activeDragChild = useMemo(() => childrenList.find((child) => child.id === activeDragData?.childId), [activeDragData?.childId, childrenList]);
@@ -572,7 +599,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
   const assignChild = (childId: string, targetRunId: string) => {
     const child = childrenList.find((candidate) => candidate.id === childId);
     const targetRun = drafts.find((run) => run.id === targetRunId);
-    if (!child || !targetRun) return;
+    if (!child || child.serviceSuspended || !targetRun) return;
     setDrafts((current) => current.map((run) => {
       const withoutSameDirection = run.direction === targetRun.direction ? run.stops.filter((stop) => stop.childId !== childId) : run.stops;
       if (run.id !== targetRunId) return { ...run, stops: withoutSameDirection.map((stop, index) => ({ ...stop, order: index + 1 })) };
@@ -831,7 +858,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
           <section className="ui-panel-enter flex max-h-[82dvh] w-full max-w-lg flex-col overflow-hidden rounded-t-3xl bg-white shadow-2xl sm:rounded-3xl">
             <header className="flex items-center justify-between border-b border-slate-200 p-4"><div><p className="text-[10px] font-black text-teal-700">追加利用・突発利用</p><h3 className="text-lg font-black">児童を追加</h3></div><button type="button" onClick={() => setChildPickerOpen(false)} aria-label="閉じる" className="grid h-10 w-10 place-items-center rounded-xl bg-slate-100"><X className="h-5 w-5" /></button></header>
             <div className="border-b border-slate-100 p-3"><label className="relative block"><Search className="absolute left-3 top-3 h-4 w-4 text-slate-400" /><input value={childSearch} onChange={(event) => setChildSearch(event.target.value)} placeholder="児童名・学校名で検索" className="min-h-10 w-full rounded-xl border border-slate-300 pl-9 pr-3 text-sm" /></label></div>
-            <div className="ui-scrollbar flex-1 space-y-1 overflow-y-auto p-3">{childrenList.filter((child) => `${child.name}${child.kana || ''}${child.schoolName || ''}`.includes(childSearch.trim())).map((child) => { const defaultChild = scheduledChildren.some((item) => item.id === child.id); const added = additionalChildIds.includes(child.id); return <button key={child.id} type="button" disabled={defaultChild} onClick={() => setAdditionalChildIds((current) => added ? current.filter((id) => id !== child.id) : [...current, child.id])} className={`flex min-h-12 w-full items-center justify-between rounded-xl border px-3 text-left ${defaultChild || added ? 'border-teal-300 bg-teal-50' : 'border-slate-200 bg-white'}`}><span><strong className="block text-sm">{child.name}</strong><span className="text-[10px] text-slate-500">{child.schoolName || child.grade || '学校未登録'}</span></span><span className="text-[10px] font-black text-teal-700">{defaultChild ? '定期利用' : added ? '追加済み' : '追加する'}</span></button>; })}</div>
+            <div className="ui-scrollbar flex-1 space-y-1 overflow-y-auto p-3">{childrenList.filter((child) => !child.serviceSuspended && `${child.name}${child.kana || ''}${child.schoolName || ''}`.includes(childSearch.trim())).map((child) => { const defaultChild = scheduledChildren.some((item) => item.id === child.id); const added = additionalChildIds.includes(child.id); return <button key={child.id} type="button" disabled={defaultChild} onClick={() => setAdditionalChildIds((current) => added ? current.filter((id) => id !== child.id) : [...current, child.id])} className={`flex min-h-12 w-full items-center justify-between rounded-xl border px-3 text-left ${defaultChild || added ? 'border-teal-300 bg-teal-50' : 'border-slate-200 bg-white'}`}><span><strong className="block text-sm">{child.name}</strong><span className="text-[10px] text-slate-500">{child.schoolName || child.grade || '学校未登録'}</span></span><span className="text-[10px] font-black text-teal-700">{defaultChild ? '定期利用' : added ? '追加済み' : '追加する'}</span></button>; })}</div>
             <div className="border-t border-slate-200 p-3"><button type="button" onClick={() => setChildPickerOpen(false)} className="min-h-11 w-full rounded-xl bg-teal-600 text-sm font-black text-white">配車ボードへ反映</button></div>
           </section>
         </div>

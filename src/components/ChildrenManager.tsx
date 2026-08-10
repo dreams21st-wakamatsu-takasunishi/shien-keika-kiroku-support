@@ -171,6 +171,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   const [grade, setGrade] = useState('小学3年生');
   const [regularDays, setRegularDays] = useState<Weekday[]>([]);
   const [careType, setCareType] = useState<'児童発達支援' | '放課後等デイサービス'>('放課後等デイサービス');
+  const [serviceSuspended, setServiceSuspended] = useState(false);
   const [transportProgram, setTransportProgram] = useState<'小学部' | 'キャリアズ'>('小学部');
   const [transportationRequired, setTransportationRequired] = useState(false);
   const [siblingGroup, setSiblingGroup] = useState('');
@@ -197,6 +198,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setGrade('未就学');
     setRegularDays([]);
     setCareType('放課後等デイサービス');
+    setServiceSuspended(false);
     setTransportProgram('小学部');
     setTransportationRequired(false);
     setSiblingGroup('');
@@ -216,6 +218,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setGrade(child.grade || '小学3年生');
     setRegularDays(getRegularDaysForDate(child, today));
     setCareType(child.careType || '放課後等デイサービス');
+    setServiceSuspended(Boolean(child.serviceSuspended));
     setTransportProgram(child.transportProgram || (child.grade?.startsWith('小学') || child.grade === '未就学' ? '小学部' : 'キャリアズ'));
     setTransportationRequired(Boolean(child.transportationRequired));
     setSiblingGroup(child.siblingGroup || '');
@@ -231,12 +234,12 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     e.preventDefault();
     if (!name.trim()) return;
 
-    if (transportationRequired && transportLocations.length === 0) {
+    if (transportationRequired && !serviceSuspended && transportLocations.length === 0) {
       setFormError('送迎を利用する場合は、学校・自宅などの送迎先を1か所以上追加してください。');
       return;
     }
 
-    const incompleteLocation = transportationRequired && transportLocations.find(
+    const incompleteLocation = transportationRequired && !serviceSuspended && transportLocations.find(
       (location) => !location.name.trim() || !location.address.trim() || location.directions.length === 0
     );
     if (incompleteLocation) {
@@ -244,7 +247,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
       setFormError('送迎先は、名称・場所の区分・住所・使用する場面を入力してください。');
       return;
     }
-    const invalidDateRange = transportationRequired && transportLocations.find(
+    const invalidDateRange = transportationRequired && !serviceSuspended && transportLocations.find(
       (location) => location.validFrom && location.validTo && location.validFrom > location.validTo
     );
     if (invalidDateRange) {
@@ -290,6 +293,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         regularDays,
         regularDaysEffectiveFrom: today,
         careType,
+        serviceSuspended,
         transportProgram,
         transportationRequired,
         schoolName: schoolLocation?.name || undefined,
@@ -312,6 +316,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         regularDays,
         regularDaysEffectiveFrom: today,
         careType,
+        serviceSuspended,
         transportProgram,
         transportationRequired,
         schoolName: schoolLocation?.name || undefined,
@@ -913,6 +918,33 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                 </p>
               </div>
 
+              <fieldset className={`rounded-xl border p-3 ${serviceSuspended ? 'border-amber-300 bg-amber-50' : 'border-emerald-200 bg-emerald-50'}`}>
+                <legend className="px-1 text-xs font-black text-slate-800">利用状況</legend>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    aria-pressed={!serviceSuspended}
+                    onClick={() => setServiceSuspended(false)}
+                    className={`min-h-11 rounded-lg border text-sm font-black ${!serviceSuspended ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-slate-300 bg-white text-slate-600'}`}
+                  >
+                    利用中
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={serviceSuspended}
+                    onClick={() => setServiceSuspended(true)}
+                    className={`min-h-11 rounded-lg border text-sm font-black ${serviceSuspended ? 'border-amber-600 bg-amber-500 text-white' : 'border-slate-300 bg-white text-slate-600'}`}
+                  >
+                    利用休止中
+                  </button>
+                </div>
+                <p className={`mt-2 text-[10px] leading-relaxed ${serviceSuspended ? 'font-bold text-amber-900' : 'text-emerald-800'}`}>
+                  {serviceSuspended
+                    ? '保存すると、本日以降の送迎条件・配車から除外されます。児童情報と過去の記録・運行履歴は残ります。'
+                    : '定期利用曜日と当日予定に応じて、記録作成や送迎の候補に表示されます。'}
+                </p>
+              </fieldset>
+
               <fieldset>
                 <legend className="font-bold text-slate-700 mb-2">定期利用曜日</legend>
                 <div className="grid grid-cols-7 gap-1.5">
@@ -1076,9 +1108,12 @@ const ChildGridCard: React.FC<ChildDisplayProps> = ({ child, today, onEdit, onDe
             {child.kana && <span className="block truncate text-[10px] text-slate-400">{child.kana}</span>}
             <h3 className="truncate text-base font-bold text-slate-900">{child.name}</h3>
           </div>
-          <span className="shrink-0 rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[10px] font-bold text-teal-800">
-            {child.careType === '児童発達支援' ? '児童発達支援' : '放課後等デイ'}
-          </span>
+          <div className="flex shrink-0 flex-col items-end gap-1">
+            {child.serviceSuspended && <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-black text-amber-800">利用休止中</span>}
+            <span className="rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[10px] font-bold text-teal-800">
+              {child.careType === '児童発達支援' ? '児童発達支援' : '放課後等デイ'}
+            </span>
+          </div>
         </div>
 
         <div className="mt-3 space-y-1.5 text-xs text-slate-600">
@@ -1134,6 +1169,7 @@ const ChildListRow: React.FC<ChildDisplayProps> = ({ child, today, onEdit, onDel
             <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-[10px] font-bold text-indigo-700">
               {child.careType === '児童発達支援' ? '児発' : '放デイ'}
             </span>
+            {child.serviceSuspended && <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-black text-amber-800">利用休止中</span>}
           </div>
           {nextSchedule && (
             <p className="mt-1 truncate text-[9px] font-bold text-indigo-600">
@@ -1147,7 +1183,7 @@ const ChildListRow: React.FC<ChildDisplayProps> = ({ child, today, onEdit, onDel
       <div className="hidden gap-3 px-4 py-4 md:grid md:grid-cols-[minmax(190px,1.4fr)_110px_150px_minmax(150px,1fr)_116px] md:items-center">
         <div className="min-w-0">
           {child.kana && <span className="block truncate text-[10px] text-slate-400">{child.kana}</span>}
-          <h3 className="truncate text-sm font-bold text-slate-900">{child.name}</h3>
+          <div className="flex min-w-0 items-center gap-2"><h3 className="truncate text-sm font-bold text-slate-900">{child.name}</h3>{child.serviceSuspended && <span className="shrink-0 rounded-md bg-amber-100 px-2 py-0.5 text-[9px] font-black text-amber-800">利用休止中</span>}</div>
           {child.notes && <p className="mt-1 line-clamp-2 text-[10px] leading-relaxed text-slate-500">{child.notes}</p>}
         </div>
 

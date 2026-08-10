@@ -197,6 +197,7 @@ export interface ChildProfile {
   regularDaysEffectiveFrom?: string;
   regularDaySchedules?: RegularDaySchedule[];
   careType?: '児童発達支援' | '放課後等デイサービス';
+  serviceSuspended?: boolean;
   transportProgram?: '小学部' | 'キャリアズ';
   transportationRequired?: boolean;
   schoolName?: string;

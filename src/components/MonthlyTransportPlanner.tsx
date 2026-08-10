@@ -64,6 +64,7 @@ function scheduledChildrenForDate(
 ) {
   const weekday = getWeekdayFromDate(date);
   return children.filter((child) => {
+    if (child.serviceSuspended) return false;
     if (!child.transportationRequired) return false;
     const plan = plans.find((candidate) => candidate.childId === child.id && candidate.date === date);
     return plan ? plan.attendancePlan !== '欠席' : getRegularDaysForDate(child, date).includes(weekday);
@@ -161,7 +162,9 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
 }) => {
   const [month, setMonth] = useState(initialDate.slice(0, 7));
   const [selectedDate, setSelectedDate] = useState(initialDate);
-  const [drafts, setDrafts] = useState<DailyTransportRequirement[]>(() => requirements.filter((item) => item.date === initialDate).map((item) => ({ ...item })));
+  const [drafts, setDrafts] = useState<DailyTransportRequirement[]>(() => requirements
+    .filter((item) => item.date === initialDate && !childrenList.find((child) => child.id === item.childId)?.serviceSuspended)
+    .map((item) => ({ ...item })));
   const [dayDraft, setDayDraft] = useState<TransportPlanDay>(() => planDays.find((day) => day.date === initialDate) || defaultPlanDay(initialDate, routeSettings));
   const [expandedChildId, setExpandedChildId] = useState<string>();
   const [saving, setSaving] = useState(false);
@@ -171,14 +174,15 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
   const [holidayFrom, setHolidayFrom] = useState(`${month}-01`);
   const [holidayTo, setHolidayTo] = useState(monthDates(month).at(-1) || `${month}-01`);
   const dates = useMemo(() => monthDates(month), [month]);
-  const monthRequirements = useMemo(() => requirements.filter((item) => item.date.startsWith(month)), [month, requirements]);
+  const activeChildIds = useMemo(() => new Set(childrenList.filter((child) => !child.serviceSuspended).map((child) => child.id)), [childrenList]);
+  const monthRequirements = useMemo(() => requirements.filter((item) => item.date.startsWith(month) && activeChildIds.has(item.childId)), [activeChildIds, month, requirements]);
   const selectedRequirements = drafts.length > 0 && drafts.every((item) => item.date === selectedDate)
-    ? drafts
-    : requirements.filter((item) => item.date === selectedDate);
+    ? drafts.filter((item) => activeChildIds.has(item.childId))
+    : requirements.filter((item) => item.date === selectedDate && activeChildIds.has(item.childId));
 
   const selectDate = (date: string) => {
     setSelectedDate(date);
-    setDrafts(requirements.filter((item) => item.date === date).map((item) => ({ ...item })));
+    setDrafts(requirements.filter((item) => item.date === date && activeChildIds.has(item.childId)).map((item) => ({ ...item })));
     setDayDraft(planDays.find((day) => day.date === date) || defaultPlanDay(date, routeSettings));
     setExpandedChildId(undefined);
     setMessage('');
