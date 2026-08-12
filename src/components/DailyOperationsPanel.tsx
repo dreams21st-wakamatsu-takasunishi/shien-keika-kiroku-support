@@ -99,8 +99,8 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
   }, [childrenList, dailyChildPlans, drafts, records, targetDate, weekday]);
 
   const counts = {
-    missing: rows.filter((row) => !row.record && !row.draft).length,
-    drafting: rows.filter((row) => !row.record && row.draft).length,
+    missing: rows.filter((row) => row.scheduled && !row.record && !row.draft).length,
+    drafting: rows.filter((row) => row.scheduled && !row.record && row.draft).length,
     saved: rows.filter((row) => row.record).length,
   };
 
@@ -294,7 +294,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                     <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-700">
                       曜日未設定
                     </span>
-                  ) : !scheduled && (
+                  ) : !scheduled && plan?.attendancePlan !== '欠席' && (
                     <span className="rounded-full bg-indigo-100 px-2 py-1 text-[10px] font-bold text-indigo-800">
                       追加利用
                     </span>
@@ -349,6 +349,10 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                   >
                     <CheckCircle2 className="h-4 w-4" />記録を確認
                   </button>
+                ) : plan?.attendancePlan === '欠席' && !draft ? (
+                  <span className="flex min-h-11 flex-1 items-center justify-center rounded-xl border border-rose-200 bg-rose-50 px-4 text-xs font-black text-rose-800 sm:flex-none">
+                    欠席・記録入力不要
+                  </span>
                 ) : draft ? (
                   <>
                     {canResumeDraft && (

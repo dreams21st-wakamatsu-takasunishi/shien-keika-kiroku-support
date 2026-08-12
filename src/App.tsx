@@ -1749,6 +1749,15 @@ export default function App() {
     });
   };
 
+  const returnToHomeMenu = () => {
+    setReadOnlyDraft(null);
+    setCurrentRecord(null);
+    setCorrectionTarget(null);
+    setAssistantRecordPrefill(null);
+    setHomeWorkspace('menu');
+    setActiveTab('home');
+  };
+
   return (
     <div className="app-background min-h-screen pb-8 font-sans text-slate-900 antialiased sm:pb-12">
       {auth.profile?.fieldModeOnly && privacyShielded && (
@@ -1763,6 +1772,10 @@ export default function App() {
       <Header
         activeTab={activeTab === 'preview' ? 'records' : activeTab}
         setActiveTab={(tab) => {
+          if (tab === 'home') {
+            returnToHomeMenu();
+            return;
+          }
           if (tab === 'form') {
             setCurrentRecord(null);
             setCorrectionTarget(null);
@@ -1835,7 +1848,7 @@ export default function App() {
         {activeTab !== 'home' && (
           <ScreenContextBar
             activeTab={activeTab}
-            onHome={() => setActiveTab('home')}
+            onHome={returnToHomeMenu}
             title={readOnlyDraft ? '入力状況' : undefined}
             description={readOnlyDraft ? '同日の児童の過ごし方を一覧で確認' : undefined}
             badge={readOnlyDraft ? '閲覧専用' : undefined}

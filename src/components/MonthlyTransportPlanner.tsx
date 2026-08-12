@@ -239,7 +239,6 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [holidayRangeOpen, setHolidayRangeOpen] = useState(false);
-  const [attendanceChildId, setAttendanceChildId] = useState('');
   const [attendanceSavingChildId, setAttendanceSavingChildId] = useState<string>();
   const [monthChildId, setMonthChildId] = useState('');
   const [holidayFrom, setHolidayFrom] = useState(`${month}-01`);
@@ -264,6 +263,20 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
     .sort((left, right) => left.name.localeCompare(right.name, 'ja')), [childrenList]);
   const transportChildren = useMemo(() => activeChildren
     .filter((child) => child.transportationRequired), [activeChildren]);
+  const attendanceChildren = useMemo(() => {
+    const weekday = getWeekdayFromDate(selectedDate);
+    const requirementChildIds = new Set(requirements
+      .filter((item) => item.date === selectedDate)
+      .map((item) => item.childId));
+    const plannedChildIds = new Set(dailyChildPlans
+      .filter((plan) => plan.date === selectedDate)
+      .map((plan) => plan.childId));
+    return activeChildren.filter((child) =>
+      requirementChildIds.has(child.id)
+      || plannedChildIds.has(child.id)
+      || getRegularDaysForDate(child, selectedDate).includes(weekday)
+    );
+  }, [activeChildren, dailyChildPlans, requirements, selectedDate]);
   const selectedRequirements = drafts.length > 0 && drafts.every((item) => item.date === selectedDate)
     ? drafts.filter((item) => activeChildIds.has(item.childId) && !absentPlanKeys.has(`${item.childId}:${item.date}`))
     : requirements.filter((item) => item.date === selectedDate && activeChildIds.has(item.childId) && !absentPlanKeys.has(`${item.childId}:${item.date}`));
@@ -435,7 +448,6 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
         setDrafts((current) => [restored, ...current.filter((item) => item.childId !== childId)]);
         setMessage(`${child.name}を${selectedDate}の利用予定へ戻し、基本送迎情報を反映しました。`);
       }
-      setAttendanceChildId('');
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : '利用・欠席予定を保存できませんでした。');
     } finally {
@@ -607,29 +619,35 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
           </div>
         </div>
 
-        {canManage && (
-          <div className="mt-3 grid gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-            <label className="text-[10px] font-black text-rose-950">この日の欠席を登録
-              <select value={attendanceChildId} onChange={(event) => setAttendanceChildId(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-rose-300 bg-white px-3 text-sm font-bold">
-                <option value="">児童を選択</option>
-                {activeChildren.filter((child) => !selectedAbsentPlans.some((plan) => plan.childId === child.id)).map((child) => <option key={child.id} value={child.id}>{child.name}</option>)}
-              </select>
-            </label>
-            <button type="button" disabled={!attendanceChildId || Boolean(attendanceSavingChildId)} onClick={() => void setSelectedDateAttendance(attendanceChildId, '欠席')} className="min-h-10 rounded-lg bg-rose-700 px-4 text-xs font-black text-white disabled:opacity-40">欠席として登録</button>
+        <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div><p className="text-xs font-black text-rose-950">この日の欠席</p><p className="mt-0.5 text-[10px] font-bold text-rose-800">欠席する児童にチェックを入れてください。外すと利用予定へ戻ります。</p></div>
+            <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-rose-800">欠席 {selectedAbsentPlans.length}名</span>
           </div>
-        )}
-
-        {selectedAbsentPlans.length > 0 && (
-          <div className="mt-3 rounded-xl border border-rose-200 bg-white p-3">
-            <p className="text-xs font-black text-rose-900">欠席予定 {selectedAbsentPlans.length}名</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {selectedAbsentPlans.map((plan) => {
-                const child = childrenList.find((candidate) => candidate.id === plan.childId);
-                return <div key={plan.childId} className="flex min-h-10 items-center gap-2 rounded-lg bg-rose-50 px-3"><span className="text-xs font-black text-rose-900">{child?.name || '児童'}</span>{canManage && <button type="button" disabled={attendanceSavingChildId === plan.childId} onClick={() => void setSelectedDateAttendance(plan.childId, '利用予定')} className="rounded-md border border-rose-200 bg-white px-2 py-1 text-[10px] font-black text-rose-800 disabled:opacity-40">利用予定へ戻す</button>}</div>;
+          {attendanceChildren.length === 0 ? (
+            <p className="mt-3 rounded-lg bg-white p-3 text-center text-xs font-bold text-slate-500">この日の利用予定児童はいません。</p>
+          ) : (
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {attendanceChildren.map((child) => {
+                const absent = selectedAbsentPlans.some((plan) => plan.childId === child.id);
+                const savingAttendance = attendanceSavingChildId === child.id;
+                return (
+                  <label key={child.id} className={`flex min-h-11 items-center gap-3 rounded-lg border px-3 py-2 ${absent ? 'border-rose-400 bg-white text-rose-950' : 'border-rose-100 bg-white/80 text-slate-800'} ${canManage ? 'cursor-pointer' : 'cursor-default'}`}>
+                    <input
+                      type="checkbox"
+                      checked={absent}
+                      disabled={!canManage || Boolean(attendanceSavingChildId)}
+                      onChange={(event) => void setSelectedDateAttendance(child.id, event.target.checked ? '欠席' : '利用予定')}
+                      className="h-5 w-5 shrink-0 accent-rose-600"
+                    />
+                    <span className="min-w-0 flex-1 truncate text-xs font-black">{child.name}</span>
+                    <span className={`shrink-0 text-[9px] font-black ${absent ? 'text-rose-700' : 'text-slate-400'}`}>{savingAttendance ? '保存中…' : absent ? '欠席' : '利用予定'}</span>
+                  </label>
+                );
               })}
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
         {selectedRequirements.length === 0 && drafts.length === 0 ? (
           <div className="py-8 text-center"><CalendarRange className="mx-auto h-9 w-9 text-slate-300" /><p className="mt-2 text-sm font-bold text-slate-500">この日の送迎予定は未作成です。</p>{canManage && <button type="button" onClick={() => prepareSelectedDate()} className="mt-3 min-h-10 rounded-xl bg-teal-600 px-4 text-xs font-black text-white">この日の基本予定を作成</button>}</div>

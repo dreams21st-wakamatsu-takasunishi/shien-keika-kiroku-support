@@ -540,15 +540,18 @@ const DraftProgressOverview: React.FC<{
   onBack,
 }) => {
   const [activeChildId, setActiveChildId] = useState('');
+  const previewChildIds = children.map((child) => child.id).join('|');
 
   useEffect(() => {
-    if (initialChildId && children.some((child) => child.id === initialChildId)) {
-      if (activeChildId !== initialChildId) setActiveChildId(initialChildId);
-      return;
-    }
-    if (children.some((child) => child.id === activeChildId)) return;
-    setActiveChildId(children[0]?.id || '');
-  }, [activeChildId, children, initialChildId]);
+    setActiveChildId((current) => {
+      if (initialChildId && children.some((child) => child.id === initialChildId)) return initialChildId;
+      if (children.some((child) => child.id === current)) return current;
+      return children[0]?.id || '';
+    });
+    // The child-id signature prevents a live preview refresh from resetting a
+    // user-selected tab when the available children have not changed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialChildId, previewChildIds]);
 
   if (loading) {
     return (
