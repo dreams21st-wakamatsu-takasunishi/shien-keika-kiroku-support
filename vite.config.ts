@@ -4,10 +4,33 @@ import path from 'path';
 import { defineConfig } from 'vite';
 
 export default defineConfig(() => {
+  const gitVersion = process.env.GITHUB_SHA?.slice(0, 7);
+  const appVersion = process.env.VITE_APP_VERSION?.trim()
+    || gitVersion
+    || `${process.env.npm_package_version || '0.0.0'}-local`;
+  const buildTime = process.env.VITE_APP_BUILD_TIME?.trim() || new Date().toISOString();
+
   return {
     // Relative assets work both at the GitHub Pages root and under /<repository>/.
     base: './',
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      react(),
+      tailwindcss(),
+      {
+        name: 'emit-app-version',
+        generateBundle() {
+          this.emitFile({
+            type: 'asset',
+            fileName: 'version.json',
+            source: JSON.stringify({ version: appVersion, buildTime }),
+          });
+        },
+      },
+    ],
+    define: {
+      __APP_VERSION__: JSON.stringify(appVersion),
+      __APP_BUILD_TIME__: JSON.stringify(buildTime),
+    },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

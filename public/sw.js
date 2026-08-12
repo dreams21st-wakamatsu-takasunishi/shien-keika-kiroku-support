@@ -1,8 +1,13 @@
-const CACHE_NAME = 'support-record-shell-v3';
+const WORKER_VERSION = new URL(self.location.href).searchParams.get('v') || 'local';
+const CACHE_NAME = `support-record-shell-${WORKER_VERSION}`;
 const SHELL_FILES = ['./', './index.html', './manifest.webmanifest', './favicon.svg', './app-icon.svg'];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(cacheApplicationShell().then(() => self.skipWaiting()));
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 async function cacheApplicationShell() {

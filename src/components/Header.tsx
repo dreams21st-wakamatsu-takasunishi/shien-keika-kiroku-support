@@ -9,6 +9,7 @@ import {
   Settings,
   History,
   PlusCircle,
+  RefreshCw,
   ShieldCheck,
   LogOut,
   House,
@@ -27,6 +28,7 @@ import type {
   RecorderProfile,
   UserProfile,
 } from '../types';
+import { APP_BUILD_TIME, APP_VERSION, useAppUpdate } from '../hooks/useAppUpdate';
 
 export type ActiveTab = RecorderMenuItemId | 'plans';
 
@@ -71,6 +73,13 @@ export const Header: React.FC<HeaderProps> = ({
   const [draftHidden, setDraftHidden] = useState<RecorderMenuItemId[]>([]);
   const [savingMenu, setSavingMenu] = useState(false);
   const [menuMessage, setMenuMessage] = useState('');
+  const {
+    state: appUpdateState,
+    updateAvailable,
+    availableVersion,
+    applyUpdate,
+    refreshApplication,
+  } = useAppUpdate();
   const fieldModeItems = new Set<RecorderMenuItemId>(['home']);
   const roleItems = navigationItems.filter((item) =>
     (!item.managerOnly || !currentUser || currentUser.role !== 'staff')
@@ -172,6 +181,18 @@ export const Header: React.FC<HeaderProps> = ({
 
           <button
             type="button"
+            onClick={() => void refreshApplication()}
+            disabled={appUpdateState === 'checking' || appUpdateState === 'updating'}
+            className={`relative grid h-10 w-10 shrink-0 place-items-center rounded-xl border transition-colors disabled:opacity-60 ${updateAvailable ? 'border-amber-300 bg-amber-300 text-slate-950' : 'border-slate-700 bg-slate-900 text-slate-200 hover:border-teal-500 hover:text-white'}`}
+            aria-label={updateAvailable ? '新しいバージョンへ更新する' : '最新情報に更新する'}
+            title={`最新情報に更新（現在 ${APP_VERSION}）`}
+          >
+            <RefreshCw className={`h-4.5 w-4.5 ${appUpdateState === 'checking' || appUpdateState === 'updating' ? 'animate-spin' : ''}`} />
+            {updateAvailable && <span className="absolute -right-1 -top-1 h-3 w-3 rounded-full border-2 border-slate-950 bg-rose-500" />}
+          </button>
+
+          <button
+            type="button"
             onClick={activeRecorder && onChangeRecorder ? onChangeRecorder : undefined}
             className={`min-w-0 rounded-xl border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-right ${activeRecorder && onChangeRecorder ? 'cursor-pointer hover:border-teal-500' : 'cursor-default'}`}
             aria-label={activeRecorder && onChangeRecorder ? '記録者を切り替える' : 'ログイン中の職員'}
@@ -185,6 +206,20 @@ export const Header: React.FC<HeaderProps> = ({
           </button>
         </div>
       </header>
+
+      {updateAvailable && (
+        <div className="border-b border-amber-300 bg-amber-50 px-3 py-2 text-amber-950 shadow-sm" role="status">
+          <div className="mx-auto flex max-w-7xl items-center gap-2">
+            <RefreshCw className="h-4 w-4 shrink-0" />
+            <p className="min-w-0 flex-1 text-[11px] font-bold sm:text-xs">
+              新しいアプリが利用できます{availableVersion ? `（${availableVersion}）` : ''}。
+            </p>
+            <button type="button" onClick={applyUpdate} className="min-h-9 shrink-0 rounded-lg bg-amber-400 px-3 text-[11px] font-black text-slate-950">
+              更新する
+            </button>
+          </div>
+        </div>
+      )}
 
       {menuOpen && (
         <div className="fixed inset-0 z-[120] ui-fade-in" role="presentation">
@@ -291,13 +326,16 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </nav>
 
-            {onSignOut && (
-              <div className="border-t border-slate-200 p-3">
+            <div className="border-t border-slate-200 p-3">
+              <p className="mb-2 text-center text-[9px] font-bold text-slate-400" title={`ビルド日時 ${APP_BUILD_TIME}`}>
+                アプリ版 {APP_VERSION}
+              </p>
+              {onSignOut && (
                 <button type="button" onClick={onSignOut} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-rose-200 bg-rose-50 text-sm font-black text-rose-700">
                   <LogOut className="h-5 w-5" />ログアウト
                 </button>
-              </div>
-            )}
+              )}
+            </div>
           </aside>
         </div>
       )}

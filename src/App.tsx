@@ -67,6 +67,7 @@ import {
   closeSupportPlan,
   deleteCalendarEvent,
   deleteDailyChildPlan,
+  deleteDailyTransportRequirement,
   deleteHandoverConfirmation,
   deleteMorningMeetingConfirmation,
   deleteRecordDraft,
@@ -1165,6 +1166,20 @@ export default function App() {
     }
   };
 
+  const handleDeleteDailyTransportRequirement = async (childId: string, date: string) => {
+    if (!canManageSettings) throw new Error('月間送迎予定を変更できるのは児発管または管理者です。');
+    try {
+      if (organizationId) await deleteDailyTransportRequirement(organizationId, childId, date);
+      setDailyTransportRequirements((previous) => previous.filter(
+        (item) => !(item.childId === childId && item.date === date),
+      ));
+      setDataError(null);
+    } catch (error) {
+      persistError(error);
+      throw error;
+    }
+  };
+
   const handleSaveAttendance = async (record: AttendanceRecord) => {
     if (!canManageSettings) throw new Error('勤務予定を変更できるのは児発管または管理者です。');
     try {
@@ -1919,6 +1934,7 @@ export default function App() {
             onDeleteCalendarEvent={handleDeleteCalendarEvent}
             onSaveDailyChildPlan={handleSaveDailyChildPlan}
             onDeleteDailyChildPlan={handleDeleteDailyChildPlan}
+            onDeleteDailyTransportRequirement={handleDeleteDailyTransportRequirement}
             onSaveAttendance={handleSaveAttendance}
             onPunchAttendance={handlePunchAttendance}
             onRequestAttendanceCorrection={handleRequestAttendanceCorrection}

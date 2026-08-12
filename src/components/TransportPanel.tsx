@@ -106,6 +106,8 @@ interface TransportPanelProps {
   onDeleteVehicle: (vehicleId: string) => Promise<void> | void;
   onSaveTransportPlanDay: (day: TransportPlanDay) => Promise<void> | void;
   onSaveDailyChildPlan: (plan: DailyChildPlan) => Promise<void> | void;
+  onDeleteDailyChildPlan: (childId: string, date: string) => Promise<void> | void;
+  onDeleteDailyTransportRequirement: (childId: string, date: string) => Promise<void> | void;
   onSaveDailyTransportRequirements: (requirements: DailyTransportRequirement[]) => Promise<void> | void;
   onReplaceMonthlyTransportRequirements: (month: string, requirements: DailyTransportRequirement[]) => Promise<DailyTransportRequirement[]>;
   onReplaceChildMonthlyTransportRequirements: (month: string, childId: string, requirements: DailyTransportRequirement[]) => Promise<DailyTransportRequirement[]>;
@@ -144,6 +146,8 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
   onDeleteVehicle,
   onSaveTransportPlanDay,
   onSaveDailyChildPlan,
+  onDeleteDailyChildPlan,
+  onDeleteDailyTransportRequirement,
   onSaveDailyTransportRequirements,
   onReplaceMonthlyTransportRequirements,
   onReplaceChildMonthlyTransportRequirements,
@@ -778,6 +782,8 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
           canManage={canManage}
           onSavePlanDay={onSaveTransportPlanDay}
           onSaveDailyChildPlan={onSaveDailyChildPlan}
+          onDeleteDailyChildPlan={onDeleteDailyChildPlan}
+          onDeleteRequirement={onDeleteDailyTransportRequirement}
           onSaveRequirements={onSaveDailyTransportRequirements}
           onReplaceMonthRequirements={onReplaceMonthlyTransportRequirements}
           onReplaceChildMonthRequirements={onReplaceChildMonthlyTransportRequirements}
