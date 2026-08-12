@@ -323,6 +323,8 @@ const ChildCardContent: React.FC<{
   child: ChildProfile;
   date: string;
   direction: TransportDirection;
+  requirement?: DailyTransportRequirement;
+  stop?: TransportStop;
   pickupAssigned: boolean;
   dropoffAssigned: boolean;
   compact?: boolean;
@@ -331,22 +333,46 @@ const ChildCardContent: React.FC<{
   child,
   date,
   direction,
+  requirement,
+  stop,
   pickupAssigned,
   dropoffAssigned,
   compact = false,
   preview = false,
 }) => {
   const schedule = getTransportScheduleForDate(child, date);
-  const location = getSuggestedTransportLocation(child, direction, date);
+  const requirementProfileId = direction === '迎え'
+    ? requirement?.pickupLocationProfileId
+    : requirement?.dropoffLocationProfileId;
+  const requirementLocation = getTransportLocationOptions(child, direction, date)
+    .find((option) => option.id === requirementProfileId);
+  const fallbackLocation = getSuggestedTransportLocation(child, direction, date);
+  const locationType = stop?.locationType || requirementLocation?.type || fallbackLocation?.type;
+  const locationName = stop?.locationName
+    || (direction === '迎え' ? requirement?.pickupLocationName : requirement?.dropoffLocationName)
+    || requirementLocation?.name
+    || fallbackLocation?.name;
+  const locationAddress = stop?.location
+    || (direction === '迎え' ? requirement?.pickupAddress : requirement?.dropoffAddress)
+    || requirementLocation?.address
+    || fallbackLocation?.address;
+  const locationArea = stop?.area
+    || (direction === '迎え' ? requirement?.pickupArea : requirement?.dropoffArea)
+    || requirementLocation?.area
+    || fallbackLocation?.area;
+  const targetTime = stop?.plannedTime
+    || (direction === '迎え' ? requirement?.pickupTargetTime : requirement?.dropoffTargetTime)
+    || schedule?.schoolEndTime
+    || schedule?.pickupTime;
   return (
     <>
       <div className="flex min-w-0 items-start gap-1.5">
         <span className={`grid h-9 w-8 shrink-0 place-items-center rounded-lg ${preview ? 'bg-teal-100 text-teal-700' : 'bg-slate-100 text-slate-500'}`}><GripVertical className="h-4 w-4" /></span>
         <div className="min-w-0 flex-1">
           <strong className="block truncate text-xs text-slate-900">{child.name}</strong>
-          <span className="block truncate text-[9px] font-black text-slate-600">{location ? `${location.type}｜${location.name}${location.area ? `・${location.area}` : ''}` : `${direction}先未登録`}</span>
-          {!compact && <span title={location?.address} className="block truncate text-[9px] text-slate-400">{location?.address || '住所を児童情報で登録してください'}</span>}
-          <span className="mt-1 block text-[9px] text-slate-500">迎え基準 {schedule?.schoolEndTime || schedule?.pickupTime || '―'}{direction === '送り' ? '／退所時刻は当日予定から自動' : ''}</span>
+          <span className="block truncate text-[9px] font-black text-slate-600">{locationName ? `${locationType || direction}｜${locationName}${locationArea ? `・${locationArea}` : ''}` : `${direction}先未登録`}</span>
+          {!compact && <span title={locationAddress} className="block truncate text-[9px] text-slate-400">{locationAddress || '住所を月間予定または児童情報で登録してください'}</span>}
+          <span className="mt-1 block text-[9px] text-slate-500">{direction}基準 {targetTime || '自動計算'}</span>
         </div>
       </div>
       {!compact && (
@@ -364,11 +390,13 @@ const DraggableChildCard: React.FC<{
   child: ChildProfile;
   date: string;
   direction: TransportDirection;
+  requirement?: DailyTransportRequirement;
+  stop?: TransportStop;
   data: DragChildData;
   pickupAssigned: boolean;
   dropoffAssigned: boolean;
   compact?: boolean;
-}> = ({ child, date, direction, data, pickupAssigned, dropoffAssigned, compact = false }) => {
+}> = ({ child, date, direction, requirement, stop, data, pickupAssigned, dropoffAssigned, compact = false }) => {
   const dragId = data.sourceStopId ? `stop-${data.sourceStopId}` : `pool-${child.id}`;
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: dragId, data });
   return (
@@ -385,7 +413,7 @@ const DraggableChildCard: React.FC<{
         {...listeners}
         className="absolute left-0 top-0 z-10 h-12 w-12 touch-none rounded-xl opacity-0"
       />
-      <ChildCardContent child={child} date={date} direction={direction} pickupAssigned={pickupAssigned} dropoffAssigned={dropoffAssigned} compact={compact} />
+      <ChildCardContent child={child} date={date} direction={direction} requirement={requirement} stop={stop} pickupAssigned={pickupAssigned} dropoffAssigned={dropoffAssigned} compact={compact} />
     </article>
   );
 };
@@ -394,11 +422,12 @@ const DraggedChildPreview: React.FC<{
   child: ChildProfile;
   date: string;
   direction: TransportDirection;
+  requirement?: DailyTransportRequirement;
   pickupAssigned: boolean;
   dropoffAssigned: boolean;
-}> = ({ child, date, direction, pickupAssigned, dropoffAssigned }) => (
+}> = ({ child, date, direction, requirement, pickupAssigned, dropoffAssigned }) => (
   <article className="pointer-events-none min-w-0 rotate-[0.4deg] rounded-xl border-2 border-teal-400 bg-white p-2.5 shadow-[0_18px_45px_rgba(15,23,42,0.24)]">
-    <ChildCardContent child={child} date={date} direction={direction} pickupAssigned={pickupAssigned} dropoffAssigned={dropoffAssigned} compact preview />
+    <ChildCardContent child={child} date={date} direction={direction} requirement={requirement} pickupAssigned={pickupAssigned} dropoffAssigned={dropoffAssigned} compact preview />
   </article>
 );
 
@@ -467,7 +496,7 @@ const TransportRunLane: React.FC<{
           const selectedLocationId = stop.locationProfileId || options.find((option) => option.address === stop.location && option.type === stop.locationType)?.id || '';
           return (
             <div key={stop.id} className="rounded-xl border border-slate-200 bg-white p-1.5">
-              <DraggableChildCard child={child} date={date} direction={run.direction} data={{ childId: child.id, sourceRunId: run.id, sourceStopId: stop.id }} pickupAssigned={pickupAssignedIds.has(child.id)} dropoffAssigned={dropoffAssignedIds.has(child.id)} compact />
+              <DraggableChildCard child={child} date={date} direction={run.direction} stop={stop} data={{ childId: child.id, sourceRunId: run.id, sourceStopId: stop.id }} pickupAssigned={pickupAssignedIds.has(child.id)} dropoffAssigned={dropoffAssignedIds.has(child.id)} compact />
               <div className="mt-1 flex items-center gap-1">
                 <span title={stop.location} className="min-w-0 flex-1 truncate text-[9px] font-bold text-slate-500">{stop.plannedTime || '時刻未設定'}・{stop.locationType}｜{stop.locationName || stop.location || '場所未設定'}{stop.area ? `・${stop.area}` : ''}</span>
                 <button type="button" onClick={() => onUpdateStop(run.id, stop.id, { sequenceLocked: !stop.sequenceLocked })} aria-label={stop.sequenceLocked ? '順番固定を解除' : '順番を固定'} className={`grid h-8 w-8 place-items-center rounded-md ${stop.sequenceLocked ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-500'}`}><LockKeyhole className="h-3.5 w-3.5" /></button>
@@ -560,6 +589,28 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
     useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 120, tolerance: 10 } }),
   );
+  useEffect(() => {
+    const requirementMap = new Map<string, DailyTransportRequirement>(
+      dailyTransportRequirements.map((requirement) => [requirement.childId, requirement] as const),
+    );
+    setDrafts((current) => current.map((run) => {
+      const synchronizedStops = run.stops
+        .filter((stop) => {
+          if (!stop.childId) return true;
+          const requirement = requirementMap.get(stop.childId);
+          return !requirement || (run.direction === '迎え' ? requirement.pickupEnabled : requirement.dropoffEnabled);
+        })
+        .map((stop) => {
+          const child = childrenList.find((candidate) => candidate.id === stop.childId);
+          return child
+            ? applyMonthlyRequirementToStop(stop, child, run.direction, date, requirementMap.get(child.id))
+            : stop;
+        })
+        .map((stop, index) => ({ ...stop, order: index + 1 }));
+      if (JSON.stringify(synchronizedStops) === JSON.stringify(run.stops)) return run;
+      return { ...run, routeOptimizedAt: undefined, stops: synchronizedStops };
+    }));
+  }, [childrenList, dailyTransportRequirements, date]);
   useEffect(() => {
     if (date < getLocalDateString()) return;
     const suspendedIds = new Set(childrenList.filter((child) => child.serviceSuspended).map((child) => child.id));
@@ -883,7 +934,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
             <aside className="min-w-0 rounded-2xl border border-emerald-300 bg-emerald-50/70 p-2 md:sticky md:top-0">
               <div className="mb-2 flex items-center justify-between gap-1 px-1"><div><p className="text-[9px] font-black text-emerald-700">{weekday}曜日・{activeDirection}</p><h3 className="text-sm font-black text-slate-950">対象児童</h3></div><span className="rounded-full bg-white px-2 py-1 text-[9px] font-black text-emerald-800">{directionChildren.length}名</span></div>
               <div className="space-y-1.5 md:max-h-[calc(100dvh-15rem)] md:overflow-y-auto md:pr-0.5">
-                {directionChildren.map((child) => <DraggableChildCard key={child.id} child={child} date={date} direction={activeDirection} data={{ childId: child.id }} pickupAssigned={pickupAssignedIds.has(child.id)} dropoffAssigned={dropoffAssignedIds.has(child.id)} />)}
+                {directionChildren.map((child) => <DraggableChildCard key={child.id} child={child} date={date} direction={activeDirection} requirement={requirementByChild.get(child.id)} data={{ childId: child.id }} pickupAssigned={pickupAssignedIds.has(child.id)} dropoffAssigned={dropoffAssignedIds.has(child.id)} />)}
                 {directionChildren.length === 0 && <div className="rounded-xl border-2 border-dashed border-emerald-200 bg-white p-4 text-center"><Users className="mx-auto h-7 w-7 text-emerald-300" /><p className="mt-1 text-[10px] font-bold text-slate-400">対象児童がいません。「児童を追加」から追加できます。</p></div>}
               </div>
             </aside>
@@ -902,6 +953,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
                 child={activeDragChild}
                 date={date}
                 direction={activeDirection}
+                requirement={requirementByChild.get(activeDragChild.id)}
                 pickupAssigned={pickupAssignedIds.has(activeDragChild.id)}
                 dropoffAssigned={dropoffAssignedIds.has(activeDragChild.id)}
               />
