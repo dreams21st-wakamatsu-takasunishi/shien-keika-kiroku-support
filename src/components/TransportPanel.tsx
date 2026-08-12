@@ -105,8 +105,10 @@ interface TransportPanelProps {
   onSaveVehicle: (vehicle: Vehicle) => Promise<void> | void;
   onDeleteVehicle: (vehicleId: string) => Promise<void> | void;
   onSaveTransportPlanDay: (day: TransportPlanDay) => Promise<void> | void;
+  onSaveDailyChildPlan: (plan: DailyChildPlan) => Promise<void> | void;
   onSaveDailyTransportRequirements: (requirements: DailyTransportRequirement[]) => Promise<void> | void;
   onReplaceMonthlyTransportRequirements: (month: string, requirements: DailyTransportRequirement[]) => Promise<DailyTransportRequirement[]>;
+  onReplaceChildMonthlyTransportRequirements: (month: string, childId: string, requirements: DailyTransportRequirement[]) => Promise<DailyTransportRequirement[]>;
   onSaveRouteSettings: (settings: TransportRouteSettings) => Promise<void> | void;
   onUpdateStatus: (
     run: TransportRun,
@@ -141,8 +143,10 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
   onSaveVehicle,
   onDeleteVehicle,
   onSaveTransportPlanDay,
+  onSaveDailyChildPlan,
   onSaveDailyTransportRequirements,
   onReplaceMonthlyTransportRequirements,
+  onReplaceChildMonthlyTransportRequirements,
   onSaveRouteSettings,
   onUpdateStatus,
 }) => {
@@ -773,8 +777,10 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
           routeSettings={routeSettings}
           canManage={canManage}
           onSavePlanDay={onSaveTransportPlanDay}
+          onSaveDailyChildPlan={onSaveDailyChildPlan}
           onSaveRequirements={onSaveDailyTransportRequirements}
           onReplaceMonthRequirements={onReplaceMonthlyTransportRequirements}
+          onReplaceChildMonthRequirements={onReplaceChildMonthlyTransportRequirements}
         />
       ) : (
         <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">

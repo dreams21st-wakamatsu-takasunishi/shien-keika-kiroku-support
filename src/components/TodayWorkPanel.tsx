@@ -61,8 +61,10 @@ interface TodayWorkPanelProps {
   onSaveVehicle: (vehicle: Vehicle) => Promise<void> | void;
   onDeleteVehicle: (vehicleId: string) => Promise<void> | void;
   onSaveTransportPlanDay: (day: TransportPlanDay) => Promise<void> | void;
+  onSaveDailyChildPlan: (plan: DailyChildPlan) => Promise<void> | void;
   onSaveDailyTransportRequirements: (requirements: DailyTransportRequirement[]) => Promise<void> | void;
   onReplaceMonthlyTransportRequirements: (month: string, requirements: DailyTransportRequirement[]) => Promise<DailyTransportRequirement[]>;
+  onReplaceChildMonthlyTransportRequirements: (month: string, childId: string, requirements: DailyTransportRequirement[]) => Promise<DailyTransportRequirement[]>;
   onSaveTransportRun: (run: TransportRun) => Promise<void> | void;
   onChangeTransportAssignment: (change: TransportAssignmentChangeInput) => Promise<void> | void;
   onDeleteTransportRun: (runId: string) => Promise<void> | void;
@@ -96,8 +98,10 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
   onSaveVehicle,
   onDeleteVehicle,
   onSaveTransportPlanDay,
+  onSaveDailyChildPlan,
   onSaveDailyTransportRequirements,
   onReplaceMonthlyTransportRequirements,
+  onReplaceChildMonthlyTransportRequirements,
   onSaveTransportRun,
   onChangeTransportAssignment,
   onDeleteTransportRun,
@@ -210,8 +214,10 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
           onSaveVehicle={onSaveVehicle}
           onDeleteVehicle={onDeleteVehicle}
           onSaveTransportPlanDay={onSaveTransportPlanDay}
+          onSaveDailyChildPlan={onSaveDailyChildPlan}
           onSaveDailyTransportRequirements={onSaveDailyTransportRequirements}
           onReplaceMonthlyTransportRequirements={onReplaceMonthlyTransportRequirements}
+          onReplaceChildMonthlyTransportRequirements={onReplaceChildMonthlyTransportRequirements}
           onSaveRouteSettings={onSaveTransportRouteSettings}
           onUpdateStatus={onUpdateTransportStatus}
         />

@@ -3,7 +3,9 @@ import {
   AlertTriangle,
   CalendarRange,
   CheckCircle2,
+  ChevronLeft,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Clock3,
   CopyCheck,
@@ -37,8 +39,10 @@ interface MonthlyTransportPlannerProps {
   routeSettings: TransportRouteSettings;
   canManage: boolean;
   onSavePlanDay: (day: TransportPlanDay) => Promise<void> | void;
+  onSaveDailyChildPlan: (plan: DailyChildPlan) => Promise<void> | void;
   onSaveRequirements: (requirements: DailyTransportRequirement[]) => Promise<void> | void;
   onReplaceMonthRequirements: (month: string, requirements: DailyTransportRequirement[]) => Promise<DailyTransportRequirement[]>;
+  onReplaceChildMonthRequirements: (month: string, childId: string, requirements: DailyTransportRequirement[]) => Promise<DailyTransportRequirement[]>;
 }
 
 const createUuid = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -53,6 +57,12 @@ function nextMonthValue(value: string) {
   const [year, month] = value.split('-').map(Number);
   const next = new Date(year, month, 1);
   return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function previousMonthValue(value: string) {
+  const [year, month] = value.split('-').map(Number);
+  const previous = new Date(year, month - 2, 1);
+  return `${previous.getFullYear()}-${String(previous.getMonth() + 1).padStart(2, '0')}`;
 }
 
 function timeValue(value?: string) {
@@ -143,6 +153,34 @@ function defaultPlanDay(date: string, settings: TransportRouteSettings): Transpo
   };
 }
 
+function defaultDailyChildPlan(
+  child: ChildProfile,
+  date: string,
+  settings: TransportRouteSettings,
+): DailyChildPlan {
+  const now = new Date().toISOString();
+  const weekday = getWeekdayFromDate(date);
+  const holidayLike = weekday === '土' || weekday === '日';
+  const schedule = getTransportScheduleForDate(child, date);
+  return {
+    id: createUuid(),
+    childId: child.id,
+    date,
+    attendancePlan: '利用予定',
+    serviceCategory: holidayLike ? '休日' : '平日',
+    recordFormat: holidayLike ? '休日' : '平日',
+    dayPattern: '通常',
+    hasMorningProgram: holidayLike,
+    hasLunch: holidayLike,
+    hasAfternoonProgram: true,
+    hasSnack: true,
+    schoolEndTime: schedule?.schoolEndTime,
+    departureTime: getDefaultDepartureTime(child, holidayLike ? '休日' : '平日', settings),
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
 function missingFields(requirement: DailyTransportRequirement) {
   const missing: string[] = [];
   if (requirement.pickupEnabled && !requirement.pickupAddress?.trim()) missing.push('迎え先');
@@ -185,8 +223,10 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
   routeSettings,
   canManage,
   onSavePlanDay,
+  onSaveDailyChildPlan,
   onSaveRequirements,
   onReplaceMonthRequirements,
+  onReplaceChildMonthRequirements,
 }) => {
   const [month, setMonth] = useState(initialDate.slice(0, 7));
   const [selectedDate, setSelectedDate] = useState(initialDate);
@@ -199,14 +239,34 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [holidayRangeOpen, setHolidayRangeOpen] = useState(false);
+  const [attendanceChildId, setAttendanceChildId] = useState('');
+  const [attendanceSavingChildId, setAttendanceSavingChildId] = useState<string>();
+  const [monthChildId, setMonthChildId] = useState('');
   const [holidayFrom, setHolidayFrom] = useState(`${month}-01`);
   const [holidayTo, setHolidayTo] = useState(monthDates(month).at(-1) || `${month}-01`);
   const dates = useMemo(() => monthDates(month), [month]);
   const activeChildIds = useMemo(() => new Set(childrenList.filter((child) => !child.serviceSuspended).map((child) => child.id)), [childrenList]);
-  const monthRequirements = useMemo(() => requirements.filter((item) => item.date.startsWith(month) && activeChildIds.has(item.childId)), [activeChildIds, month, requirements]);
+  const absentPlanKeys = useMemo(() => new Set(dailyChildPlans
+    .filter((plan) => plan.attendancePlan === '欠席')
+    .map((plan) => `${plan.childId}:${plan.date}`)), [dailyChildPlans]);
+  const monthRequirements = useMemo(() => requirements.filter((item) =>
+    item.date.startsWith(month)
+    && activeChildIds.has(item.childId)
+    && !absentPlanKeys.has(`${item.childId}:${item.date}`)
+  ), [absentPlanKeys, activeChildIds, month, requirements]);
+  const selectedAbsentPlans = useMemo(() => dailyChildPlans.filter((plan) =>
+    plan.date === selectedDate
+    && plan.attendancePlan === '欠席'
+    && activeChildIds.has(plan.childId)
+  ), [activeChildIds, dailyChildPlans, selectedDate]);
+  const activeChildren = useMemo(() => childrenList
+    .filter((child) => !child.serviceSuspended)
+    .sort((left, right) => left.name.localeCompare(right.name, 'ja')), [childrenList]);
+  const transportChildren = useMemo(() => activeChildren
+    .filter((child) => child.transportationRequired), [activeChildren]);
   const selectedRequirements = drafts.length > 0 && drafts.every((item) => item.date === selectedDate)
-    ? drafts.filter((item) => activeChildIds.has(item.childId))
-    : requirements.filter((item) => item.date === selectedDate && activeChildIds.has(item.childId));
+    ? drafts.filter((item) => activeChildIds.has(item.childId) && !absentPlanKeys.has(`${item.childId}:${item.date}`))
+    : requirements.filter((item) => item.date === selectedDate && activeChildIds.has(item.childId) && !absentPlanKeys.has(`${item.childId}:${item.date}`));
 
   const selectDate = (date: string) => {
     setSelectedDate(date);
@@ -306,6 +366,80 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
       setError(saveError instanceof Error ? saveError.message : '月全体の基本情報を再反映できませんでした。');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const reapplyChildMonth = async () => {
+    if (!canManage || !monthChildId) return setError('基本予定を反映する児童を選択してください。');
+    const child = childrenList.find((candidate) => candidate.id === monthChildId);
+    if (!child) return setError('選択した児童が見つかりません。');
+    const [year, monthNumber] = month.split('-');
+    if (!window.confirm(`${child.name}の${year}年${Number(monthNumber)}月の基本予定を反映しますか？\n\nこの児童について、月間予定で手動修正した内容は児童情報の定期曜日・送迎先・基準時刻で作り直されます。他の児童の予定は変更しません。`)) return;
+    const childRequirements = dates.flatMap((date) => {
+      const plan = dailyChildPlans.find((candidate) => candidate.childId === child.id && candidate.date === date);
+      const scheduled = plan
+        ? plan.attendancePlan !== '欠席'
+        : getRegularDaysForDate(child, date).includes(getWeekdayFromDate(date));
+      if (!scheduled) return [];
+      const planDay = planDays.find((candidate) => candidate.date === date);
+      return [buildRequirement(child, date, planDay?.pickupMode || 'school', routeSettings, plan)];
+    });
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      const appliedRequirements = await onReplaceChildMonthRequirements(month, child.id, childRequirements);
+      setDrafts(appliedRequirements.filter((item) => item.date === selectedDate));
+      setExpandedChildId(undefined);
+      setMessage(`${child.name}の${year}年${Number(monthNumber)}月について、基本予定${childRequirements.length}件を反映しました。他の児童の手動変更は保持しています。`);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : '児童別の基本予定を反映できませんでした。');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const setSelectedDateAttendance = async (childId: string, attendancePlan: '利用予定' | '欠席') => {
+    if (!canManage || !childId) return;
+    const child = childrenList.find((candidate) => candidate.id === childId);
+    if (!child) return setError('選択した児童が見つかりません。');
+    const existingPlan = dailyChildPlans.find((plan) => plan.childId === childId && plan.date === selectedDate);
+    const now = new Date().toISOString();
+    const nextPlan: DailyChildPlan = {
+      ...defaultDailyChildPlan(child, selectedDate, routeSettings),
+      ...existingPlan,
+      attendancePlan,
+      updatedAt: now,
+    };
+    setAttendanceSavingChildId(childId);
+    setError('');
+    setMessage('');
+    try {
+      await onSaveDailyChildPlan(nextPlan);
+      const nextDay: TransportPlanDay = {
+        ...dayDraft,
+        status: 'draft',
+        confirmedAt: undefined,
+        revision: dayDraft.revision + 1,
+        updatedAt: now,
+      };
+      await onSavePlanDay(nextDay);
+      setDayDraft(nextDay);
+      if (attendancePlan === '欠席') {
+        setDrafts((current) => current.filter((item) => item.childId !== childId));
+        if (expandedChildId === childId) setExpandedChildId(undefined);
+        setMessage(`${child.name}を${selectedDate}の欠席として登録しました。記録候補と送迎編成から除外されます。`);
+      } else {
+        const restored = buildRequirement(child, selectedDate, dayDraft.pickupMode, routeSettings, nextPlan);
+        await onSaveRequirements([restored]);
+        setDrafts((current) => [restored, ...current.filter((item) => item.childId !== childId)]);
+        setMessage(`${child.name}を${selectedDate}の利用予定へ戻し、基本送迎情報を反映しました。`);
+      }
+      setAttendanceChildId('');
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : '利用・欠席予定を保存できませんでした。');
+    } finally {
+      setAttendanceSavingChildId(undefined);
     }
   };
 
@@ -413,8 +547,9 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
             <p className="mt-1 text-xs text-slate-500">定期曜日と登録済み送迎情報を反映し、当日の条件だけを修正・確定します。</p>
           </div>
           <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={() => changeMonth(previousMonthValue(month))} className="flex min-h-11 items-center gap-1 rounded-xl border border-slate-300 bg-white px-3 text-xs font-black text-slate-700"><ChevronLeft className="h-4 w-4" />前月</button>
             <input type="month" value={month} onChange={(event) => changeMonth(event.target.value)} className="min-h-11 rounded-xl border border-slate-300 px-3 text-sm font-bold" />
-            <button type="button" onClick={() => changeMonth(nextMonthValue(initialDate.slice(0, 7)))} className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-xs font-black text-slate-700">翌月を開く</button>
+            <button type="button" onClick={() => changeMonth(nextMonthValue(month))} className="flex min-h-11 items-center gap-1 rounded-xl border border-slate-300 bg-white px-3 text-xs font-black text-slate-700">翌月<ChevronRight className="h-4 w-4" /></button>
             {canManage && <button type="button" disabled={saving} onClick={() => void reflectMonth()} className="flex min-h-11 items-center gap-2 rounded-xl bg-teal-600 px-4 text-xs font-black text-white disabled:opacity-50"><CopyCheck className="h-4 w-4" />基本予定を反映</button>}
             {canManage && <button type="button" disabled={saving} onClick={() => void reapplyMonth()} className="flex min-h-11 items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 text-xs font-black text-amber-900 disabled:opacity-50"><RotateCcw className="h-4 w-4" />月全体を再反映</button>}
             {canManage && <button type="button" onClick={() => setHolidayRangeOpen((current) => !current)} className="flex min-h-11 items-center gap-2 rounded-xl border border-sky-300 bg-sky-50 px-4 text-xs font-black text-sky-800"><Home className="h-4 w-4" />長期休暇期間</button>}
@@ -425,6 +560,17 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
           <div className="rounded-xl bg-sky-50 p-2"><strong className="block text-lg text-sky-800">{new Set(monthRequirements.map((item) => item.date)).size}</strong>予定作成日</div>
           <div className={`rounded-xl p-2 ${missingCount ? 'bg-rose-50 text-rose-800' : 'bg-slate-50'}`}><strong className="block text-lg">{missingCount}</strong>情報不足</div>
         </div>
+        {canManage && (
+          <div className="mt-3 grid gap-2 rounded-xl border border-teal-200 bg-teal-50 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+            <label className="text-[10px] font-black text-teal-950">児童ごとに基本予定を反映
+              <select value={monthChildId} onChange={(event) => setMonthChildId(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-teal-300 bg-white px-3 text-sm font-bold">
+                <option value="">児童を選択</option>
+                {transportChildren.map((child) => <option key={child.id} value={child.id}>{child.name}</option>)}
+              </select>
+            </label>
+            <button type="button" disabled={saving || !monthChildId} onClick={() => void reapplyChildMonth()} className="flex min-h-10 items-center justify-center gap-2 rounded-lg bg-teal-700 px-4 text-xs font-black text-white disabled:opacity-40"><CopyCheck className="h-4 w-4" />選択児童へ反映</button>
+          </div>
+        )}
         {holidayRangeOpen && (
           <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50 p-3">
             <p className="text-xs font-black text-sky-950">長期休暇・自宅等への迎えを一括設定</p>
@@ -444,9 +590,10 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
           {Array.from({ length: new Date(`${month}-01T00:00:00`).getDay() }).map((_, index) => <span key={`blank-${index}`} />)}
           {dates.map((date) => {
             const rows = monthRequirements.filter((item) => item.date === date);
+            const absentCount = dailyChildPlans.filter((plan) => plan.date === date && plan.attendancePlan === '欠席' && activeChildIds.has(plan.childId)).length;
             const day = planDays.find((candidate) => candidate.date === date);
             const missing = rows.some((item) => missingFields(item).length > 0);
-            return <button key={date} type="button" onClick={() => selectDate(date)} className={`min-h-14 rounded-lg border p-1 text-left ${selectedDate === date ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-100' : 'border-slate-200 bg-white'}`}><span className="block text-xs font-black">{Number(date.slice(-2))}</span><span className={`mt-1 block truncate text-[9px] font-bold ${missing ? 'text-rose-700' : day?.status && day.status !== 'draft' ? 'text-emerald-700' : rows.length ? 'text-sky-700' : 'text-slate-300'}`}>{missing ? '要確認' : day?.status && day.status !== 'draft' ? '確定' : rows.length ? `${rows.length}名` : '未作成'}</span></button>;
+            return <button key={date} type="button" onClick={() => selectDate(date)} className={`min-h-14 rounded-lg border p-1 text-left ${selectedDate === date ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-100' : 'border-slate-200 bg-white'}`}><span className="block text-xs font-black">{Number(date.slice(-2))}</span><span className={`mt-1 block truncate text-[9px] font-bold ${missing ? 'text-rose-700' : day?.status && day.status !== 'draft' ? 'text-emerald-700' : rows.length ? 'text-sky-700' : 'text-slate-300'}`}>{missing ? '要確認' : day?.status && day.status !== 'draft' ? '確定' : rows.length ? `${rows.length}名` : '未作成'}</span>{absentCount > 0 && <span className="mt-0.5 block truncate text-[8px] font-black text-rose-600">欠席{absentCount}名</span>}</button>;
           })}
         </div>
       </section>
@@ -459,6 +606,30 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
             {dayDraft.pickupMode === 'home' && <label className="text-[10px] font-bold text-slate-600">事業所到着目標<input type="time" value={dayDraft.targetArrivalTime} disabled={!canManage} onChange={(event) => setDayDraft((current) => ({ ...current, targetArrivalTime: event.target.value }))} className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-2 text-sm font-bold" /></label>}
           </div>
         </div>
+
+        {canManage && (
+          <div className="mt-3 grid gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+            <label className="text-[10px] font-black text-rose-950">この日の欠席を登録
+              <select value={attendanceChildId} onChange={(event) => setAttendanceChildId(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-rose-300 bg-white px-3 text-sm font-bold">
+                <option value="">児童を選択</option>
+                {activeChildren.filter((child) => !selectedAbsentPlans.some((plan) => plan.childId === child.id)).map((child) => <option key={child.id} value={child.id}>{child.name}</option>)}
+              </select>
+            </label>
+            <button type="button" disabled={!attendanceChildId || Boolean(attendanceSavingChildId)} onClick={() => void setSelectedDateAttendance(attendanceChildId, '欠席')} className="min-h-10 rounded-lg bg-rose-700 px-4 text-xs font-black text-white disabled:opacity-40">欠席として登録</button>
+          </div>
+        )}
+
+        {selectedAbsentPlans.length > 0 && (
+          <div className="mt-3 rounded-xl border border-rose-200 bg-white p-3">
+            <p className="text-xs font-black text-rose-900">欠席予定 {selectedAbsentPlans.length}名</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {selectedAbsentPlans.map((plan) => {
+                const child = childrenList.find((candidate) => candidate.id === plan.childId);
+                return <div key={plan.childId} className="flex min-h-10 items-center gap-2 rounded-lg bg-rose-50 px-3"><span className="text-xs font-black text-rose-900">{child?.name || '児童'}</span>{canManage && <button type="button" disabled={attendanceSavingChildId === plan.childId} onClick={() => void setSelectedDateAttendance(plan.childId, '利用予定')} className="rounded-md border border-rose-200 bg-white px-2 py-1 text-[10px] font-black text-rose-800 disabled:opacity-40">利用予定へ戻す</button>}</div>;
+              })}
+            </div>
+          </div>
+        )}
 
         {selectedRequirements.length === 0 && drafts.length === 0 ? (
           <div className="py-8 text-center"><CalendarRange className="mx-auto h-9 w-9 text-slate-300" /><p className="mt-2 text-sm font-bold text-slate-500">この日の送迎予定は未作成です。</p>{canManage && <button type="button" onClick={() => prepareSelectedDate()} className="mt-3 min-h-10 rounded-xl bg-teal-600 px-4 text-xs font-black text-white">この日の基本予定を作成</button>}</div>

@@ -117,11 +117,13 @@ function childStop(
   routeSettings?: TransportRouteSettings,
   pickupMode?: TransportPlanDay['pickupMode'],
 ): TransportStop {
-  const suggestion = getSuggestedTransportLocation(child, direction, date);
   const requirementAddress = direction === '迎え' ? requirement?.pickupAddress : requirement?.dropoffAddress;
   const requirementName = direction === '迎え' ? requirement?.pickupLocationName : requirement?.dropoffLocationName;
   const requirementProfileId = direction === '迎え' ? requirement?.pickupLocationProfileId : requirement?.dropoffLocationProfileId;
   const requirementArea = direction === '迎え' ? requirement?.pickupArea : requirement?.dropoffArea;
+  const requirementOption = getTransportLocationOptions(child, direction, date)
+    .find((option) => option.id === requirementProfileId);
+  const suggestion = requirementOption || getSuggestedTransportLocation(child, direction, date);
   return {
     id: createUuid(),
     childId: child.id,
@@ -138,6 +140,36 @@ function childStop(
     stopDurationMinutes: requirement?.stopDurationMinutes,
     order: 1,
     note: suggestion?.note,
+  };
+}
+
+function applyMonthlyRequirementToStop(
+  stop: TransportStop,
+  child: ChildProfile,
+  direction: TransportDirection,
+  date: string,
+  requirement?: DailyTransportRequirement,
+) {
+  if (!requirement || stop.locationName === '今回のみの送迎先') return stop;
+  const profileId = direction === '迎え'
+    ? requirement.pickupLocationProfileId
+    : requirement.dropoffLocationProfileId;
+  const option = getTransportLocationOptions(child, direction, date)
+    .find((candidate) => candidate.id === profileId);
+  const address = direction === '迎え' ? requirement.pickupAddress : requirement.dropoffAddress;
+  const name = direction === '迎え' ? requirement.pickupLocationName : requirement.dropoffLocationName;
+  const area = direction === '迎え' ? requirement.pickupArea : requirement.dropoffArea;
+  const targetTime = direction === '迎え' ? requirement.pickupTargetTime : requirement.dropoffTargetTime;
+  return {
+    ...stop,
+    location: address || stop.location,
+    locationType: option?.type || stop.locationType,
+    locationName: name || option?.name || stop.locationName,
+    locationProfileId: profileId || stop.locationProfileId,
+    plannedTime: targetTime || stop.plannedTime,
+    area: resolvedTransportArea(address || stop.location, area || option?.area || stop.area),
+    stopDurationMinutes: requirement.stopDurationMinutes,
+    note: requirement.note || option?.note || stop.note,
   };
 }
 
@@ -481,14 +513,37 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
 }) => {
   const [drafts, setDrafts] = useState<TransportRun[]>(() => {
     const suspendedIds = new Set(childrenList.filter((child) => child.serviceSuspended).map((child) => child.id));
+    const absentIds = new Set(dailyChildPlans
+      .filter((plan) => plan.date === date && plan.attendancePlan === '欠席')
+      .map((plan) => plan.childId));
+    const requirementMap = new Map<string, DailyTransportRequirement>(
+      dailyTransportRequirements.map((requirement) => [requirement.childId, requirement] as const),
+    );
     const excludeSuspended = date >= getLocalDateString();
-    return runs.map((run) => ({
-      ...run,
-      stops: run.stops
-        .filter((stop) => !excludeSuspended || !stop.childId || !suspendedIds.has(stop.childId))
-        .map((stop, index) => ({ ...stop, order: index + 1 })),
-      assistantRecorderProfileIds: [...run.assistantRecorderProfileIds],
-    }));
+    return runs.map((run) => {
+      const synchronizedStops = run.stops
+        .filter((stop) => {
+          if (!stop.childId) return true;
+          if (absentIds.has(stop.childId)) return false;
+          if (excludeSuspended && suspendedIds.has(stop.childId)) return false;
+          const requirement = requirementMap.get(stop.childId);
+          return !requirement || (run.direction === '迎え' ? requirement.pickupEnabled : requirement.dropoffEnabled);
+        })
+        .map((stop) => {
+          const child = childrenList.find((candidate) => candidate.id === stop.childId);
+          return child
+            ? applyMonthlyRequirementToStop(stop, child, run.direction, date, requirementMap.get(child.id))
+            : stop;
+        })
+        .map((stop, index) => ({ ...stop, order: index + 1 }));
+      const routeInputsChanged = JSON.stringify(synchronizedStops) !== JSON.stringify(run.stops);
+      return {
+        ...run,
+        routeOptimizedAt: routeInputsChanged ? undefined : run.routeOptimizedAt,
+        stops: synchronizedStops,
+        assistantRecorderProfileIds: [...run.assistantRecorderProfileIds],
+      };
+    });
   });
   const [deletedIds, setDeletedIds] = useState<string[]>([]);
   const [additionalChildIds, setAdditionalChildIds] = useState<string[]>([]);
@@ -508,10 +563,14 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
   useEffect(() => {
     if (date < getLocalDateString()) return;
     const suspendedIds = new Set(childrenList.filter((child) => child.serviceSuspended).map((child) => child.id));
-    if (suspendedIds.size === 0) return;
-    setAdditionalChildIds((current) => current.filter((childId) => !suspendedIds.has(childId)));
+    const absentIds = new Set(dailyChildPlans
+      .filter((plan) => plan.date === date && plan.attendancePlan === '欠席')
+      .map((plan) => plan.childId));
+    const excludedIds = new Set([...suspendedIds, ...absentIds]);
+    if (excludedIds.size === 0) return;
+    setAdditionalChildIds((current) => current.filter((childId) => !excludedIds.has(childId)));
     setDrafts((current) => current.map((run) => {
-      const stops = run.stops.filter((stop) => !stop.childId || !suspendedIds.has(stop.childId));
+      const stops = run.stops.filter((stop) => !stop.childId || !excludedIds.has(stop.childId));
       if (stops.length === run.stops.length) return run;
       return {
         ...run,
@@ -519,7 +578,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         stops: stops.map((stop, index) => ({ ...stop, order: index + 1 })),
       };
     }));
-  }, [childrenList, date]);
+  }, [childrenList, dailyChildPlans, date]);
   const activeRecorders = useMemo(() => recorderProfiles.filter((profile) => profile.active), [recorderProfiles]);
   const boardVehicles = useMemo(() => vehicles
     .filter((vehicle) => vehicle.available || drafts.some((run) => run.vehicleId === vehicle.id))
@@ -536,8 +595,9 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
   const scheduledChildren = useMemo(() => childrenList.filter((child) => {
     if (child.serviceSuspended) return false;
     const plan = dayPlansByChild.get(child.id);
+    if (plan?.attendancePlan === '欠席') return false;
     if (requirementByChild.has(child.id)) return true;
-    return plan ? plan.attendancePlan !== '欠席' : getRegularDaysForDate(child, date).includes(weekday);
+    return plan ? true : getRegularDaysForDate(child, date).includes(weekday);
   }), [childrenList, date, dayPlansByChild, requirementByChild, weekday]);
   const assignedChildIds = useMemo(() => new Set(drafts.flatMap((run) => run.stops.map((stop) => stop.childId).filter((id): id is string => Boolean(id)))), [drafts]);
   const poolChildren = useMemo(() => childrenList.filter((child) => !child.serviceSuspended && (scheduledChildren.some((scheduled) => scheduled.id === child.id) || additionalChildIds.includes(child.id) || assignedChildIds.has(child.id))), [additionalChildIds, assignedChildIds, childrenList, scheduledChildren]);

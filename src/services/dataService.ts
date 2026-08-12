@@ -1024,12 +1024,8 @@ export async function saveDailyTransportRequirements(
   if (error) throw error;
 }
 
-export async function replaceMonthlyTransportRequirements(
-  organizationId: string,
-  month: string,
-  requirements: DailyTransportRequirement[],
-) {
-  const payload = requirements.map((requirement) => ({
+function monthlyTransportPayload(requirements: DailyTransportRequirement[]) {
+  return requirements.map((requirement) => ({
     id: requirement.id,
     child_id: requirement.childId,
     service_date: requirement.date,
@@ -1051,18 +1047,17 @@ export async function replaceMonthlyTransportRequirements(
     revision: Math.max(1, requirement.revision),
     note: requirement.note?.trim() || null,
   }));
-  const { error } = await assertSupabase().rpc('replace_monthly_transport_requirements', {
-    p_organization_id: organizationId,
-    p_month: `${month}-01`,
-    p_requirements: payload,
-  });
-  if (error) throw error;
+}
 
+async function loadMonthlyTransportRequirementsFromDatabase(
+  organizationId: string,
+  month: string,
+) {
   const monthStart = `${month}-01`;
   const nextMonthDate = new Date(`${monthStart}T00:00:00Z`);
   nextMonthDate.setUTCMonth(nextMonthDate.getUTCMonth() + 1);
   const nextMonthStart = nextMonthDate.toISOString().slice(0, 10);
-  const { data: refreshedRows, error: refreshError } = await assertSupabase()
+  const { data, error } = await assertSupabase()
     .from('daily_transport_requirements')
     .select('*')
     .eq('organization_id', organizationId)
@@ -1070,10 +1065,39 @@ export async function replaceMonthlyTransportRequirements(
     .lt('service_date', nextMonthStart)
     .order('service_date')
     .order('pickup_target_time');
-  if (refreshError) throw refreshError;
+  if (error) throw error;
+  return (data || []).map(mapDailyTransportRequirement);
+}
 
-  const refreshed = (refreshedRows || []).map(mapDailyTransportRequirement);
-  return refreshed;
+export async function replaceMonthlyTransportRequirements(
+  organizationId: string,
+  month: string,
+  requirements: DailyTransportRequirement[],
+) {
+  const payload = monthlyTransportPayload(requirements);
+  const { error } = await assertSupabase().rpc('replace_monthly_transport_requirements', {
+    p_organization_id: organizationId,
+    p_month: `${month}-01`,
+    p_requirements: payload,
+  });
+  if (error) throw error;
+  return loadMonthlyTransportRequirementsFromDatabase(organizationId, month);
+}
+
+export async function replaceChildMonthlyTransportRequirements(
+  organizationId: string,
+  month: string,
+  childId: string,
+  requirements: DailyTransportRequirement[],
+) {
+  const { error } = await assertSupabase().rpc('replace_child_monthly_transport_requirements', {
+    p_organization_id: organizationId,
+    p_month: `${month}-01`,
+    p_child_id: childId,
+    p_requirements: monthlyTransportPayload(requirements),
+  });
+  if (error) throw error;
+  return loadMonthlyTransportRequirementsFromDatabase(organizationId, month);
 }
 
 export async function deleteDailyTransportRequirement(

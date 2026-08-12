@@ -77,6 +77,7 @@ import {
   loadWorkspaceData,
   punchAttendance,
   requestAttendanceCorrection,
+  replaceChildMonthlyTransportRequirements,
   replaceMonthlyTransportRequirements,
   reviewAttendanceCorrection,
   saveChild,
@@ -1304,6 +1305,39 @@ export default function App() {
     }
   };
 
+  const handleReplaceChildMonthlyTransportRequirements = async (
+    month: string,
+    childId: string,
+    requirements: DailyTransportRequirement[],
+  ) => {
+    if (!canManageSettings) throw new Error('月間送迎予定を変更できるのは児発管または管理者です。');
+    try {
+      const affectedDates = new Set([
+        ...dailyTransportRequirements
+          .filter((item) => item.date.startsWith(month) && item.childId === childId)
+          .map((item) => item.date),
+        ...requirements.map((item) => item.date),
+      ]);
+      const appliedRequirements = organizationId
+        ? await replaceChildMonthlyTransportRequirements(organizationId, month, childId, requirements)
+        : [
+            ...dailyTransportRequirements.filter((item) => item.date.startsWith(month) && item.childId !== childId),
+            ...requirements,
+          ];
+      setDailyTransportRequirements((previous) => [
+        ...appliedRequirements,
+        ...previous.filter((candidate) => !candidate.date.startsWith(month)),
+      ]);
+      setTransportPlanDays((previous) => previous.map((day) => affectedDates.has(day.date)
+        ? { ...day, status: 'draft', confirmedAt: undefined, revision: day.revision + 1, updatedAt: new Date().toISOString() }
+        : day));
+      return appliedRequirements;
+    } catch (error) {
+      persistError(error);
+      throw error;
+    }
+  };
+
   const handleSaveTransportRun = async (run: TransportRun) => {
     if (!canManageSettings) throw new Error('送迎便を変更できるのは児発管または管理者です。');
     try {
@@ -1881,6 +1915,7 @@ export default function App() {
             onSaveTransportPlanDay={handleSaveTransportPlanDay}
             onSaveDailyTransportRequirements={handleSaveDailyTransportRequirements}
             onReplaceMonthlyTransportRequirements={handleReplaceMonthlyTransportRequirements}
+            onReplaceChildMonthlyTransportRequirements={handleReplaceChildMonthlyTransportRequirements}
             onSaveTransportRun={handleSaveTransportRun}
             onChangeTransportAssignment={handleChangeTransportAssignment}
             onDeleteTransportRun={handleDeleteTransportRun}

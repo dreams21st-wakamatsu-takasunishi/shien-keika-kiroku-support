@@ -119,6 +119,7 @@ interface HomeScreenProps {
   onSaveTransportPlanDay: (day: TransportPlanDay) => Promise<void> | void;
   onSaveDailyTransportRequirements: (requirements: DailyTransportRequirement[]) => Promise<void> | void;
   onReplaceMonthlyTransportRequirements: (month: string, requirements: DailyTransportRequirement[]) => Promise<DailyTransportRequirement[]>;
+  onReplaceChildMonthlyTransportRequirements: (month: string, childId: string, requirements: DailyTransportRequirement[]) => Promise<DailyTransportRequirement[]>;
   onSaveTransportRun: (run: TransportRun) => Promise<void> | void;
   onChangeTransportAssignment: (change: TransportAssignmentChangeInput) => Promise<void> | void;
   onDeleteTransportRun: (runId: string) => Promise<void> | void;
@@ -194,6 +195,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onSaveTransportPlanDay,
   onSaveDailyTransportRequirements,
   onReplaceMonthlyTransportRequirements,
+  onReplaceChildMonthlyTransportRequirements,
   onSaveTransportRun,
   onChangeTransportAssignment,
   onDeleteTransportRun,
@@ -389,6 +391,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             onSaveTransportPlanDay={onSaveTransportPlanDay}
             onSaveDailyTransportRequirements={onSaveDailyTransportRequirements}
             onReplaceMonthlyTransportRequirements={onReplaceMonthlyTransportRequirements}
+            onReplaceChildMonthlyTransportRequirements={onReplaceChildMonthlyTransportRequirements}
+            onSaveDailyChildPlan={onSaveDailyChildPlan}
             onSaveTransportRun={onSaveTransportRun}
             onChangeTransportAssignment={onChangeTransportAssignment}
             onDeleteTransportRun={onDeleteTransportRun}
