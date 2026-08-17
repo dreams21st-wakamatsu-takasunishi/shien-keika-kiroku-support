@@ -577,6 +577,7 @@ export interface TransportFieldDashboard {
 export interface TransportRouteSettings {
   facilityAddress: string;
   stopDurationMinutes: number;
+  holidayOpeningTime: string;
   holidayArrivalTime: string;
   weekdayElementaryDepartureTime: string;
   weekdayCareersDepartureTime: string;
@@ -591,6 +592,7 @@ export interface TransportRouteSettings {
 export const DEFAULT_TRANSPORT_ROUTE_SETTINGS: TransportRouteSettings = {
   facilityAddress: '',
   stopDurationMinutes: 5,
+  holidayOpeningTime: '09:00',
   holidayArrivalTime: '10:00',
   weekdayElementaryDepartureTime: '17:45',
   weekdayCareersDepartureTime: '19:20',

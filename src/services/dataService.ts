@@ -490,6 +490,7 @@ function mapTransportRouteSettings(row: any): TransportRouteSettings {
   return {
     facilityAddress: row?.facility_address || '',
     stopDurationMinutes: Math.max(0, Math.min(30, Number.isFinite(stopDuration) ? stopDuration : 5)),
+    holidayOpeningTime: String(row?.holiday_opening_time || '09:00').slice(0, 5),
     holidayArrivalTime: String(row?.holiday_arrival_time || '10:00').slice(0, 5),
     weekdayElementaryDepartureTime: String(row?.weekday_elementary_departure_time || '17:45').slice(0, 5),
     weekdayCareersDepartureTime: String(row?.weekday_careers_departure_time || '19:20').slice(0, 5),
@@ -1263,6 +1264,7 @@ export async function saveTransportRouteSettings(
     id: 'default',
     facility_address: settings.facilityAddress.trim(),
     stop_duration_minutes: Math.max(0, Math.min(30, Math.round(settings.stopDurationMinutes))),
+    holiday_opening_time: settings.holidayOpeningTime,
     holiday_arrival_time: settings.holidayArrivalTime,
     weekday_elementary_departure_time: settings.weekdayElementaryDepartureTime,
     weekday_careers_departure_time: settings.weekdayCareersDepartureTime,

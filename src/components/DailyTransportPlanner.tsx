@@ -333,7 +333,7 @@ function scheduleRunWithRoadTimes(
       fromId = clusterMatrixId(cluster);
     });
     total += matrixMinutes(matrix, fromId, 'facility');
-    startMinute = endMinute - total;
+    startMinute = Math.max(minutes(settings.holidayOpeningTime), endMinute - total);
   } else if (run.direction === '迎え') {
     const first = clusters[0];
     const firstId = first ? clusterMatrixId(first) : 'facility';
@@ -360,7 +360,7 @@ function scheduleRunWithRoadTimes(
     fromId = clusterId;
   });
   clock += matrixMinutes(matrix, fromId, 'facility');
-  endMinute = run.direction === '迎え' && planDay?.pickupMode === 'home' ? endMinute : clock;
+  endMinute = clock;
   return {
     ...run,
     startTime: formattedMinutes(startMinute),
@@ -395,7 +395,9 @@ function finalizeRunTimes(
   const clusters = clusterTransportStops(clusteredStops);
   const travelEstimate = (clusters.length + 1) * 15;
   const serviceEstimate = clusters.reduce((sum, cluster) => sum + clusterDwellMinutes(cluster, settings), 0);
-  const startTime = shiftedTime(arrival, -(travelEstimate + serviceEstimate));
+  const totalEstimate = travelEstimate + serviceEstimate;
+  const startMinute = Math.max(minutes(settings.holidayOpeningTime), minutes(arrival) - totalEstimate);
+  const startTime = formattedMinutes(startMinute);
   let elapsed = 15;
   const stops: TransportStop[] = [];
   clusters.forEach((cluster) => {
@@ -403,7 +405,7 @@ function finalizeRunTimes(
     cluster.stops.forEach((stop) => stops.push({ ...stop, plannedTime, order: stops.length + 1 }));
     elapsed += clusterDwellMinutes(cluster, settings) + 15;
   });
-  return { ...run, startTime, endTime: arrival, stops };
+  return { ...run, startTime, endTime: formattedMinutes(startMinute + totalEstimate), stops };
 }
 
 const ChildCardContent: React.FC<{
@@ -527,6 +529,7 @@ const TransportRunLane: React.FC<{
   pickupAssignedIds: Set<string>;
   dropoffAssignedIds: Set<string>;
   expandedStopId?: string;
+  holidayOpeningTime?: string;
   onExpandStop: (stopId?: string) => void;
   onUpdateRun: (runId: string, patch: Partial<TransportRun>) => void;
   onUpdateStop: (runId: string, stopId: string, patch: Partial<TransportStop>) => void;
@@ -543,6 +546,7 @@ const TransportRunLane: React.FC<{
   pickupAssignedIds,
   dropoffAssignedIds,
   expandedStopId,
+  holidayOpeningTime,
   onExpandStop,
   onUpdateRun,
   onUpdateStop,
@@ -565,6 +569,7 @@ const TransportRunLane: React.FC<{
           <label className="text-[8px] font-black text-slate-500">開始<input type="time" value={run.startTime} onChange={(event) => onUpdateRun(run.id, { startTime: event.target.value })} className="mt-0.5 min-h-9 w-full rounded-lg border border-white bg-white px-1 text-[10px] font-bold" /></label>
           <label className="text-[8px] font-black text-slate-500">終了<input type="time" value={run.endTime} onChange={(event) => onUpdateRun(run.id, { endTime: event.target.value })} className="mt-0.5 min-h-9 w-full rounded-lg border border-white bg-white px-1 text-[10px] font-bold" /></label>
         </div>
+        {holidayOpeningTime && run.startTime < holidayOpeningTime && <p className="mt-1.5 rounded-md bg-amber-100 px-2 py-1 text-[9px] font-black text-amber-900">開所前の手動設定（開所 {holidayOpeningTime}）</p>}
         <label className="mt-1.5 block text-[8px] font-black text-slate-500">運転者<select value={run.driverRecorderProfileId || ''} onChange={(event) => onUpdateRun(run.id, { driverRecorderProfileId: event.target.value || undefined })} className="mt-0.5 min-h-9 w-full rounded-lg border border-white bg-white px-1 text-[10px] font-bold"><option value="">未設定</option>{activeRecorders.map((profile) => <option key={profile.id} value={profile.id}>{profile.displayName}</option>)}</select></label>
       </header>
       <div
@@ -770,7 +775,23 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
     minimumFacilityStaff: routeSettings.minimumFacilityStaff,
   }), [activeDirection, activeRecorders, attendanceRecords, calendarEvents, date, drafts, routeSettings.minimumFacilityStaff, staffScheduleItems, vehicles]);
 
-  const updateRun = (runId: string, patch: Partial<TransportRun>) => setDrafts((current) => current.map((run) => run.id === runId ? { ...run, ...patch, routeOptimizedAt: undefined } : run));
+  const updateRun = (runId: string, patch: Partial<TransportRun>) => setDrafts((current) => current.map((run) => {
+    if (run.id !== runId) return run;
+    if (patch.startTime && patch.startTime !== run.startTime) {
+      const offset = minutes(patch.startTime) - minutes(run.startTime);
+      return {
+        ...run,
+        ...patch,
+        endTime: patch.endTime || shiftedTime(run.endTime, offset),
+        stops: run.stops.map((stop) => ({
+          ...stop,
+          plannedTime: stop.plannedTime ? shiftedTime(stop.plannedTime, offset) : undefined,
+        })),
+        routeOptimizedAt: undefined,
+      };
+    }
+    return { ...run, ...patch, routeOptimizedAt: undefined };
+  }));
   const updateStop = (runId: string, stopId: string, patch: Partial<TransportStop>) => setDrafts((current) => current.map((run) => run.id === runId ? { ...run, routeOptimizedAt: undefined, stops: run.stops.map((stop) => stop.id === stopId ? { ...stop, ...patch } : stop) } : run));
   const removeStop = (runId: string, stopId: string) => setDrafts((current) => current.map((run) => run.id === runId ? { ...run, routeOptimizedAt: undefined, stops: run.stops.filter((stop) => stop.id !== stopId).map((stop, index) => ({ ...stop, order: index + 1 })) } : run));
   const moveStop = (runId: string, stopId: string, offset: number) => setDrafts((current) => current.map((run) => {
@@ -975,6 +996,14 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
     nextDrafts = nextDrafts.map((run) => run.direction === direction
       ? scheduleRunWithRoadTimes(run, routeMatrix, transportPlanDay, routeSettings)
       : run);
+    if (direction === '迎え' && transportPlanDay?.pickupMode === 'home') {
+      const arrivalTarget = transportPlanDay.targetArrivalTime || routeSettings.holidayArrivalTime;
+      const delayedRuns = nextDrafts.filter((run) => run.direction === '迎え' && run.stops.length > 0 && run.endTime > arrivalTarget);
+      if (delayedRuns.length) {
+        const delayedSummary = delayedRuns.map((run) => `${run.name} ${run.endTime}着`).join('、');
+        setRoutingNotice((current) => `${current}${current ? ' ' : ''}開所時刻${routeSettings.holidayOpeningTime}以降へ調整したため、来所目標${arrivalTarget}を超える便があります（${delayedSummary}）。車両追加または手動調整を確認してください。`);
+      }
+    }
     setDrafts(nextDrafts);
     setError('');
     setAutoRouting(false);
@@ -986,6 +1015,10 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
     if (invalidRun) return setError(`${invalidRun.name || '名称未設定の便'}の便名または時刻を確認してください。`);
     const invalidStopRun = runsToSave.find((run) => run.stops.some((stop) => !stop.childId || !stop.location.trim()));
     if (invalidStopRun) return setError(`${invalidStopRun.name}に送迎場所が未入力の児童がいます。`);
+    const earlyHolidayRuns = transportPlanDay?.pickupMode === 'home'
+      ? runsToSave.filter((run) => run.direction === '迎え' && run.startTime < routeSettings.holidayOpeningTime)
+      : [];
+    if (earlyHolidayRuns.length && !window.confirm(`${earlyHolidayRuns.map((run) => `${run.name}（${run.startTime}）`).join('、')}は、休日の開所時刻${routeSettings.holidayOpeningTime}より前に出発する手動設定です。このまま保存しますか？`)) return;
     setSaving(true);
     setError('');
     try {
@@ -1016,7 +1049,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
               </div>
               <div className="space-y-2">
                 {vehicleRuns.length === 0 && <button type="button" onClick={() => addRun(direction, vehicle)} className="min-h-20 w-full rounded-xl border-2 border-dashed border-slate-300 bg-white text-[10px] font-bold text-slate-400">この車両に{direction}便を追加</button>}
-                {vehicleRuns.map((run) => <TransportRunLane key={run.id} run={run} vehicle={vehicle} childrenList={childrenList} date={date} activeRecorders={activeRecorders} pickupAssignedIds={pickupAssignedIds} dropoffAssignedIds={dropoffAssignedIds} expandedStopId={expandedStopId} onExpandStop={setExpandedStopId} onUpdateRun={updateRun} onUpdateStop={updateStop} onMoveStop={moveStop} onRemoveStop={removeStop} onRemoveRun={removeRun} />)}
+                {vehicleRuns.map((run) => <TransportRunLane key={run.id} run={run} vehicle={vehicle} childrenList={childrenList} date={date} activeRecorders={activeRecorders} pickupAssignedIds={pickupAssignedIds} dropoffAssignedIds={dropoffAssignedIds} expandedStopId={expandedStopId} holidayOpeningTime={direction === '迎え' && transportPlanDay?.pickupMode === 'home' ? routeSettings.holidayOpeningTime : undefined} onExpandStop={setExpandedStopId} onUpdateRun={updateRun} onUpdateStop={updateStop} onMoveStop={moveStop} onRemoveStop={removeStop} onRemoveRun={removeRun} />)}
               </div>
             </section>
           );
