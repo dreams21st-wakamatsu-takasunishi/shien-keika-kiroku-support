@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   CalendarClock,
   ChevronDown,
@@ -9,8 +9,10 @@ import {
   School,
   Star,
   Trash2,
+  Users,
 } from 'lucide-react';
 import type {
+  ChildProfile,
   ChildTransportLocation,
   ChildTransportSchedule,
   TransportDirection,
@@ -27,8 +29,10 @@ interface ChildTransportSettingsProps {
   regularDays: Weekday[];
   transportProgram: '小学部' | 'キャリアズ';
   routeSettings: TransportRouteSettings;
-  siblingGroup: string;
-  onSiblingGroupChange: (value: string) => void;
+  childrenList: ChildProfile[];
+  currentChildId?: string;
+  siblingIds: string[];
+  onSiblingIdsChange: (ids: string[]) => void;
   schedule: ChildTransportSchedule[];
   onScheduleChange: (day: Weekday, patch: Partial<ChildTransportSchedule>) => void;
   locations: ChildTransportLocation[];
@@ -61,8 +65,10 @@ export const ChildTransportSettings: React.FC<ChildTransportSettingsProps> = ({
   regularDays,
   transportProgram,
   routeSettings,
-  siblingGroup,
-  onSiblingGroupChange,
+  childrenList,
+  currentChildId,
+  siblingIds,
+  onSiblingIdsChange,
   schedule,
   onScheduleChange,
   locations,
@@ -74,6 +80,21 @@ export const ChildTransportSettings: React.FC<ChildTransportSettingsProps> = ({
   onSetDefaultLocation,
   formError,
 }) => {
+  const [siblingSearch, setSiblingSearch] = useState('');
+  const siblingCandidates = useMemo(() => childrenList
+    .filter((child) => child.id !== currentChildId)
+    .filter((child) => `${child.name}${child.kana || ''}${child.schoolName || ''}`.normalize('NFKC').toLocaleLowerCase('ja-JP').includes(siblingSearch.trim().normalize('NFKC').toLocaleLowerCase('ja-JP')))
+    .sort((left, right) => (left.kana || left.name).localeCompare(right.kana || right.name, 'ja')),
+  [childrenList, currentChildId, siblingSearch]);
+  const selectedSiblings = siblingIds
+    .map((id) => childrenList.find((child) => child.id === id))
+    .filter((child): child is ChildProfile => Boolean(child));
+  const toggleSibling = (childId: string) => onSiblingIdsChange(
+    siblingIds.includes(childId)
+      ? siblingIds.filter((id) => id !== childId)
+      : [...siblingIds, childId],
+  );
+
   const toggleDirection = (location: ChildTransportLocation, direction: TransportDirection) => {
     const selected = location.directions.includes(direction);
     onUpdateLocation(location.id, {
@@ -118,6 +139,30 @@ export const ChildTransportSettings: React.FC<ChildTransportSettingsProps> = ({
           </div>
         </div>
       </div>
+
+      <section className="border-b border-slate-200 bg-amber-50/60 p-3 sm:p-4">
+        <div className="flex items-start gap-2">
+          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-amber-100 text-amber-800"><Users className="h-4 w-4" /></span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-black text-slate-900">兄弟設定</p>
+            <p className="mt-0.5 text-[10px] leading-relaxed text-slate-600">登録済みの児童を選ぶと、自動配車で同じ便を優先します。当日の迎え先が同じ場合は、同じ到着時刻として計算します。</p>
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {selectedSiblings.map((child) => <button key={child.id} type="button" onClick={() => toggleSibling(child.id)} className="rounded-full border border-amber-300 bg-white px-2.5 py-1 text-[10px] font-black text-amber-900">{child.name}<span className="ml-1 text-amber-500">×</span></button>)}
+              {selectedSiblings.length === 0 && <span className="rounded-lg border border-dashed border-amber-300 bg-white/70 px-2.5 py-1.5 text-[10px] font-bold text-slate-500">兄弟は未設定です</span>}
+            </div>
+            <details className="mt-2 rounded-xl border border-amber-200 bg-white">
+              <summary className="flex min-h-10 cursor-pointer list-none items-center justify-between px-3 text-xs font-black text-amber-900"><span>児童リストから選択</span><span>{selectedSiblings.length}名選択</span></summary>
+              <div className="border-t border-amber-100 p-2.5">
+                <input value={siblingSearch} onChange={(event) => setSiblingSearch(event.target.value)} placeholder="児童名・ふりがな・学校名で検索" className="min-h-10 w-full rounded-lg border border-slate-300 px-3 text-sm" />
+                <div className="mt-2 max-h-48 space-y-1 overflow-y-auto">
+                  {siblingCandidates.map((child) => { const selected = siblingIds.includes(child.id); return <button key={child.id} type="button" aria-pressed={selected} onClick={() => toggleSibling(child.id)} className={`flex min-h-11 w-full items-center justify-between rounded-lg border px-3 text-left ${selected ? 'border-amber-400 bg-amber-50' : 'border-slate-200 bg-white'}`}><span className="min-w-0"><strong className="block truncate text-xs text-slate-900">{child.name}{child.serviceSuspended ? <span className="ml-1 text-[9px] text-slate-400">利用休止中</span> : null}</strong><span className="block truncate text-[9px] text-slate-500">{child.schoolName || child.grade || '学校未登録'}</span></span><span className={`ml-2 shrink-0 rounded-full px-2 py-1 text-[9px] font-black ${selected ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-500'}`}>{selected ? '選択中' : '選択'}</span></button>; })}
+                  {siblingCandidates.length === 0 && <p className="p-3 text-center text-[10px] text-slate-400">該当する児童がいません。</p>}
+                </div>
+              </div>
+            </details>
+          </div>
+        </div>
+      </section>
 
       {enabled && (
         <div className="space-y-4 p-3 sm:p-4">
@@ -217,10 +262,6 @@ export const ChildTransportSettings: React.FC<ChildTransportSettingsProps> = ({
               <div className="border-l border-violet-200"><span className="block text-[9px] font-black text-violet-700">休日・共通</span><strong className="mt-0.5 block text-base text-slate-950">{routeSettings.holidayDepartureTime}</strong></div>
               <p className="col-span-2 text-left text-[10px] leading-relaxed text-violet-900">退所予定は自動設定されます。早退・延長など当日だけ異なる場合は「日別利用予定」で変更してください。</p>
             </div>
-          </section>
-
-          <section className="rounded-2xl border border-slate-200 bg-white p-3 sm:p-4">
-            <label className="block text-xs font-bold text-slate-700">兄弟・同一世帯グループ<input value={siblingGroup} onChange={(event) => onSiblingGroupChange(event.target.value)} placeholder="例：山田家（兄弟で同じ文字）" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm" /><span className="mt-1 block text-[10px] font-normal text-slate-500">同じグループの児童を車両定員内で同じ便へまとめ、送迎先住所も同じ場合は同じ到着時刻として計算します。</span></label>
           </section>
 
           {formError && <p className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-bold text-rose-700">{formError}</p>}

@@ -201,6 +201,9 @@ export interface ChildProfile {
   transportProgram?: '小学部' | 'キャリアズ';
   transportationRequired?: boolean;
   schoolName?: string;
+  /** Registered child IDs belonging to the same sibling/household group. */
+  siblingIds?: string[];
+  /** @deprecated Legacy free-text grouping. Use siblingIds for new edits. */
   siblingGroup?: string;
   transportSchedule?: ChildTransportSchedule[];
   pickupLocation?: string;

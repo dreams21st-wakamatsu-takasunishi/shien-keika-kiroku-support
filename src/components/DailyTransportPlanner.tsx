@@ -56,6 +56,7 @@ import { getTransportScheduleForDate, getTransportTargetTime } from '../utils/tr
 import { getDefaultDepartureTime } from '../utils/transportDeparture';
 import { getLocalDateString, getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
 import { inferTransportArea, resolvedTransportArea } from '../utils/transportArea';
+import { buildSiblingGroupByChild, buildSiblingIdsByChild } from '../utils/childSiblings';
 
 interface DailyTransportPlannerProps {
   date: string;
@@ -116,6 +117,7 @@ function childStop(
   requirement?: DailyTransportRequirement,
   routeSettings?: TransportRouteSettings,
   pickupMode?: TransportPlanDay['pickupMode'],
+  siblingGroup?: string,
 ): TransportStop {
   const requirementAddress = direction === '迎え' ? requirement?.pickupAddress : requirement?.dropoffAddress;
   const requirementName = direction === '迎え' ? requirement?.pickupLocationName : requirement?.dropoffLocationName;
@@ -128,7 +130,7 @@ function childStop(
     id: createUuid(),
     childId: child.id,
     childName: child.name,
-    siblingGroup: requirement?.keepSiblingsTogether === false ? undefined : child.siblingGroup?.trim() || undefined,
+    siblingGroup: requirement?.keepSiblingsTogether === false ? undefined : siblingGroup,
     location: requirementAddress || suggestion?.address || '',
     locationType: suggestion?.type || (direction === '迎え' ? '学校' : '自宅'),
     locationName: requirementName || suggestion?.name,
@@ -216,12 +218,18 @@ function normalizedStopLocation(value?: string) {
     .replace(/-$/, '');
 }
 
-function householdStopKey(stop: TransportStop) {
-  const siblingGroup = stop.siblingGroup?.trim().normalize('NFKC').toLocaleLowerCase('ja-JP');
-  const location = normalizedStopLocation(stop.location)
-    || (stop.locationProfileId ? `profile:${stop.locationProfileId}` : '')
-    || (stop.locationName ? `name:${stop.locationType}:${normalizedStopLocation(stop.locationName)}` : '');
-  return siblingGroup && location ? `${siblingGroup}::${location}` : undefined;
+function sharedStopLocationKey(stop: TransportStop) {
+  const normalizedName = normalizedStopLocation(stop.locationName);
+  const institutionalLocation = stop.locationType === '学校' || stop.locationType === '学童' || stop.locationType === '事業所';
+  const linkedResidentialLocation = Boolean(stop.siblingGroup)
+    && (stop.locationType === '自宅' || stop.locationType === '親族宅');
+  const location = institutionalLocation && normalizedName
+    ? `name:${stop.locationType}:${normalizedName}`
+    : linkedResidentialLocation
+      ? `siblings:${stop.siblingGroup}:${stop.locationType}:${normalizedName || stop.locationType}`
+    : normalizedStopLocation(stop.location)
+      || (normalizedName ? `name:${stop.locationType}:${normalizedName}` : '');
+  return location || undefined;
 }
 
 interface TransportStopCluster {
@@ -231,20 +239,20 @@ interface TransportStopCluster {
 
 function clusterTransportStops(stops: TransportStop[]): TransportStopCluster[] {
   const clusters: TransportStopCluster[] = [];
-  const householdClusters = new Map<string, TransportStopCluster>();
+  const sharedLocationClusters = new Map<string, TransportStopCluster>();
   stops.forEach((stop) => {
-    const householdKey = householdStopKey(stop);
-    if (!householdKey) {
+    const locationKey = sharedStopLocationKey(stop);
+    if (!locationKey) {
       clusters.push({ key: `stop-${stop.id}`, stops: [stop] });
       return;
     }
-    const existing = householdClusters.get(householdKey);
+    const existing = sharedLocationClusters.get(locationKey);
     if (existing) {
       existing.stops.push(stop);
       return;
     }
-    const cluster = { key: householdKey, stops: [stop] };
-    householdClusters.set(householdKey, cluster);
+    const cluster = { key: locationKey, stops: [stop] };
+    sharedLocationClusters.set(locationKey, cluster);
     clusters.push(cluster);
   });
   return clusters;
@@ -408,28 +416,30 @@ function finalizeRunTimes(
   return { ...run, startTime, endTime: formattedMinutes(startMinute + totalEstimate), stops };
 }
 
-const ChildCardContent: React.FC<{
-  child: ChildProfile;
-  date: string;
-  direction: TransportDirection;
-  requirement?: DailyTransportRequirement;
-  stop?: TransportStop;
-  pickupAssigned: boolean;
-  dropoffAssigned: boolean;
-  compact?: boolean;
-  preview?: boolean;
-}> = ({
-  child,
-  date,
-  direction,
-  requirement,
-  stop,
-  pickupAssigned,
-  dropoffAssigned,
-  compact = false,
-  preview = false,
-}) => {
-  const schedule = getTransportScheduleForDate(child, date);
+interface SharedLocationVisual {
+  key: string;
+  label: string;
+  count: number;
+  cardClass: string;
+  badgeClass: string;
+  dotClass: string;
+}
+
+const SHARED_LOCATION_TONES = [
+  { cardClass: 'border-cyan-400 ring-1 ring-cyan-100', badgeClass: 'bg-cyan-100 text-cyan-900', dotClass: 'bg-cyan-500' },
+  { cardClass: 'border-fuchsia-400 ring-1 ring-fuchsia-100', badgeClass: 'bg-fuchsia-100 text-fuchsia-900', dotClass: 'bg-fuchsia-500' },
+  { cardClass: 'border-orange-400 ring-1 ring-orange-100', badgeClass: 'bg-orange-100 text-orange-900', dotClass: 'bg-orange-500' },
+  { cardClass: 'border-lime-500 ring-1 ring-lime-100', badgeClass: 'bg-lime-100 text-lime-900', dotClass: 'bg-lime-500' },
+  { cardClass: 'border-indigo-400 ring-1 ring-indigo-100', badgeClass: 'bg-indigo-100 text-indigo-900', dotClass: 'bg-indigo-500' },
+] as const;
+
+function resolvedPlanningLocation(
+  child: ChildProfile,
+  direction: TransportDirection,
+  date: string,
+  requirement?: DailyTransportRequirement,
+  stop?: TransportStop,
+) {
   const requirementProfileId = direction === '迎え'
     ? requirement?.pickupLocationProfileId
     : requirement?.dropoffLocationProfileId;
@@ -449,6 +459,42 @@ const ChildCardContent: React.FC<{
     || (direction === '迎え' ? requirement?.pickupArea : requirement?.dropoffArea)
     || requirementLocation?.area
     || fallbackLocation?.area;
+  const normalizedName = normalizedStopLocation(locationName);
+  const normalizedAddress = normalizedStopLocation(locationAddress);
+  const institutionalLocation = locationType === '学校' || locationType === '学童' || locationType === '事業所';
+  const key = institutionalLocation && normalizedName
+    ? `name:${locationType}:${normalizedName}`
+    : normalizedAddress || (normalizedName ? `name:${locationType || direction}:${normalizedName}` : '');
+  return { key, locationType, locationName, locationAddress, locationArea };
+}
+
+const ChildCardContent: React.FC<{
+  child: ChildProfile;
+  date: string;
+  direction: TransportDirection;
+  requirement?: DailyTransportRequirement;
+  stop?: TransportStop;
+  pickupAssigned: boolean;
+  dropoffAssigned: boolean;
+  siblingNames?: string[];
+  sharedLocation?: SharedLocationVisual;
+  compact?: boolean;
+  preview?: boolean;
+}> = ({
+  child,
+  date,
+  direction,
+  requirement,
+  stop,
+  pickupAssigned,
+  dropoffAssigned,
+  siblingNames = [],
+  sharedLocation,
+  compact = false,
+  preview = false,
+}) => {
+  const schedule = getTransportScheduleForDate(child, date);
+  const { locationType, locationName, locationAddress, locationArea } = resolvedPlanningLocation(child, direction, date, requirement, stop);
   const targetTime = stop?.plannedTime
     || (direction === '迎え' ? requirement?.pickupTargetTime : requirement?.dropoffTargetTime)
     || schedule?.schoolEndTime
@@ -462,13 +508,16 @@ const ChildCardContent: React.FC<{
           <span className="block truncate text-[9px] font-black text-slate-600">{locationName ? `${locationType || direction}｜${locationName}${locationArea ? `・${locationArea}` : ''}` : `${direction}先未登録`}</span>
           {!compact && <span title={locationAddress} className="block truncate text-[9px] text-slate-400">{locationAddress || '住所を月間予定または児童情報で登録してください'}</span>}
           <span className="mt-1 block text-[9px] text-slate-500">{direction}基準 {targetTime || '自動計算'}</span>
+          {(sharedLocation || siblingNames.length > 0) && <span className="mt-1 flex flex-wrap gap-1">
+            {sharedLocation && <span className={`inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[8px] font-black ${sharedLocation.badgeClass}`}><span className={`h-1.5 w-1.5 rounded-full ${sharedLocation.dotClass}`} />同じ{direction}先 {sharedLocation.count}名</span>}
+            {siblingNames.length > 0 && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[8px] font-black text-amber-900">兄弟 {siblingNames.join('・')}</span>}
+          </span>}
         </div>
       </div>
       {!compact && (
         <div className="mt-1.5 flex flex-wrap gap-1 text-[8px] font-black">
           <span className={`rounded-full px-1.5 py-0.5 ${pickupAssigned ? 'bg-sky-600 text-white' : 'bg-sky-50 text-sky-700'}`}>迎え{pickupAssigned ? '済' : '未'}</span>
           <span className={`rounded-full px-1.5 py-0.5 ${dropoffAssigned ? 'bg-violet-600 text-white' : 'bg-violet-50 text-violet-700'}`}>送り{dropoffAssigned ? '済' : '未'}</span>
-          {child.siblingGroup && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-amber-800">兄弟 {child.siblingGroup}</span>}
         </div>
       )}
     </>
@@ -484,15 +533,17 @@ const DraggableChildCard: React.FC<{
   data: DragChildData;
   pickupAssigned: boolean;
   dropoffAssigned: boolean;
+  siblingNames?: string[];
+  sharedLocation?: SharedLocationVisual;
   compact?: boolean;
-}> = ({ child, date, direction, requirement, stop, data, pickupAssigned, dropoffAssigned, compact = false }) => {
+}> = ({ child, date, direction, requirement, stop, data, pickupAssigned, dropoffAssigned, siblingNames, sharedLocation, compact = false }) => {
   const dragId = data.sourceStopId ? `stop-${data.sourceStopId}` : `pool-${child.id}`;
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: dragId, data });
   return (
     <article
       ref={setNodeRef}
       aria-label={`${child.name}の配車カード`}
-      className={`relative min-w-0 rounded-xl border bg-white shadow-sm transition-[opacity,box-shadow,border-color] duration-150 ${isDragging ? 'border-teal-300 opacity-30 shadow-none' : 'border-slate-200'} ${compact ? 'p-2' : 'p-2.5'}`}
+      className={`relative min-w-0 rounded-xl border bg-white shadow-sm transition-[opacity,box-shadow,border-color] duration-150 ${isDragging ? 'border-teal-300 opacity-30 shadow-none' : sharedLocation?.cardClass || 'border-slate-200'} ${compact ? 'p-2' : 'p-2.5'}`}
     >
       <button
         type="button"
@@ -502,7 +553,7 @@ const DraggableChildCard: React.FC<{
         {...listeners}
         className="absolute left-0 top-0 z-10 h-12 w-12 touch-none rounded-xl opacity-0"
       />
-      <ChildCardContent child={child} date={date} direction={direction} requirement={requirement} stop={stop} pickupAssigned={pickupAssigned} dropoffAssigned={dropoffAssigned} compact={compact} />
+      <ChildCardContent child={child} date={date} direction={direction} requirement={requirement} stop={stop} pickupAssigned={pickupAssigned} dropoffAssigned={dropoffAssigned} siblingNames={siblingNames} sharedLocation={sharedLocation} compact={compact} />
     </article>
   );
 };
@@ -514,9 +565,11 @@ const DraggedChildPreview: React.FC<{
   requirement?: DailyTransportRequirement;
   pickupAssigned: boolean;
   dropoffAssigned: boolean;
-}> = ({ child, date, direction, requirement, pickupAssigned, dropoffAssigned }) => (
+  siblingNames?: string[];
+  sharedLocation?: SharedLocationVisual;
+}> = ({ child, date, direction, requirement, pickupAssigned, dropoffAssigned, siblingNames, sharedLocation }) => (
   <article className="pointer-events-none min-w-0 rotate-[0.4deg] rounded-xl border-2 border-teal-400 bg-white p-2.5 shadow-[0_18px_45px_rgba(15,23,42,0.24)]">
-    <ChildCardContent child={child} date={date} direction={direction} requirement={requirement} pickupAssigned={pickupAssigned} dropoffAssigned={dropoffAssigned} compact preview />
+    <ChildCardContent child={child} date={date} direction={direction} requirement={requirement} pickupAssigned={pickupAssigned} dropoffAssigned={dropoffAssigned} siblingNames={siblingNames} sharedLocation={sharedLocation} compact preview />
   </article>
 );
 
@@ -528,6 +581,8 @@ const TransportRunLane: React.FC<{
   activeRecorders: RecorderProfile[];
   pickupAssignedIds: Set<string>;
   dropoffAssignedIds: Set<string>;
+  siblingNamesByChild: Map<string, string[]>;
+  sharedLocationByChild: Map<string, SharedLocationVisual>;
   expandedStopId?: string;
   holidayOpeningTime?: string;
   onExpandStop: (stopId?: string) => void;
@@ -540,11 +595,12 @@ const TransportRunLane: React.FC<{
   run,
   vehicle,
   childrenList,
-  dailyChildPlans,
   date,
   activeRecorders,
   pickupAssignedIds,
   dropoffAssignedIds,
+  siblingNamesByChild,
+  sharedLocationByChild,
   expandedStopId,
   holidayOpeningTime,
   onExpandStop,
@@ -557,6 +613,10 @@ const TransportRunLane: React.FC<{
   const { setNodeRef, isOver } = useDroppable({ id: `run-${run.id}`, data: { runId: run.id } });
   const capacity = vehicle?.capacity || 30;
   const overCapacity = run.stops.length > capacity;
+  const laneSharedLocations = Array.from(new Map<string, SharedLocationVisual>(run.stops
+    .map((stop) => stop.childId ? sharedLocationByChild.get(stop.childId) : undefined)
+    .filter((visual): visual is SharedLocationVisual => Boolean(visual))
+    .map((visual) => [visual.key, visual] as const)).values());
   return (
     <article className={`overflow-hidden rounded-xl border bg-white shadow-sm ${overCapacity ? 'border-rose-400' : 'border-slate-200'}`}>
       <header className={`p-2 ${run.direction === '迎え' ? 'bg-sky-50' : 'bg-violet-50'}`}>
@@ -579,6 +639,7 @@ const TransportRunLane: React.FC<{
         className={`relative min-h-24 space-y-1.5 p-2 transition-[background-color,box-shadow] duration-150 ${isOver ? 'bg-teal-50 shadow-[inset_0_0_0_2px_rgb(45_212_191)]' : 'bg-slate-50'}`}
       >
         {isOver && <span className="pointer-events-none absolute right-2 top-2 z-10 rounded-full bg-teal-600 px-2 py-1 text-[9px] font-black text-white shadow-sm">ここに配置</span>}
+        {laneSharedLocations.length > 0 && <div className="flex flex-wrap gap-1">{laneSharedLocations.map((visual) => <span key={visual.key} className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[8px] font-black ${visual.badgeClass}`}><span className={`h-1.5 w-1.5 rounded-full ${visual.dotClass}`} />{visual.label}・{visual.count}名</span>)}</div>}
         {run.stops.length === 0 && <p className="flex min-h-20 items-center justify-center rounded-lg border-2 border-dashed border-slate-300 px-2 text-center text-[10px] font-bold text-slate-400">ここへ児童をドラッグ</p>}
         {run.stops.map((stop, index) => {
           const child = childrenList.find((candidate) => candidate.id === stop.childId);
@@ -588,7 +649,7 @@ const TransportRunLane: React.FC<{
           const selectedLocationId = stop.locationProfileId || options.find((option) => option.address === stop.location && option.type === stop.locationType)?.id || '';
           return (
             <div key={stop.id} className="rounded-xl border border-slate-200 bg-white p-1.5">
-              <DraggableChildCard child={child} date={date} direction={run.direction} stop={stop} data={{ childId: child.id, sourceRunId: run.id, sourceStopId: stop.id }} pickupAssigned={pickupAssignedIds.has(child.id)} dropoffAssigned={dropoffAssignedIds.has(child.id)} compact />
+              <DraggableChildCard child={child} date={date} direction={run.direction} stop={stop} data={{ childId: child.id, sourceRunId: run.id, sourceStopId: stop.id }} pickupAssigned={pickupAssignedIds.has(child.id)} dropoffAssigned={dropoffAssignedIds.has(child.id)} siblingNames={siblingNamesByChild.get(child.id)} sharedLocation={sharedLocationByChild.get(child.id)} compact />
               <div className="mt-1 flex items-center gap-1">
                 <span title={stop.location} className="min-w-0 flex-1 truncate text-[9px] font-bold text-slate-500">{stop.plannedTime || '時刻未設定'}・{stop.locationType}｜{stop.locationName || stop.location || '場所未設定'}{stop.area ? `・${stop.area}` : ''}</span>
                 <button type="button" onClick={() => onUpdateStop(run.id, stop.id, { sequenceLocked: !stop.sequenceLocked })} aria-label={stop.sequenceLocked ? '順番固定を解除' : '順番を固定'} className={`grid h-8 w-8 place-items-center rounded-md ${stop.sequenceLocked ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-500'}`}><LockKeyhole className="h-3.5 w-3.5" /></button>
@@ -632,6 +693,13 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
   onDeleteRun,
   onClose,
 }) => {
+  const siblingGroupByChild = useMemo(() => buildSiblingGroupByChild(childrenList), [childrenList]);
+  const siblingIdsByChild = useMemo(() => buildSiblingIdsByChild(childrenList), [childrenList]);
+  const childrenById = useMemo(() => new Map(childrenList.map((child) => [child.id, child] as const)), [childrenList]);
+  const siblingNamesByChild = useMemo(() => new Map(childrenList.map((child) => [
+    child.id,
+    (siblingIdsByChild.get(child.id) || []).map((id) => childrenById.get(id)?.name).filter((name): name is string => Boolean(name)),
+  ])), [childrenById, childrenList, siblingIdsByChild]);
   const [drafts, setDrafts] = useState<TransportRun[]>(() => {
     const suspendedIds = new Set(childrenList.filter((child) => child.serviceSuspended).map((child) => child.id));
     const absentIds = new Set(dailyChildPlans
@@ -653,7 +721,10 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         .map((stop) => {
           const child = childrenList.find((candidate) => candidate.id === stop.childId);
           return child
-            ? applyMonthlyRequirementToStop(stop, child, run.direction, date, requirementMap.get(child.id))
+            ? {
+                ...applyMonthlyRequirementToStop(stop, child, run.direction, date, requirementMap.get(child.id)),
+                siblingGroup: requirementMap.get(child.id)?.keepSiblingsTogether === false ? undefined : siblingGroupByChild.get(child.id),
+              }
             : stop;
         })
         .map((stop, index) => ({ ...stop, order: index + 1 }));
@@ -695,14 +766,17 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         .map((stop) => {
           const child = childrenList.find((candidate) => candidate.id === stop.childId);
           return child
-            ? applyMonthlyRequirementToStop(stop, child, run.direction, date, requirementMap.get(child.id))
+            ? {
+                ...applyMonthlyRequirementToStop(stop, child, run.direction, date, requirementMap.get(child.id)),
+                siblingGroup: requirementMap.get(child.id)?.keepSiblingsTogether === false ? undefined : siblingGroupByChild.get(child.id),
+              }
             : stop;
         })
         .map((stop, index) => ({ ...stop, order: index + 1 }));
       if (JSON.stringify(synchronizedStops) === JSON.stringify(run.stops)) return run;
       return { ...run, routeOptimizedAt: undefined, stops: synchronizedStops };
     }));
-  }, [childrenList, dailyTransportRequirements, date]);
+  }, [childrenList, dailyTransportRequirements, date, siblingGroupByChild]);
   useEffect(() => {
     if (date < getLocalDateString()) return;
     const suspendedIds = new Set(childrenList.filter((child) => child.serviceSuspended).map((child) => child.id));
@@ -763,6 +837,35 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
       const rightTime = activeDirection === '迎え' ? rightRequirement?.pickupTargetTime : rightRequirement?.dropoffTargetTime;
       return minutes(leftTime) - minutes(rightTime) || (leftArea || '').localeCompare(rightArea || '') || left.name.localeCompare(right.name);
     }), [activeDirection, poolChildren, requirementByChild, transportPlanDay?.pickupMode]);
+  const sharedLocationByChild = useMemo(() => {
+    const groups = new Map<string, Array<{ childId: string; label: string }>>();
+    directionChildren.forEach((child) => {
+      const stop = drafts
+        .filter((run) => run.direction === activeDirection)
+        .flatMap((run) => run.stops)
+        .find((candidate) => candidate.childId === child.id);
+      const location = resolvedPlanningLocation(child, activeDirection, date, requirementByChild.get(child.id), stop);
+      const siblingGroup = siblingGroupByChild.get(child.id);
+      const linkedResidentialLocation = Boolean(siblingGroup)
+        && (location.locationType === '自宅' || location.locationType === '親族宅');
+      const locationKey = linkedResidentialLocation
+        ? `siblings:${siblingGroup}:${location.locationType}:${normalizedStopLocation(location.locationName) || location.locationType}`
+        : location.key;
+      if (!locationKey) return;
+      const label = location.locationName || location.locationAddress || `${activeDirection}先`;
+      groups.set(locationKey, [...(groups.get(locationKey) || []), { childId: child.id, label }]);
+    });
+    const result = new Map<string, SharedLocationVisual>();
+    Array.from(groups.entries())
+      .filter(([, members]) => members.length > 1)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .forEach(([key, members], index) => {
+        const tone = SHARED_LOCATION_TONES[index % SHARED_LOCATION_TONES.length];
+        const visual: SharedLocationVisual = { key, label: members[0].label, count: members.length, ...tone };
+        members.forEach((member) => result.set(member.childId, visual));
+      });
+    return result;
+  }, [activeDirection, date, directionChildren, drafts, requirementByChild, siblingGroupByChild]);
   const planningWarnings = useMemo(() => getDraftPlanningWarnings({
     date,
     direction: activeDirection,
@@ -822,7 +925,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
     setDrafts((current) => current.map((run) => {
       const withoutSameDirection = run.direction === targetRun.direction ? run.stops.filter((stop) => stop.childId !== childId) : run.stops;
       if (run.id !== targetRunId) return { ...run, stops: withoutSameDirection.map((stop, index) => ({ ...stop, order: index + 1 })) };
-      const nextStop = childStop(child, run.direction, date, dayPlansByChild.get(child.id), requirementByChild.get(child.id), routeSettings, transportPlanDay?.pickupMode);
+      const nextStop = childStop(child, run.direction, date, dayPlansByChild.get(child.id), requirementByChild.get(child.id), routeSettings, transportPlanDay?.pickupMode, siblingGroupByChild.get(child.id));
       return finalizeRunTimes({ ...run, routeOptimizedAt: undefined, stops: [...withoutSameDirection, { ...nextStop, order: withoutSameDirection.length + 1 }] }, transportPlanDay, routeSettings);
     }));
   };
@@ -857,7 +960,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
             const requirement = stop.childId ? requirementByChild.get(stop.childId) : undefined;
             return {
               ...stop,
-              siblingGroup: requirement?.keepSiblingsTogether === false ? undefined : child?.siblingGroup?.trim() || stop.siblingGroup,
+              siblingGroup: requirement?.keepSiblingsTogether === false ? undefined : (child ? siblingGroupByChild.get(child.id) : stop.siblingGroup),
               order: index + 1,
             };
           }),
@@ -917,7 +1020,8 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
       const familyGroups = new Map<string, ChildProfile[]>();
       eligible.filter((child) => !retainedChildIds.has(child.id)).forEach((child) => {
         const requirement = requirementByChild.get(child.id);
-        const key = requirement?.keepSiblingsTogether !== false && child.siblingGroup?.trim() ? child.siblingGroup.trim() : `child-${child.id}`;
+        const siblingGroup = requirement?.keepSiblingsTogether !== false ? siblingGroupByChild.get(child.id) : undefined;
+        const key = siblingGroup || `child-${child.id}`;
         familyGroups.set(key, [...(familyGroups.get(key) || []), child]);
       });
       const maximumVehicleCapacity = Math.max(...usableVehicles.map((vehicle) => vehicle?.capacity || 30));
@@ -942,8 +1046,8 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         const firstSuggestion = getSuggestedTransportLocation(group[0], direction, date);
         const firstAddress = direction === '迎え' ? firstRequirement?.pickupAddress : firstRequirement?.dropoffAddress;
         const firstArea = direction === '迎え' ? firstRequirement?.pickupArea : firstRequirement?.dropoffArea;
-        const firstStop = childStop(group[0], direction, date, dayPlansByChild.get(group[0].id), firstRequirement, routeSettings, transportPlanDay?.pickupMode);
-        const groupHouseholdKey = householdStopKey(firstStop);
+        const firstStop = childStop(group[0], direction, date, dayPlansByChild.get(group[0].id), firstRequirement, routeSettings, transportPlanDay?.pickupMode, siblingGroupByChild.get(group[0].id));
+        const groupSharedLocationKey = sharedStopLocationKey(firstStop);
         const ranked = lanes.map((run) => {
           const vehicle = usableVehicles.find((candidate) => candidate?.id === run.vehicleId);
           const capacity = vehicle?.capacity || 30;
@@ -962,14 +1066,14 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
           const excessiveWait = schoolTarget ? Math.max(0, minutes(schoolTarget) - estimatedArrival - routeSettings.schoolWaitToleranceMinutes) : 0;
           return { run, score: (hasCapacity ? 100 : -1000) + (sameLocation ? 60 : 0) + (sameArea ? 35 : 0) - run.stops.length * 3 - roadMinutes - lateMinutes * 25 - excessiveWait * 0.5 - ((vehicle?.assignmentPriority || 100) / 100) };
         }).sort((left, right) => right.score - left.score);
-        const retainedHouseholdRun = groupHouseholdKey
+        const retainedSharedLocationRun = groupSharedLocationKey
           ? lanes.find((run) => {
               const vehicle = usableVehicles.find((candidate) => candidate?.id === run.vehicleId);
               return run.stops.length + group.length <= (vehicle?.capacity || 30)
-                && run.stops.some((stop) => householdStopKey(stop) === groupHouseholdKey);
+                && run.stops.some((stop) => sharedStopLocationKey(stop) === groupSharedLocationKey);
             })
           : undefined;
-        let target = retainedHouseholdRun || (ranked[0]?.score >= 0 ? ranked[0].run : undefined);
+        let target = retainedSharedLocationRun || (ranked[0]?.score >= 0 ? ranked[0].run : undefined);
         if (!target) {
           const fittingVehicles = usableVehicles.filter((vehicle) => (vehicle?.capacity || 30) >= group.length);
           const vehicle = (fittingVehicles.length ? fittingVehicles : usableVehicles).slice().sort((left, right) => {
@@ -980,12 +1084,12 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
           nextDrafts.push(target);
           lanes.push(target);
         }
-        const additions = group.map((child, index) => ({ ...childStop(child, direction, date, dayPlansByChild.get(child.id), requirementByChild.get(child.id), routeSettings, transportPlanDay?.pickupMode), order: target!.stops.length + index + 1 }));
+        const additions = group.map((child, index) => ({ ...childStop(child, direction, date, dayPlansByChild.get(child.id), requirementByChild.get(child.id), routeSettings, transportPlanDay?.pickupMode, siblingGroupByChild.get(child.id)), order: target!.stops.length + index + 1 }));
         const combinedStops = [...target.stops];
         let insertionIndex = combinedStops.length;
-        if (groupHouseholdKey) {
+        if (groupSharedLocationKey) {
           combinedStops.forEach((stop, index) => {
-            if (householdStopKey(stop) === groupHouseholdKey) insertionIndex = index + 1;
+            if (sharedStopLocationKey(stop) === groupSharedLocationKey) insertionIndex = index + 1;
           });
         }
         combinedStops.splice(insertionIndex, 0, ...additions);
@@ -1049,7 +1153,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
               </div>
               <div className="space-y-2">
                 {vehicleRuns.length === 0 && <button type="button" onClick={() => addRun(direction, vehicle)} className="min-h-20 w-full rounded-xl border-2 border-dashed border-slate-300 bg-white text-[10px] font-bold text-slate-400">この車両に{direction}便を追加</button>}
-                {vehicleRuns.map((run) => <TransportRunLane key={run.id} run={run} vehicle={vehicle} childrenList={childrenList} date={date} activeRecorders={activeRecorders} pickupAssignedIds={pickupAssignedIds} dropoffAssignedIds={dropoffAssignedIds} expandedStopId={expandedStopId} holidayOpeningTime={direction === '迎え' && transportPlanDay?.pickupMode === 'home' ? routeSettings.holidayOpeningTime : undefined} onExpandStop={setExpandedStopId} onUpdateRun={updateRun} onUpdateStop={updateStop} onMoveStop={moveStop} onRemoveStop={removeStop} onRemoveRun={removeRun} />)}
+                {vehicleRuns.map((run) => <TransportRunLane key={run.id} run={run} vehicle={vehicle} childrenList={childrenList} date={date} activeRecorders={activeRecorders} pickupAssignedIds={pickupAssignedIds} dropoffAssignedIds={dropoffAssignedIds} siblingNamesByChild={siblingNamesByChild} sharedLocationByChild={sharedLocationByChild} expandedStopId={expandedStopId} holidayOpeningTime={direction === '迎え' && transportPlanDay?.pickupMode === 'home' ? routeSettings.holidayOpeningTime : undefined} onExpandStop={setExpandedStopId} onUpdateRun={updateRun} onUpdateStop={updateStop} onMoveStop={moveStop} onRemoveStop={removeStop} onRemoveRun={removeRun} />)}
               </div>
             </section>
           );
@@ -1084,7 +1188,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
             <aside className="min-w-0 rounded-2xl border border-emerald-300 bg-emerald-50/70 p-2 md:sticky md:top-0">
               <div className="mb-2 flex items-center justify-between gap-1 px-1"><div><p className="text-[9px] font-black text-emerald-700">{weekday}曜日・{activeDirection}</p><h3 className="text-sm font-black text-slate-950">対象児童</h3></div><span className="rounded-full bg-white px-2 py-1 text-[9px] font-black text-emerald-800">{directionChildren.length}名</span></div>
               <div className="space-y-1.5 md:max-h-[calc(100dvh-15rem)] md:overflow-y-auto md:pr-0.5">
-                {directionChildren.map((child) => <DraggableChildCard key={child.id} child={child} date={date} direction={activeDirection} requirement={requirementByChild.get(child.id)} data={{ childId: child.id }} pickupAssigned={pickupAssignedIds.has(child.id)} dropoffAssigned={dropoffAssignedIds.has(child.id)} />)}
+                {directionChildren.map((child) => <DraggableChildCard key={child.id} child={child} date={date} direction={activeDirection} requirement={requirementByChild.get(child.id)} data={{ childId: child.id }} pickupAssigned={pickupAssignedIds.has(child.id)} dropoffAssigned={dropoffAssignedIds.has(child.id)} siblingNames={siblingNamesByChild.get(child.id)} sharedLocation={sharedLocationByChild.get(child.id)} />)}
                 {directionChildren.length === 0 && <div className="rounded-xl border-2 border-dashed border-emerald-200 bg-white p-4 text-center"><Users className="mx-auto h-7 w-7 text-emerald-300" /><p className="mt-1 text-[10px] font-bold text-slate-400">対象児童がいません。「児童を追加」から追加できます。</p></div>}
               </div>
             </aside>
@@ -1106,6 +1210,8 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
                 requirement={requirementByChild.get(activeDragChild.id)}
                 pickupAssigned={pickupAssignedIds.has(activeDragChild.id)}
                 dropoffAssigned={dropoffAssignedIds.has(activeDragChild.id)}
+                siblingNames={siblingNamesByChild.get(activeDragChild.id)}
+                sharedLocation={sharedLocationByChild.get(activeDragChild.id)}
               />
             ) : null}
           </DragOverlay>,

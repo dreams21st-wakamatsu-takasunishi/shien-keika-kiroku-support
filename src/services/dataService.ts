@@ -114,6 +114,7 @@ function mapChild(row: any): ChildProfile {
     transportProgram: row.transport_program || undefined,
     transportationRequired: row.transportation_required === true,
     schoolName: row.school_name || undefined,
+    siblingIds: Array.isArray(row.sibling_ids) ? row.sibling_ids : undefined,
     siblingGroup: row.sibling_group || undefined,
     transportSchedule: Array.isArray(row.transport_schedule) ? row.transport_schedule : [],
     pickupLocation: row.pickup_location || undefined,
@@ -1401,7 +1402,8 @@ export async function saveChild(organizationId: string, child: ChildProfile) {
       transport_program: child.transportProgram || null,
       transportation_required: child.transportationRequired === true,
       school_name: child.schoolName?.trim() || null,
-      sibling_group: child.siblingGroup?.trim() || null,
+      sibling_ids: child.siblingIds || [],
+      sibling_group: null,
       transport_schedule: child.transportSchedule || [],
       pickup_location: child.pickupLocation?.trim() || null,
       dropoff_location: child.dropoffLocation?.trim() || null,
@@ -1417,6 +1419,11 @@ export async function saveChild(organizationId: string, child: ChildProfile) {
     { onConflict: 'organization_id,id' }
   );
   if (error) throw error;
+  const { error: siblingError } = await assertSupabase().rpc('set_child_sibling_links', {
+    p_child_id: child.id,
+    p_sibling_ids: child.siblingIds || [],
+  });
+  if (siblingError) throw siblingError;
 }
 
 export async function softDeleteChild(organizationId: string, childId: string) {

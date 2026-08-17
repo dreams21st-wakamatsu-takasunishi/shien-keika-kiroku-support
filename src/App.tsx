@@ -127,6 +127,7 @@ import {
 } from './utils/offlineQueue';
 import { showAnnouncementNotification } from './utils/deviceNotifications';
 import { getLocalDateString } from './utils/weekdays';
+import { applySiblingSelection } from './utils/childSiblings';
 
 const FIELD_MODE_REAUTH_AFTER_MS = 30_000;
 const RECENT_PASSWORD_AUTH_WINDOW_MS = 120_000;
@@ -1458,14 +1459,14 @@ export default function App() {
   const handleAddChild = async (child: ChildProfile) => {
     try {
       if (organizationId) await saveChild(organizationId, child);
-      setChildrenList((previous) => [...previous, child]);
+      setChildrenList((previous) => applySiblingSelection(previous, child));
     } catch (error) { persistError(error); }
   };
 
   const handleUpdateChild = async (child: ChildProfile) => {
     try {
       if (organizationId) await saveChild(organizationId, child);
-      setChildrenList((previous) => previous.map((item) => item.id === child.id ? child : item));
+      setChildrenList((previous) => applySiblingSelection(previous, child));
     } catch (error) { persistError(error); }
   };
 

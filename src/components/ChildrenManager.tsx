@@ -31,6 +31,7 @@ import { formatJapaneseDate, formatRegularDays, getLocalDateString, getRegularDa
 import { updateTransportSchedule } from '../utils/transportSchedule';
 import { getCanonicalTransportLocations, getDefaultTransportLocation } from '../utils/transportLocations';
 import { resolvedTransportArea } from '../utils/transportArea';
+import { buildSiblingIdsByChild } from '../utils/childSiblings';
 import { ChildTransportSettings } from './ChildTransportSettings';
 
 interface ChildrenManagerProps {
@@ -174,7 +175,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   const [serviceSuspended, setServiceSuspended] = useState(false);
   const [transportProgram, setTransportProgram] = useState<'小学部' | 'キャリアズ'>('小学部');
   const [transportationRequired, setTransportationRequired] = useState(false);
-  const [siblingGroup, setSiblingGroup] = useState('');
+  const [siblingIds, setSiblingIds] = useState<string[]>([]);
   const [transportSchedule, setTransportSchedule] = useState<ChildTransportSchedule[]>([]);
   const [transportLocations, setTransportLocations] = useState<ChildTransportLocation[]>([]);
   const [expandedTransportLocationId, setExpandedTransportLocationId] = useState<string>();
@@ -201,7 +202,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setServiceSuspended(false);
     setTransportProgram('小学部');
     setTransportationRequired(false);
-    setSiblingGroup('');
+    setSiblingIds([]);
     setTransportSchedule([]);
     setTransportLocations([]);
     setExpandedTransportLocationId(undefined);
@@ -221,7 +222,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setServiceSuspended(Boolean(child.serviceSuspended));
     setTransportProgram(child.transportProgram || (child.grade?.startsWith('小学') || child.grade === '未就学' ? '小学部' : 'キャリアズ'));
     setTransportationRequired(Boolean(child.transportationRequired));
-    setSiblingGroup(child.siblingGroup || '');
+    setSiblingIds(buildSiblingIdsByChild(childrenList).get(child.id) || []);
     setTransportSchedule((child.transportSchedule || []).map((schedule) => ({ ...schedule })));
     setTransportLocations(getCanonicalTransportLocations(child));
     setExpandedTransportLocationId(undefined);
@@ -297,7 +298,8 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         transportProgram,
         transportationRequired,
         schoolName: schoolLocation?.name || undefined,
-        siblingGroup: siblingGroup.trim() || undefined,
+        siblingIds,
+        siblingGroup: undefined,
         transportSchedule,
         pickupLocation: defaultPickup?.address || undefined,
         dropoffLocation: defaultDropoff?.address || undefined,
@@ -320,7 +322,8 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         transportProgram,
         transportationRequired,
         schoolName: schoolLocation?.name || undefined,
-        siblingGroup: siblingGroup.trim() || undefined,
+        siblingIds,
+        siblingGroup: undefined,
         transportSchedule,
         pickupLocation: defaultPickup?.address || undefined,
         dropoffLocation: defaultDropoff?.address || undefined,
@@ -972,8 +975,10 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                 regularDays={regularDays}
                 transportProgram={transportProgram}
                 routeSettings={transportRouteSettings}
-                siblingGroup={siblingGroup}
-                onSiblingGroupChange={setSiblingGroup}
+                childrenList={childrenList}
+                currentChildId={editingChild?.id}
+                siblingIds={siblingIds}
+                onSiblingIdsChange={setSiblingIds}
                 schedule={transportSchedule}
                 onScheduleChange={(day, patch) => setTransportSchedule((current) => updateTransportSchedule(current, day, patch))}
                 locations={transportLocations}
