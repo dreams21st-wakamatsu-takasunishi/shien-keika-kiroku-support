@@ -20,6 +20,7 @@ import type {
   ChildProfile,
   DailyChildPlan,
   DailyTransportRequirement,
+  MonthlyScheduleDeleteResult,
   TransportDirection,
   TransportPickupMode,
   TransportPlanDay,
@@ -43,6 +44,7 @@ interface MonthlyTransportPlannerProps {
   onSaveDailyChildPlan: (plan: DailyChildPlan) => Promise<void> | void;
   onDeleteDailyChildPlan: (childId: string, date: string) => Promise<void> | void;
   onDeleteRequirement: (childId: string, date: string) => Promise<void> | void;
+  onDeleteMonthSchedules: (month: string, childId?: string) => Promise<MonthlyScheduleDeleteResult>;
   onSaveRequirements: (requirements: DailyTransportRequirement[]) => Promise<void> | void;
   onReplaceMonthRequirements: (month: string, requirements: DailyTransportRequirement[]) => Promise<DailyTransportRequirement[]>;
   onReplaceChildMonthRequirements: (month: string, childId: string, requirements: DailyTransportRequirement[]) => Promise<DailyTransportRequirement[]>;
@@ -229,6 +231,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
   onSaveDailyChildPlan,
   onDeleteDailyChildPlan,
   onDeleteRequirement,
+  onDeleteMonthSchedules,
   onSaveRequirements,
   onReplaceMonthRequirements,
   onReplaceChildMonthRequirements,
@@ -244,6 +247,9 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [holidayRangeOpen, setHolidayRangeOpen] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkDeleteTarget, setBulkDeleteTarget] = useState('');
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [attendanceSavingChildId, setAttendanceSavingChildId] = useState<string>();
   const [monthChildId, setMonthChildId] = useState('');
   const [holidayFrom, setHolidayFrom] = useState(`${month}-01`);
@@ -258,6 +264,10 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
     && activeChildIds.has(item.childId)
     && !absentPlanKeys.has(`${item.childId}:${item.date}`)
   ), [absentPlanKeys, activeChildIds, month, requirements]);
+  const monthRegisteredScheduleKeys = useMemo(() => new Set([
+    ...dailyChildPlans.filter((plan) => plan.date.startsWith(month)).map((plan) => `${plan.childId}:${plan.date}`),
+    ...requirements.filter((item) => item.date.startsWith(month)).map((item) => `${item.childId}:${item.date}`),
+  ]), [dailyChildPlans, month, requirements]);
   const selectedAbsentPlans = useMemo(() => dailyChildPlans.filter((plan) =>
     plan.date === selectedDate
     && plan.attendancePlan === '欠席'
@@ -300,6 +310,8 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
     const first = `${value}-01`;
     setHolidayFrom(first);
     setHolidayTo(monthDates(value).at(-1) || first);
+    setBulkDeleteOpen(false);
+    setBulkDeleteTarget('');
     selectDate(first);
   };
 
@@ -464,29 +476,18 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
     if (!canManage || attendanceSavingChildId) return;
     const child = childrenList.find((candidate) => candidate.id === childId);
     const existingPlan = dailyChildPlans.find((plan) => plan.childId === childId && plan.date === selectedDate);
-    if (!child || !existingPlan) return;
-    if (!window.confirm(`${child.name}の${selectedDate}の日別予定を削除しますか？\n\n欠席・追加利用・時刻変更など、この日だけの設定を削除して児童情報の基本予定へ戻します。保存済みの支援記録は削除しません。`)) return;
+    const existingRequirement = requirements.find((item) => item.childId === childId && item.date === selectedDate)
+      || drafts.find((item) => item.childId === childId && item.date === selectedDate);
+    if (!child || (!existingPlan && !existingRequirement)) return;
+    if (!window.confirm(`${child.name}の${selectedDate}の利用・送迎予定を削除しますか？\n\n保存済みの支援記録と児童名簿の基本情報は削除しません。必要な場合は「基本予定を反映」で再作成できます。`)) return;
 
     setAttendanceSavingChildId(childId);
     setError('');
     setMessage('');
     try {
-      await onDeleteDailyChildPlan(childId, selectedDate);
-      await onDeleteRequirement(childId, selectedDate);
-
-      const weekday = getWeekdayFromDate(selectedDate);
-      const shouldRestoreBasicSchedule = child.transportationRequired
-        && !child.serviceSuspended
-        && getRegularDaysForDate(child, selectedDate).includes(weekday);
-      let restoredRequirement: DailyTransportRequirement | undefined;
-      if (shouldRestoreBasicSchedule) {
-        restoredRequirement = buildRequirement(child, selectedDate, dayDraft.pickupMode, routeSettings);
-        await onSaveRequirements([restoredRequirement]);
-      }
-
-      setDrafts((current) => restoredRequirement
-        ? [restoredRequirement, ...current.filter((item) => item.childId !== childId)]
-        : current.filter((item) => item.childId !== childId));
+      if (existingPlan) await onDeleteDailyChildPlan(childId, selectedDate);
+      if (existingRequirement) await onDeleteRequirement(childId, selectedDate);
+      setDrafts((current) => current.filter((item) => item.childId !== childId));
       if (expandedChildId === childId) setExpandedChildId(undefined);
 
       const now = new Date().toISOString();
@@ -499,13 +500,48 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
       };
       await onSavePlanDay(nextDay);
       setDayDraft(nextDay);
-      setMessage(shouldRestoreBasicSchedule
-        ? `${child.name}の日別予定を削除し、児童情報の基本予定へ戻しました。`
-        : `${child.name}の日別予定を削除しました。この日は基本の利用曜日ではありません。`);
+      setMessage(`${child.name}の${selectedDate}の利用・送迎予定を削除しました。保存済みの支援記録は保持しています。`);
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : '日別予定を削除できませんでした。');
     } finally {
       setAttendanceSavingChildId(undefined);
+    }
+  };
+
+  const deleteMonthSchedules = async () => {
+    if (!canManage || bulkDeleting) return;
+    const childId = bulkDeleteTarget === 'all' ? undefined : bulkDeleteTarget || undefined;
+    if (!bulkDeleteTarget) return setError('一括削除する児童、または「全児童」を選択してください。');
+    const child = childId ? childrenList.find((candidate) => candidate.id === childId) : undefined;
+    const targetKeys = [...monthRegisteredScheduleKeys].filter((key) => !childId || key.startsWith(`${childId}:`));
+    if (targetKeys.length === 0) return setError(`${month}に削除できる登録予定はありません。`);
+    const [year, monthNumber] = month.split('-');
+    const targetLabel = child ? child.name : '全児童';
+    if (!window.confirm(`${year}年${Number(monthNumber)}月の${targetLabel}の登録予定 ${targetKeys.length}件を一括削除しますか？\n\n日別の利用予定と送迎条件を削除します。保存済みの支援記録・児童名簿・作成済みの送迎便は削除しません。`)) return;
+
+    setBulkDeleting(true);
+    setError('');
+    setMessage('');
+    try {
+      const result = await onDeleteMonthSchedules(month, childId);
+      if (selectedDate.startsWith(month)) {
+        setDrafts((current) => childId ? current.filter((item) => item.childId !== childId) : []);
+        setExpandedChildId(undefined);
+        setDayDraft((current) => ({
+          ...current,
+          status: 'draft',
+          confirmedAt: undefined,
+          revision: current.revision + 1,
+          updatedAt: new Date().toISOString(),
+        }));
+      }
+      setBulkDeleteOpen(false);
+      setBulkDeleteTarget('');
+      setMessage(`${year}年${Number(monthNumber)}月の${targetLabel}について、利用予定${result.dailyPlanCount}件・送迎予定${result.requirementCount}件を削除しました。`);
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : '月間予定を一括削除できませんでした。');
+    } finally {
+      setBulkDeleting(false);
     }
   };
 
@@ -619,6 +655,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
             {canManage && <button type="button" disabled={saving} onClick={() => void reflectMonth()} className="flex min-h-11 items-center gap-2 rounded-xl bg-teal-600 px-4 text-xs font-black text-white disabled:opacity-50"><CopyCheck className="h-4 w-4" />基本予定を反映</button>}
             {canManage && <button type="button" disabled={saving} onClick={() => void reapplyMonth()} className="flex min-h-11 items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 text-xs font-black text-amber-900 disabled:opacity-50"><RotateCcw className="h-4 w-4" />月全体を再反映</button>}
             {canManage && <button type="button" onClick={() => setHolidayRangeOpen((current) => !current)} className="flex min-h-11 items-center gap-2 rounded-xl border border-sky-300 bg-sky-50 px-4 text-xs font-black text-sky-800"><Home className="h-4 w-4" />長期休暇期間</button>}
+            {canManage && <button type="button" onClick={() => setBulkDeleteOpen((current) => !current)} className="flex min-h-11 items-center gap-2 rounded-xl border border-rose-300 bg-rose-50 px-4 text-xs font-black text-rose-800"><Trash2 className="h-4 w-4" />予定を一括削除</button>}
           </div>
         </div>
         <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
@@ -646,6 +683,32 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
               <button type="button" disabled={saving} onClick={() => void applyHolidayRange()} className="min-h-10 self-end rounded-lg bg-sky-700 px-4 text-xs font-black text-white">期間へ反映</button>
             </div>
             <p className="mt-2 text-[10px] text-sky-800">児童ごとの迎え時刻入力は不要です。{routeSettings.holidayArrivalTime}の事業所到着から逆算します。</p>
+          </div>
+        )}
+        {bulkDeleteOpen && canManage && (
+          <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <p className="text-xs font-black text-rose-950">月間の登録予定を一括削除</p>
+                <p className="mt-1 text-[10px] font-bold leading-relaxed text-rose-800">日別利用予定と送迎条件だけを削除します。保存済み支援記録、児童名簿、作成済み送迎便は保持します。</p>
+              </div>
+              <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-rose-800">登録 {monthRegisteredScheduleKeys.size}件</span>
+            </div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+              <label className="text-[10px] font-black text-rose-950">削除対象
+                <select value={bulkDeleteTarget} onChange={(event) => setBulkDeleteTarget(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-rose-300 bg-white px-3 text-sm font-bold">
+                  <option value="">対象を選択</option>
+                  {activeChildren.map((child) => {
+                    const count = [...monthRegisteredScheduleKeys].filter((key) => key.startsWith(`${child.id}:`)).length;
+                    return count > 0 ? <option key={child.id} value={child.id}>{child.name}（{count}件）</option> : null;
+                  })}
+                  <option value="all">全児童（{monthRegisteredScheduleKeys.size}件）</option>
+                </select>
+              </label>
+              <button type="button" disabled={bulkDeleting || !bulkDeleteTarget || monthRegisteredScheduleKeys.size === 0} onClick={() => void deleteMonthSchedules()} className="flex min-h-10 items-center justify-center gap-2 rounded-lg bg-rose-700 px-4 text-xs font-black text-white disabled:opacity-40">
+                {bulkDeleting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}{bulkDeleting ? '削除中…' : '選択範囲を削除'}
+              </button>
+            </div>
           </div>
         )}
       </section>
@@ -677,20 +740,19 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
           <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-3 py-2 marker:hidden">
             <span className="min-w-0 flex-1">
               <span className="block text-xs font-black text-rose-950">欠席設定</span>
-              <span className="block truncate text-[9px] font-bold text-rose-700">開いてチェック／日別予定の削除</span>
+              <span className="block truncate text-[9px] font-bold text-rose-700">開いて欠席する児童をチェック</span>
             </span>
             <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-rose-800">欠席 {selectedAbsentPlans.length}名</span>
             <ChevronDown className="h-4 w-4 shrink-0 text-rose-700 transition-transform group-open:rotate-180" />
           </summary>
           <div className="border-t border-rose-200 p-2.5">
-            <p className="mb-2 text-[10px] font-bold text-rose-800">欠席する児童にチェックを入れます。ごみ箱は、この日だけ登録した予定を削除して基本予定へ戻します。</p>
+            <p className="mb-2 text-[10px] font-bold text-rose-800">欠席する児童にチェックを入れます。チェックを外すと利用予定へ戻ります。</p>
             {attendanceChildren.length === 0 ? (
               <p className="rounded-lg bg-white p-2 text-center text-xs font-bold text-slate-500">この日の利用予定児童はいません。</p>
             ) : (
               <div className="grid gap-1.5 sm:grid-cols-2 lg:grid-cols-3">
                 {attendanceChildren.map((child) => {
                   const absent = selectedAbsentPlans.some((plan) => plan.childId === child.id);
-                  const hasDailyPlan = dailyChildPlans.some((plan) => plan.childId === child.id && plan.date === selectedDate);
                   const savingAttendance = attendanceSavingChildId === child.id;
                   return (
                     <div key={child.id} className={`flex min-h-9 items-center gap-1 rounded-lg border px-2 ${absent ? 'border-rose-400 bg-white text-rose-950' : 'border-rose-100 bg-white/80 text-slate-800'}`}>
@@ -703,20 +765,8 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
                           className="h-4 w-4 shrink-0 accent-rose-600"
                         />
                         <span className="min-w-0 flex-1 truncate text-[11px] font-black">{child.name}</span>
-                        <span className={`shrink-0 text-[8px] font-black ${absent ? 'text-rose-700' : 'text-slate-400'}`}>{savingAttendance ? '保存中…' : absent ? '欠席' : hasDailyPlan ? '個別設定' : '基本'}</span>
+                        <span className={`shrink-0 text-[8px] font-black ${absent ? 'text-rose-700' : 'text-slate-400'}`}>{savingAttendance ? '保存中…' : absent ? '欠席' : '利用予定'}</span>
                       </label>
-                      {canManage && hasDailyPlan && (
-                        <button
-                          type="button"
-                          disabled={Boolean(attendanceSavingChildId)}
-                          onClick={() => void deleteSelectedDatePlan(child.id)}
-                          className="grid h-8 w-8 shrink-0 place-items-center rounded-lg text-rose-600 hover:bg-rose-100 disabled:opacity-40"
-                          aria-label={`${child.name}の日別予定を削除`}
-                          title="日別予定を削除して基本予定へ戻す"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      )}
                     </div>
                   );
                 })}
@@ -734,7 +784,26 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
               const missing = missingFields(item);
               const expanded = expandedChildId === item.childId;
               return <article key={item.childId} className={`overflow-hidden rounded-xl border ${missing.length ? 'border-rose-300' : 'border-slate-200'}`}>
-                <button type="button" onClick={() => setExpandedChildId(expanded ? undefined : item.childId)} className="flex min-h-14 w-full items-center gap-3 px-3 text-left"><span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full ${missing.length ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>{missing.length ? <AlertTriangle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}</span><span className="min-w-0 flex-1"><strong className="block text-sm text-slate-900">{child?.name || '児童'}</strong><span className="block truncate text-[10px] text-slate-500">迎え {item.pickupEnabled ? `${item.pickupTargetTime || '自動計算'}・${item.pickupLocationName || item.pickupAddress || '未設定'}` : 'なし'}／送り {item.dropoffEnabled ? `${item.dropoffTargetTime || '時刻未設定'}・${item.dropoffLocationName || item.dropoffAddress || '未設定'}` : 'なし'}</span></span>{missing.length > 0 && <span className="rounded-full bg-rose-100 px-2 py-1 text-[9px] font-black text-rose-700">{missing.join('・')}</span>}{expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</button>
+                <div className="flex min-h-14 items-center">
+                  <button type="button" onClick={() => setExpandedChildId(expanded ? undefined : item.childId)} className="flex min-h-14 min-w-0 flex-1 items-center gap-3 px-3 text-left">
+                    <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full ${missing.length ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>{missing.length ? <AlertTriangle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}</span>
+                    <span className="min-w-0 flex-1"><strong className="block text-sm text-slate-900">{child?.name || '児童'}</strong><span className="block truncate text-[10px] text-slate-500">迎え {item.pickupEnabled ? `${item.pickupTargetTime || '自動計算'}・${item.pickupLocationName || item.pickupAddress || '未設定'}` : 'なし'}／送り {item.dropoffEnabled ? `${item.dropoffTargetTime || '時刻未設定'}・${item.dropoffLocationName || item.dropoffAddress || '未設定'}` : 'なし'}</span></span>
+                    {missing.length > 0 && <span className="hidden rounded-full bg-rose-100 px-2 py-1 text-[9px] font-black text-rose-700 sm:block">{missing.join('・')}</span>}
+                    {expanded ? <ChevronUp className="h-4 w-4 shrink-0" /> : <ChevronDown className="h-4 w-4 shrink-0" />}
+                  </button>
+                  {canManage && (
+                    <button
+                      type="button"
+                      disabled={Boolean(attendanceSavingChildId)}
+                      onClick={() => void deleteSelectedDatePlan(item.childId)}
+                      className="mr-2 grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 disabled:opacity-40"
+                      aria-label={`${child?.name || '児童'}の${selectedDate}の予定を削除`}
+                      title="この日の利用・送迎予定を削除"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
+                </div>
                 {expanded && <div className="grid gap-3 border-t border-slate-100 bg-slate-50 p-3 lg:grid-cols-2">
                   <fieldset className="rounded-xl border border-sky-200 bg-white p-3"><legend className="px-1 text-xs font-black text-sky-800">迎え</legend><label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={item.pickupEnabled} disabled={!canManage} onChange={(event) => updateRequirement(item.childId, { pickupEnabled: event.target.checked })} />迎えを利用</label>{item.pickupEnabled && <div className="mt-2 grid gap-2"><label className="text-[10px] font-bold text-slate-600">場所名<input value={item.pickupLocationName || ''} disabled={!canManage} onChange={(event) => updateRequirement(item.childId, { pickupLocationName: event.target.value })} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label><label className="text-[10px] font-bold text-slate-600">住所<input value={item.pickupAddress || ''} disabled={!canManage} onChange={(event) => { const address = event.target.value; updateRequirement(item.childId, { pickupAddress: address, pickupArea: inferTransportArea(address) }); }} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label><div className="grid grid-cols-2 gap-2"><label className="text-[10px] font-bold text-slate-600">エリア（自動）<input value={item.pickupArea || ''} disabled={!canManage} onChange={(event) => updateRequirement(item.childId, { pickupArea: event.target.value })} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label>{item.pickupPattern !== 'home' && <label className="text-[10px] font-bold text-slate-600">下校・迎え時刻<input type="time" value={item.pickupTargetTime || ''} disabled={!canManage} onChange={(event) => updateRequirement(item.childId, { pickupTargetTime: event.target.value || undefined })} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label>}</div></div>}</fieldset>
                   <fieldset className="rounded-xl border border-violet-200 bg-white p-3"><legend className="px-1 text-xs font-black text-violet-800">送り</legend><label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={item.dropoffEnabled} disabled={!canManage} onChange={(event) => updateRequirement(item.childId, { dropoffEnabled: event.target.checked })} />送りを利用</label>{item.dropoffEnabled && <div className="mt-2 grid gap-2"><label className="text-[10px] font-bold text-slate-600">場所名<input value={item.dropoffLocationName || ''} disabled={!canManage} onChange={(event) => updateRequirement(item.childId, { dropoffLocationName: event.target.value })} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label><label className="text-[10px] font-bold text-slate-600">住所<input value={item.dropoffAddress || ''} disabled={!canManage} onChange={(event) => { const address = event.target.value; updateRequirement(item.childId, { dropoffAddress: address, dropoffArea: inferTransportArea(address) }); }} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label><div className="grid grid-cols-2 gap-2"><label className="text-[10px] font-bold text-slate-600">エリア（自動）<input value={item.dropoffArea || ''} disabled={!canManage} onChange={(event) => updateRequirement(item.childId, { dropoffArea: event.target.value })} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label><label className="text-[10px] font-bold text-slate-600">送り希望時刻<input type="time" value={item.dropoffTargetTime || ''} disabled={!canManage} onChange={(event) => updateRequirement(item.childId, { dropoffTargetTime: event.target.value || undefined })} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label></div></div>}</fieldset>

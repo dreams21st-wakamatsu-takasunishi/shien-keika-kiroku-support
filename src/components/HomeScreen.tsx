@@ -33,6 +33,7 @@ import type {
   MorningMeetingConfirmation,
   MorningMeetingRecord,
   MorningMeetingTemplate,
+  MonthlyScheduleDeleteResult,
   RecordDraftSummary,
   RecorderProfile,
   StaffScheduleItem,
@@ -111,6 +112,7 @@ interface HomeScreenProps {
   onSaveDailyChildPlan: (plan: DailyChildPlan) => Promise<void> | void;
   onDeleteDailyChildPlan: (childId: string, date: string) => Promise<void> | void;
   onDeleteDailyTransportRequirement: (childId: string, date: string) => Promise<void> | void;
+  onDeleteMonthlyDailySchedules: (month: string, childId?: string) => Promise<MonthlyScheduleDeleteResult>;
   onSaveAttendance: (record: AttendanceRecord) => Promise<void> | void;
   onPunchAttendance: (recorder: RecorderProfile, pin: string, action: '出勤' | '退勤' | '休憩開始' | '休憩終了') => Promise<void> | void;
   onRequestAttendanceCorrection: (record: AttendanceRecord, pin: string, clockIn: string | undefined, clockOut: string | undefined, reason: string) => Promise<void> | void;
@@ -188,6 +190,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onSaveDailyChildPlan,
   onDeleteDailyChildPlan,
   onDeleteDailyTransportRequirement,
+  onDeleteMonthlyDailySchedules,
   onSaveAttendance,
   onPunchAttendance,
   onRequestAttendanceCorrection,
@@ -397,6 +400,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             onSaveDailyChildPlan={onSaveDailyChildPlan}
             onDeleteDailyChildPlan={onDeleteDailyChildPlan}
             onDeleteDailyTransportRequirement={onDeleteDailyTransportRequirement}
+            onDeleteMonthlyDailySchedules={onDeleteMonthlyDailySchedules}
             onSaveTransportRun={onSaveTransportRun}
             onChangeTransportAssignment={onChangeTransportAssignment}
             onDeleteTransportRun={onDeleteTransportRun}

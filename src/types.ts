@@ -835,6 +835,12 @@ export interface AiWritingSettings {
   targetLength: number;
 }
 
+export interface MonthlyScheduleDeleteResult {
+  dailyPlanCount: number;
+  requirementCount: number;
+  affectedDateCount: number;
+}
+
 export const DEFAULT_AI_WRITING_SETTINGS: AiWritingSettings = {
   tone: 'assertive',
   customTone: '',

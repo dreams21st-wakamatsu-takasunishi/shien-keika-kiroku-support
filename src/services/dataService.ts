@@ -16,6 +16,7 @@ import {
   MorningMeetingConfirmation,
   MorningMeetingRecord,
   MorningMeetingTemplate,
+  MonthlyScheduleDeleteResult,
   RecordDraftSummary,
   RecordRevision,
   RecorderMenuItemId,
@@ -1110,6 +1111,25 @@ export async function deleteDailyTransportRequirement(
     .eq('child_id', childId)
     .eq('service_date', date);
   if (error) throw error;
+}
+
+export async function deleteMonthlyDailySchedules(
+  organizationId: string,
+  month: string,
+  childId?: string,
+): Promise<MonthlyScheduleDeleteResult> {
+  const { data, error } = await assertSupabase().rpc('delete_monthly_daily_schedules', {
+    p_organization_id: organizationId,
+    p_month: `${month}-01`,
+    p_child_id: childId || null,
+  });
+  if (error) throw error;
+  const result = (data || {}) as Record<string, unknown>;
+  return {
+    dailyPlanCount: Number(result.daily_plan_count || 0),
+    requirementCount: Number(result.requirement_count || 0),
+    affectedDateCount: Number(result.affected_date_count || 0),
+  };
 }
 
 export async function saveTransportRun(organizationId: string, run: TransportRun) {

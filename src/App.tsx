@@ -20,6 +20,7 @@ import {
   MorningMeetingConfirmation,
   MorningMeetingRecord,
   MorningMeetingTemplate,
+  MonthlyScheduleDeleteResult,
   RecordDraftSummary,
   RecorderMenuPreferences,
   RecorderProfile,
@@ -68,6 +69,7 @@ import {
   deleteCalendarEvent,
   deleteDailyChildPlan,
   deleteDailyTransportRequirement,
+  deleteMonthlyDailySchedules,
   deleteHandoverConfirmation,
   deleteMorningMeetingConfirmation,
   deleteRecordDraft,
@@ -1180,6 +1182,45 @@ export default function App() {
     }
   };
 
+  const handleDeleteMonthlyDailySchedules = async (
+    month: string,
+    childId?: string,
+  ): Promise<MonthlyScheduleDeleteResult> => {
+    if (!canManageSettings) throw new Error('月間利用予定を削除できるのは児発管または管理者です。');
+    const matchesScope = (item: { childId: string; date: string }) =>
+      item.date.startsWith(month) && (!childId || item.childId === childId);
+    const affectedDates = new Set([
+      ...dailyChildPlans.filter(matchesScope).map((item) => item.date),
+      ...dailyTransportRequirements.filter(matchesScope).map((item) => item.date),
+    ]);
+    const localResult: MonthlyScheduleDeleteResult = {
+      dailyPlanCount: dailyChildPlans.filter(matchesScope).length,
+      requirementCount: dailyTransportRequirements.filter(matchesScope).length,
+      affectedDateCount: affectedDates.size,
+    };
+    try {
+      const result = organizationId
+        ? await deleteMonthlyDailySchedules(organizationId, month, childId)
+        : localResult;
+      setDailyChildPlans((previous) => previous.filter((item) => !matchesScope(item)));
+      setDailyTransportRequirements((previous) => previous.filter((item) => !matchesScope(item)));
+      setTransportPlanDays((previous) => previous.map((day) => affectedDates.has(day.date)
+        ? {
+            ...day,
+            status: 'draft',
+            confirmedAt: undefined,
+            revision: day.revision + 1,
+            updatedAt: new Date().toISOString(),
+          }
+        : day));
+      setDataError(null);
+      return result;
+    } catch (error) {
+      persistError(error);
+      throw error;
+    }
+  };
+
   const handleSaveAttendance = async (record: AttendanceRecord) => {
     if (!canManageSettings) throw new Error('勤務予定を変更できるのは児発管または管理者です。');
     try {
@@ -1935,6 +1976,7 @@ export default function App() {
             onSaveDailyChildPlan={handleSaveDailyChildPlan}
             onDeleteDailyChildPlan={handleDeleteDailyChildPlan}
             onDeleteDailyTransportRequirement={handleDeleteDailyTransportRequirement}
+            onDeleteMonthlyDailySchedules={handleDeleteMonthlyDailySchedules}
             onSaveAttendance={handleSaveAttendance}
             onPunchAttendance={handlePunchAttendance}
             onRequestAttendanceCorrection={handleRequestAttendanceCorrection}

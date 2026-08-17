@@ -28,6 +28,7 @@ import type {
   CalendarEvent,
   DailyChildPlan,
   DailyTransportRequirement,
+  MonthlyScheduleDeleteResult,
   RecorderProfile,
   StaffScheduleItem,
   TransportDirection,
@@ -108,6 +109,7 @@ interface TransportPanelProps {
   onSaveDailyChildPlan: (plan: DailyChildPlan) => Promise<void> | void;
   onDeleteDailyChildPlan: (childId: string, date: string) => Promise<void> | void;
   onDeleteDailyTransportRequirement: (childId: string, date: string) => Promise<void> | void;
+  onDeleteMonthlyDailySchedules: (month: string, childId?: string) => Promise<MonthlyScheduleDeleteResult>;
   onSaveDailyTransportRequirements: (requirements: DailyTransportRequirement[]) => Promise<void> | void;
   onReplaceMonthlyTransportRequirements: (month: string, requirements: DailyTransportRequirement[]) => Promise<DailyTransportRequirement[]>;
   onReplaceChildMonthlyTransportRequirements: (month: string, childId: string, requirements: DailyTransportRequirement[]) => Promise<DailyTransportRequirement[]>;
@@ -148,6 +150,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
   onSaveDailyChildPlan,
   onDeleteDailyChildPlan,
   onDeleteDailyTransportRequirement,
+  onDeleteMonthlyDailySchedules,
   onSaveDailyTransportRequirements,
   onReplaceMonthlyTransportRequirements,
   onReplaceChildMonthlyTransportRequirements,
@@ -784,6 +787,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
           onSaveDailyChildPlan={onSaveDailyChildPlan}
           onDeleteDailyChildPlan={onDeleteDailyChildPlan}
           onDeleteRequirement={onDeleteDailyTransportRequirement}
+          onDeleteMonthSchedules={onDeleteMonthlyDailySchedules}
           onSaveRequirements={onSaveDailyTransportRequirements}
           onReplaceMonthRequirements={onReplaceMonthlyTransportRequirements}
           onReplaceChildMonthRequirements={onReplaceChildMonthlyTransportRequirements}
