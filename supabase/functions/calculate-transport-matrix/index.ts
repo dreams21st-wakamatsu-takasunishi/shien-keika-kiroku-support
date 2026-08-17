@@ -97,7 +97,18 @@ Deno.serve(async (request) => {
     if (error) console.error('Route matrix log failed', error.message);
   };
 
-  const waypoints = locations.map((location) => ({ waypoint: { address: location.address } }));
+  const routeModifiers = {
+    avoidTolls: body?.avoidTolls === true,
+    avoidHighways: body?.avoidHighways === true,
+    avoidFerries: false,
+  };
+  const origins = locations.map((location) => ({
+    waypoint: { address: location.address },
+    routeModifiers,
+  }));
+  const destinations = locations.map((location) => ({
+    waypoint: { address: location.address },
+  }));
   const googleResponse = await fetch('https://routes.googleapis.com/distanceMatrix/v2:computeRouteMatrix', {
     method: 'POST',
     headers: {
@@ -106,33 +117,40 @@ Deno.serve(async (request) => {
       'X-Goog-FieldMask': 'originIndex,destinationIndex,distanceMeters,duration,condition,status',
     },
     body: JSON.stringify({
-      origins: waypoints,
-      destinations: waypoints,
+      origins,
+      destinations,
       travelMode: 'DRIVE',
       routingPreference: 'TRAFFIC_UNAWARE',
       languageCode: 'ja',
       units: 'METRIC',
-      routeModifiers: {
-        avoidTolls: body?.avoidTolls === true,
-        avoidHighways: body?.avoidHighways === true,
-        avoidFerries: false,
-      },
     }),
   });
 
   if (!googleResponse.ok) {
-    const errorCode = googleResponse.status === 403
+    const googleError = await googleResponse.clone().json().catch(() => null) as {
+      error?: { status?: string };
+    } | null;
+    const errorCode = googleResponse.status === 400
+      ? 'GOOGLE_MATRIX_INVALID_REQUEST'
+      : googleResponse.status === 403
       ? 'GOOGLE_API_FORBIDDEN'
       : googleResponse.status === 429
         ? 'GOOGLE_API_RATE_LIMIT'
-        : 'GOOGLE_MATRIX_UNAVAILABLE';
+        : googleResponse.status >= 500
+          ? 'GOOGLE_API_UNAVAILABLE'
+          : 'GOOGLE_MATRIX_UNAVAILABLE';
+    console.error('Google route matrix failed', googleResponse.status, googleError?.error?.status || errorCode);
     await writeLog({ status: 'error', error_code: errorCode });
     return jsonResponse({
-      error: errorCode === 'GOOGLE_API_FORBIDDEN'
+      error: errorCode === 'GOOGLE_MATRIX_INVALID_REQUEST'
+        ? '道路時間の計算条件をGoogle Routes APIが受理できませんでした。送迎先住所と経路設定を確認してください。'
+        : errorCode === 'GOOGLE_API_FORBIDDEN'
         ? 'Google Routes APIの有効化、課金設定、APIキー制限を確認してください。'
         : errorCode === 'GOOGLE_API_RATE_LIMIT'
           ? '経路APIの利用上限に達しました。時間を置いて再度お試しください。'
-          : '道路所要時間を取得できませんでした。時間を置いて再度お試しください。',
+          : errorCode === 'GOOGLE_API_UNAVAILABLE'
+            ? 'Google Routes APIへ一時的に接続できませんでした。時間を置いて再度お試しください。'
+            : '道路所要時間を取得できませんでした。送迎先住所を確認してください。',
       code: errorCode,
     }, 502);
   }
