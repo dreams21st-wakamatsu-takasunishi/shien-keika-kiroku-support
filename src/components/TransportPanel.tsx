@@ -29,6 +29,7 @@ import type {
   DailyChildPlan,
   DailyTransportRequirement,
   RecorderProfile,
+  SchoolProfile,
   StaffScheduleItem,
   TransportDirection,
   TransportRun,
@@ -94,6 +95,7 @@ interface TransportPanelProps {
   areaZones: TransportAreaZone[];
   recorderProfiles: RecorderProfile[];
   childrenList: ChildProfile[];
+  schools: SchoolProfile[];
   dailyChildPlans: DailyChildPlan[];
   transportPlanDays: TransportPlanDay[];
   dailyTransportRequirements: DailyTransportRequirement[];
@@ -132,6 +134,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
   areaZones,
   recorderProfiles,
   childrenList,
+  schools,
   dailyChildPlans,
   transportPlanDays,
   dailyTransportRequirements,
@@ -870,6 +873,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
         <React.Suspense fallback={<section className="grid min-h-72 place-items-center rounded-2xl border border-slate-200 bg-white"><span className="flex items-center gap-2 text-sm font-black text-slate-600"><LoaderCircle className="h-5 w-5 animate-spin" />送迎マップを読み込んでいます</span></section>}>
           <TransportMapPanel
             childrenList={childrenList}
+            schools={schools}
             facilityAddress={routeSettings.facilityAddress}
             locations={mapLocations}
             zones={areaZones}

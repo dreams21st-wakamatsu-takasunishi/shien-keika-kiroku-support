@@ -23,6 +23,7 @@ import {
   RecorderMenuPreferences,
   RecorderProfile,
   ReviewIssue,
+  SchoolProfile,
   RegularDaySchedule,
   SnackType,
   StaffScheduleItem,
@@ -56,6 +57,7 @@ import { resolvedTransportArea } from '../utils/transportArea';
 
 export interface WorkspaceData {
   children: ChildProfile[];
+  schools: SchoolProfile[];
   recorderProfiles: RecorderProfile[];
   templates: Template[];
   records: SupportRecord[];
@@ -120,6 +122,7 @@ function mapChild(row: any): ChildProfile {
     transportProgram: row.transport_program || undefined,
     transportationRequired: row.transportation_required === true,
     schoolName: row.school_name || undefined,
+    schoolId: row.school_id || undefined,
     siblingIds: Array.isArray(row.sibling_ids) ? row.sibling_ids : undefined,
     siblingGroup: row.sibling_group || undefined,
     transportSchedule: Array.isArray(row.transport_schedule) ? row.transport_schedule : [],
@@ -151,6 +154,7 @@ function mapTransportMapLocation(row: any): TransportMapLocation {
     id: row.id,
     sourceType: row.source_type,
     childId: row.child_id || undefined,
+    schoolId: row.school_id || undefined,
     locationProfileId: row.location_profile_id || undefined,
     locationName: row.location_name,
     locationType: row.location_type,
@@ -173,9 +177,23 @@ function mapTransportAreaZone(row: any): TransportAreaZone {
     radiusKm: Number(row.radius_km),
     priority: Number(row.priority),
     active: row.active !== false,
+    locationIds: Array.isArray(row.location_ids) ? row.location_ids : [],
     note: row.note || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function mapSchool(row: any): SchoolProfile {
+  return {
+    id: row.id,
+    name: row.name,
+    address: row.address,
+    area: row.area || undefined,
+    note: row.note || undefined,
+    active: row.active !== false,
+    createdAt: row.created_at || undefined,
+    updatedAt: row.updated_at || undefined,
   };
 }
 
@@ -635,6 +653,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
   const client = assertSupabase();
   const [
     childrenResult,
+    schoolsResult,
     schedulesResult,
     recorderProfilesResult,
     templatesResult,
@@ -662,6 +681,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     transportAreaZonesResult,
   ] = await Promise.all([
     client.from('children').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('name'),
+    client.from('schools').select('*').eq('organization_id', organizationId).order('name'),
     client.from('child_regular_day_schedules').select('*').eq('organization_id', organizationId).order('effective_from'),
     client.from('recorder_profiles').select('id, display_name, active, pin_configured, employee_code, job_title, individual_login_enabled, menu_preferences, created_at').eq('organization_id', organizationId).eq('active', true).order('display_name'),
     client.from('record_templates').select('*').eq('organization_id', organizationId).is('archived_at', null).order('created_at'),
@@ -691,6 +711,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
 
   const requiredResults = [
     childrenResult,
+    schoolsResult,
     schedulesResult,
     recorderProfilesResult,
     templatesResult,
@@ -707,6 +728,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
   ];
   const requiredResultLabels = [
     '児童情報',
+    '学校台帳',
     '定期利用予定',
     '職員情報',
     '記録フォーマット',
@@ -742,12 +764,26 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
   const recorderNames = new Map(recorderProfiles.map((profile) => [profile.id, profile.displayName]));
   const vehicles = vehiclesResult.error ? [] : (vehiclesResult.data || []).map(mapVehicle);
   const vehicleNames = new Map(vehicles.map((vehicle) => [vehicle.id, vehicle.name]));
+  const schools = (schoolsResult.data || []).map(mapSchool);
+  const schoolById = new Map(schools.map((school) => [school.id, school]));
 
   return {
     children: (childrenResult.data || []).map((row) => ({
-      ...mapChild(row),
+      ...(() => {
+        const child = mapChild(row);
+        const school = child.schoolId ? schoolById.get(child.schoolId) : undefined;
+        if (!school) return child;
+        return {
+          ...child,
+          schoolName: school.name,
+          transportLocations: (child.transportLocations || []).map((location) => location.schoolId === school.id || (location.type === '学校' && location.name === child.schoolName)
+            ? { ...location, schoolId: school.id, name: school.name, address: school.address, area: school.area }
+            : location),
+        };
+      })(),
       regularDaySchedules: schedulesByChild.get(row.id) || [],
     })),
+    schools,
     recorderProfiles,
     templates: (templatesResult.data || []).map(mapTemplate),
     records: (recordsResult.data || []).map(mapRecord),
@@ -1392,6 +1428,7 @@ export async function saveTransportMapLocation(
     id: location.id,
     source_type: location.sourceType,
     child_id: location.childId || null,
+    school_id: location.schoolId || null,
     location_profile_id: location.locationProfileId || null,
     location_name: location.locationName.trim(),
     location_type: location.locationType,
@@ -1418,6 +1455,7 @@ export async function saveTransportAreaZone(
     radius_km: zone.radiusKm,
     priority: zone.priority,
     active: zone.active,
+    location_ids: zone.locationIds || [],
     note: zone.note?.trim() || null,
   }, { onConflict: 'organization_id,id' });
   if (error) throw error;
@@ -1427,6 +1465,34 @@ export async function deleteTransportAreaZone(organizationId: string, zoneId: st
   const { error } = await assertSupabase().from('transport_area_zones').delete()
     .eq('organization_id', organizationId)
     .eq('id', zoneId);
+  if (error) throw error;
+}
+
+export async function saveSchool(organizationId: string, school: SchoolProfile) {
+  const { error } = await assertSupabase().from('schools').upsert({
+    organization_id: organizationId,
+    id: school.id,
+    name: school.name.trim(),
+    address: school.address.trim(),
+    area: resolvedTransportArea(school.address, school.area) || null,
+    note: school.note?.trim() || null,
+    active: school.active,
+  }, { onConflict: 'organization_id,id' });
+  if (error) throw error;
+}
+
+export async function deleteSchool(organizationId: string, schoolId: string) {
+  const { count, error: referenceError } = await assertSupabase()
+    .from('children')
+    .select('id', { count: 'exact', head: true })
+    .eq('organization_id', organizationId)
+    .eq('school_id', schoolId)
+    .is('deleted_at', null);
+  if (referenceError) throw referenceError;
+  if ((count || 0) > 0) throw new Error('この学校は児童情報で使用中です。削除せず「使用停止」にしてください。');
+  const { error } = await assertSupabase().from('schools').delete()
+    .eq('organization_id', organizationId)
+    .eq('id', schoolId);
   if (error) throw error;
 }
 
@@ -1516,6 +1582,7 @@ export async function saveChild(organizationId: string, child: ChildProfile) {
       transport_program: child.transportProgram || null,
       transportation_required: child.transportationRequired === true,
       school_name: child.schoolName?.trim() || null,
+      school_id: child.schoolId || null,
       sibling_ids: child.siblingIds || [],
       sibling_group: null,
       transport_schedule: child.transportSchedule || [],

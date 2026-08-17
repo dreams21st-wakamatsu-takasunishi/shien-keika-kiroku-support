@@ -17,10 +17,14 @@ export function distanceKm(
 }
 
 export function findTransportZone(
-  location: Pick<TransportMapLocation, 'latitude' | 'longitude'> | undefined,
+  location: Pick<TransportMapLocation, 'id' | 'latitude' | 'longitude'> | undefined,
   zones: TransportAreaZone[],
 ) {
   if (!location) return undefined;
+  const explicitlySelected = zones
+    .filter((zone) => zone.active && zone.locationIds?.includes(location.id))
+    .sort((left, right) => left.priority - right.priority)[0];
+  if (explicitlySelected) return explicitlySelected;
   return zones
     .filter((zone) => zone.active && distanceKm(
       location.latitude,
@@ -51,6 +55,8 @@ export function findTransportMapLocation(
   return locations.find((location) => childId && location.childId === childId
     && locationProfileId && location.locationProfileId === locationProfileId
     && (!normalizedAddress || normalizeMapAddress(location.address) === normalizedAddress))
-    || locations.find((location) => childId && location.childId === childId
-      && normalizedAddress && normalizeMapAddress(location.address) === normalizedAddress);
+  || locations.find((location) => childId && location.childId === childId
+      && normalizedAddress && normalizeMapAddress(location.address) === normalizedAddress)
+  || locations.find((location) => normalizedAddress
+      && normalizeMapAddress(location.address) === normalizedAddress);
 }

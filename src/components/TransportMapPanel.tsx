@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Circle,
   MapContainer,
@@ -27,16 +27,19 @@ import {
 import 'leaflet/dist/leaflet.css';
 import type {
   ChildProfile,
+  SchoolProfile,
   TransportAreaZone,
   TransportMapLocation,
   TransportLocationType,
 } from '../types';
 import { geocodeTransportLocations } from '../services/dataService';
+import { supabase } from '../lib/supabase';
 import { getCanonicalTransportLocations } from '../utils/transportLocations';
-import { findTransportZone, normalizeMapAddress } from '../utils/transportMap';
+import { distanceKm, findTransportZone, normalizeMapAddress } from '../utils/transportMap';
 
 interface TransportMapPanelProps {
   childrenList: ChildProfile[];
+  schools: SchoolProfile[];
   facilityAddress: string;
   locations: TransportMapLocation[];
   zones: TransportAreaZone[];
@@ -48,8 +51,9 @@ interface TransportMapPanelProps {
 
 interface SourceLocation {
   id: string;
-  sourceType: 'facility' | 'child';
+  sourceType: 'facility' | 'child' | 'school';
   childId?: string;
+  schoolId?: string;
   childName?: string;
   locationProfileId?: string;
   locationName: string;
@@ -74,7 +78,7 @@ const DEFAULT_CENTER: [number, number] = [33.883, 130.875];
 const ZONE_COLORS = ['#0f766e', '#0284c7', '#7c3aed', '#d97706', '#dc2626', '#475569'];
 const createUuid = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-function sourceLocations(childrenList: ChildProfile[], facilityAddress: string): SourceLocation[] {
+function sourceLocations(childrenList: ChildProfile[], schools: SchoolProfile[], facilityAddress: string): SourceLocation[] {
   const facility = facilityAddress.trim()
     ? [{
         id: 'facility',
@@ -84,8 +88,19 @@ function sourceLocations(childrenList: ChildProfile[], facilityAddress: string):
         address: facilityAddress.trim(),
       }]
     : [];
+  const activeSchools = schools.filter((school) => school.active && school.address.trim());
+  const schoolAddresses = new Set(activeSchools.map((school) => normalizeMapAddress(school.address)));
+  const schoolLocations = activeSchools.map((school) => ({
+    id: `school:${school.id}`,
+    sourceType: 'school' as const,
+    schoolId: school.id,
+    locationName: school.name,
+    locationType: '学校' as const,
+    address: school.address.trim(),
+  }));
   const childLocations = childrenList.flatMap((child) => getCanonicalTransportLocations(child)
     .filter((location) => location.address.trim())
+    .filter((location) => location.type !== '学校' || (!location.schoolId && !schoolAddresses.has(normalizeMapAddress(location.address))))
     .map((location) => ({
       id: `child:${child.id}:${location.id}`,
       sourceType: 'child' as const,
@@ -96,7 +111,7 @@ function sourceLocations(childrenList: ChildProfile[], facilityAddress: string):
       locationType: location.type,
       address: location.address.trim(),
     })));
-  return [...facility, ...childLocations];
+  return [...facility, ...schoolLocations, ...childLocations];
 }
 
 function matchingLocation(source: SourceLocation, locations: TransportMapLocation[]) {
@@ -111,12 +126,12 @@ function markerColor(type: SourceLocation['locationType']) {
   return '#d97706';
 }
 
-function markerIcon(type: SourceLocation['locationType'], simple = false) {
-  const color = markerColor(type);
+function markerIcon(type: SourceLocation['locationType'], simple = false, assignedColor?: string, selected = false) {
+  const color = assignedColor || markerColor(type);
   const size = simple ? 28 : 20;
   return L.divIcon({
     className: '',
-    html: `<span style="display:block;width:${size}px;height:${size}px;border-radius:9999px;background:${color};border:4px solid white;box-shadow:0 3px 10px rgba(15,23,42,.32)"></span>`,
+    html: `<span style="display:block;width:${size}px;height:${size}px;border-radius:9999px;background:${color};border:${selected ? 5 : 4}px solid white;box-shadow:0 0 0 ${selected ? 4 : 0}px ${selected ? color : 'transparent'},0 3px 10px rgba(15,23,42,.32);transition:transform .15s ease;transform:${selected ? 'scale(1.12)' : 'scale(1)'}"></span>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
     popupAnchor: [0, -(size / 2)],
@@ -126,6 +141,7 @@ function markerIcon(type: SourceLocation['locationType'], simple = false) {
 function simpleGroupLabel(group: SimpleMarkerGroup) {
   const first = group.entries[0].source;
   if (first.sourceType === 'facility') return '事業所';
+  if (first.sourceType === 'school') return first.locationName;
   const institutional = group.entries.every(({ source }) => source.locationType === '学校' || source.locationType === '学童');
   if (institutional) return `${first.locationName}${group.entries.length > 1 ? `（${group.entries.length}名）` : ''}`;
   if (group.entries.length === 1) return first.childName || first.locationName;
@@ -154,6 +170,7 @@ function MapClickHandler({ enabled, onClick }: { enabled: boolean; onClick: (lat
 
 export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
   childrenList,
+  schools,
   facilityAddress,
   locations,
   zones,
@@ -162,7 +179,7 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
   onSaveZone,
   onDeleteZone,
 }) => {
-  const sources = useMemo(() => sourceLocations(childrenList, facilityAddress), [childrenList, facilityAddress]);
+  const sources = useMemo(() => sourceLocations(childrenList, schools, facilityAddress), [childrenList, facilityAddress, schools]);
   const placed = useMemo(() => sources.flatMap((source) => {
     const location = matchingLocation(source, locations);
     return location ? [{ source, location }] : [];
@@ -179,6 +196,8 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
   const [placingZoneCenter, setPlacingZoneCenter] = useState(false);
   const [mapMode, setMapMode] = useState<'simple' | 'detail'>('simple');
   const [showSettings, setShowSettings] = useState(false);
+  const [selectingZonePins, setSelectingZonePins] = useState(false);
+  const autoGeocodeAttemptRef = useRef('');
   const activeZones = useMemo(() => [...zones].filter((zone) => zone.active).sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name, 'ja')), [zones]);
   const center = useMemo<[number, number]>(() => {
     const facility = placed.find((entry) => entry.source.sourceType === 'facility')?.location;
@@ -206,6 +225,32 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
     });
     return [...groups.values()];
   }, [placed]);
+  const selectedZoneLocationIds = zoneDraft?.locationIds || [];
+  const recalculateZoneFromPins = useCallback((locationIds: string[], base: TransportAreaZone) => {
+    const selected = placed.filter(({ source, location }) => locationIds.includes(source.id) || locationIds.includes(location.id));
+    if (!selected.length) return { ...base, locationIds };
+    const centerLatitude = selected.reduce((sum, entry) => sum + entry.location.latitude, 0) / selected.length;
+    const centerLongitude = selected.reduce((sum, entry) => sum + entry.location.longitude, 0) / selected.length;
+    const furthest = Math.max(0, ...selected.map((entry) => distanceKm(centerLatitude, centerLongitude, entry.location.latitude, entry.location.longitude)));
+    return {
+      ...base,
+      locationIds,
+      centerLatitude,
+      centerLongitude,
+      radiusKm: Math.max(0.35, Math.ceil((furthest + 0.25) * 10) / 10),
+      updatedAt: new Date().toISOString(),
+    };
+  }, [placed]);
+  const toggleGroupForZone = (group: SimpleMarkerGroup) => {
+    if (!zoneDraft || !selectingZonePins) return;
+    const groupIds = group.entries.map(({ source }) => source.id);
+    const allSelected = groupIds.every((id) => selectedZoneLocationIds.includes(id));
+    const next = allSelected
+      ? selectedZoneLocationIds.filter((id) => !groupIds.includes(id))
+      : Array.from(new Set([...selectedZoneLocationIds, ...groupIds]));
+    setZoneDraft(recalculateZoneFromPins(next, zoneDraft));
+    setMessage(allSelected ? 'この地点を配車グループから外しました。' : 'この地点を同じ送迎車へまとめる候補に追加しました。');
+  };
   const fitPoints = useMemo<Array<[number, number]>>(() => {
     const points = placed.map((entry) => [entry.location.latitude, entry.location.longitude] as [number, number]);
     activeZones.forEach((zone) => {
@@ -237,29 +282,37 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
       radiusKm: 2,
       priority: Math.max(0, ...zones.map((zone) => zone.priority)) + 10,
       active: true,
+      locationIds: [],
       createdAt: now,
       updatedAt: now,
     });
-    setPlacingZoneCenter(true);
+    setPlacingZoneCenter(false);
+    setSelectingZonePins(true);
     setShowSettings(true);
-    setMapMode('detail');
+    setMapMode('simple');
     setManualSourceId('');
     setPendingManual(undefined);
-    setMessage('地図上で範囲の中心を選択してください。');
+    setMessage('同じ送迎車へまとめたい地点のピンを順番に選択してください。');
     setError('');
   };
 
-  const geocodeUnresolved = async () => {
-    if (!unresolved.length) return setMessage('住所登録済みの地点はすべて配置されています。');
-    if (!window.confirm(`${unresolved.length}件の登録住所をGoogle Geocoding APIへ送信し、緯度・経度へ変換します。実行しますか？`)) return;
+  const geocodeSources = useCallback(async (targets: SourceLocation[], askConfirmation: boolean) => {
+    if (!targets.length) return setMessage('住所登録済みの地点はすべて配置されています。');
+    const addressGroups = new Map<string, SourceLocation[]>();
+    targets.forEach((source) => {
+      const key = normalizeMapAddress(source.address);
+      addressGroups.set(key, [...(addressGroups.get(key) || []), source]);
+    });
+    const representatives = [...addressGroups.values()].map((group) => group[0]);
+    if (askConfirmation && !window.confirm(`${representatives.length}件の住所をGoogle Geocoding APIへ送信し、緯度・経度へ変換します。実行しますか？`)) return;
     setGeocoding(true);
     setMessage('');
     setError('');
     try {
       let resolvedCount = 0;
       const failureCodes = new Set<string>();
-      for (let index = 0; index < unresolved.length; index += 50) {
-        const batch = unresolved.slice(index, index + 50);
+      for (let index = 0; index < representatives.length; index += 50) {
+        const batch = representatives.slice(index, index + 50);
         const results = await geocodeTransportLocations(batch.map((source) => ({
           id: source.id,
           address: source.address,
@@ -268,36 +321,48 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
         const now = new Date().toISOString();
         results.forEach((result) => { if (result.code) failureCodes.add(result.code); });
         const saves = results.flatMap((result) => {
-          const source = batch.find((candidate) => candidate.id === result.id);
-          if (!source || result.status !== 'resolved' || result.latitude === undefined || result.longitude === undefined) return [];
-          resolvedCount += 1;
-          return [Promise.resolve(onSaveLocation({
-            id: source.id,
-            sourceType: source.sourceType,
-            childId: source.childId,
-            locationProfileId: source.locationProfileId,
-            locationName: source.locationName,
-            locationType: source.locationType,
-            address: source.address,
-            latitude: result.latitude,
-            longitude: result.longitude,
-            geocodeSource: 'google',
-            geocodedAt: now,
-            updatedAt: now,
-          }))];
+          const representative = batch.find((candidate) => candidate.id === result.id);
+          if (!representative || result.status !== 'resolved' || result.latitude === undefined || result.longitude === undefined) return [];
+          const sameAddress = addressGroups.get(normalizeMapAddress(representative.address)) || [representative];
+          resolvedCount += sameAddress.length;
+          return sameAddress.map((source) => Promise.resolve(onSaveLocation({
+              id: source.id,
+              sourceType: source.sourceType,
+              childId: source.childId,
+              schoolId: source.schoolId,
+              locationProfileId: source.locationProfileId,
+              locationName: source.locationName,
+              locationType: source.locationType,
+              address: source.address,
+              latitude: result.latitude,
+              longitude: result.longitude,
+              geocodeSource: 'google',
+              geocodedAt: now,
+              updatedAt: now,
+            })));
         });
         await Promise.all(saves);
       }
       if (resolvedCount === 0 && (failureCodes.has('REQUEST_DENIED') || failureCodes.has('PERMISSION_DENIED'))) {
         throw new Error('住所の自動配置がGoogle側で拒否されました。Google CloudでGeocoding APIを有効にし、APIキーの制限対象へ追加してください。手動配置はそのまま利用できます。');
       }
-      setMessage(`${resolvedCount}件の住所を地図へ配置しました。${unresolved.length - resolvedCount > 0 ? ` 配置できなかった${unresolved.length - resolvedCount}件は手動で位置を指定できます。` : ''}`);
+      setMessage(`${resolvedCount}地点を登録住所から地図へ反映しました。${targets.length - resolvedCount > 0 ? ` 配置できなかった${targets.length - resolvedCount}地点は住所確認または手動配置が必要です。` : ''}`);
     } catch (geocodeError) {
       setError(geocodeError instanceof Error ? geocodeError.message : '住所から位置を取得できませんでした。');
     } finally {
       setGeocoding(false);
     }
-  };
+  }, [onSaveLocation]);
+
+  const geocodeUnresolved = () => void geocodeSources(unresolved, true);
+
+  useEffect(() => {
+    if (!supabase || !canManage || geocoding || unresolved.length === 0) return;
+    const attemptKey = unresolved.map((source) => `${source.id}:${normalizeMapAddress(source.address)}`).sort().join('|');
+    if (!attemptKey || autoGeocodeAttemptRef.current === attemptKey) return;
+    autoGeocodeAttemptRef.current = attemptKey;
+    void geocodeSources(unresolved, false);
+  }, [canManage, geocodeSources, geocoding, unresolved]);
 
   const saveManualLocation = async () => {
     if (!pendingManual) return;
@@ -309,6 +374,7 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
         id: pendingManual.source.id,
         sourceType: pendingManual.source.sourceType,
         childId: pendingManual.source.childId,
+        schoolId: pendingManual.source.schoolId,
         locationProfileId: pendingManual.source.locationProfileId,
         locationName: pendingManual.source.locationName,
         locationType: pendingManual.source.locationType,
@@ -339,6 +405,7 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
       setMessage(`「${zoneDraft.name}」を保存しました。自動配車時に同じ範囲の児童を優先してまとめます。`);
       setZoneDraft(undefined);
       setPlacingZoneCenter(false);
+      setSelectingZonePins(false);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : '優先範囲を保存できませんでした。');
     } finally {
@@ -352,7 +419,7 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
     setError('');
     try {
       await onDeleteZone(zone.id);
-      if (zoneDraft?.id === zone.id) setZoneDraft(undefined);
+      if (zoneDraft?.id === zone.id) { setZoneDraft(undefined); setSelectingZonePins(false); }
       setMessage(`「${zone.name}」を削除しました。`);
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : '優先範囲を削除できませんでした。');
@@ -380,7 +447,7 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <div className="flex items-center gap-2"><MapPinned className="h-5 w-5 text-teal-700" /><h3 className="font-black text-slate-950">児童宅・学校と優先配車範囲</h3></div>
-            <p className="mt-1 text-xs leading-relaxed text-slate-500">簡易表示では細かな道路情報を省き、送迎地点とまとめたい範囲だけを表示します。</p>
+            <p className="mt-1 text-xs leading-relaxed text-slate-500">薄い地図で各地点の位置関係を確認し、ピンを選んで同じ送迎車へまとめたい範囲を色分けします。</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <div className="grid min-h-11 grid-cols-2 rounded-xl bg-slate-100 p-1" aria-label="地図表示切替">
@@ -404,16 +471,17 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
       <div className={`grid min-w-0 gap-3 ${showSettings ? 'xl:grid-cols-[minmax(0,1fr)_22rem]' : ''}`}>
         <div className={`relative min-w-0 overflow-hidden rounded-2xl border border-slate-200 shadow-sm ${mapMode === 'simple' ? 'bg-slate-50' : 'bg-white'}`}>
           {(manualSourceId || placingZoneCenter) && <div className="absolute left-3 right-3 top-3 z-[500] rounded-xl bg-slate-950/95 px-4 py-3 text-sm font-black text-white shadow-xl"><Crosshair className="mr-2 inline h-5 w-5 text-teal-300" />{manualSourceId ? '地図をタップして位置を指定してください' : '地図をタップして範囲の中心を指定してください'}<button type="button" onClick={() => { setManualSourceId(''); setPendingManual(undefined); setPlacingZoneCenter(false); }} className="float-right rounded p-1" aria-label="位置指定を中止"><X className="h-4 w-4" /></button></div>}
-          {mapMode === 'simple' && !(manualSourceId || placingZoneCenter) && <div className="pointer-events-none absolute left-3 top-3 z-[500] rounded-xl bg-white/95 px-3 py-2 text-[10px] font-black text-slate-600 shadow-sm">道路表示を省略中・地点を選ぶと詳細を確認できます</div>}
+          {mapMode === 'simple' && !(manualSourceId || placingZoneCenter) && <div className="pointer-events-none absolute left-3 top-3 z-[500] rounded-xl bg-white/95 px-3 py-2 text-[10px] font-black text-slate-700 shadow-sm">{selectingZonePins ? `ピンを選択中・${selectedZoneLocationIds.length}地点` : '位置関係を確認・ピンを選ぶと詳細を表示'}</div>}
           <MapContainer center={center} zoom={12} scrollWheelZoom zoomControl={mapMode === 'detail'} className={`h-[30rem] w-full sm:h-[36rem] xl:h-[44rem] ${mapMode === 'simple' ? 'transport-map-simple' : ''}`} aria-label="送迎地点マップ">
-            {mapMode === 'detail' && <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />}
+            <TileLayer className={mapMode === 'simple' ? 'transport-map-muted-tiles' : ''} opacity={mapMode === 'simple' ? 0.52 : 1} attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
             <FitMap points={fitPoints} />
             <MapClickHandler enabled={Boolean(manualSourceId || (placingZoneCenter && zoneDraft))} onClick={handleMapClick} />
             {activeZones.map((zone) => <Circle key={zone.id} center={[zone.centerLatitude, zone.centerLongitude]} radius={zone.radiusKm * 1000} pathOptions={{ color: zone.color, fillColor: zone.color, fillOpacity: mapMode === 'simple' ? 0.22 : 0.12, weight: mapMode === 'simple' ? 4 : 3 }}><Popup><strong>{zone.name}</strong><br />半径 {zone.radiusKm}km・優先 {zone.priority}</Popup>{mapMode === 'simple' && <Tooltip permanent direction="center" className="transport-zone-label">{zone.name}</Tooltip>}</Circle>)}
             {mapMode === 'simple' ? simpleMarkerGroups.map((group) => {
               const first = group.entries[0];
-              const zone = findTransportZone(first.location, activeZones);
-              return <Marker key={group.id} position={[group.latitude, group.longitude]} icon={markerIcon(first.source.locationType, true)}><Tooltip permanent direction="top" offset={[0, -13]} className="transport-map-label">{simpleGroupLabel(group)}</Tooltip><Popup><div className="min-w-44"><strong>{simpleGroupLabel(group)}</strong><p className="mt-1 text-xs font-bold" style={{ color: zone?.color || '#64748b' }}>{zone ? `優先範囲：${zone.name}` : '優先範囲外'}</p><ul className="mt-2 space-y-1 text-xs">{group.entries.map(({ source }) => <li key={source.id}>{source.childName ? `${source.childName}・` : ''}{source.locationName}</li>)}</ul></div></Popup></Marker>;
+              const draftSelected = group.entries.some(({ source }) => selectedZoneLocationIds.includes(source.id));
+              const zone = draftSelected && zoneDraft ? zoneDraft : findTransportZone(first.location, activeZones);
+              return <Marker key={group.id} position={[group.latitude, group.longitude]} icon={markerIcon(first.source.locationType, true, zone?.color, draftSelected)} eventHandlers={{ click: () => toggleGroupForZone(group) }}><Tooltip permanent direction="top" offset={[0, -13]} className="transport-map-label">{simpleGroupLabel(group)}</Tooltip><Popup><div className="min-w-44"><strong>{simpleGroupLabel(group)}</strong><p className="mt-1 text-xs font-bold" style={{ color: zone?.color || '#64748b' }}>{selectingZonePins ? draftSelected ? '選択済み・クリックで解除' : 'クリックして同じ送迎車へ追加' : zone ? `優先範囲：${zone.name}` : '優先範囲外'}</p><ul className="mt-2 space-y-1 text-xs">{group.entries.map(({ source }) => <li key={source.id}>{source.childName ? `${source.childName}・` : ''}{source.locationName}</li>)}</ul></div></Popup></Marker>;
             }) : placed.map(({ source, location }) => {
               const zone = findTransportZone(location, activeZones);
               return <Marker key={source.id} position={[location.latitude, location.longitude]} icon={markerIcon(source.locationType)}><Popup><div className="min-w-48"><strong>{source.childName ? `${source.childName}・` : ''}{source.locationName}</strong><p>{source.locationType}</p><p className="mt-1 text-xs">{source.address}</p><p className="mt-2 font-bold" style={{ color: zone?.color || '#64748b' }}>{zone ? `優先範囲：${zone.name}` : '優先範囲外'}</p>{canManage && <button type="button" onClick={() => { setManualSourceId(source.id); setPendingManual(undefined); setPlacingZoneCenter(false); setShowSettings(true); }} className="mt-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white">位置を修正</button>}</div></Popup></Marker>;
@@ -430,10 +498,10 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
           {canManage && (
             <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
-                <button type="button" onClick={geocodeUnresolved} disabled={geocoding || unresolved.length === 0} className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-teal-200 bg-teal-50 px-3 text-xs font-black text-teal-800 disabled:opacity-50">{geocoding ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}未配置住所を地図化（{unresolved.length}）</button>
+                <button type="button" onClick={geocodeUnresolved} disabled={geocoding || unresolved.length === 0} className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-teal-200 bg-teal-50 px-3 text-xs font-black text-teal-800 disabled:opacity-50">{geocoding ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}住所から位置を更新（{unresolved.length}）</button>
                 <button type="button" onClick={beginNewZone} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-3 text-xs font-black text-white"><Plus className="h-4 w-4" />優先範囲を追加</button>
               </div>
-              <p className="mt-2 text-[9px] leading-relaxed text-slate-500">自動地図化を実行した場合のみ、登録住所をGoogle Geocoding APIへ送信します。</p>
+              <p className="mt-2 text-[9px] leading-relaxed text-slate-500">新しい住所は地図を開いた際に自動反映します。同じ住所は1回だけ照会し、学校や兄弟で位置を共有します。</p>
             </section>
           )}
           {pendingManual && (
@@ -446,14 +514,15 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
 
           {zoneDraft && (
             <section className="rounded-2xl border-2 border-violet-200 bg-white p-4 shadow-sm">
-              <div className="flex items-center justify-between"><h4 className="font-black text-slate-950">優先配車範囲を編集</h4><button type="button" onClick={() => { setZoneDraft(undefined); setPlacingZoneCenter(false); }} className="grid h-9 w-9 place-items-center rounded-lg bg-slate-100" aria-label="範囲編集を閉じる"><X className="h-4 w-4" /></button></div>
+              <div className="flex items-center justify-between"><h4 className="font-black text-slate-950">送迎グループを編集</h4><button type="button" onClick={() => { setZoneDraft(undefined); setPlacingZoneCenter(false); setSelectingZonePins(false); }} className="grid h-9 w-9 place-items-center rounded-lg bg-slate-100" aria-label="範囲編集を閉じる"><X className="h-4 w-4" /></button></div>
               <div className="mt-3 space-y-3">
                 <label className="block text-xs font-black text-slate-700">範囲名<input value={zoneDraft.name} onChange={(event) => setZoneDraft({ ...zoneDraft, name: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base" placeholder="例：高須・青葉台エリア" /></label>
                 <div className="grid grid-cols-2 gap-2"><label className="text-xs font-black text-slate-700">色<input type="color" value={zoneDraft.color} onChange={(event) => setZoneDraft({ ...zoneDraft, color: event.target.value })} className="mt-1 h-11 w-full rounded-xl border border-slate-300 bg-white p-1" /></label><label className="text-xs font-black text-slate-700">優先順位<input type="number" min="1" max="999" value={zoneDraft.priority} onChange={(event) => setZoneDraft({ ...zoneDraft, priority: Number(event.target.value) })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-base" /></label></div>
                 <label className="block text-xs font-black text-slate-700">半径 {zoneDraft.radiusKm.toFixed(1)} km<input type="range" min="0.1" max="20" step="0.1" value={zoneDraft.radiusKm} onChange={(event) => setZoneDraft({ ...zoneDraft, radiusKm: Number(event.target.value) })} className="mt-2 w-full accent-violet-600" /></label>
+                <div className="rounded-xl border border-violet-200 bg-violet-50 p-3"><div className="flex items-center justify-between gap-2"><div><p className="text-xs font-black text-violet-950">同じ送迎車へまとめる地点</p><p className="mt-0.5 text-[10px] text-violet-800">地図上のピンを選択してください。</p></div><strong className="text-lg text-violet-950">{selectedZoneLocationIds.length}</strong></div><button type="button" onClick={() => { setSelectingZonePins((current) => !current); setMapMode('simple'); }} className={`mt-2 min-h-10 w-full rounded-lg text-xs font-black ${selectingZonePins ? 'bg-violet-700 text-white' : 'border border-violet-300 bg-white text-violet-800'}`}>{selectingZonePins ? 'ピン選択を終了' : '地図でピンを選択'}</button></div>
                 <label className="block text-xs font-black text-slate-700">補足（任意）<textarea rows={2} value={zoneDraft.note || ''} onChange={(event) => setZoneDraft({ ...zoneDraft, note: event.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 p-3 text-base" /></label>
                 <label className="flex min-h-11 items-center gap-2 rounded-xl bg-slate-50 px-3 text-sm font-bold"><input type="checkbox" checked={zoneDraft.active} onChange={(event) => setZoneDraft({ ...zoneDraft, active: event.target.checked })} className="h-5 w-5 accent-violet-600" />自動配車で使用する</label>
-                <button type="button" onClick={() => { setPlacingZoneCenter(true); setManualSourceId(''); setPendingManual(undefined); setMapMode('detail'); }} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-violet-200 bg-violet-50 text-sm font-black text-violet-800"><LocateFixed className="h-4 w-4" />中心を地図で選び直す</button>
+                <button type="button" onClick={() => { setPlacingZoneCenter(true); setSelectingZonePins(false); setManualSourceId(''); setPendingManual(undefined); setMapMode('detail'); }} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-violet-200 bg-violet-50 text-sm font-black text-violet-800"><LocateFixed className="h-4 w-4" />範囲中心を細かく調整</button>
                 <button type="button" onClick={saveZone} disabled={saving} className="min-h-12 w-full rounded-xl bg-violet-700 text-sm font-black text-white disabled:opacity-50">範囲を保存</button>
               </div>
             </section>
@@ -461,7 +530,7 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
 
           <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between gap-2"><h4 className="font-black text-slate-950">優先範囲</h4>{canManage && <button type="button" onClick={beginNewZone} className="rounded-lg bg-slate-100 p-2" aria-label="優先範囲を追加"><Plus className="h-4 w-4" /></button>}</div>
-            <div className="mt-3 space-y-2">{[...zones].sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name, 'ja')).map((zone) => <article key={zone.id} className={`rounded-xl border p-3 ${zone.active ? 'border-slate-200' : 'border-dashed border-slate-300 opacity-60'}`}><div className="flex items-start gap-2"><span className="mt-1 h-4 w-4 shrink-0 rounded-full" style={{ backgroundColor: zone.color }} /><div className="min-w-0 flex-1"><strong className="block truncate text-sm text-slate-900">{zone.name}</strong><span className="text-[10px] font-bold text-slate-500">優先 {zone.priority}・半径 {zone.radiusKm}km{zone.active ? '' : '・停止中'}</span></div>{canManage && <><button type="button" onClick={() => { setZoneDraft({ ...zone }); setPlacingZoneCenter(false); setManualSourceId(''); }} className="grid h-8 w-8 place-items-center rounded-lg bg-slate-100" aria-label={`${zone.name}を編集`}><PencilLine className="h-3.5 w-3.5" /></button><button type="button" onClick={() => removeZone(zone)} className="grid h-8 w-8 place-items-center rounded-lg bg-rose-50 text-rose-700" aria-label={`${zone.name}を削除`}><Trash2 className="h-3.5 w-3.5" /></button></>}</div></article>)}{zones.length === 0 && <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-500">まだ範囲はありません。地図を見ながら追加できます。</p>}</div>
+            <div className="mt-3 space-y-2">{[...zones].sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name, 'ja')).map((zone) => <article key={zone.id} className={`rounded-xl border p-3 ${zone.active ? 'border-slate-200' : 'border-dashed border-slate-300 opacity-60'}`}><div className="flex items-start gap-2"><span className="mt-1 h-4 w-4 shrink-0 rounded-full" style={{ backgroundColor: zone.color }} /><div className="min-w-0 flex-1"><strong className="block truncate text-sm text-slate-900">{zone.name}</strong><span className="text-[10px] font-bold text-slate-500">優先 {zone.priority}・選択 {zone.locationIds?.length || 0}地点・半径 {zone.radiusKm}km{zone.active ? '' : '・停止中'}</span></div>{canManage && <><button type="button" onClick={() => { setZoneDraft({ ...zone, locationIds: zone.locationIds || [] }); setPlacingZoneCenter(false); setSelectingZonePins(true); setMapMode('simple'); setManualSourceId(''); setMessage('追加・解除する地点のピンを選択してください。'); }} className="grid h-8 w-8 place-items-center rounded-lg bg-slate-100" aria-label={`${zone.name}を編集`}><PencilLine className="h-3.5 w-3.5" /></button><button type="button" onClick={() => removeZone(zone)} className="grid h-8 w-8 place-items-center rounded-lg bg-rose-50 text-rose-700" aria-label={`${zone.name}を削除`}><Trash2 className="h-3.5 w-3.5" /></button></>}</div></article>)}{zones.length === 0 && <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-500">まだ範囲はありません。地図を見ながら追加できます。</p>}</div>
           </section>
 
           <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">

@@ -49,7 +49,7 @@ const navigationItems = [
   { tab: 'form' as const, label: '記録作成', description: '支援経過記録を入力', icon: PlusCircle },
   { tab: 'records' as const, label: '記録一覧・確認', description: '記録の確認・修正・出力', icon: History },
   { tab: 'children' as const, label: '児童名簿', description: '児童情報と送迎先', icon: Users },
-  { tab: 'templates' as const, label: '設定', description: 'AI文章と記録フォーマット', icon: Settings, managerOnly: true },
+  { tab: 'templates' as const, label: '設定', description: '記録・学校・送迎の共通設定', icon: Settings, managerOnly: true },
   { tab: 'team' as const, label: '職員', description: '職員・権限・記録者', icon: ShieldCheck, managerOnly: true },
 ];
 

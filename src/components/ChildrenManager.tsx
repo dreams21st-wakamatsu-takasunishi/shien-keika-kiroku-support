@@ -4,6 +4,7 @@ import {
   ChildTransportLocation,
   ChildTransportSchedule,
   DEFAULT_TRANSPORT_ROUTE_SETTINGS,
+  SchoolProfile,
   TransportDirection,
   TransportLocationType,
   TransportRouteSettings,
@@ -36,6 +37,7 @@ import { ChildTransportSettings } from './ChildTransportSettings';
 
 interface ChildrenManagerProps {
   childrenList: ChildProfile[];
+  schools?: SchoolProfile[];
   transportRouteSettings?: TransportRouteSettings;
   onAddChild: (child: ChildProfile) => void;
   onUpdateChild: (child: ChildProfile) => void;
@@ -145,6 +147,7 @@ const loadRosterPreferences = (): RosterPreferences => {
 
 export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   childrenList,
+  schools = [],
   transportRouteSettings = DEFAULT_TRANSPORT_ROUTE_SETTINGS,
   onAddChild,
   onUpdateChild,
@@ -175,6 +178,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   const [serviceSuspended, setServiceSuspended] = useState(false);
   const [transportProgram, setTransportProgram] = useState<'小学部' | 'キャリアズ'>('小学部');
   const [transportationRequired, setTransportationRequired] = useState(false);
+  const [schoolId, setSchoolId] = useState<string>();
   const [siblingIds, setSiblingIds] = useState<string[]>([]);
   const [transportSchedule, setTransportSchedule] = useState<ChildTransportSchedule[]>([]);
   const [transportLocations, setTransportLocations] = useState<ChildTransportLocation[]>([]);
@@ -202,6 +206,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setServiceSuspended(false);
     setTransportProgram('小学部');
     setTransportationRequired(false);
+    setSchoolId(undefined);
     setSiblingIds([]);
     setTransportSchedule([]);
     setTransportLocations([]);
@@ -222,6 +227,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setServiceSuspended(Boolean(child.serviceSuspended));
     setTransportProgram(child.transportProgram || (child.grade?.startsWith('小学') || child.grade === '未就学' ? '小学部' : 'キャリアズ'));
     setTransportationRequired(Boolean(child.transportationRequired));
+    setSchoolId(child.schoolId);
     setSiblingIds(buildSiblingIdsByChild(childrenList).get(child.id) || []);
     setTransportSchedule((child.transportSchedule || []).map((schedule) => ({ ...schedule })));
     setTransportLocations(getCanonicalTransportLocations(child));
@@ -298,6 +304,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         transportProgram,
         transportationRequired,
         schoolName: schoolLocation?.name || undefined,
+        schoolId,
         siblingIds,
         siblingGroup: undefined,
         transportSchedule,
@@ -322,6 +329,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         transportProgram,
         transportationRequired,
         schoolName: schoolLocation?.name || undefined,
+        schoolId,
         siblingIds,
         siblingGroup: undefined,
         transportSchedule,
@@ -362,6 +370,33 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     const created = { ...location, defaultDirections: nextDefaultDirections };
     setTransportLocations((previous) => [...previous, created]);
     setExpandedTransportLocationId(created.id);
+    setFormError('');
+  };
+
+  const selectSchool = (nextSchoolId?: string) => {
+    setSchoolId(nextSchoolId);
+    const school = schools.find((candidate) => candidate.id === nextSchoolId);
+    setTransportLocations((previous) => {
+      const withoutLinkedSchool = previous.filter((location) => !location.schoolId);
+      if (!school) return withoutLinkedSchool;
+      const existingSchool = previous.find((location) => location.schoolId === school.id)
+        || previous.find((location) => location.type === '学校');
+      const linked: ChildTransportLocation = {
+        ...(existingSchool || createTransportLocation('学校')),
+        id: existingSchool?.id || `school-location-${school.id}`,
+        schoolId: school.id,
+        name: school.name,
+        type: '学校',
+        address: school.address,
+        area: school.area,
+        directions: existingSchool?.directions.length ? existingSchool.directions : ['迎え'],
+        defaultDirections: existingSchool?.defaultDirections?.length
+          ? existingSchool.defaultDirections
+          : withoutLinkedSchool.some((location) => location.defaultDirections?.includes('迎え')) ? [] : ['迎え'],
+        autoSelect: true,
+      };
+      return [...withoutLinkedSchool.filter((location) => location.id !== existingSchool?.id), linked];
+    });
     setFormError('');
   };
 
@@ -982,6 +1017,9 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                 schedule={transportSchedule}
                 onScheduleChange={(day, patch) => setTransportSchedule((current) => updateTransportSchedule(current, day, patch))}
                 locations={transportLocations}
+                schools={schools}
+                selectedSchoolId={schoolId}
+                onSchoolChange={selectSchool}
                 expandedLocationId={expandedTransportLocationId}
                 onExpandedLocationChange={setExpandedTransportLocationId}
                 onAddLocation={addTransportLocation}

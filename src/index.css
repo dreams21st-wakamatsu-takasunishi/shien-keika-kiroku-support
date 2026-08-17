@@ -157,6 +157,10 @@ summary::-webkit-details-marker {
   background-size: 36px 36px, 36px 36px, 100% 100% !important;
 }
 
+.transport-map-muted-tiles {
+  filter: grayscale(0.72) saturate(0.55) brightness(1.12) contrast(0.82);
+}
+
 .transport-map-label,
 .transport-zone-label {
   border: 0 !important;

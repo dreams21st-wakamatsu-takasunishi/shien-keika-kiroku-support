@@ -15,6 +15,7 @@ import type {
   ChildProfile,
   ChildTransportLocation,
   ChildTransportSchedule,
+  SchoolProfile,
   TransportDirection,
   TransportLocationType,
   TransportRouteSettings,
@@ -36,6 +37,9 @@ interface ChildTransportSettingsProps {
   schedule: ChildTransportSchedule[];
   onScheduleChange: (day: Weekday, patch: Partial<ChildTransportSchedule>) => void;
   locations: ChildTransportLocation[];
+  schools: SchoolProfile[];
+  selectedSchoolId?: string;
+  onSchoolChange: (schoolId?: string) => void;
   expandedLocationId?: string;
   onExpandedLocationChange: (id?: string) => void;
   onAddLocation: (type: TransportLocationType) => void;
@@ -72,6 +76,9 @@ export const ChildTransportSettings: React.FC<ChildTransportSettingsProps> = ({
   schedule,
   onScheduleChange,
   locations,
+  schools,
+  selectedSchoolId,
+  onSchoolChange,
   expandedLocationId,
   onExpandedLocationChange,
   onAddLocation,
@@ -166,6 +173,20 @@ export const ChildTransportSettings: React.FC<ChildTransportSettingsProps> = ({
 
       {enabled && (
         <div className="space-y-4 p-3 sm:p-4">
+          <section className="rounded-2xl border border-sky-200 bg-sky-50 p-3 sm:p-4">
+            <div className="flex items-start gap-3">
+              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white text-sky-700 shadow-sm"><School className="h-5 w-5" /></span>
+              <div className="min-w-0 flex-1">
+                <label className="block text-sm font-black text-slate-900">所属学校
+                  <select value={selectedSchoolId || ''} onChange={(event) => onSchoolChange(event.target.value || undefined)} className="mt-1.5 min-h-11 w-full rounded-xl border border-sky-300 bg-white px-3 text-sm font-bold">
+                    <option value="">学校台帳から選択</option>
+                    {schools.filter((school) => school.active || school.id === selectedSchoolId).map((school) => <option key={school.id} value={school.id}>{school.name}</option>)}
+                  </select>
+                </label>
+                <p className="mt-1.5 text-[10px] leading-relaxed text-sky-900">選択すると学校名・住所・送迎エリアを自動反映します。学校の追加・住所変更は「設定 → 学校台帳」で一度だけ行います。</p>
+              </div>
+            </div>
+          </section>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             <div className="rounded-xl border border-sky-200 bg-sky-50 p-3"><span className="text-[10px] font-black text-sky-700">通常の迎え先</span><strong className="mt-1 block truncate text-sm text-slate-900">{defaultLocationName(locations, '迎え')}</strong></div>
             <div className="rounded-xl border border-violet-200 bg-violet-50 p-3"><span className="text-[10px] font-black text-violet-700">通常の送り先</span><strong className="mt-1 block truncate text-sm text-slate-900">{defaultLocationName(locations, '送り')}</strong></div>
@@ -200,7 +221,7 @@ export const ChildTransportSettings: React.FC<ChildTransportSettingsProps> = ({
                         <span className="mt-1 block truncate text-[10px] text-slate-500">{location.address || '住所未入力'}{location.area ? `・${location.area}` : ''}</span>
                       </button>
                       <button type="button" onClick={() => onExpandedLocationChange(expanded ? undefined : location.id)} aria-label={expanded ? '送迎先を閉じる' : '送迎先を編集'} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-slate-50">{expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}</button>
-                      <button type="button" onClick={() => { if ((!location.name && !location.address) || window.confirm(`${location.name || 'この送迎先'}を削除しますか？`)) onDeleteLocation(location.id); }} aria-label="送迎先を削除" className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-rose-50 text-rose-600"><Trash2 className="h-4 w-4" /></button>
+                      {!location.schoolId && <button type="button" onClick={() => { if ((!location.name && !location.address) || window.confirm(`${location.name || 'この送迎先'}を削除しますか？`)) onDeleteLocation(location.id); }} aria-label="送迎先を削除" className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-rose-50 text-rose-600"><Trash2 className="h-4 w-4" /></button>}
                     </div>
 
                     {expanded && (
@@ -208,12 +229,12 @@ export const ChildTransportSettings: React.FC<ChildTransportSettingsProps> = ({
                         <div>
                           <p className="text-[10px] font-black uppercase tracking-wide text-teal-700">基本情報</p>
                           <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_10rem]">
-                            <label className="text-xs font-bold text-slate-700">送迎先の名称<input value={location.name} onChange={(event) => onUpdateLocation(location.id, { name: event.target.value })} placeholder="例：高須小学校 正門" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm" /></label>
-                            <label className="text-xs font-bold text-slate-700">場所の区分<select value={location.type} onChange={(event) => onUpdateLocation(location.id, { type: event.target.value as TransportLocationType })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-bold">{LOCATION_TYPES.map((type) => <option key={type}>{type}</option>)}</select></label>
+                            <label className="text-xs font-bold text-slate-700">送迎先の名称<input value={location.name} disabled={Boolean(location.schoolId)} onChange={(event) => onUpdateLocation(location.id, { name: event.target.value })} placeholder="例：高須小学校 正門" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm disabled:bg-sky-50" /></label>
+                            <label className="text-xs font-bold text-slate-700">場所の区分<select value={location.type} disabled={Boolean(location.schoolId)} onChange={(event) => onUpdateLocation(location.id, { type: event.target.value as TransportLocationType })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-bold disabled:bg-sky-50">{LOCATION_TYPES.map((type) => <option key={type}>{type}</option>)}</select></label>
                           </div>
                           <div className="mt-2 grid gap-2 sm:grid-cols-[minmax(0,1fr)_12rem]">
-                            <label className="text-xs font-bold text-slate-700">住所・乗降場所<input value={location.address} onChange={(event) => { const address = event.target.value; onUpdateLocation(location.id, { address, area: inferTransportArea(address) || '' }); }} placeholder="都道府県・市区町村・番地、門や入口" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm" /></label>
-                            <label className="text-xs font-bold text-slate-700">送迎エリア（住所から自動）<div className="mt-1 flex gap-1.5"><input value={location.area || ''} onChange={(event) => onUpdateLocation(location.id, { area: event.target.value })} placeholder="住所入力後に自動反映" className="min-h-11 min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-3 text-sm" /><button type="button" disabled={!inferTransportArea(location.address)} onClick={() => onUpdateLocation(location.id, { area: inferTransportArea(location.address) })} className="shrink-0 rounded-xl border border-teal-300 bg-teal-50 px-2 text-[10px] font-black text-teal-800 disabled:opacity-40">再判定</button></div><span className="mt-1 block text-[9px] font-normal text-slate-500">区・市町村・町域から自動判定します。必要な場合は直接修正できます。</span></label>
+                            <label className="text-xs font-bold text-slate-700">住所・乗降場所<input value={location.address} disabled={Boolean(location.schoolId)} onChange={(event) => { const address = event.target.value; onUpdateLocation(location.id, { address, area: inferTransportArea(address) || '' }); }} placeholder="都道府県・市区町村・番地、門や入口" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm disabled:bg-sky-50" />{location.schoolId && <span className="mt-1 block text-[9px] font-bold text-sky-700">学校台帳と連動しています</span>}</label>
+                            <label className="text-xs font-bold text-slate-700">送迎エリア（住所から自動）<div className="mt-1 flex gap-1.5"><input value={location.area || ''} disabled={Boolean(location.schoolId)} onChange={(event) => onUpdateLocation(location.id, { area: event.target.value })} placeholder="住所入力後に自動反映" className="min-h-11 min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-3 text-sm disabled:bg-sky-50" /><button type="button" disabled={Boolean(location.schoolId) || !inferTransportArea(location.address)} onClick={() => onUpdateLocation(location.id, { area: inferTransportArea(location.address) })} className="shrink-0 rounded-xl border border-teal-300 bg-teal-50 px-2 text-[10px] font-black text-teal-800 disabled:opacity-40">再判定</button></div><span className="mt-1 block text-[9px] font-normal text-slate-500">区・市町村・町域から自動判定します。必要な場合は直接修正できます。</span></label>
                           </div>
                         </div>
 

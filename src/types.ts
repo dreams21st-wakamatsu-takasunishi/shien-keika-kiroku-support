@@ -30,6 +30,8 @@ export type TransportLocationType =
 
 export interface ChildTransportLocation {
   id: string;
+  /** Shared school ledger reference. When present, name/address/area follow the school entry. */
+  schoolId?: string;
   name: string;
   type: TransportLocationType;
   address: string;
@@ -46,8 +48,9 @@ export interface ChildTransportLocation {
 
 export interface TransportMapLocation {
   id: string;
-  sourceType: 'facility' | 'child';
+  sourceType: 'facility' | 'child' | 'school';
   childId?: string;
+  schoolId?: string;
   locationProfileId?: string;
   locationName: string;
   locationType: TransportLocationType | '事業所';
@@ -68,9 +71,22 @@ export interface TransportAreaZone {
   radiusKm: number;
   priority: number;
   active: boolean;
+  /** Pins explicitly selected for this dispatch group. Circular inclusion remains as a fallback. */
+  locationIds?: string[];
   note?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface SchoolProfile {
+  id: string;
+  name: string;
+  address: string;
+  area?: string;
+  note?: string;
+  active: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface TransportGeocodeRequestLocation {
@@ -246,6 +262,7 @@ export interface ChildProfile {
   transportProgram?: '小学部' | 'キャリアズ';
   transportationRequired?: boolean;
   schoolName?: string;
+  schoolId?: string;
   /** Registered child IDs belonging to the same sibling/household group. */
   siblingIds?: string[];
   /** @deprecated Legacy free-text grouping. Use siblingIds for new edits. */

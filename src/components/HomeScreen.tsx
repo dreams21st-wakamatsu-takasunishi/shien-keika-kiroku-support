@@ -37,6 +37,7 @@ import type {
   MonthlyScheduleDeleteResult,
   RecordDraftSummary,
   RecorderProfile,
+  SchoolProfile,
   StaffScheduleItem,
   SupportRecord,
   TransportRun,
@@ -69,6 +70,7 @@ interface HomeScreenProps {
   announcements: Announcement[];
   announcementConfirmations: AnnouncementConfirmation[];
   childrenList: ChildProfile[];
+  schools: SchoolProfile[];
   drafts: RecordDraftSummary[];
   recorderProfiles: RecorderProfile[];
   staffScheduleItems: StaffScheduleItem[];
@@ -152,6 +154,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   announcements,
   announcementConfirmations,
   childrenList,
+  schools,
   drafts,
   recorderProfiles,
   staffScheduleItems,
@@ -398,6 +401,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             transportAreaZones={transportAreaZones}
             recorderProfiles={recorderProfiles}
             childrenList={childrenList}
+            schools={schools}
             activeRecorder={activeRecorder}
             canManage={canManageSettings}
             onSaveStaffSchedule={onSaveStaffSchedule}

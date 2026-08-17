@@ -1,25 +1,49 @@
 import React, { useState } from 'react';
-import { ArrowLeft, BrainCircuit, ChevronRight, ListChecks, Settings } from 'lucide-react';
-import type { AiWritingSettings, Template } from '../types';
+import { ArrowLeft, BrainCircuit, ChevronRight, ListChecks, MapPinned, School, Settings } from 'lucide-react';
+import type { AiWritingSettings, ChildProfile, SchoolProfile, Template, TransportAreaZone, TransportMapLocation } from '../types';
 import { AISettingsEditor } from './AISettingsEditor';
+import { SchoolManager } from './SchoolManager';
 import { TemplateEditor } from './TemplateEditor';
+
+const TransportMapPanel = React.lazy(() => import('./TransportMapPanel')
+  .then((module) => ({ default: module.TransportMapPanel })));
 
 interface SettingsHubProps {
   aiWritingSettings: AiWritingSettings;
   templates: Template[];
+  childrenList: ChildProfile[];
+  schools: SchoolProfile[];
+  facilityAddress: string;
+  mapLocations: TransportMapLocation[];
+  areaZones: TransportAreaZone[];
   onSaveAiWritingSettings: (settings: AiWritingSettings) => void;
   onSaveTemplate: (template: Template) => void;
   onDeleteTemplate: (templateId: string) => void;
+  onSaveSchool: (school: SchoolProfile) => Promise<void> | void;
+  onDeleteSchool: (schoolId: string) => Promise<void> | void;
+  onSaveMapLocation: (location: TransportMapLocation) => Promise<void> | void;
+  onSaveAreaZone: (zone: TransportAreaZone) => Promise<void> | void;
+  onDeleteAreaZone: (zoneId: string) => Promise<void> | void;
 }
 
-type SettingsPage = 'menu' | 'ai' | 'templates';
+type SettingsPage = 'menu' | 'ai' | 'templates' | 'schools' | 'transportMap';
 
 export const SettingsHub: React.FC<SettingsHubProps> = ({
   aiWritingSettings,
   templates,
+  childrenList,
+  schools,
+  facilityAddress,
+  mapLocations,
+  areaZones,
   onSaveAiWritingSettings,
   onSaveTemplate,
   onDeleteTemplate,
+  onSaveSchool,
+  onDeleteSchool,
+  onSaveMapLocation,
+  onSaveAreaZone,
+  onDeleteAreaZone,
 }) => {
   const [page, setPage] = useState<SettingsPage>('menu');
 
@@ -31,9 +55,10 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
             <ArrowLeft className="w-4 h-4" />設定メニュー
           </button>
         </div>
-        {page === 'ai'
-          ? <AISettingsEditor settings={aiWritingSettings} onSave={onSaveAiWritingSettings} />
-          : <TemplateEditor templates={templates} onSaveTemplate={onSaveTemplate} onDeleteTemplate={onDeleteTemplate} />}
+        {page === 'ai' && <AISettingsEditor settings={aiWritingSettings} onSave={onSaveAiWritingSettings} />}
+        {page === 'templates' && <TemplateEditor templates={templates} onSaveTemplate={onSaveTemplate} onDeleteTemplate={onDeleteTemplate} />}
+        {page === 'schools' && <SchoolManager schools={schools} childrenList={childrenList} onSave={onSaveSchool} onDelete={onDeleteSchool} />}
+        {page === 'transportMap' && <React.Suspense fallback={<div className="rounded-2xl bg-white p-8 text-center text-sm font-bold text-slate-500">送迎地図を読み込んでいます…</div>}><TransportMapPanel childrenList={childrenList} schools={schools} facilityAddress={facilityAddress} locations={mapLocations} zones={areaZones} canManage onSaveLocation={onSaveMapLocation} onSaveZone={onSaveAreaZone} onDeleteZone={onDeleteAreaZone} /></React.Suspense>}
       </div>
     );
   }
@@ -44,8 +69,25 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
         <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-white/10 text-teal-300"><Settings className="w-6 h-6" /></span>
         <div>
           <h2 className="text-lg font-black">設定</h2>
-          <p className="mt-0.5 text-xs text-slate-300">記録の入力方法とAI文章を管理します。</p>
+          <p className="mt-0.5 text-xs text-slate-300">記録・学校・送迎地点など、事業所で共通利用する情報を管理します。</p>
         </div>
+      </section>
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-100 bg-sky-50 px-4 py-2.5">
+          <p className="text-[10px] font-black uppercase tracking-[0.16em] text-sky-700">事業所・送迎の設定</p>
+        </div>
+        <SettingsCard
+          icon={School}
+          title="学校台帳"
+          description={`${schools.filter((school) => school.active).length}校を登録中。住所を児童情報・送迎・地図で共通利用します。`}
+          onClick={() => setPage('schools')}
+        />
+        <SettingsCard
+          icon={MapPinned}
+          title="送迎地点・優先エリア"
+          description="住所から反映したピンを選び、同じ送迎車へまとめたい範囲を色分けします。"
+          onClick={() => setPage('transportMap')}
+        />
       </section>
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 bg-slate-50 px-4 py-2.5">

@@ -19,6 +19,7 @@ import type {
   DailyChildPlan,
   DailyTransportRequirement,
   RecorderProfile,
+  SchoolProfile,
   StaffScheduleItem,
   TransportRun,
   TransportAssignmentChangeInput,
@@ -51,6 +52,7 @@ interface TodayWorkPanelProps {
   transportAreaZones: TransportAreaZone[];
   recorderProfiles: RecorderProfile[];
   childrenList: ChildProfile[];
+  schools: SchoolProfile[];
   dailyChildPlans: DailyChildPlan[];
   activeRecorder?: RecorderProfile;
   canManage: boolean;
@@ -88,6 +90,7 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
   transportAreaZones,
   recorderProfiles,
   childrenList,
+  schools,
   dailyChildPlans,
   activeRecorder,
   canManage,
@@ -201,6 +204,7 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
           areaZones={transportAreaZones}
           recorderProfiles={recorderProfiles}
           childrenList={childrenList}
+          schools={schools}
           dailyChildPlans={dailyChildPlans}
           transportPlanDays={transportPlanDays}
           dailyTransportRequirements={dailyTransportRequirements}

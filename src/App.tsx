@@ -25,6 +25,7 @@ import {
   RecorderMenuPreferences,
   RecorderProfile,
   ReviewIssue,
+  SchoolProfile,
   StaffScheduleItem,
   SupportPlan,
   SupportRecord,
@@ -75,6 +76,7 @@ import {
   deleteHandoverConfirmation,
   deleteMorningMeetingConfirmation,
   deleteRecordDraft,
+  deleteSchool,
   deleteStaffScheduleItem,
   deleteTransportRun,
   deleteTransportAreaZone,
@@ -94,6 +96,7 @@ import {
   saveMorningMeetingTemplate,
   saveRecord,
   saveRecords,
+  saveSchool,
   saveRecorderMenuPreferences,
   saveStaffScheduleItem,
   saveAiWritingSettings,
@@ -248,6 +251,11 @@ export default function App() {
   });
   const [transportMapLocations, setTransportMapLocations] = useState<TransportMapLocation[]>([]);
   const [transportAreaZones, setTransportAreaZones] = useState<TransportAreaZone[]>([]);
+  const [schools, setSchools] = useState<SchoolProfile[]>(() => {
+    if (remoteMode) return [];
+    const saved = localStorage.getItem('support_schools_data');
+    return saved ? JSON.parse(saved) : [];
+  });
   const [announcements, setAnnouncements] = useState<Announcement[]>(() => {
     if (remoteMode) return [];
     const saved = localStorage.getItem('support_announcements_data');
@@ -441,6 +449,9 @@ export default function App() {
   useEffect(() => {
     if (!remoteMode) localStorage.setItem('support_transport_route_settings_data', JSON.stringify(transportRouteSettings));
   }, [transportRouteSettings, remoteMode]);
+  useEffect(() => {
+    if (!remoteMode) localStorage.setItem('support_schools_data', JSON.stringify(schools));
+  }, [remoteMode, schools]);
 
   const refreshRemoteData = useCallback(async (showLoading = true) => {
     if (!auth.profile) return;
@@ -479,6 +490,7 @@ export default function App() {
           setDailyTransportRequirements([]);
           setTransportMapLocations([]);
           setTransportAreaZones([]);
+          setSchools([]);
           setPendingSyncs([]);
           setDataError(null);
           return;
@@ -496,6 +508,7 @@ export default function App() {
         setRecords(mergePendingRecords(workspace.records, queued));
         setTemplates(workspace.templates.filter((template) => template.id !== UNIFIED_TEMPLATE_ID));
         setChildrenList(workspace.children);
+        setSchools(workspace.schools);
         setRecorderProfiles(workspace.recorderProfiles);
         setHandoverItems(workspace.handoverItems);
         setHandoverConfirmations(workspace.handoverConfirmations);
@@ -689,6 +702,7 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_route_settings', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_map_locations', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_area_zones', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'schools', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .subscribe();
     return () => {
       if (remoteRefreshTimerRef.current !== null) {
@@ -1495,6 +1509,39 @@ export default function App() {
     }
   };
 
+  const handleSaveSchool = async (school: SchoolProfile) => {
+    if (!canManageSettings) throw new Error('学校台帳を変更できるのは児発管または管理者です。');
+    try {
+      if (organizationId) await saveSchool(organizationId, school);
+      setSchools((previous) => [school, ...previous.filter((candidate) => candidate.id !== school.id)]
+        .sort((left, right) => left.name.localeCompare(right.name, 'ja')));
+      setChildrenList((previous) => previous.map((child) => {
+        if (child.schoolId !== school.id) return child;
+        return {
+          ...child,
+          schoolName: school.name,
+          transportLocations: (child.transportLocations || []).map((location) => location.schoolId === school.id
+            ? { ...location, schoolId: school.id, name: school.name, address: school.address, area: school.area }
+            : location),
+        };
+      }));
+    } catch (error) {
+      persistError(error);
+      throw error;
+    }
+  };
+
+  const handleDeleteSchool = async (schoolId: string) => {
+    if (!canManageSettings) throw new Error('学校台帳を変更できるのは児発管または管理者です。');
+    try {
+      if (organizationId) await deleteSchool(organizationId, schoolId);
+      setSchools((previous) => previous.filter((school) => school.id !== schoolId));
+    } catch (error) {
+      persistError(error);
+      throw error;
+    }
+  };
+
   const handleUpdateTransportStatus = async (run: TransportRun, recorder: RecorderProfile, pin: string, status: TransportRunStatus) => {
     try {
       if (organizationId) await updateTransportRunStatus(organizationId, run.id, recorder.id, pin, status);
@@ -1971,6 +2018,7 @@ export default function App() {
             announcements={announcements}
             announcementConfirmations={announcementConfirmations}
             childrenList={childrenList}
+            schools={schools}
             drafts={recordDrafts}
             recorderProfiles={recorderProfiles}
             staffScheduleItems={staffScheduleItems}
@@ -2115,7 +2163,7 @@ export default function App() {
           />
         )}
         {activeTab === 'children' && (
-          <ChildrenManager childrenList={childrenList} transportRouteSettings={transportRouteSettings} onAddChild={handleAddChild} onUpdateChild={handleUpdateChild} onDeleteChild={handleDeleteChild} />
+          <ChildrenManager childrenList={childrenList} schools={schools} transportRouteSettings={transportRouteSettings} onAddChild={handleAddChild} onUpdateChild={handleUpdateChild} onDeleteChild={handleDeleteChild} />
         )}
         {FEATURE_FLAGS.supportPlansAndFiveDomains && activeTab === 'plans' && (
           <SupportPlanManager childrenList={childrenList} supportPlans={supportPlans} canEdit={canManageSettings} onSavePlan={handleSavePlan} onClosePlan={handleClosePlan} />
@@ -2124,9 +2172,19 @@ export default function App() {
           <SettingsHub
             aiWritingSettings={aiWritingSettings}
             templates={templates}
+            childrenList={childrenList}
+            schools={schools}
+            facilityAddress={transportRouteSettings.facilityAddress}
+            mapLocations={transportMapLocations}
+            areaZones={transportAreaZones}
             onSaveAiWritingSettings={handleSaveAiWritingSettings}
             onSaveTemplate={handleSaveTemplate}
             onDeleteTemplate={handleDeleteTemplate}
+            onSaveSchool={handleSaveSchool}
+            onDeleteSchool={handleDeleteSchool}
+            onSaveMapLocation={handleSaveTransportMapLocation}
+            onSaveAreaZone={handleSaveTransportAreaZone}
+            onDeleteAreaZone={handleDeleteTransportAreaZone}
           />
         )}
         {activeTab === 'team' && auth.profile && canReview && <TeamManager currentUser={auth.profile} />}
