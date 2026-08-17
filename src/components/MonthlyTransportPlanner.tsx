@@ -248,7 +248,6 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
   const [error, setError] = useState('');
   const [holidayRangeOpen, setHolidayRangeOpen] = useState(false);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
-  const [bulkDeleteTarget, setBulkDeleteTarget] = useState('');
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [attendanceSavingChildId, setAttendanceSavingChildId] = useState<string>();
   const [monthChildId, setMonthChildId] = useState('');
@@ -311,7 +310,6 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
     setHolidayFrom(first);
     setHolidayTo(monthDates(value).at(-1) || first);
     setBulkDeleteOpen(false);
-    setBulkDeleteTarget('');
     selectDate(first);
   };
 
@@ -510,22 +508,18 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
 
   const deleteMonthSchedules = async () => {
     if (!canManage || bulkDeleting) return;
-    const childId = bulkDeleteTarget === 'all' ? undefined : bulkDeleteTarget || undefined;
-    if (!bulkDeleteTarget) return setError('一括削除する児童、または「全児童」を選択してください。');
-    const child = childId ? childrenList.find((candidate) => candidate.id === childId) : undefined;
-    const targetKeys = [...monthRegisteredScheduleKeys].filter((key) => !childId || key.startsWith(`${childId}:`));
+    const targetKeys = [...monthRegisteredScheduleKeys];
     if (targetKeys.length === 0) return setError(`${month}に削除できる登録予定はありません。`);
     const [year, monthNumber] = month.split('-');
-    const targetLabel = child ? child.name : '全児童';
-    if (!window.confirm(`${year}年${Number(monthNumber)}月の${targetLabel}の登録予定 ${targetKeys.length}件を一括削除しますか？\n\n日別の利用予定と送迎条件を削除します。保存済みの支援記録・児童名簿・作成済みの送迎便は削除しません。`)) return;
+    if (!window.confirm(`${year}年${Number(monthNumber)}月の全児童の登録予定 ${targetKeys.length}件を一括削除しますか？\n\n選択中の月に登録された、全児童の日別利用予定と送迎条件を削除します。保存済みの支援記録・児童名簿・作成済みの送迎便は削除しません。`)) return;
 
     setBulkDeleting(true);
     setError('');
     setMessage('');
     try {
-      const result = await onDeleteMonthSchedules(month, childId);
+      const result = await onDeleteMonthSchedules(month);
       if (selectedDate.startsWith(month)) {
-        setDrafts((current) => childId ? current.filter((item) => item.childId !== childId) : []);
+        setDrafts([]);
         setExpandedChildId(undefined);
         setDayDraft((current) => ({
           ...current,
@@ -536,8 +530,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
         }));
       }
       setBulkDeleteOpen(false);
-      setBulkDeleteTarget('');
-      setMessage(`${year}年${Number(monthNumber)}月の${targetLabel}について、利用予定${result.dailyPlanCount}件・送迎予定${result.requirementCount}件を削除しました。`);
+      setMessage(`${year}年${Number(monthNumber)}月の全児童について、利用予定${result.dailyPlanCount}件・送迎予定${result.requirementCount}件を削除しました。`);
     } catch (deleteError) {
       setError(deleteError instanceof Error ? deleteError.message : '月間予定を一括削除できませんでした。');
     } finally {
@@ -689,24 +682,18 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
           <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
-                <p className="text-xs font-black text-rose-950">月間の登録予定を一括削除</p>
-                <p className="mt-1 text-[10px] font-bold leading-relaxed text-rose-800">日別利用予定と送迎条件だけを削除します。保存済み支援記録、児童名簿、作成済み送迎便は保持します。</p>
+                <p className="text-xs font-black text-rose-950">{Number(month.slice(5, 7))}月・全児童の登録予定を一括削除</p>
+                <p className="mt-1 text-[10px] font-bold leading-relaxed text-rose-800">選択中の月に登録された全児童の日別利用予定と送迎条件を削除します。保存済み支援記録、児童名簿、作成済み送迎便は保持します。</p>
               </div>
               <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-rose-800">登録 {monthRegisteredScheduleKeys.size}件</span>
             </div>
-            <div className="mt-3 grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-              <label className="text-[10px] font-black text-rose-950">削除対象
-                <select value={bulkDeleteTarget} onChange={(event) => setBulkDeleteTarget(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-rose-300 bg-white px-3 text-sm font-bold">
-                  <option value="">対象を選択</option>
-                  {activeChildren.map((child) => {
-                    const count = [...monthRegisteredScheduleKeys].filter((key) => key.startsWith(`${child.id}:`)).length;
-                    return count > 0 ? <option key={child.id} value={child.id}>{child.name}（{count}件）</option> : null;
-                  })}
-                  <option value="all">全児童（{monthRegisteredScheduleKeys.size}件）</option>
-                </select>
-              </label>
-              <button type="button" disabled={bulkDeleting || !bulkDeleteTarget || monthRegisteredScheduleKeys.size === 0} onClick={() => void deleteMonthSchedules()} className="flex min-h-10 items-center justify-center gap-2 rounded-lg bg-rose-700 px-4 text-xs font-black text-white disabled:opacity-40">
-                {bulkDeleting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}{bulkDeleting ? '削除中…' : '選択範囲を削除'}
+            <div className="mt-3 flex flex-col gap-2 rounded-lg border border-rose-200 bg-white p-2.5 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-[10px] font-bold text-slate-600">
+                <span className="block text-xs font-black text-slate-900">対象月：{month.replace('-', '年')}月</span>
+                <span>削除対象：全児童・登録予定 {monthRegisteredScheduleKeys.size}件</span>
+              </div>
+              <button type="button" disabled={bulkDeleting || monthRegisteredScheduleKeys.size === 0} onClick={() => void deleteMonthSchedules()} className="flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-lg bg-rose-700 px-4 text-xs font-black text-white disabled:opacity-40">
+                {bulkDeleting ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}{bulkDeleting ? '削除中…' : 'この月の全児童予定を削除'}
               </button>
             </div>
           </div>
