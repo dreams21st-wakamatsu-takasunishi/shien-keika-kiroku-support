@@ -5,6 +5,7 @@ import {
   Marker,
   Popup,
   TileLayer,
+  Tooltip,
   useMap,
   useMapEvents,
 } from 'react-leaflet';
@@ -62,6 +63,13 @@ interface PendingManualLocation {
   longitude: number;
 }
 
+interface SimpleMarkerGroup {
+  id: string;
+  latitude: number;
+  longitude: number;
+  entries: Array<{ source: SourceLocation; location: TransportMapLocation }>;
+}
+
 const DEFAULT_CENTER: [number, number] = [33.883, 130.875];
 const ZONE_COLORS = ['#0f766e', '#0284c7', '#7c3aed', '#d97706', '#dc2626', '#475569'];
 const createUuid = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -103,15 +111,25 @@ function markerColor(type: SourceLocation['locationType']) {
   return '#d97706';
 }
 
-function markerIcon(type: SourceLocation['locationType']) {
+function markerIcon(type: SourceLocation['locationType'], simple = false) {
   const color = markerColor(type);
+  const size = simple ? 28 : 20;
   return L.divIcon({
     className: '',
-    html: `<span style="display:block;width:20px;height:20px;border-radius:9999px;background:${color};border:3px solid white;box-shadow:0 2px 8px rgba(15,23,42,.38)"></span>`,
-    iconSize: [20, 20],
-    iconAnchor: [10, 10],
-    popupAnchor: [0, -10],
+    html: `<span style="display:block;width:${size}px;height:${size}px;border-radius:9999px;background:${color};border:4px solid white;box-shadow:0 3px 10px rgba(15,23,42,.32)"></span>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -(size / 2)],
   });
+}
+
+function simpleGroupLabel(group: SimpleMarkerGroup) {
+  const first = group.entries[0].source;
+  if (first.sourceType === 'facility') return '事業所';
+  const institutional = group.entries.every(({ source }) => source.locationType === '学校' || source.locationType === '学童');
+  if (institutional) return `${first.locationName}${group.entries.length > 1 ? `（${group.entries.length}名）` : ''}`;
+  if (group.entries.length === 1) return first.childName || first.locationName;
+  return `${first.childName || first.locationName}ほか${group.entries.length - 1}名`;
 }
 
 function FitMap({ points }: { points: Array<[number, number]> }) {
@@ -159,6 +177,8 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
   const [pendingManual, setPendingManual] = useState<PendingManualLocation>();
   const [zoneDraft, setZoneDraft] = useState<TransportAreaZone>();
   const [placingZoneCenter, setPlacingZoneCenter] = useState(false);
+  const [mapMode, setMapMode] = useState<'simple' | 'detail'>('simple');
+  const [showSettings, setShowSettings] = useState(false);
   const activeZones = useMemo(() => [...zones].filter((zone) => zone.active).sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name, 'ja')), [zones]);
   const center = useMemo<[number, number]>(() => {
     const facility = placed.find((entry) => entry.source.sourceType === 'facility')?.location;
@@ -171,10 +191,35 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
     }
     return DEFAULT_CENTER;
   }, [placed]);
-  const fitPoints = useMemo<Array<[number, number]>>(() => [
-    ...placed.map((entry) => [entry.location.latitude, entry.location.longitude] as [number, number]),
-    ...activeZones.map((zone) => [zone.centerLatitude, zone.centerLongitude] as [number, number]),
-  ], [activeZones, placed]);
+  const simpleMarkerGroups = useMemo<SimpleMarkerGroup[]>(() => {
+    const groups = new Map<string, SimpleMarkerGroup>();
+    placed.forEach((entry) => {
+      const key = `${entry.location.latitude.toFixed(4)}:${entry.location.longitude.toFixed(4)}`;
+      const current = groups.get(key);
+      if (current) current.entries.push(entry);
+      else groups.set(key, {
+        id: key,
+        latitude: entry.location.latitude,
+        longitude: entry.location.longitude,
+        entries: [entry],
+      });
+    });
+    return [...groups.values()];
+  }, [placed]);
+  const fitPoints = useMemo<Array<[number, number]>>(() => {
+    const points = placed.map((entry) => [entry.location.latitude, entry.location.longitude] as [number, number]);
+    activeZones.forEach((zone) => {
+      const latitudeRadius = zone.radiusKm / 111;
+      const longitudeRadius = zone.radiusKm / Math.max(30, 111 * Math.cos(zone.centerLatitude * Math.PI / 180));
+      points.push(
+        [zone.centerLatitude + latitudeRadius, zone.centerLongitude],
+        [zone.centerLatitude - latitudeRadius, zone.centerLongitude],
+        [zone.centerLatitude, zone.centerLongitude + longitudeRadius],
+        [zone.centerLatitude, zone.centerLongitude - longitudeRadius],
+      );
+    });
+    return points;
+  }, [activeZones, placed]);
   const filteredSources = useMemo(() => {
     const query = search.trim().toLocaleLowerCase('ja-JP');
     if (!query) return sources;
@@ -196,6 +241,8 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
       updatedAt: now,
     });
     setPlacingZoneCenter(true);
+    setShowSettings(true);
+    setMapMode('detail');
     setManualSourceId('');
     setPendingManual(undefined);
     setMessage('地図上で範囲の中心を選択してください。');
@@ -333,39 +380,43 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <div className="flex items-center gap-2"><MapPinned className="h-5 w-5 text-teal-700" /><h3 className="font-black text-slate-950">児童宅・学校と優先配車範囲</h3></div>
-            <p className="mt-1 text-xs leading-relaxed text-slate-500">登録住所を地図で確認し、同じ送迎便へ優先的にまとめる範囲を色付きの円で設定します。時間・定員・兄弟設定は引き続き優先されます。</p>
+            <p className="mt-1 text-xs leading-relaxed text-slate-500">簡易表示では細かな道路情報を省き、送迎地点とまとめたい範囲だけを表示します。</p>
           </div>
-          {canManage && (
-            <div className="flex flex-wrap gap-2">
-              <button type="button" onClick={geocodeUnresolved} disabled={geocoding || unresolved.length === 0} className="flex min-h-11 items-center gap-2 rounded-xl border border-teal-200 bg-teal-50 px-3 text-xs font-black text-teal-800 disabled:opacity-50">
-                {geocoding ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-                未配置住所を地図化（{unresolved.length}）
-              </button>
-              <button type="button" onClick={beginNewZone} className="flex min-h-11 items-center gap-2 rounded-xl bg-slate-900 px-3 text-xs font-black text-white"><Plus className="h-4 w-4" />優先範囲を追加</button>
+          <div className="flex flex-wrap gap-2">
+            <div className="grid min-h-11 grid-cols-2 rounded-xl bg-slate-100 p-1" aria-label="地図表示切替">
+              <button type="button" disabled={Boolean(manualSourceId || placingZoneCenter)} onClick={() => setMapMode('simple')} className={`rounded-lg px-3 text-xs font-black disabled:opacity-40 ${mapMode === 'simple' ? 'bg-white text-teal-800 shadow-sm' : 'text-slate-500'}`}>簡易表示</button>
+              <button type="button" onClick={() => setMapMode('detail')} className={`rounded-lg px-3 text-xs font-black ${mapMode === 'detail' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>詳細地図</button>
             </div>
-          )}
+            <button type="button" onClick={() => setShowSettings((current) => !current)} aria-expanded={showSettings} className={`min-h-11 rounded-xl border px-3 text-xs font-black ${showSettings ? 'border-slate-900 bg-slate-900 text-white' : 'border-slate-300 bg-white text-slate-700'}`}>{showSettings ? '設定を閉じる' : canManage ? '地点・範囲を設定' : '地点一覧を表示'}</button>
+          </div>
         </div>
-        <div className="mt-3 grid gap-2 sm:grid-cols-3">
-          <Summary label="登録地点" value={`${sources.length}件`} />
-          <Summary label="地図配置済み" value={`${placed.length}件`} tone="teal" />
-          <Summary label="優先範囲" value={`${activeZones.length}件`} tone="violet" />
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] font-black">
+          <span className="rounded-full bg-teal-50 px-3 py-1.5 text-teal-800">地図配置 {placed.length}/{sources.length}件</span>
+          <span className="rounded-full bg-violet-50 px-3 py-1.5 text-violet-800">優先範囲 {activeZones.length}件</span>
+          {unresolved.length > 0 && <span className="rounded-full bg-amber-50 px-3 py-1.5 text-amber-800">未配置 {unresolved.length}件</span>}
+          {activeZones.map((zone) => <span key={zone.id} className="rounded-full border bg-white px-3 py-1.5 text-slate-700" style={{ borderColor: zone.color }}><span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ backgroundColor: zone.color }} />{zone.name}</span>)}
         </div>
-        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold leading-relaxed text-amber-900"><ShieldAlert className="mr-1 inline h-4 w-4" />児童宅・学校の位置は個人情報です。業務上必要な範囲でのみ閲覧してください。「未配置住所を地図化」を実行した場合のみ、登録住所をGoogle Geocoding APIへ送信します。</div>
+        <p className="mt-3 text-[10px] font-bold leading-relaxed text-amber-800"><ShieldAlert className="mr-1 inline h-3.5 w-3.5" />児童宅・学校の位置は個人情報です。業務上必要な範囲でのみ閲覧してください。</p>
         {message && <p role="status" className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800"><CheckCircle2 className="mr-2 inline h-4 w-4" />{message}</p>}
         {error && <p role="alert" className="mt-3 rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-800">{error}</p>}
       </div>
 
-      <div className="grid min-w-0 gap-3 xl:grid-cols-[minmax(0,1fr)_22rem]">
-        <div className="relative min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className={`grid min-w-0 gap-3 ${showSettings ? 'xl:grid-cols-[minmax(0,1fr)_22rem]' : ''}`}>
+        <div className={`relative min-w-0 overflow-hidden rounded-2xl border border-slate-200 shadow-sm ${mapMode === 'simple' ? 'bg-slate-50' : 'bg-white'}`}>
           {(manualSourceId || placingZoneCenter) && <div className="absolute left-3 right-3 top-3 z-[500] rounded-xl bg-slate-950/95 px-4 py-3 text-sm font-black text-white shadow-xl"><Crosshair className="mr-2 inline h-5 w-5 text-teal-300" />{manualSourceId ? '地図をタップして位置を指定してください' : '地図をタップして範囲の中心を指定してください'}<button type="button" onClick={() => { setManualSourceId(''); setPendingManual(undefined); setPlacingZoneCenter(false); }} className="float-right rounded p-1" aria-label="位置指定を中止"><X className="h-4 w-4" /></button></div>}
-          <MapContainer center={center} zoom={12} scrollWheelZoom className="h-[28rem] w-full sm:h-[34rem] xl:h-[42rem]" aria-label="送迎地点マップ">
-            <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+          {mapMode === 'simple' && !(manualSourceId || placingZoneCenter) && <div className="pointer-events-none absolute left-3 top-3 z-[500] rounded-xl bg-white/95 px-3 py-2 text-[10px] font-black text-slate-600 shadow-sm">道路表示を省略中・地点を選ぶと詳細を確認できます</div>}
+          <MapContainer center={center} zoom={12} scrollWheelZoom zoomControl={mapMode === 'detail'} className={`h-[30rem] w-full sm:h-[36rem] xl:h-[44rem] ${mapMode === 'simple' ? 'transport-map-simple' : ''}`} aria-label="送迎地点マップ">
+            {mapMode === 'detail' && <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />}
             <FitMap points={fitPoints} />
             <MapClickHandler enabled={Boolean(manualSourceId || (placingZoneCenter && zoneDraft))} onClick={handleMapClick} />
-            {activeZones.map((zone) => <Circle key={zone.id} center={[zone.centerLatitude, zone.centerLongitude]} radius={zone.radiusKm * 1000} pathOptions={{ color: zone.color, fillColor: zone.color, fillOpacity: 0.16, weight: 3 }}><Popup><strong>{zone.name}</strong><br />半径 {zone.radiusKm}km・優先 {zone.priority}</Popup></Circle>)}
-            {placed.map(({ source, location }) => {
+            {activeZones.map((zone) => <Circle key={zone.id} center={[zone.centerLatitude, zone.centerLongitude]} radius={zone.radiusKm * 1000} pathOptions={{ color: zone.color, fillColor: zone.color, fillOpacity: mapMode === 'simple' ? 0.22 : 0.12, weight: mapMode === 'simple' ? 4 : 3 }}><Popup><strong>{zone.name}</strong><br />半径 {zone.radiusKm}km・優先 {zone.priority}</Popup>{mapMode === 'simple' && <Tooltip permanent direction="center" className="transport-zone-label">{zone.name}</Tooltip>}</Circle>)}
+            {mapMode === 'simple' ? simpleMarkerGroups.map((group) => {
+              const first = group.entries[0];
+              const zone = findTransportZone(first.location, activeZones);
+              return <Marker key={group.id} position={[group.latitude, group.longitude]} icon={markerIcon(first.source.locationType, true)}><Tooltip permanent direction="top" offset={[0, -13]} className="transport-map-label">{simpleGroupLabel(group)}</Tooltip><Popup><div className="min-w-44"><strong>{simpleGroupLabel(group)}</strong><p className="mt-1 text-xs font-bold" style={{ color: zone?.color || '#64748b' }}>{zone ? `優先範囲：${zone.name}` : '優先範囲外'}</p><ul className="mt-2 space-y-1 text-xs">{group.entries.map(({ source }) => <li key={source.id}>{source.childName ? `${source.childName}・` : ''}{source.locationName}</li>)}</ul></div></Popup></Marker>;
+            }) : placed.map(({ source, location }) => {
               const zone = findTransportZone(location, activeZones);
-              return <Marker key={source.id} position={[location.latitude, location.longitude]} icon={markerIcon(source.locationType)}><Popup><div className="min-w-48"><strong>{source.childName ? `${source.childName}・` : ''}{source.locationName}</strong><p>{source.locationType}</p><p className="mt-1 text-xs">{source.address}</p><p className="mt-2 font-bold" style={{ color: zone?.color || '#64748b' }}>{zone ? `優先範囲：${zone.name}` : '優先範囲外'}</p>{canManage && <button type="button" onClick={() => { setManualSourceId(source.id); setPendingManual(undefined); setPlacingZoneCenter(false); }} className="mt-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white">位置を修正</button>}</div></Popup></Marker>;
+              return <Marker key={source.id} position={[location.latitude, location.longitude]} icon={markerIcon(source.locationType)}><Popup><div className="min-w-48"><strong>{source.childName ? `${source.childName}・` : ''}{source.locationName}</strong><p>{source.locationType}</p><p className="mt-1 text-xs">{source.address}</p><p className="mt-2 font-bold" style={{ color: zone?.color || '#64748b' }}>{zone ? `優先範囲：${zone.name}` : '優先範囲外'}</p>{canManage && <button type="button" onClick={() => { setManualSourceId(source.id); setPendingManual(undefined); setPlacingZoneCenter(false); setShowSettings(true); }} className="mt-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white">位置を修正</button>}</div></Popup></Marker>;
             })}
             {pendingManual && <Marker position={[pendingManual.latitude, pendingManual.longitude]} icon={markerIcon(pendingManual.source.locationType)}><Popup>保存前の位置</Popup></Marker>}
             {zoneDraft && <Circle center={[zoneDraft.centerLatitude, zoneDraft.centerLongitude]} radius={zoneDraft.radiusKm * 1000} pathOptions={{ color: zoneDraft.color, fillColor: zoneDraft.color, fillOpacity: 0.24, dashArray: '8 6', weight: 4 }} />}
@@ -375,7 +426,16 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
           </div>
         </div>
 
-        <aside className="min-w-0 space-y-3">
+        {showSettings && <aside className="ui-panel-enter min-w-0 space-y-3">
+          {canManage && (
+            <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
+                <button type="button" onClick={geocodeUnresolved} disabled={geocoding || unresolved.length === 0} className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-teal-200 bg-teal-50 px-3 text-xs font-black text-teal-800 disabled:opacity-50">{geocoding ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}未配置住所を地図化（{unresolved.length}）</button>
+                <button type="button" onClick={beginNewZone} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-3 text-xs font-black text-white"><Plus className="h-4 w-4" />優先範囲を追加</button>
+              </div>
+              <p className="mt-2 text-[9px] leading-relaxed text-slate-500">自動地図化を実行した場合のみ、登録住所をGoogle Geocoding APIへ送信します。</p>
+            </section>
+          )}
           {pendingManual && (
             <section className="rounded-2xl border-2 border-teal-300 bg-teal-50 p-4 shadow-sm">
               <h4 className="font-black text-teal-950">この位置で保存しますか？</h4>
@@ -393,7 +453,7 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
                 <label className="block text-xs font-black text-slate-700">半径 {zoneDraft.radiusKm.toFixed(1)} km<input type="range" min="0.1" max="20" step="0.1" value={zoneDraft.radiusKm} onChange={(event) => setZoneDraft({ ...zoneDraft, radiusKm: Number(event.target.value) })} className="mt-2 w-full accent-violet-600" /></label>
                 <label className="block text-xs font-black text-slate-700">補足（任意）<textarea rows={2} value={zoneDraft.note || ''} onChange={(event) => setZoneDraft({ ...zoneDraft, note: event.target.value })} className="mt-1 w-full rounded-xl border border-slate-300 p-3 text-base" /></label>
                 <label className="flex min-h-11 items-center gap-2 rounded-xl bg-slate-50 px-3 text-sm font-bold"><input type="checkbox" checked={zoneDraft.active} onChange={(event) => setZoneDraft({ ...zoneDraft, active: event.target.checked })} className="h-5 w-5 accent-violet-600" />自動配車で使用する</label>
-                <button type="button" onClick={() => { setPlacingZoneCenter(true); setManualSourceId(''); setPendingManual(undefined); }} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-violet-200 bg-violet-50 text-sm font-black text-violet-800"><LocateFixed className="h-4 w-4" />中心を地図で選び直す</button>
+                <button type="button" onClick={() => { setPlacingZoneCenter(true); setManualSourceId(''); setPendingManual(undefined); setMapMode('detail'); }} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-violet-200 bg-violet-50 text-sm font-black text-violet-800"><LocateFixed className="h-4 w-4" />中心を地図で選び直す</button>
                 <button type="button" onClick={saveZone} disabled={saving} className="min-h-12 w-full rounded-xl bg-violet-700 text-sm font-black text-white disabled:opacity-50">範囲を保存</button>
               </div>
             </section>
@@ -410,14 +470,13 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
             <div className="ui-scrollbar mt-3 max-h-[26rem] space-y-2 overflow-y-auto pr-1">{filteredSources.map((source) => {
               const location = matchingLocation(source, locations);
               const zone = findTransportZone(location, activeZones);
-              return <article key={source.id} className="rounded-xl border border-slate-200 p-3"><div className="flex items-start gap-2"><span className="mt-1.5 h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: location ? markerColor(source.locationType) : '#cbd5e1' }} /><div className="min-w-0 flex-1"><strong className="block truncate text-sm text-slate-900">{source.childName ? `${source.childName}・` : ''}{source.locationName}</strong><span className="block truncate text-[10px] text-slate-500">{source.address}</span><span className="mt-1 block text-[10px] font-black" style={{ color: zone?.color || '#94a3b8' }}>{location ? zone?.name || '優先範囲外' : '位置未配置'}</span></div>{canManage && <button type="button" onClick={() => { setManualSourceId(source.id); setPendingManual(undefined); setPlacingZoneCenter(false); setMessage('地図上で位置を指定してください。'); }} className="shrink-0 rounded-lg border border-slate-200 px-2 py-1.5 text-[10px] font-black text-slate-700">{location ? '修正' : '手動配置'}</button>}</div></article>;
+              return <article key={source.id} className="rounded-xl border border-slate-200 p-3"><div className="flex items-start gap-2"><span className="mt-1.5 h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: location ? markerColor(source.locationType) : '#cbd5e1' }} /><div className="min-w-0 flex-1"><strong className="block truncate text-sm text-slate-900">{source.childName ? `${source.childName}・` : ''}{source.locationName}</strong><span className="block truncate text-[10px] text-slate-500">{source.address}</span><span className="mt-1 block text-[10px] font-black" style={{ color: zone?.color || '#94a3b8' }}>{location ? zone?.name || '優先範囲外' : '位置未配置'}</span></div>{canManage && <button type="button" onClick={() => { setManualSourceId(source.id); setPendingManual(undefined); setPlacingZoneCenter(false); setMapMode('detail'); setMessage('地図上で位置を指定してください。'); }} className="shrink-0 rounded-lg border border-slate-200 px-2 py-1.5 text-[10px] font-black text-slate-700">{location ? '修正' : '手動配置'}</button>}</div></article>;
             })}{filteredSources.length === 0 && <p className="py-6 text-center text-xs text-slate-400">該当する地点がありません。</p>}</div>
           </section>
-        </aside>
+        </aside>}
       </div>
     </section>
   );
 };
 
-const Summary = ({ label, value, tone = 'slate' }: { label: string; value: string; tone?: 'slate' | 'teal' | 'violet' }) => <div className={`rounded-xl border px-3 py-2 ${tone === 'teal' ? 'border-teal-200 bg-teal-50' : tone === 'violet' ? 'border-violet-200 bg-violet-50' : 'border-slate-200 bg-slate-50'}`}><span className="block text-[10px] font-bold text-slate-500">{label}</span><strong className="text-lg text-slate-950">{value}</strong></div>;
 const Legend = ({ color, label }: { color: string; label: string }) => <span className="rounded-full bg-white/95 px-2 py-1 text-slate-700 shadow"><span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ backgroundColor: color }} />{label}</span>;
