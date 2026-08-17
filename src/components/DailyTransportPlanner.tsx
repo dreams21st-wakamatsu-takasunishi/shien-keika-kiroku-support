@@ -42,6 +42,8 @@ import type {
   RecorderProfile,
   StaffScheduleItem,
   TransportDirection,
+  TransportAreaZone,
+  TransportMapLocation,
   TransportPlanDay,
   TransportMatrixResult,
   TransportRouteSettings,
@@ -57,6 +59,7 @@ import { getDefaultDepartureTime } from '../utils/transportDeparture';
 import { getLocalDateString, getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
 import { inferTransportArea, resolvedTransportArea } from '../utils/transportArea';
 import { buildSiblingGroupByChild, buildSiblingIdsByChild } from '../utils/childSiblings';
+import { findTransportMapLocation, findTransportZone } from '../utils/transportMap';
 
 interface DailyTransportPlannerProps {
   date: string;
@@ -68,6 +71,8 @@ interface DailyTransportPlannerProps {
   transportPlanDay?: TransportPlanDay;
   dailyTransportRequirements: DailyTransportRequirement[];
   routeSettings: TransportRouteSettings;
+  transportMapLocations: TransportMapLocation[];
+  transportAreaZones: TransportAreaZone[];
   staffScheduleItems: StaffScheduleItem[];
   attendanceRecords: AttendanceRecord[];
   calendarEvents: CalendarEvent[];
@@ -118,6 +123,7 @@ function childStop(
   routeSettings?: TransportRouteSettings,
   pickupMode?: TransportPlanDay['pickupMode'],
   siblingGroup?: string,
+  preferredArea?: string,
 ): TransportStop {
   const requirementAddress = direction === '迎え' ? requirement?.pickupAddress : requirement?.dropoffAddress;
   const requirementName = direction === '迎え' ? requirement?.pickupLocationName : requirement?.dropoffLocationName;
@@ -136,7 +142,7 @@ function childStop(
     locationName: requirementName || suggestion?.name,
     locationProfileId: requirementProfileId || (suggestion?.source === 'registered' ? suggestion.id : undefined),
     plannedTime: (direction === '迎え' ? requirement?.pickupTargetTime : requirement?.dropoffTargetTime) || dailyTransportTargetTime(child, date, direction, dailyPlan, routeSettings, pickupMode) || undefined,
-    area: resolvedTransportArea(
+    area: preferredArea || resolvedTransportArea(
       requirementAddress || suggestion?.address,
       requirementArea || suggestion?.area,
     ),
@@ -468,6 +474,24 @@ function resolvedPlanningLocation(
   return { key, locationType, locationName, locationAddress, locationArea };
 }
 
+function resolvedPlanningArea(
+  child: ChildProfile,
+  direction: TransportDirection,
+  date: string,
+  requirement: DailyTransportRequirement | undefined,
+  stop: TransportStop | undefined,
+  mapLocations: TransportMapLocation[],
+  zones: TransportAreaZone[],
+) {
+  const resolved = resolvedPlanningLocation(child, direction, date, requirement, stop);
+  const profileId = stop?.locationProfileId || (direction === '迎え'
+    ? requirement?.pickupLocationProfileId
+    : requirement?.dropoffLocationProfileId);
+  const mapLocation = findTransportMapLocation(mapLocations, child.id, profileId, resolved.locationAddress);
+  return findTransportZone(mapLocation, zones)?.name
+    || resolvedTransportArea(resolved.locationAddress, resolved.locationArea);
+}
+
 const ChildCardContent: React.FC<{
   child: ChildProfile;
   date: string;
@@ -686,6 +710,8 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
   transportPlanDay,
   dailyTransportRequirements,
   routeSettings,
+  transportMapLocations,
+  transportAreaZones,
   staffScheduleItems,
   attendanceRecords,
   calendarEvents,
@@ -720,12 +746,14 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         })
         .map((stop) => {
           const child = childrenList.find((candidate) => candidate.id === stop.childId);
-          return child
-            ? {
-                ...applyMonthlyRequirementToStop(stop, child, run.direction, date, requirementMap.get(child.id)),
-                siblingGroup: requirementMap.get(child.id)?.keepSiblingsTogether === false ? undefined : siblingGroupByChild.get(child.id),
-              }
-            : stop;
+          if (!child) return stop;
+          const requirement = requirementMap.get(child.id);
+          const synchronized = applyMonthlyRequirementToStop(stop, child, run.direction, date, requirement);
+          return {
+            ...synchronized,
+            area: resolvedPlanningArea(child, run.direction, date, requirement, synchronized, transportMapLocations, transportAreaZones),
+            siblingGroup: requirement?.keepSiblingsTogether === false ? undefined : siblingGroupByChild.get(child.id),
+          };
         })
         .map((stop, index) => ({ ...stop, order: index + 1 }));
       const routeInputsChanged = JSON.stringify(synchronizedStops) !== JSON.stringify(run.stops);
@@ -765,18 +793,20 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         })
         .map((stop) => {
           const child = childrenList.find((candidate) => candidate.id === stop.childId);
-          return child
-            ? {
-                ...applyMonthlyRequirementToStop(stop, child, run.direction, date, requirementMap.get(child.id)),
-                siblingGroup: requirementMap.get(child.id)?.keepSiblingsTogether === false ? undefined : siblingGroupByChild.get(child.id),
-              }
-            : stop;
+          if (!child) return stop;
+          const requirement = requirementMap.get(child.id);
+          const synchronized = applyMonthlyRequirementToStop(stop, child, run.direction, date, requirement);
+          return {
+            ...synchronized,
+            area: resolvedPlanningArea(child, run.direction, date, requirement, synchronized, transportMapLocations, transportAreaZones),
+            siblingGroup: requirement?.keepSiblingsTogether === false ? undefined : siblingGroupByChild.get(child.id),
+          };
         })
         .map((stop, index) => ({ ...stop, order: index + 1 }));
       if (JSON.stringify(synchronizedStops) === JSON.stringify(run.stops)) return run;
       return { ...run, routeOptimizedAt: undefined, stops: synchronizedStops };
     }));
-  }, [childrenList, dailyTransportRequirements, date, siblingGroupByChild]);
+  }, [childrenList, dailyTransportRequirements, date, siblingGroupByChild, transportAreaZones, transportMapLocations]);
   useEffect(() => {
     if (date < getLocalDateString()) return;
     const suspendedIds = new Set(childrenList.filter((child) => child.serviceSuspended).map((child) => child.id));
@@ -830,13 +860,13 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
     .sort((left, right) => {
       const leftRequirement = requirementByChild.get(left.id);
       const rightRequirement = requirementByChild.get(right.id);
-      const leftArea = activeDirection === '迎え' ? leftRequirement?.pickupArea : leftRequirement?.dropoffArea;
-      const rightArea = activeDirection === '迎え' ? rightRequirement?.pickupArea : rightRequirement?.dropoffArea;
+      const leftArea = resolvedPlanningArea(left, activeDirection, date, leftRequirement, undefined, transportMapLocations, transportAreaZones);
+      const rightArea = resolvedPlanningArea(right, activeDirection, date, rightRequirement, undefined, transportMapLocations, transportAreaZones);
       if (activeDirection === '迎え' && transportPlanDay?.pickupMode === 'home') return (leftArea || '').localeCompare(rightArea || '') || left.name.localeCompare(right.name);
       const leftTime = activeDirection === '迎え' ? leftRequirement?.pickupTargetTime : leftRequirement?.dropoffTargetTime;
       const rightTime = activeDirection === '迎え' ? rightRequirement?.pickupTargetTime : rightRequirement?.dropoffTargetTime;
       return minutes(leftTime) - minutes(rightTime) || (leftArea || '').localeCompare(rightArea || '') || left.name.localeCompare(right.name);
-    }), [activeDirection, poolChildren, requirementByChild, transportPlanDay?.pickupMode]);
+    }), [activeDirection, date, poolChildren, requirementByChild, transportAreaZones, transportMapLocations, transportPlanDay?.pickupMode]);
   const sharedLocationByChild = useMemo(() => {
     const groups = new Map<string, Array<{ childId: string; label: string }>>();
     directionChildren.forEach((child) => {
@@ -925,7 +955,18 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
     setDrafts((current) => current.map((run) => {
       const withoutSameDirection = run.direction === targetRun.direction ? run.stops.filter((stop) => stop.childId !== childId) : run.stops;
       if (run.id !== targetRunId) return { ...run, stops: withoutSameDirection.map((stop, index) => ({ ...stop, order: index + 1 })) };
-      const nextStop = childStop(child, run.direction, date, dayPlansByChild.get(child.id), requirementByChild.get(child.id), routeSettings, transportPlanDay?.pickupMode, siblingGroupByChild.get(child.id));
+      const requirement = requirementByChild.get(child.id);
+      const nextStop = childStop(
+        child,
+        run.direction,
+        date,
+        dayPlansByChild.get(child.id),
+        requirement,
+        routeSettings,
+        transportPlanDay?.pickupMode,
+        siblingGroupByChild.get(child.id),
+        resolvedPlanningArea(child, run.direction, date, requirement, undefined, transportMapLocations, transportAreaZones),
+      );
       return finalizeRunTimes({ ...run, routeOptimizedAt: undefined, stops: [...withoutSameDirection, { ...nextStop, order: withoutSameDirection.length + 1 }] }, transportPlanDay, routeSettings);
     }));
   };
@@ -960,6 +1001,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
             const requirement = stop.childId ? requirementByChild.get(stop.childId) : undefined;
             return {
               ...stop,
+              area: child ? resolvedPlanningArea(child, activeDirection, date, requirement, stop, transportMapLocations, transportAreaZones) : stop.area,
               siblingGroup: requirement?.keepSiblingsTogether === false ? undefined : (child ? siblingGroupByChild.get(child.id) : stop.siblingGroup),
               order: index + 1,
             };
@@ -1029,8 +1071,8 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         .sort((left, right) => {
           const leftRequirement = requirementByChild.get(left[0].id);
           const rightRequirement = requirementByChild.get(right[0].id);
-          const leftArea = direction === '迎え' ? leftRequirement?.pickupArea : leftRequirement?.dropoffArea;
-          const rightArea = direction === '迎え' ? rightRequirement?.pickupArea : rightRequirement?.dropoffArea;
+          const leftArea = resolvedPlanningArea(left[0], direction, date, leftRequirement, undefined, transportMapLocations, transportAreaZones);
+          const rightArea = resolvedPlanningArea(right[0], direction, date, rightRequirement, undefined, transportMapLocations, transportAreaZones);
           if (transportPlanDay?.pickupMode === 'home' && direction === '迎え') return (leftArea || '').localeCompare(rightArea || '') || left[0].name.localeCompare(right[0].name);
           return minutes(direction === '迎え' ? leftRequirement?.pickupTargetTime : leftRequirement?.dropoffTargetTime) - minutes(direction === '迎え' ? rightRequirement?.pickupTargetTime : rightRequirement?.dropoffTargetTime)
             || (leftArea || '').localeCompare(rightArea || '');
@@ -1045,8 +1087,8 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         const firstRequirement = requirementByChild.get(group[0].id);
         const firstSuggestion = getSuggestedTransportLocation(group[0], direction, date);
         const firstAddress = direction === '迎え' ? firstRequirement?.pickupAddress : firstRequirement?.dropoffAddress;
-        const firstArea = direction === '迎え' ? firstRequirement?.pickupArea : firstRequirement?.dropoffArea;
-        const firstStop = childStop(group[0], direction, date, dayPlansByChild.get(group[0].id), firstRequirement, routeSettings, transportPlanDay?.pickupMode, siblingGroupByChild.get(group[0].id));
+        const firstArea = resolvedPlanningArea(group[0], direction, date, firstRequirement, undefined, transportMapLocations, transportAreaZones);
+        const firstStop = childStop(group[0], direction, date, dayPlansByChild.get(group[0].id), firstRequirement, routeSettings, transportPlanDay?.pickupMode, siblingGroupByChild.get(group[0].id), firstArea);
         const groupSharedLocationKey = sharedStopLocationKey(firstStop);
         const ranked = lanes.map((run) => {
           const vehicle = usableVehicles.find((candidate) => candidate?.id === run.vehicleId);
@@ -1084,7 +1126,23 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
           nextDrafts.push(target);
           lanes.push(target);
         }
-        const additions = group.map((child, index) => ({ ...childStop(child, direction, date, dayPlansByChild.get(child.id), requirementByChild.get(child.id), routeSettings, transportPlanDay?.pickupMode, siblingGroupByChild.get(child.id)), order: target!.stops.length + index + 1 }));
+        const additions = group.map((child, index) => {
+          const requirement = requirementByChild.get(child.id);
+          return {
+            ...childStop(
+              child,
+              direction,
+              date,
+              dayPlansByChild.get(child.id),
+              requirement,
+              routeSettings,
+              transportPlanDay?.pickupMode,
+              siblingGroupByChild.get(child.id),
+              resolvedPlanningArea(child, direction, date, requirement, undefined, transportMapLocations, transportAreaZones),
+            ),
+            order: target!.stops.length + index + 1,
+          };
+        });
         const combinedStops = [...target.stops];
         let insertionIndex = combinedStops.length;
         if (groupSharedLocationKey) {

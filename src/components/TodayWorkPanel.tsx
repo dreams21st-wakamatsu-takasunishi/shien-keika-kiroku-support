@@ -22,6 +22,8 @@ import type {
   StaffScheduleItem,
   TransportRun,
   TransportAssignmentChangeInput,
+  TransportAreaZone,
+  TransportMapLocation,
   TransportPlanDay,
   TransportRouteSettings,
   TransportRunStatus,
@@ -45,6 +47,8 @@ interface TodayWorkPanelProps {
   transportPlanDays: TransportPlanDay[];
   dailyTransportRequirements: DailyTransportRequirement[];
   transportRouteSettings: TransportRouteSettings;
+  transportMapLocations: TransportMapLocation[];
+  transportAreaZones: TransportAreaZone[];
   recorderProfiles: RecorderProfile[];
   childrenList: ChildProfile[];
   dailyChildPlans: DailyChildPlan[];
@@ -64,6 +68,9 @@ interface TodayWorkPanelProps {
   onChangeTransportAssignment: (change: TransportAssignmentChangeInput) => Promise<void> | void;
   onDeleteTransportRun: (runId: string) => Promise<void> | void;
   onSaveTransportRouteSettings: (settings: TransportRouteSettings) => Promise<void> | void;
+  onSaveTransportMapLocation: (location: TransportMapLocation) => Promise<void> | void;
+  onSaveTransportAreaZone: (zone: TransportAreaZone) => Promise<void> | void;
+  onDeleteTransportAreaZone: (zoneId: string) => Promise<void> | void;
   onUpdateTransportStatus: (run: TransportRun, recorder: RecorderProfile, pin: string, status: TransportRunStatus) => Promise<void> | void;
 }
 
@@ -77,6 +84,8 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
   transportPlanDays,
   dailyTransportRequirements,
   transportRouteSettings,
+  transportMapLocations,
+  transportAreaZones,
   recorderProfiles,
   childrenList,
   dailyChildPlans,
@@ -96,6 +105,9 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
   onChangeTransportAssignment,
   onDeleteTransportRun,
   onSaveTransportRouteSettings,
+  onSaveTransportMapLocation,
+  onSaveTransportAreaZone,
+  onDeleteTransportAreaZone,
   onUpdateTransportStatus,
 }) => {
   const [selectedDate, setSelectedDate] = useState(getLocalDateString);
@@ -185,6 +197,8 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
           runs={transportRuns}
           vehicles={vehicles}
           routeSettings={transportRouteSettings}
+          mapLocations={transportMapLocations}
+          areaZones={transportAreaZones}
           recorderProfiles={recorderProfiles}
           childrenList={childrenList}
           dailyChildPlans={dailyChildPlans}
@@ -204,6 +218,9 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
           onSaveVehicle={onSaveVehicle}
           onDeleteVehicle={onDeleteVehicle}
           onSaveRouteSettings={onSaveTransportRouteSettings}
+          onSaveMapLocation={onSaveTransportMapLocation}
+          onSaveAreaZone={onSaveTransportAreaZone}
+          onDeleteAreaZone={onDeleteTransportAreaZone}
           onUpdateStatus={onUpdateTransportStatus}
         />
       )}

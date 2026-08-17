@@ -31,6 +31,8 @@ import {
   Template,
   TransportRun,
   TransportAssignmentChangeInput,
+  TransportAreaZone,
+  TransportMapLocation,
   TransportPlanDay,
   TransportRouteSettings,
   TransportRunStatus,
@@ -75,6 +77,7 @@ import {
   deleteRecordDraft,
   deleteStaffScheduleItem,
   deleteTransportRun,
+  deleteTransportAreaZone,
   deleteVehicle,
   listRecordDrafts,
   loadWorkspaceData,
@@ -105,6 +108,8 @@ import {
   sendAnnouncementNotification,
   saveTemplate,
   saveTransportRun,
+  saveTransportAreaZone,
+  saveTransportMapLocation,
   saveTransportPlanDay,
   saveTransportRouteSettings,
   saveVehicle,
@@ -241,6 +246,8 @@ export default function App() {
     const saved = localStorage.getItem('support_transport_route_settings_data');
     return saved ? { ...DEFAULT_TRANSPORT_ROUTE_SETTINGS, ...JSON.parse(saved) } : DEFAULT_TRANSPORT_ROUTE_SETTINGS;
   });
+  const [transportMapLocations, setTransportMapLocations] = useState<TransportMapLocation[]>([]);
+  const [transportAreaZones, setTransportAreaZones] = useState<TransportAreaZone[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>(() => {
     if (remoteMode) return [];
     const saved = localStorage.getItem('support_announcements_data');
@@ -470,6 +477,8 @@ export default function App() {
           setTransportRuns([]);
           setTransportPlanDays([]);
           setDailyTransportRequirements([]);
+          setTransportMapLocations([]);
+          setTransportAreaZones([]);
           setPendingSyncs([]);
           setDataError(null);
           return;
@@ -507,6 +516,8 @@ export default function App() {
         setTransportPlanDays(workspace.transportPlanDays);
         setDailyTransportRequirements(workspace.dailyTransportRequirements);
         setTransportRouteSettings(workspace.transportRouteSettings);
+        setTransportMapLocations(workspace.transportMapLocations);
+        setTransportAreaZones(workspace.transportAreaZones);
         setDataError(null);
       } while (remoteRefreshQueuedRef.current);
     } catch (error) {
@@ -676,6 +687,8 @@ export default function App() {
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_run_covers', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_route_settings', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_map_locations', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_area_zones', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .subscribe();
     return () => {
       if (remoteRefreshTimerRef.current !== null) {
@@ -1448,6 +1461,40 @@ export default function App() {
     }
   };
 
+  const handleSaveTransportMapLocation = async (location: TransportMapLocation) => {
+    if (!canManageSettings) throw new Error('地図地点を変更できるのは児発管または管理者です。');
+    try {
+      if (organizationId) await saveTransportMapLocation(organizationId, location);
+      setTransportMapLocations((previous) => [location, ...previous.filter((candidate) => candidate.id !== location.id)]);
+    } catch (error) {
+      persistError(error);
+      throw error;
+    }
+  };
+
+  const handleSaveTransportAreaZone = async (zone: TransportAreaZone) => {
+    if (!canManageSettings) throw new Error('優先配車範囲を変更できるのは児発管または管理者です。');
+    try {
+      if (organizationId) await saveTransportAreaZone(organizationId, zone);
+      setTransportAreaZones((previous) => [zone, ...previous.filter((candidate) => candidate.id !== zone.id)]
+        .sort((left, right) => left.priority - right.priority || left.name.localeCompare(right.name, 'ja')));
+    } catch (error) {
+      persistError(error);
+      throw error;
+    }
+  };
+
+  const handleDeleteTransportAreaZone = async (zoneId: string) => {
+    if (!canManageSettings) throw new Error('優先配車範囲を変更できるのは児発管または管理者です。');
+    try {
+      if (organizationId) await deleteTransportAreaZone(organizationId, zoneId);
+      setTransportAreaZones((previous) => previous.filter((zone) => zone.id !== zoneId));
+    } catch (error) {
+      persistError(error);
+      throw error;
+    }
+  };
+
   const handleUpdateTransportStatus = async (run: TransportRun, recorder: RecorderProfile, pin: string, status: TransportRunStatus) => {
     try {
       if (organizationId) await updateTransportRunStatus(organizationId, run.id, recorder.id, pin, status);
@@ -1936,6 +1983,8 @@ export default function App() {
             transportPlanDays={transportPlanDays}
             dailyTransportRequirements={dailyTransportRequirements}
             transportRouteSettings={transportRouteSettings}
+            transportMapLocations={transportMapLocations}
+            transportAreaZones={transportAreaZones}
             handoverItems={handoverItems}
             handoverConfirmations={handoverConfirmations}
             morningMeetingRecords={morningMeetingRecords}
@@ -1992,6 +2041,9 @@ export default function App() {
             onChangeTransportAssignment={handleChangeTransportAssignment}
             onDeleteTransportRun={handleDeleteTransportRun}
             onSaveTransportRouteSettings={handleSaveTransportRouteSettings}
+            onSaveTransportMapLocation={handleSaveTransportMapLocation}
+            onSaveTransportAreaZone={handleSaveTransportAreaZone}
+            onDeleteTransportAreaZone={handleDeleteTransportAreaZone}
             onUpdateTransportStatus={handleUpdateTransportStatus}
           />
         )}

@@ -44,6 +44,51 @@ export interface ChildTransportLocation {
   note?: string;
 }
 
+export interface TransportMapLocation {
+  id: string;
+  sourceType: 'facility' | 'child';
+  childId?: string;
+  locationProfileId?: string;
+  locationName: string;
+  locationType: TransportLocationType | '事業所';
+  address: string;
+  latitude: number;
+  longitude: number;
+  geocodeSource: 'google' | 'manual';
+  geocodedAt: string;
+  updatedAt: string;
+}
+
+export interface TransportAreaZone {
+  id: string;
+  name: string;
+  color: string;
+  centerLatitude: number;
+  centerLongitude: number;
+  radiusKm: number;
+  priority: number;
+  active: boolean;
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TransportGeocodeRequestLocation {
+  id: string;
+  address: string;
+  label?: string;
+}
+
+export interface TransportGeocodeResult {
+  id: string;
+  address: string;
+  formattedAddress?: string;
+  latitude?: number;
+  longitude?: number;
+  status: 'resolved' | 'not_found' | 'error';
+  code?: string;
+}
+
 export type HomeAssistantActionType =
   | 'schedule_regular_days'
   | 'update_child_profile'

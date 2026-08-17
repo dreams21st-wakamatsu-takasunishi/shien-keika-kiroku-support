@@ -38,6 +38,10 @@ import {
   TransportRouteSettings,
   TransportMatrixRequest,
   TransportMatrixResult,
+  TransportMapLocation,
+  TransportAreaZone,
+  TransportGeocodeRequestLocation,
+  TransportGeocodeResult,
   TransportPlanDay,
   Vehicle,
   Weekday,
@@ -74,6 +78,8 @@ export interface WorkspaceData {
   transportPlanDays: TransportPlanDay[];
   dailyTransportRequirements: DailyTransportRequirement[];
   transportRouteSettings: TransportRouteSettings;
+  transportMapLocations: TransportMapLocation[];
+  transportAreaZones: TransportAreaZone[];
 }
 
 function assertSupabase() {
@@ -137,6 +143,39 @@ function mapRegularDaySchedule(row: any): RegularDaySchedule {
     effectiveFrom: row.effective_from,
     regularDays: Array.isArray(row.regular_days) ? row.regular_days as Weekday[] : [],
     createdAt: row.created_at || undefined,
+  };
+}
+
+function mapTransportMapLocation(row: any): TransportMapLocation {
+  return {
+    id: row.id,
+    sourceType: row.source_type,
+    childId: row.child_id || undefined,
+    locationProfileId: row.location_profile_id || undefined,
+    locationName: row.location_name,
+    locationType: row.location_type,
+    address: row.address,
+    latitude: Number(row.latitude),
+    longitude: Number(row.longitude),
+    geocodeSource: row.geocode_source,
+    geocodedAt: row.geocoded_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapTransportAreaZone(row: any): TransportAreaZone {
+  return {
+    id: row.id,
+    name: row.name,
+    color: row.color,
+    centerLatitude: Number(row.center_latitude),
+    centerLongitude: Number(row.center_longitude),
+    radiusKm: Number(row.radius_km),
+    priority: Number(row.priority),
+    active: row.active !== false,
+    note: row.note || undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -619,6 +658,8 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     transportPlanDaysResult,
     dailyTransportRequirementsResult,
     transportRouteSettingsResult,
+    transportMapLocationsResult,
+    transportAreaZonesResult,
   ] = await Promise.all([
     client.from('children').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('name'),
     client.from('child_regular_day_schedules').select('*').eq('organization_id', organizationId).order('effective_from'),
@@ -644,6 +685,8 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     client.from('transport_plan_days').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }),
     client.from('daily_transport_requirements').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }),
     client.from('transport_route_settings').select('*').eq('organization_id', organizationId).eq('id', 'default').maybeSingle(),
+    client.from('transport_map_locations').select('*').eq('organization_id', organizationId).order('location_name'),
+    client.from('transport_area_zones').select('*').eq('organization_id', organizationId).order('priority').order('name'),
   ]);
 
   const requiredResults = [
@@ -659,6 +702,8 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     morningMeetingConfirmationsResult,
     plansResult,
     aiSettingsResult,
+    transportMapLocationsResult,
+    transportAreaZonesResult,
   ];
   const requiredResultLabels = [
     '児童情報',
@@ -673,6 +718,8 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     '朝礼確認',
     '支援計画',
     'AI設定',
+    '送迎地図地点',
+    '優先配車エリア',
   ];
 
   for (const [index, result] of requiredResults.entries()) {
@@ -739,6 +786,8 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     transportRouteSettings: transportRouteSettingsResult.error
       ? mapTransportRouteSettings(null)
       : mapTransportRouteSettings(transportRouteSettingsResult.data),
+    transportMapLocations: (transportMapLocationsResult.data || []).map(mapTransportMapLocation),
+    transportAreaZones: (transportAreaZonesResult.data || []).map(mapTransportAreaZone),
   };
 }
 
@@ -1314,6 +1363,71 @@ export async function calculateTransportMatrix(
   if (!data || typeof data !== 'object') throw new Error('道路所要時間を取得できませんでした。');
   if (typeof data.error === 'string') throw new Error(data.error);
   return data as TransportMatrixResult;
+}
+
+export async function geocodeTransportLocations(
+  locations: TransportGeocodeRequestLocation[],
+): Promise<TransportGeocodeResult[]> {
+  const { data, error } = await assertSupabase().functions.invoke('geocode-transport-locations', {
+    body: { locations },
+  });
+  if (error) {
+    const context = (error as unknown as { context?: Response }).context;
+    if (context) {
+      const payload = await context.clone().json().catch(() => null) as { error?: string } | null;
+      if (payload?.error) throw new Error(payload.error);
+    }
+    throw error;
+  }
+  if (!data || !Array.isArray(data.results)) throw new Error('住所の位置を取得できませんでした。');
+  return data.results as TransportGeocodeResult[];
+}
+
+export async function saveTransportMapLocation(
+  organizationId: string,
+  location: TransportMapLocation,
+) {
+  const { error } = await assertSupabase().from('transport_map_locations').upsert({
+    organization_id: organizationId,
+    id: location.id,
+    source_type: location.sourceType,
+    child_id: location.childId || null,
+    location_profile_id: location.locationProfileId || null,
+    location_name: location.locationName.trim(),
+    location_type: location.locationType,
+    address: location.address.trim(),
+    latitude: location.latitude,
+    longitude: location.longitude,
+    geocode_source: location.geocodeSource,
+    geocoded_at: location.geocodedAt,
+  }, { onConflict: 'organization_id,id' });
+  if (error) throw error;
+}
+
+export async function saveTransportAreaZone(
+  organizationId: string,
+  zone: TransportAreaZone,
+) {
+  const { error } = await assertSupabase().from('transport_area_zones').upsert({
+    organization_id: organizationId,
+    id: zone.id,
+    name: zone.name.trim(),
+    color: zone.color,
+    center_latitude: zone.centerLatitude,
+    center_longitude: zone.centerLongitude,
+    radius_km: zone.radiusKm,
+    priority: zone.priority,
+    active: zone.active,
+    note: zone.note?.trim() || null,
+  }, { onConflict: 'organization_id,id' });
+  if (error) throw error;
+}
+
+export async function deleteTransportAreaZone(organizationId: string, zoneId: string) {
+  const { error } = await assertSupabase().from('transport_area_zones').delete()
+    .eq('organization_id', organizationId)
+    .eq('id', zoneId);
+  if (error) throw error;
 }
 
 export async function saveAnnouncement(organizationId: string, announcement: Announcement) {

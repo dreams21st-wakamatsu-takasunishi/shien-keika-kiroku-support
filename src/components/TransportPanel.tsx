@@ -9,6 +9,7 @@ import {
   ExternalLink,
   GripVertical,
   LoaderCircle,
+  MapPinned,
   MapPin,
   Navigation,
   PencilLine,
@@ -32,6 +33,8 @@ import type {
   TransportDirection,
   TransportRun,
   TransportAssignmentChangeInput,
+  TransportAreaZone,
+  TransportMapLocation,
   TransportPlanDay,
   TransportRouteOptimizationResult,
   TransportRouteSettings,
@@ -47,6 +50,9 @@ import {
 } from "../utils/transportLocations";
 import { DailyTransportPlanner } from "./DailyTransportPlanner";
 import { inferTransportArea, resolvedTransportArea } from "../utils/transportArea";
+
+const TransportMapPanel = React.lazy(() => import('./TransportMapPanel')
+  .then((module) => ({ default: module.TransportMapPanel })));
 
 const TRANSPORT_LOCATION_TYPES: TransportLocationType[] = [
   "自宅",
@@ -84,6 +90,8 @@ interface TransportPanelProps {
   runs: TransportRun[];
   vehicles: Vehicle[];
   routeSettings: TransportRouteSettings;
+  mapLocations: TransportMapLocation[];
+  areaZones: TransportAreaZone[];
   recorderProfiles: RecorderProfile[];
   childrenList: ChildProfile[];
   dailyChildPlans: DailyChildPlan[];
@@ -103,6 +111,9 @@ interface TransportPanelProps {
   onSaveVehicle: (vehicle: Vehicle) => Promise<void> | void;
   onDeleteVehicle: (vehicleId: string) => Promise<void> | void;
   onSaveRouteSettings: (settings: TransportRouteSettings) => Promise<void> | void;
+  onSaveMapLocation: (location: TransportMapLocation) => Promise<void> | void;
+  onSaveAreaZone: (zone: TransportAreaZone) => Promise<void> | void;
+  onDeleteAreaZone: (zoneId: string) => Promise<void> | void;
   onUpdateStatus: (
     run: TransportRun,
     recorder: RecorderProfile,
@@ -111,12 +122,14 @@ interface TransportPanelProps {
   ) => Promise<void> | void;
 }
 
-type ViewMode = "runs" | "vehicles";
+type ViewMode = "runs" | "vehicles" | "map";
 
 export const TransportPanel: React.FC<TransportPanelProps> = ({
   runs,
   vehicles,
   routeSettings,
+  mapLocations,
+  areaZones,
   recorderProfiles,
   childrenList,
   dailyChildPlans,
@@ -136,6 +149,9 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
   onSaveVehicle,
   onDeleteVehicle,
   onSaveRouteSettings,
+  onSaveMapLocation,
+  onSaveAreaZone,
+  onDeleteAreaZone,
   onUpdateStatus,
 }) => {
   const [view, setView] = useState<ViewMode>("runs");
@@ -507,7 +523,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
     <div className="space-y-4">
       {assignmentNotice && <div className="fixed left-1/2 top-[max(5rem,calc(env(safe-area-inset-top)+4rem))] z-[95] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-bold text-white shadow-2xl" role="status"><CheckCircle2 className="mr-2 inline h-5 w-5 text-teal-300" />{assignmentNotice}</div>}
       <section className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-        <div className="grid grid-cols-2 gap-1">
+        <div className="grid grid-cols-3 gap-1">
           <button
             type="button"
             onClick={() => setView("runs")}
@@ -523,6 +539,14 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
           >
             <CarFront className="mr-2 inline h-5 w-5" />
             車両台帳
+          </button>
+          <button
+            type="button"
+            onClick={() => setView("map")}
+            className={`min-h-11 rounded-xl text-sm font-black ${view === "map" ? "bg-slate-900 text-white" : "text-slate-600"}`}
+          >
+            <MapPinned className="mr-2 inline h-5 w-5" />
+            送迎マップ
           </button>
         </div>
       </section>
@@ -747,7 +771,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
             </div>
           )}
         </section>
-      ) : (
+      ) : view === "vehicles" ? (
         <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between gap-3 border-b border-slate-200 p-4">
             <div>
@@ -842,6 +866,19 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
             )}
           </div>
         </section>
+      ) : (
+        <React.Suspense fallback={<section className="grid min-h-72 place-items-center rounded-2xl border border-slate-200 bg-white"><span className="flex items-center gap-2 text-sm font-black text-slate-600"><LoaderCircle className="h-5 w-5 animate-spin" />送迎マップを読み込んでいます</span></section>}>
+          <TransportMapPanel
+            childrenList={childrenList}
+            facilityAddress={routeSettings.facilityAddress}
+            locations={mapLocations}
+            zones={areaZones}
+            canManage={canManage}
+            onSaveLocation={onSaveMapLocation}
+            onSaveZone={onSaveAreaZone}
+            onDeleteZone={onDeleteAreaZone}
+          />
+        </React.Suspense>
       )}
 
       {runForm && (
@@ -1495,6 +1532,8 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
           transportPlanDay={transportPlanDays.find((day) => day.date === selectedDate)}
           dailyTransportRequirements={dailyTransportRequirements.filter((requirement) => requirement.date === selectedDate)}
           routeSettings={routeSettings}
+          transportMapLocations={mapLocations}
+          transportAreaZones={areaZones}
           staffScheduleItems={staffScheduleItems}
           attendanceRecords={attendanceRecords}
           calendarEvents={calendarEvents}

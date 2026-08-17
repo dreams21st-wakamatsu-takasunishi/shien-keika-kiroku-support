@@ -41,6 +41,8 @@ import type {
   SupportRecord,
   TransportRun,
   TransportAssignmentChangeInput,
+  TransportAreaZone,
+  TransportMapLocation,
   TransportPlanDay,
   TransportRouteSettings,
   TransportRunStatus,
@@ -79,6 +81,8 @@ interface HomeScreenProps {
   transportPlanDays: TransportPlanDay[];
   dailyTransportRequirements: DailyTransportRequirement[];
   transportRouteSettings: TransportRouteSettings;
+  transportMapLocations: TransportMapLocation[];
+  transportAreaZones: TransportAreaZone[];
   handoverItems: HandoverItem[];
   handoverConfirmations: HandoverConfirmation[];
   morningMeetingRecords: MorningMeetingRecord[];
@@ -129,6 +133,9 @@ interface HomeScreenProps {
   onChangeTransportAssignment: (change: TransportAssignmentChangeInput) => Promise<void> | void;
   onDeleteTransportRun: (runId: string) => Promise<void> | void;
   onSaveTransportRouteSettings: (settings: TransportRouteSettings) => Promise<void> | void;
+  onSaveTransportMapLocation: (location: TransportMapLocation) => Promise<void> | void;
+  onSaveTransportAreaZone: (zone: TransportAreaZone) => Promise<void> | void;
+  onDeleteTransportAreaZone: (zoneId: string) => Promise<void> | void;
   onUpdateTransportStatus: (run: TransportRun, recorder: RecorderProfile, pin: string, status: TransportRunStatus) => Promise<void> | void;
 }
 
@@ -157,6 +164,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   transportPlanDays,
   dailyTransportRequirements,
   transportRouteSettings,
+  transportMapLocations,
+  transportAreaZones,
   handoverItems,
   handoverConfirmations,
   morningMeetingRecords,
@@ -207,6 +216,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onChangeTransportAssignment,
   onDeleteTransportRun,
   onSaveTransportRouteSettings,
+  onSaveTransportMapLocation,
+  onSaveTransportAreaZone,
+  onDeleteTransportAreaZone,
   onUpdateTransportStatus,
 }) => {
   const [communicationView, setCommunicationView] = useState<CommunicationView>('announcements');
@@ -382,6 +394,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             transportPlanDays={transportPlanDays}
             dailyTransportRequirements={dailyTransportRequirements}
             transportRouteSettings={transportRouteSettings}
+            transportMapLocations={transportMapLocations}
+            transportAreaZones={transportAreaZones}
             recorderProfiles={recorderProfiles}
             childrenList={childrenList}
             activeRecorder={activeRecorder}
@@ -400,6 +414,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             onChangeTransportAssignment={onChangeTransportAssignment}
             onDeleteTransportRun={onDeleteTransportRun}
             onSaveTransportRouteSettings={onSaveTransportRouteSettings}
+            onSaveTransportMapLocation={onSaveTransportMapLocation}
+            onSaveTransportAreaZone={onSaveTransportAreaZone}
+            onDeleteTransportAreaZone={onDeleteTransportAreaZone}
             onUpdateTransportStatus={onUpdateTransportStatus}
           />
         )}
