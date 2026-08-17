@@ -36,6 +36,7 @@ import { geocodeTransportLocations } from '../services/dataService';
 import { supabase } from '../lib/supabase';
 import { getCanonicalTransportLocations } from '../utils/transportLocations';
 import { distanceKm, findTransportZone, normalizeMapAddress } from '../utils/transportMap';
+import { GoogleTransportMap, type GoogleTransportMarker } from './GoogleTransportMap';
 
 interface TransportMapPanelProps {
   childrenList: ChildProfile[];
@@ -77,6 +78,9 @@ interface SimpleMarkerGroup {
 const DEFAULT_CENTER: [number, number] = [33.883, 130.875];
 const ZONE_COLORS = ['#0f766e', '#0284c7', '#7c3aed', '#d97706', '#dc2626', '#475569'];
 const createUuid = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const GOOGLE_MAPS_BROWSER_KEY = String(import.meta.env.VITE_GOOGLE_MAPS_BROWSER_KEY || '').trim();
+const GOOGLE_MAPS_MAP_ID = String(import.meta.env.VITE_GOOGLE_MAPS_MAP_ID || '').trim();
+const GOOGLE_MAP_CONFIGURED = Boolean(GOOGLE_MAPS_BROWSER_KEY && GOOGLE_MAPS_MAP_ID);
 
 function sourceLocations(childrenList: ChildProfile[], schools: SchoolProfile[], facilityAddress: string): SourceLocation[] {
   const facility = facilityAddress.trim()
@@ -180,11 +184,14 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
   onDeleteZone,
 }) => {
   const sources = useMemo(() => sourceLocations(childrenList, schools, facilityAddress), [childrenList, facilityAddress, schools]);
+  const displayLocations = useMemo(() => GOOGLE_MAP_CONFIGURED
+    ? locations
+    : locations.filter((location) => location.geocodeSource !== 'google'), [locations]);
   const placed = useMemo(() => sources.flatMap((source) => {
-    const location = matchingLocation(source, locations);
+    const location = matchingLocation(source, displayLocations);
     return location ? [{ source, location }] : [];
-  }), [locations, sources]);
-  const unresolved = useMemo(() => sources.filter((source) => !matchingLocation(source, locations)), [locations, sources]);
+  }), [displayLocations, sources]);
+  const unresolved = useMemo(() => sources.filter((source) => !matchingLocation(source, displayLocations)), [displayLocations, sources]);
   const [search, setSearch] = useState('');
   const [geocoding, setGeocoding] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -297,6 +304,10 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
   };
 
   const geocodeSources = useCallback(async (targets: SourceLocation[], askConfirmation: boolean) => {
+    if (!GOOGLE_MAP_CONFIGURED) {
+      setError('Google地図の公開設定が未完了のため、住所の自動配置は停止しています。設定完了までは手動配置を利用してください。');
+      return;
+    }
     if (!targets.length) return setMessage('住所登録済みの地点はすべて配置されています。');
     const addressGroups = new Map<string, SourceLocation[]>();
     targets.forEach((source) => {
@@ -337,6 +348,7 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
               latitude: result.latitude,
               longitude: result.longitude,
               geocodeSource: 'google',
+              googlePlaceId: result.placeId,
               geocodedAt: now,
               updatedAt: now,
             })));
@@ -357,7 +369,7 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
   const geocodeUnresolved = () => void geocodeSources(unresolved, true);
 
   useEffect(() => {
-    if (!supabase || !canManage || geocoding || unresolved.length === 0) return;
+    if (!GOOGLE_MAP_CONFIGURED || !supabase || !canManage || geocoding || unresolved.length === 0) return;
     const attemptKey = unresolved.map((source) => `${source.id}:${normalizeMapAddress(source.address)}`).sort().join('|');
     if (!attemptKey || autoGeocodeAttemptRef.current === attemptKey) return;
     autoGeocodeAttemptRef.current = attemptKey;
@@ -441,13 +453,62 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
     }
   };
 
+  const googleMarkers = useMemo<GoogleTransportMarker[]>(() => {
+    if (mapMode === 'simple') {
+      return simpleMarkerGroups.map((group) => {
+        const first = group.entries[0];
+        const draftSelected = group.entries.some(({ source }) => selectedZoneLocationIds.includes(source.id));
+        const zone = draftSelected && zoneDraft ? zoneDraft : findTransportZone(first.location, activeZones);
+        return {
+          id: group.id,
+          latitude: group.latitude,
+          longitude: group.longitude,
+          color: zone?.color || markerColor(first.source.locationType),
+          title: simpleGroupLabel(group),
+          label: simpleGroupLabel(group),
+          selected: draftSelected,
+          details: [
+            selectingZonePins
+              ? draftSelected ? '選択済み・もう一度選ぶと解除' : '選ぶと同じ送迎車へ追加'
+              : zone ? `優先範囲：${zone.name}` : '優先範囲外',
+            ...group.entries.map(({ source }) => `${source.childName ? `${source.childName}・` : ''}${source.locationName}`),
+          ],
+        };
+      });
+    }
+    return placed.map(({ source, location }) => {
+      const zone = findTransportZone(location, activeZones);
+      return {
+        id: source.id,
+        latitude: location.latitude,
+        longitude: location.longitude,
+        color: markerColor(source.locationType),
+        title: `${source.childName ? `${source.childName}・` : ''}${source.locationName}`,
+        details: [source.locationType, source.address, zone ? `優先範囲：${zone.name}` : '優先範囲外'],
+      };
+    });
+  }, [activeZones, mapMode, placed, selectedZoneLocationIds, selectingZonePins, simpleMarkerGroups, zoneDraft]);
+  const pendingGoogleMarker = pendingManual ? {
+    id: `pending:${pendingManual.source.id}`,
+    latitude: pendingManual.latitude,
+    longitude: pendingManual.longitude,
+    color: markerColor(pendingManual.source.locationType),
+    title: '保存前の位置',
+    details: [`${pendingManual.source.childName ? `${pendingManual.source.childName}・` : ''}${pendingManual.source.locationName}`],
+  } satisfies GoogleTransportMarker : undefined;
+  const handleGoogleMarkerClick = (markerId: string) => {
+    if (mapMode !== 'simple') return;
+    const group = simpleMarkerGroups.find((candidate) => candidate.id === markerId);
+    if (group) toggleGroupForZone(group);
+  };
+
   return (
     <section className="space-y-3">
       <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
             <div className="flex items-center gap-2"><MapPinned className="h-5 w-5 text-teal-700" /><h3 className="font-black text-slate-950">児童宅・学校と優先配車範囲</h3></div>
-            <p className="mt-1 text-xs leading-relaxed text-slate-500">薄い地図で各地点の位置関係を確認し、ピンを選んで同じ送迎車へまとめたい範囲を色分けします。</p>
+            <p className="mt-1 text-xs leading-relaxed text-slate-500">住所から反映したGoogle地図で位置関係を確認し、ピンを選んで同じ送迎車へまとめたい範囲を色分けします。</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <div className="grid min-h-11 grid-cols-2 rounded-xl bg-slate-100 p-1" aria-label="地図表示切替">
@@ -463,7 +524,8 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
           {unresolved.length > 0 && <span className="rounded-full bg-amber-50 px-3 py-1.5 text-amber-800">未配置 {unresolved.length}件</span>}
           {activeZones.map((zone) => <span key={zone.id} className="rounded-full border bg-white px-3 py-1.5 text-slate-700" style={{ borderColor: zone.color }}><span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ backgroundColor: zone.color }} />{zone.name}</span>)}
         </div>
-        <p className="mt-3 text-[10px] font-bold leading-relaxed text-amber-800"><ShieldAlert className="mr-1 inline h-3.5 w-3.5" />児童宅・学校の位置は個人情報です。業務上必要な範囲でのみ閲覧してください。</p>
+        <p className="mt-3 text-[10px] font-bold leading-relaxed text-amber-800"><ShieldAlert className="mr-1 inline h-3.5 w-3.5" />児童宅・学校の位置は個人情報です。業務上必要な範囲でのみ閲覧してください。住所の自動配置を実行すると、登録住所をGoogle Maps Platformへ送信して位置へ変換します。</p>
+        {!GOOGLE_MAP_CONFIGURED && <p role="status" className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold leading-relaxed text-amber-900">Google地図の公開設定が未完了です。現在は手動配置用の代替地図だけを表示し、Googleで取得した位置と住所の自動変換は停止しています。</p>}
         {message && <p role="status" className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800"><CheckCircle2 className="mr-2 inline h-4 w-4" />{message}</p>}
         {error && <p role="alert" className="mt-3 rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-800">{error}</p>}
       </div>
@@ -472,7 +534,20 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
         <div className={`relative min-w-0 overflow-hidden rounded-2xl border border-slate-200 shadow-sm ${mapMode === 'simple' ? 'bg-slate-50' : 'bg-white'}`}>
           {(manualSourceId || placingZoneCenter) && <div className="absolute left-3 right-3 top-3 z-[500] rounded-xl bg-slate-950/95 px-4 py-3 text-sm font-black text-white shadow-xl"><Crosshair className="mr-2 inline h-5 w-5 text-teal-300" />{manualSourceId ? '地図をタップして位置を指定してください' : '地図をタップして範囲の中心を指定してください'}<button type="button" onClick={() => { setManualSourceId(''); setPendingManual(undefined); setPlacingZoneCenter(false); }} className="float-right rounded p-1" aria-label="位置指定を中止"><X className="h-4 w-4" /></button></div>}
           {mapMode === 'simple' && !(manualSourceId || placingZoneCenter) && <div className="pointer-events-none absolute left-3 top-3 z-[500] rounded-xl bg-white/95 px-3 py-2 text-[10px] font-black text-slate-700 shadow-sm">{selectingZonePins ? `ピンを選択中・${selectedZoneLocationIds.length}地点` : '位置関係を確認・ピンを選ぶと詳細を表示'}</div>}
-          <MapContainer center={center} zoom={12} scrollWheelZoom zoomControl={mapMode === 'detail'} className={`h-[30rem] w-full sm:h-[36rem] xl:h-[44rem] ${mapMode === 'simple' ? 'transport-map-simple' : ''}`} aria-label="送迎地点マップ">
+          {GOOGLE_MAP_CONFIGURED ? <GoogleTransportMap
+            apiKey={GOOGLE_MAPS_BROWSER_KEY}
+            mapId={GOOGLE_MAPS_MAP_ID}
+            center={center}
+            fitPoints={fitPoints}
+            markers={googleMarkers}
+            zones={activeZones}
+            draftZone={zoneDraft}
+            pendingMarker={pendingGoogleMarker}
+            simple={mapMode === 'simple'}
+            interactiveMapClick={Boolean(manualSourceId || (placingZoneCenter && zoneDraft))}
+            onMapClick={handleMapClick}
+            onMarkerClick={handleGoogleMarkerClick}
+          /> : <MapContainer center={center} zoom={12} scrollWheelZoom zoomControl={mapMode === 'detail'} className={`h-[30rem] w-full sm:h-[36rem] xl:h-[44rem] ${mapMode === 'simple' ? 'transport-map-simple' : ''}`} aria-label="送迎地点マップ（手動配置用）">
             <TileLayer className={mapMode === 'simple' ? 'transport-map-muted-tiles' : ''} opacity={mapMode === 'simple' ? 0.52 : 1} attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
             <FitMap points={fitPoints} />
             <MapClickHandler enabled={Boolean(manualSourceId || (placingZoneCenter && zoneDraft))} onClick={handleMapClick} />
@@ -488,7 +563,7 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
             })}
             {pendingManual && <Marker position={[pendingManual.latitude, pendingManual.longitude]} icon={markerIcon(pendingManual.source.locationType)}><Popup>保存前の位置</Popup></Marker>}
             {zoneDraft && <Circle center={[zoneDraft.centerLatitude, zoneDraft.centerLongitude]} radius={zoneDraft.radiusKm * 1000} pathOptions={{ color: zoneDraft.color, fillColor: zoneDraft.color, fillOpacity: 0.24, dashArray: '8 6', weight: 4 }} />}
-          </MapContainer>
+          </MapContainer>}
           <div className="pointer-events-none absolute bottom-3 left-3 z-[500] flex flex-wrap gap-1 text-[10px] font-black">
             <Legend color="#7c3aed" label="事業所" /><Legend color="#059669" label="自宅・親族宅" /><Legend color="#0284c7" label="学校・学童" /><Legend color="#d97706" label="その他" />
           </div>
@@ -498,10 +573,10 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
           {canManage && (
             <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
               <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
-                <button type="button" onClick={geocodeUnresolved} disabled={geocoding || unresolved.length === 0} className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-teal-200 bg-teal-50 px-3 text-xs font-black text-teal-800 disabled:opacity-50">{geocoding ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}住所から位置を更新（{unresolved.length}）</button>
+                <button type="button" onClick={geocodeUnresolved} disabled={!GOOGLE_MAP_CONFIGURED || geocoding || unresolved.length === 0} className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-teal-200 bg-teal-50 px-3 text-xs font-black text-teal-800 disabled:opacity-50">{geocoding ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}{GOOGLE_MAP_CONFIGURED ? `住所から位置を更新（${unresolved.length}）` : 'Google地図の設定が必要'}</button>
                 <button type="button" onClick={beginNewZone} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-slate-900 px-3 text-xs font-black text-white"><Plus className="h-4 w-4" />優先範囲を追加</button>
               </div>
-              <p className="mt-2 text-[9px] leading-relaxed text-slate-500">新しい住所は地図を開いた際に自動反映します。同じ住所は1回だけ照会し、学校や兄弟で位置を共有します。</p>
+              <p className="mt-2 text-[9px] leading-relaxed text-slate-500">Google地図設定後は、新しい住所を開いた際に自動反映します。同じ住所は1回だけ照会し、学校や兄弟で位置を共有します。Googleで取得した位置は30日以内に再取得し、手動配置はそのまま保持します。</p>
             </section>
           )}
           {pendingManual && (
@@ -537,7 +612,7 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
             <h4 className="font-black text-slate-950">登録地点</h4>
             <label className="relative mt-3 block"><Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="児童名・学校名・住所で検索" className="min-h-11 w-full rounded-xl border border-slate-300 pl-10 pr-3 text-base" /></label>
             <div className="ui-scrollbar mt-3 max-h-[26rem] space-y-2 overflow-y-auto pr-1">{filteredSources.map((source) => {
-              const location = matchingLocation(source, locations);
+              const location = matchingLocation(source, displayLocations);
               const zone = findTransportZone(location, activeZones);
               return <article key={source.id} className="rounded-xl border border-slate-200 p-3"><div className="flex items-start gap-2"><span className="mt-1.5 h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: location ? markerColor(source.locationType) : '#cbd5e1' }} /><div className="min-w-0 flex-1"><strong className="block truncate text-sm text-slate-900">{source.childName ? `${source.childName}・` : ''}{source.locationName}</strong><span className="block truncate text-[10px] text-slate-500">{source.address}</span><span className="mt-1 block text-[10px] font-black" style={{ color: zone?.color || '#94a3b8' }}>{location ? zone?.name || '優先範囲外' : '位置未配置'}</span></div>{canManage && <button type="button" onClick={() => { setManualSourceId(source.id); setPendingManual(undefined); setPlacingZoneCenter(false); setMapMode('detail'); setMessage('地図上で位置を指定してください。'); }} className="shrink-0 rounded-lg border border-slate-200 px-2 py-1.5 text-[10px] font-black text-slate-700">{location ? '修正' : '手動配置'}</button>}</div></article>;
             })}{filteredSources.length === 0 && <p className="py-6 text-center text-xs text-slate-400">該当する地点がありません。</p>}</div>

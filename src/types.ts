@@ -58,6 +58,8 @@ export interface TransportMapLocation {
   latitude: number;
   longitude: number;
   geocodeSource: 'google' | 'manual';
+  /** Google Place ID may be retained for refreshing an expired geocode. */
+  googlePlaceId?: string;
   geocodedAt: string;
   updatedAt: string;
 }
@@ -101,6 +103,7 @@ export interface TransportGeocodeResult {
   formattedAddress?: string;
   latitude?: number;
   longitude?: number;
+  placeId?: string;
   status: 'resolved' | 'not_found' | 'error';
   code?: string;
 }

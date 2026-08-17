@@ -162,6 +162,7 @@ function mapTransportMapLocation(row: any): TransportMapLocation {
     latitude: Number(row.latitude),
     longitude: Number(row.longitude),
     geocodeSource: row.geocode_source,
+    googlePlaceId: row.google_place_id || undefined,
     geocodedAt: row.geocoded_at,
     updatedAt: row.updated_at,
   };
@@ -822,7 +823,11 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     transportRouteSettings: transportRouteSettingsResult.error
       ? mapTransportRouteSettings(null)
       : mapTransportRouteSettings(transportRouteSettingsResult.data),
-    transportMapLocations: (transportMapLocationsResult.data || []).map(mapTransportMapLocation),
+    transportMapLocations: (transportMapLocationsResult.data || [])
+      .filter((row) => row.latitude !== null && row.longitude !== null)
+      .filter((row) => row.geocode_source !== 'google'
+        || Date.now() - new Date(row.geocoded_at).getTime() < 30 * 24 * 60 * 60 * 1000)
+      .map(mapTransportMapLocation),
     transportAreaZones: (transportAreaZonesResult.data || []).map(mapTransportAreaZone),
   };
 }
@@ -1436,6 +1441,7 @@ export async function saveTransportMapLocation(
     latitude: location.latitude,
     longitude: location.longitude,
     geocode_source: location.geocodeSource,
+    google_place_id: location.googlePlaceId || null,
     geocoded_at: location.geocodedAt,
   }, { onConflict: 'organization_id,id' });
   if (error) throw error;
