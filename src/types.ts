@@ -473,6 +473,7 @@ export interface TransportStop {
   id: string;
   childId?: string;
   childName?: string;
+  siblingGroup?: string;
   locationProfileId?: string;
   locationName?: string;
   locationType: TransportLocationType;

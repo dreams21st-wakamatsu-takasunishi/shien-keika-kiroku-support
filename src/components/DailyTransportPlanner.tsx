@@ -128,6 +128,7 @@ function childStop(
     id: createUuid(),
     childId: child.id,
     childName: child.name,
+    siblingGroup: requirement?.keepSiblingsTogether === false ? undefined : child.siblingGroup?.trim() || undefined,
     location: requirementAddress || suggestion?.address || '',
     locationType: suggestion?.type || (direction === '迎え' ? '学校' : '自宅'),
     locationName: requirementName || suggestion?.name,
@@ -202,34 +203,113 @@ function matrixMinutes(matrix: TransportMatrixResult | undefined, fromId: string
   return entry ? Math.max(1, Math.ceil(entry.durationSeconds / 60)) : 15;
 }
 
+function normalizedStopLocation(value?: string) {
+  return (value || '')
+    .normalize('NFKC')
+    .toLocaleLowerCase('ja-JP')
+    .replace(/[\s\u3000]/g, '')
+    .replace(/[‐‑‒–—―−ーｰ]/g, '-')
+    .replace(/(\d+)丁目/g, '$1-')
+    .replace(/(\d+)番地?/g, '$1-')
+    .replace(/(\d+)号/g, '$1')
+    .replace(/-+/g, '-')
+    .replace(/-$/, '');
+}
+
+function householdStopKey(stop: TransportStop) {
+  const siblingGroup = stop.siblingGroup?.trim().normalize('NFKC').toLocaleLowerCase('ja-JP');
+  const location = normalizedStopLocation(stop.location)
+    || (stop.locationProfileId ? `profile:${stop.locationProfileId}` : '')
+    || (stop.locationName ? `name:${stop.locationType}:${normalizedStopLocation(stop.locationName)}` : '');
+  return siblingGroup && location ? `${siblingGroup}::${location}` : undefined;
+}
+
+interface TransportStopCluster {
+  key: string;
+  stops: TransportStop[];
+}
+
+function clusterTransportStops(stops: TransportStop[]): TransportStopCluster[] {
+  const clusters: TransportStopCluster[] = [];
+  const householdClusters = new Map<string, TransportStopCluster>();
+  stops.forEach((stop) => {
+    const householdKey = householdStopKey(stop);
+    if (!householdKey) {
+      clusters.push({ key: `stop-${stop.id}`, stops: [stop] });
+      return;
+    }
+    const existing = householdClusters.get(householdKey);
+    if (existing) {
+      existing.stops.push(stop);
+      return;
+    }
+    const cluster = { key: householdKey, stops: [stop] };
+    householdClusters.set(householdKey, cluster);
+    clusters.push(cluster);
+  });
+  return clusters;
+}
+
+function clusterRepresentative(cluster: TransportStopCluster) {
+  return cluster.stops[0];
+}
+
+function clusterMatrixId(cluster: TransportStopCluster) {
+  const representative = clusterRepresentative(cluster);
+  return representative.childId || representative.id;
+}
+
+function clusterDwellMinutes(cluster: TransportStopCluster, settings: TransportRouteSettings) {
+  return Math.max(...cluster.stops.map((stop) => stop.stopDurationMinutes ?? settings.stopDurationMinutes));
+}
+
+function clusterTargetMinute(cluster: TransportStopCluster, useLatest = false) {
+  const targets = cluster.stops
+    .map((stop) => stop.plannedTime)
+    .filter((value): value is string => Boolean(value))
+    .map(minutes);
+  if (!targets.length) return undefined;
+  return useLatest ? Math.max(...targets) : Math.min(...targets);
+}
+
+function alignHouseholdStopTimes(stops: TransportStop[]) {
+  return clusterTransportStops(stops).flatMap((cluster) => {
+    const target = clusterTargetMinute(cluster, true);
+    const plannedTime = target === undefined ? undefined : formattedMinutes(target);
+    return cluster.stops.map((stop) => plannedTime ? { ...stop, plannedTime } : stop);
+  });
+}
+
 function orderedStopsByRoad(
   run: TransportRun,
   matrix: TransportMatrixResult | undefined,
   planDay: TransportPlanDay | undefined,
 ) {
-  if (!matrix || run.stops.some((stop) => stop.sequenceLocked)) return run.stops;
+  const clusters = clusterTransportStops(run.stops);
+  if (!matrix || run.stops.some((stop) => stop.sequenceLocked)) return clusters.flatMap((cluster) => cluster.stops);
   if (run.direction === '迎え' && planDay?.pickupMode !== 'home') {
-    return [...run.stops].sort((left, right) => minutes(left.plannedTime) - minutes(right.plannedTime)
-      || matrixMinutes(matrix, 'facility', left.childId || left.id) - matrixMinutes(matrix, 'facility', right.childId || right.id));
+    return [...clusters].sort((left, right) => (clusterTargetMinute(left, true) ?? Number.MAX_SAFE_INTEGER) - (clusterTargetMinute(right, true) ?? Number.MAX_SAFE_INTEGER)
+      || matrixMinutes(matrix, 'facility', clusterMatrixId(left)) - matrixMinutes(matrix, 'facility', clusterMatrixId(right)))
+      .flatMap((cluster) => cluster.stops);
   }
-  const remaining = [...run.stops];
-  const ordered: TransportStop[] = [];
+  const remaining = [...clusters];
+  const ordered: TransportStopCluster[] = [];
   let currentId = 'facility';
   if (run.direction === '迎え' && planDay?.pickupMode === 'home') {
-    remaining.sort((left, right) => matrixMinutes(matrix, 'facility', right.childId || right.id) - matrixMinutes(matrix, 'facility', left.childId || left.id));
+    remaining.sort((left, right) => matrixMinutes(matrix, 'facility', clusterMatrixId(right)) - matrixMinutes(matrix, 'facility', clusterMatrixId(left)));
     const first = remaining.shift();
     if (first) {
       ordered.push(first);
-      currentId = first.childId || first.id;
+      currentId = clusterMatrixId(first);
     }
   }
   while (remaining.length) {
-    remaining.sort((left, right) => matrixMinutes(matrix, currentId, left.childId || left.id) - matrixMinutes(matrix, currentId, right.childId || right.id));
+    remaining.sort((left, right) => matrixMinutes(matrix, currentId, clusterMatrixId(left)) - matrixMinutes(matrix, currentId, clusterMatrixId(right)));
     const next = remaining.shift()!;
     ordered.push(next);
-    currentId = next.childId || next.id;
+    currentId = clusterMatrixId(next);
   }
-  return ordered;
+  return ordered.flatMap((cluster) => cluster.stops);
 }
 
 function scheduleRunWithRoadTimes(
@@ -240,7 +320,7 @@ function scheduleRunWithRoadTimes(
 ) {
   if (!matrix || run.stops.length === 0) return finalizeRunTimes(run, planDay, settings);
   const ordered = orderedStopsByRoad(run, matrix, planDay);
-  const dwell = (stop: TransportStop) => stop.stopDurationMinutes ?? settings.stopDurationMinutes;
+  const clusters = clusterTransportStops(ordered);
   let startMinute = minutes(run.startTime);
   let endMinute = minutes(run.endTime);
 
@@ -248,32 +328,36 @@ function scheduleRunWithRoadTimes(
     endMinute = minutes(planDay.targetArrivalTime || settings.holidayArrivalTime);
     let total = 0;
     let fromId = 'facility';
-    ordered.forEach((stop) => {
-      total += matrixMinutes(matrix, fromId, stop.childId || stop.id) + dwell(stop);
-      fromId = stop.childId || stop.id;
+    clusters.forEach((cluster) => {
+      total += matrixMinutes(matrix, fromId, clusterMatrixId(cluster)) + clusterDwellMinutes(cluster, settings);
+      fromId = clusterMatrixId(cluster);
     });
     total += matrixMinutes(matrix, fromId, 'facility');
     startMinute = endMinute - total;
   } else if (run.direction === '迎え') {
-    const first = ordered[0];
-    const firstTarget = first?.plannedTime ? minutes(first.plannedTime) : minutes(run.startTime) + matrixMinutes(matrix, 'facility', first?.childId || first?.id || 'facility');
-    startMinute = firstTarget - matrixMinutes(matrix, 'facility', first?.childId || first?.id || 'facility');
+    const first = clusters[0];
+    const firstId = first ? clusterMatrixId(first) : 'facility';
+    const firstTarget = first ? clusterTargetMinute(first, true) : undefined;
+    startMinute = (firstTarget ?? minutes(run.startTime) + matrixMinutes(matrix, 'facility', firstId)) - matrixMinutes(matrix, 'facility', firstId);
   } else {
-    const earliestDeparture = ordered.map((stop) => stop.plannedTime).filter((value): value is string => Boolean(value)).sort()[0];
-    startMinute = earliestDeparture ? minutes(earliestDeparture) : minutes(run.startTime);
+    const earliestDeparture = clusters.map((cluster) => clusterTargetMinute(cluster)).filter((value): value is number => value !== undefined).sort((left, right) => left - right)[0];
+    startMinute = earliestDeparture ?? minutes(run.startTime);
   }
 
   let clock = startMinute;
   let fromId = 'facility';
-  const stops = ordered.map((stop, index) => {
-    clock += matrixMinutes(matrix, fromId, stop.childId || stop.id);
-    if (run.direction === '迎え' && planDay?.pickupMode !== 'home' && stop.plannedTime) {
-      clock = Math.max(clock, minutes(stop.plannedTime));
+  const stops: TransportStop[] = [];
+  clusters.forEach((cluster) => {
+    const clusterId = clusterMatrixId(cluster);
+    clock += matrixMinutes(matrix, fromId, clusterId);
+    if (run.direction === '迎え' && planDay?.pickupMode !== 'home') {
+      const target = clusterTargetMinute(cluster, true);
+      if (target !== undefined) clock = Math.max(clock, target);
     }
     const plannedTime = formattedMinutes(clock);
-    clock += dwell(stop);
-    fromId = stop.childId || stop.id;
-    return { ...stop, plannedTime, order: index + 1 };
+    cluster.stops.forEach((stop) => stops.push({ ...stop, plannedTime, order: stops.length + 1 }));
+    clock += clusterDwellMinutes(cluster, settings);
+    fromId = clusterId;
   });
   clock += matrixMinutes(matrix, fromId, 'facility');
   endMinute = run.direction === '迎え' && planDay?.pickupMode === 'home' ? endMinute : clock;
@@ -303,18 +387,21 @@ function finalizeRunTimes(
   planDay: TransportPlanDay | undefined,
   settings: TransportRouteSettings,
 ) {
+  const clusteredStops = clusterTransportStops(run.stops).flatMap((cluster) => cluster.stops);
   if (run.direction !== '迎え' || planDay?.pickupMode !== 'home' || run.stops.length === 0) {
-    return adjustRunTimes(run);
+    return adjustRunTimes({ ...run, stops: alignHouseholdStopTimes(clusteredStops) });
   }
   const arrival = planDay.targetArrivalTime || settings.holidayArrivalTime;
-  const travelEstimate = (run.stops.length + 1) * 15;
-  const serviceEstimate = run.stops.reduce((sum, stop) => sum + (stop.stopDurationMinutes ?? settings.stopDurationMinutes), 0);
+  const clusters = clusterTransportStops(clusteredStops);
+  const travelEstimate = (clusters.length + 1) * 15;
+  const serviceEstimate = clusters.reduce((sum, cluster) => sum + clusterDwellMinutes(cluster, settings), 0);
   const startTime = shiftedTime(arrival, -(travelEstimate + serviceEstimate));
   let elapsed = 15;
-  const stops = run.stops.map((stop) => {
+  const stops: TransportStop[] = [];
+  clusters.forEach((cluster) => {
     const plannedTime = shiftedTime(startTime, elapsed);
-    elapsed += (stop.stopDurationMinutes ?? settings.stopDurationMinutes) + 15;
-    return { ...stop, plannedTime };
+    cluster.stops.forEach((stop) => stops.push({ ...stop, plannedTime, order: stops.length + 1 }));
+    elapsed += clusterDwellMinutes(cluster, settings) + 15;
   });
   return { ...run, startTime, endTime: arrival, stops };
 }
@@ -739,8 +826,21 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
     });
     if (!eligible.length) return setError('送迎利用が有効な児童がいません。児童名簿の送迎情報を確認してください。');
     if (drafts.some((run) => run.direction === activeDirection && run.stops.some((stop) => !stop.sequenceLocked)) && !window.confirm(`現在の${activeDirection}配車を振り分け直しますか？「順番固定」の児童は残します。`)) return;
+    const childById = new Map<string, ChildProfile>(childrenList.map((child) => [child.id, child]));
     let nextDrafts = drafts.map((run) => run.direction === activeDirection
-      ? { ...run, routeOptimizedAt: undefined, stops: run.stops.filter((stop) => stop.sequenceLocked).map((stop, index) => ({ ...stop, order: index + 1 })) }
+      ? {
+          ...run,
+          routeOptimizedAt: undefined,
+          stops: run.stops.filter((stop) => stop.sequenceLocked).map((stop, index) => {
+            const child = stop.childId ? childById.get(stop.childId) : undefined;
+            const requirement = stop.childId ? requirementByChild.get(stop.childId) : undefined;
+            return {
+              ...stop,
+              siblingGroup: requirement?.keepSiblingsTogether === false ? undefined : child?.siblingGroup?.trim() || stop.siblingGroup,
+              order: index + 1,
+            };
+          }),
+        }
       : run);
     const preferredVehicles = boardVehicles.filter((vehicle) => (vehicle.autoAssignmentPolicy || 'always') === 'always');
     const reserveVehicles = boardVehicles.filter((vehicle) => vehicle.autoAssignmentPolicy === 'when_needed');
@@ -821,10 +921,12 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         const firstSuggestion = getSuggestedTransportLocation(group[0], direction, date);
         const firstAddress = direction === '迎え' ? firstRequirement?.pickupAddress : firstRequirement?.dropoffAddress;
         const firstArea = direction === '迎え' ? firstRequirement?.pickupArea : firstRequirement?.dropoffArea;
+        const firstStop = childStop(group[0], direction, date, dayPlansByChild.get(group[0].id), firstRequirement, routeSettings, transportPlanDay?.pickupMode);
+        const groupHouseholdKey = householdStopKey(firstStop);
         const ranked = lanes.map((run) => {
           const vehicle = usableVehicles.find((candidate) => candidate?.id === run.vehicleId);
           const capacity = vehicle?.capacity || 30;
-          const sameLocation = run.stops.some((stop) => stop.location === (firstAddress || firstSuggestion?.address));
+          const sameLocation = run.stops.some((stop) => normalizedStopLocation(stop.location) === normalizedStopLocation(firstAddress || firstSuggestion?.address));
           const sameArea = Boolean(firstArea) && run.stops.some((stop) => stop.area === firstArea);
           const hasCapacity = run.stops.length + group.length <= capacity;
           const lastStop = run.stops.at(-1);
@@ -839,7 +941,14 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
           const excessiveWait = schoolTarget ? Math.max(0, minutes(schoolTarget) - estimatedArrival - routeSettings.schoolWaitToleranceMinutes) : 0;
           return { run, score: (hasCapacity ? 100 : -1000) + (sameLocation ? 60 : 0) + (sameArea ? 35 : 0) - run.stops.length * 3 - roadMinutes - lateMinutes * 25 - excessiveWait * 0.5 - ((vehicle?.assignmentPriority || 100) / 100) };
         }).sort((left, right) => right.score - left.score);
-        let target = ranked[0]?.score >= 0 ? ranked[0].run : undefined;
+        const retainedHouseholdRun = groupHouseholdKey
+          ? lanes.find((run) => {
+              const vehicle = usableVehicles.find((candidate) => candidate?.id === run.vehicleId);
+              return run.stops.length + group.length <= (vehicle?.capacity || 30)
+                && run.stops.some((stop) => householdStopKey(stop) === groupHouseholdKey);
+            })
+          : undefined;
+        let target = retainedHouseholdRun || (ranked[0]?.score >= 0 ? ranked[0].run : undefined);
         if (!target) {
           const fittingVehicles = usableVehicles.filter((vehicle) => (vehicle?.capacity || 30) >= group.length);
           const vehicle = (fittingVehicles.length ? fittingVehicles : usableVehicles).slice().sort((left, right) => {
@@ -851,7 +960,15 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
           lanes.push(target);
         }
         const additions = group.map((child, index) => ({ ...childStop(child, direction, date, dayPlansByChild.get(child.id), requirementByChild.get(child.id), routeSettings, transportPlanDay?.pickupMode), order: target!.stops.length + index + 1 }));
-        const updated = finalizeRunTimes({ ...target, stops: [...target.stops, ...additions] }, transportPlanDay, routeSettings);
+        const combinedStops = [...target.stops];
+        let insertionIndex = combinedStops.length;
+        if (groupHouseholdKey) {
+          combinedStops.forEach((stop, index) => {
+            if (householdStopKey(stop) === groupHouseholdKey) insertionIndex = index + 1;
+          });
+        }
+        combinedStops.splice(insertionIndex, 0, ...additions);
+        const updated = finalizeRunTimes({ ...target, stops: combinedStops }, transportPlanDay, routeSettings);
         nextDrafts = nextDrafts.map((run) => run.id === target!.id ? updated : run);
         lanes = lanes.map((run) => run.id === target!.id ? updated : run);
       });

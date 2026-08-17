@@ -220,7 +220,7 @@ export const ChildTransportSettings: React.FC<ChildTransportSettingsProps> = ({
           </section>
 
           <section className="rounded-2xl border border-slate-200 bg-white p-3 sm:p-4">
-            <label className="block text-xs font-bold text-slate-700">兄弟・同一世帯グループ<input value={siblingGroup} onChange={(event) => onSiblingGroupChange(event.target.value)} placeholder="例：山田家（兄弟で同じ文字）" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm" /><span className="mt-1 block text-[10px] font-normal text-slate-500">同じグループの児童を、車両定員内で同じ便へまとめます。</span></label>
+            <label className="block text-xs font-bold text-slate-700">兄弟・同一世帯グループ<input value={siblingGroup} onChange={(event) => onSiblingGroupChange(event.target.value)} placeholder="例：山田家（兄弟で同じ文字）" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-sm" /><span className="mt-1 block text-[10px] font-normal text-slate-500">同じグループの児童を車両定員内で同じ便へまとめ、送迎先住所も同じ場合は同じ到着時刻として計算します。</span></label>
           </section>
 
           {formError && <p className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-bold text-rose-700">{formError}</p>}
