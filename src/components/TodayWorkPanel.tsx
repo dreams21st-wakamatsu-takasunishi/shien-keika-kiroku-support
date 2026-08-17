@@ -18,7 +18,6 @@ import type {
   ChildProfile,
   DailyChildPlan,
   DailyTransportRequirement,
-  MonthlyScheduleDeleteResult,
   RecorderProfile,
   StaffScheduleItem,
   TransportRun,
@@ -61,14 +60,6 @@ interface TodayWorkPanelProps {
   onReviewAttendanceCorrection: (request: AttendanceCorrectionRequest, approved: boolean, note?: string) => Promise<void> | void;
   onSaveVehicle: (vehicle: Vehicle) => Promise<void> | void;
   onDeleteVehicle: (vehicleId: string) => Promise<void> | void;
-  onSaveTransportPlanDay: (day: TransportPlanDay) => Promise<void> | void;
-  onSaveDailyChildPlan: (plan: DailyChildPlan) => Promise<void> | void;
-  onDeleteDailyChildPlan: (childId: string, date: string) => Promise<void> | void;
-  onDeleteDailyTransportRequirement: (childId: string, date: string) => Promise<void> | void;
-  onDeleteMonthlyDailySchedules: (month: string, childId?: string) => Promise<MonthlyScheduleDeleteResult>;
-  onSaveDailyTransportRequirements: (requirements: DailyTransportRequirement[]) => Promise<void> | void;
-  onReplaceMonthlyTransportRequirements: (month: string, requirements: DailyTransportRequirement[]) => Promise<DailyTransportRequirement[]>;
-  onReplaceChildMonthlyTransportRequirements: (month: string, childId: string, requirements: DailyTransportRequirement[]) => Promise<DailyTransportRequirement[]>;
   onSaveTransportRun: (run: TransportRun) => Promise<void> | void;
   onChangeTransportAssignment: (change: TransportAssignmentChangeInput) => Promise<void> | void;
   onDeleteTransportRun: (runId: string) => Promise<void> | void;
@@ -101,14 +92,6 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
   onReviewAttendanceCorrection,
   onSaveVehicle,
   onDeleteVehicle,
-  onSaveTransportPlanDay,
-  onSaveDailyChildPlan,
-  onDeleteDailyChildPlan,
-  onDeleteDailyTransportRequirement,
-  onDeleteMonthlyDailySchedules,
-  onSaveDailyTransportRequirements,
-  onReplaceMonthlyTransportRequirements,
-  onReplaceChildMonthlyTransportRequirements,
   onSaveTransportRun,
   onChangeTransportAssignment,
   onDeleteTransportRun,
@@ -220,14 +203,6 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
           onDeleteRun={onDeleteTransportRun}
           onSaveVehicle={onSaveVehicle}
           onDeleteVehicle={onDeleteVehicle}
-          onSaveTransportPlanDay={onSaveTransportPlanDay}
-          onSaveDailyChildPlan={onSaveDailyChildPlan}
-          onDeleteDailyChildPlan={onDeleteDailyChildPlan}
-          onDeleteDailyTransportRequirement={onDeleteDailyTransportRequirement}
-          onDeleteMonthlyDailySchedules={onDeleteMonthlyDailySchedules}
-          onSaveDailyTransportRequirements={onSaveDailyTransportRequirements}
-          onReplaceMonthlyTransportRequirements={onReplaceMonthlyTransportRequirements}
-          onReplaceChildMonthlyTransportRequirements={onReplaceChildMonthlyTransportRequirements}
           onSaveRouteSettings={onSaveTransportRouteSettings}
           onUpdateStatus={onUpdateTransportStatus}
         />

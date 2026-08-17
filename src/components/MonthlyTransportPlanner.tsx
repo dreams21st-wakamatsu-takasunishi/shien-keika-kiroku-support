@@ -14,7 +14,10 @@ import {
   MapPin,
   RotateCcw,
   Save,
+  Search,
   Trash2,
+  UserPlus,
+  X,
 } from 'lucide-react';
 import type {
   ChildProfile,
@@ -79,10 +82,18 @@ function scheduledChildrenForDate(
   plans: DailyChildPlan[],
   date: string,
 ) {
+  return serviceChildrenForDate(children, plans, date)
+    .filter((child) => child.transportationRequired);
+}
+
+function serviceChildrenForDate(
+  children: ChildProfile[],
+  plans: DailyChildPlan[],
+  date: string,
+) {
   const weekday = getWeekdayFromDate(date);
   return children.filter((child) => {
     if (child.serviceSuspended) return false;
-    if (!child.transportationRequired) return false;
     const plan = plans.find((candidate) => candidate.childId === child.id && candidate.date === date);
     return plan ? plan.attendancePlan !== '欠席' : getRegularDaysForDate(child, date).includes(weekday);
   });
@@ -250,6 +261,8 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [attendanceSavingChildId, setAttendanceSavingChildId] = useState<string>();
+  const [additionalPickerOpen, setAdditionalPickerOpen] = useState(false);
+  const [additionalSearch, setAdditionalSearch] = useState('');
   const [monthChildId, setMonthChildId] = useState('');
   const [holidayFrom, setHolidayFrom] = useState(`${month}-01`);
   const [holidayTo, setHolidayTo] = useState(monthDates(month).at(-1) || `${month}-01`);
@@ -272,11 +285,26 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
     && plan.attendancePlan === '欠席'
     && activeChildIds.has(plan.childId)
   ), [activeChildIds, dailyChildPlans, selectedDate]);
+  const selectedServiceChildren = useMemo(
+    () => serviceChildrenForDate(childrenList, dailyChildPlans, selectedDate),
+    [childrenList, dailyChildPlans, selectedDate],
+  );
+  const selectedAdditionalPlans = useMemo(() => dailyChildPlans.filter((plan) =>
+    plan.date === selectedDate
+    && plan.attendancePlan === '追加利用'
+    && activeChildIds.has(plan.childId)
+  ), [activeChildIds, dailyChildPlans, selectedDate]);
   const activeChildren = useMemo(() => childrenList
     .filter((child) => !child.serviceSuspended)
     .sort((left, right) => left.name.localeCompare(right.name, 'ja')), [childrenList]);
   const transportChildren = useMemo(() => activeChildren
     .filter((child) => child.transportationRequired), [activeChildren]);
+  const additionalCandidates = useMemo(() => {
+    const scheduledIds = new Set(selectedServiceChildren.map((child) => child.id));
+    const query = additionalSearch.trim().toLocaleLowerCase('ja');
+    return activeChildren.filter((child) => !scheduledIds.has(child.id)
+      && (!query || child.name.toLocaleLowerCase('ja').includes(query)));
+  }, [activeChildren, additionalSearch, selectedServiceChildren]);
   const attendanceChildren = useMemo(() => {
     const weekday = getWeekdayFromDate(selectedDate);
     const requirementChildIds = new Set(requirements
@@ -300,6 +328,8 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
     setDrafts(requirements.filter((item) => item.date === date && activeChildIds.has(item.childId)).map((item) => ({ ...item })));
     setDayDraft(planDays.find((day) => day.date === date) || defaultPlanDay(date, routeSettings));
     setExpandedChildId(undefined);
+    setAdditionalPickerOpen(false);
+    setAdditionalSearch('');
     setMessage('');
     setError('');
   };
@@ -465,6 +495,52 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
       }
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : '利用・欠席予定を保存できませんでした。');
+    } finally {
+      setAttendanceSavingChildId(undefined);
+    }
+  };
+
+  const addAdditionalChild = async (childId: string) => {
+    if (!canManage || !childId || attendanceSavingChildId) return;
+    const child = childrenList.find((candidate) => candidate.id === childId);
+    if (!child) return setError('選択した児童が見つかりません。');
+    const existingPlan = dailyChildPlans.find((plan) => plan.childId === childId && plan.date === selectedDate);
+    const existingRequirement = requirements.find((item) => item.childId === childId && item.date === selectedDate);
+    const now = new Date().toISOString();
+    const nextPlan: DailyChildPlan = {
+      ...defaultDailyChildPlan(child, selectedDate, routeSettings),
+      ...existingPlan,
+      attendancePlan: '追加利用',
+      updatedAt: now,
+    };
+
+    setAttendanceSavingChildId(childId);
+    setError('');
+    setMessage('');
+    try {
+      await onSaveDailyChildPlan(nextPlan);
+      if (child.transportationRequired) {
+        const requirement = buildRequirement(child, selectedDate, dayDraft.pickupMode, routeSettings, nextPlan);
+        await onSaveRequirements([requirement]);
+        setDrafts((current) => [requirement, ...current.filter((item) => item.childId !== childId)]);
+      } else {
+        if (existingRequirement) await onDeleteRequirement(childId, selectedDate);
+        setDrafts((current) => current.filter((item) => item.childId !== childId));
+      }
+
+      const nextDay: TransportPlanDay = {
+        ...dayDraft,
+        status: 'draft',
+        confirmedAt: undefined,
+        revision: dayDraft.revision + 1,
+        updatedAt: now,
+      };
+      await onSavePlanDay(nextDay);
+      setDayDraft(nextDay);
+      setAdditionalSearch('');
+      setMessage(`${child.name}を${selectedDate}の追加利用として登録しました。${child.transportationRequired ? '送迎条件にも基本情報を反映しています。' : '送迎なしの利用予定として各機能へ反映します。'}`);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : '追加利用を登録できませんでした。');
     } finally {
       setAttendanceSavingChildId(undefined);
     }
@@ -637,9 +713,9 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-[11px] font-black text-teal-700">翌月準備</p>
-            <h3 className="text-lg font-black text-slate-950">月間送迎予定</h3>
-            <p className="mt-1 text-xs text-slate-500">定期曜日と登録済み送迎情報を反映し、当日の条件だけを修正・確定します。</p>
+            <p className="text-[11px] font-black text-teal-700">利用・送迎予定</p>
+            <h3 className="text-lg font-black text-slate-950">月間予定</h3>
+            <p className="mt-1 text-xs text-slate-500">定期利用を基準に、追加利用・欠席・当日の送迎条件をまとめて管理します。</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => changeMonth(previousMonthValue(month))} className="flex min-h-11 items-center gap-1 rounded-xl border border-slate-300 bg-white px-3 text-xs font-black text-slate-700"><ChevronLeft className="h-4 w-4" />前月</button>
@@ -707,21 +783,53 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
           {dates.map((date) => {
             const rows = monthRequirements.filter((item) => item.date === date);
             const absentCount = dailyChildPlans.filter((plan) => plan.date === date && plan.attendancePlan === '欠席' && activeChildIds.has(plan.childId)).length;
+            const additionalCount = dailyChildPlans.filter((plan) => plan.date === date && plan.attendancePlan === '追加利用' && activeChildIds.has(plan.childId)).length;
+            const serviceCount = serviceChildrenForDate(childrenList, dailyChildPlans, date).length;
             const day = planDays.find((candidate) => candidate.date === date);
             const missing = rows.some((item) => missingFields(item).length > 0);
-            return <button key={date} type="button" onClick={() => selectDate(date)} className={`min-h-14 rounded-lg border p-1 text-left ${selectedDate === date ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-100' : 'border-slate-200 bg-white'}`}><span className="block text-xs font-black">{Number(date.slice(-2))}</span><span className={`mt-1 block truncate text-[9px] font-bold ${missing ? 'text-rose-700' : day?.status && day.status !== 'draft' ? 'text-emerald-700' : rows.length ? 'text-sky-700' : 'text-slate-300'}`}>{missing ? '要確認' : day?.status && day.status !== 'draft' ? '確定' : rows.length ? `${rows.length}名` : '未作成'}</span>{absentCount > 0 && <span className="mt-0.5 block truncate text-[8px] font-black text-rose-600">欠席{absentCount}名</span>}</button>;
+            return <button key={date} type="button" onClick={() => selectDate(date)} className={`min-h-16 rounded-lg border p-1 text-left ${selectedDate === date ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-100' : 'border-slate-200 bg-white'}`}><span className="block text-xs font-black">{Number(date.slice(-2))}</span><span className={`mt-1 block truncate text-[9px] font-bold ${missing ? 'text-rose-700' : day?.status && day.status !== 'draft' ? 'text-emerald-700' : serviceCount ? 'text-sky-700' : 'text-slate-300'}`}>{missing ? '要確認' : day?.status && day.status !== 'draft' ? `確定 ${serviceCount}名` : serviceCount ? `${serviceCount}名` : '予定なし'}</span>{additionalCount > 0 && <span className="mt-0.5 block truncate text-[8px] font-black text-teal-700">追加{additionalCount}名</span>}{absentCount > 0 && <span className="mt-0.5 block truncate text-[8px] font-black text-rose-600">欠席{absentCount}名</span>}</button>;
           })}
         </div>
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 border-b border-slate-100 pb-3 lg:flex-row lg:items-end lg:justify-between">
-          <div><p className="text-[10px] font-black text-teal-700">{getWeekdayFromDate(selectedDate)}曜日</p><h3 className="text-lg font-black">{selectedDate} の送迎条件</h3></div>
+          <div><p className="text-[10px] font-black text-teal-700">{getWeekdayFromDate(selectedDate)}曜日</p><h3 className="text-lg font-black">{selectedDate} の利用・送迎予定</h3></div>
           <div className="grid gap-2 sm:grid-cols-2">
             <label className="text-[10px] font-bold text-slate-600">迎え方式<select value={dayDraft.pickupMode} disabled={!canManage} onChange={(event) => changePickupMode(event.target.value as TransportPickupMode)} className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm font-bold"><option value="school">学校等への迎え</option><option value="home">自宅等への迎え</option><option value="custom">個別設定</option></select></label>
             {dayDraft.pickupMode === 'home' && <label className="text-[10px] font-bold text-slate-600">事業所到着目標<input type="time" value={dayDraft.targetArrivalTime} disabled={!canManage} onChange={(event) => setDayDraft((current) => ({ ...current, targetArrivalTime: event.target.value }))} className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-2 text-sm font-bold" /></label>}
           </div>
         </div>
+
+        <section className="mt-3 rounded-xl border border-teal-200 bg-teal-50 p-3" aria-label="追加利用児童">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-black text-teal-950">利用予定 {selectedServiceChildren.length}名</p>
+              <p className="mt-0.5 text-[10px] font-bold text-teal-800">定期利用に、当日の追加利用・欠席変更を反映しています。</p>
+            </div>
+            {canManage && (
+              <button type="button" onClick={() => setAdditionalPickerOpen(true)} className="flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-teal-700 px-4 text-xs font-black text-white">
+                <UserPlus className="h-4 w-4" />追加利用児童を登録
+              </button>
+            )}
+          </div>
+          {selectedAdditionalPlans.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {selectedAdditionalPlans.map((plan) => {
+                const child = childrenList.find((candidate) => candidate.id === plan.childId);
+                if (!child) return null;
+                return (
+                  <span key={plan.childId} className="flex min-h-8 items-center gap-1 rounded-full border border-teal-300 bg-white pl-3 pr-1 text-[10px] font-black text-teal-900">
+                    {child.name}<span className="text-teal-600">追加利用</span>
+                    {canManage && (
+                      <button type="button" disabled={Boolean(attendanceSavingChildId)} onClick={() => void deleteSelectedDatePlan(child.id)} aria-label={`${child.name}の追加利用を削除`} className="grid h-7 w-7 place-items-center rounded-full text-rose-600 hover:bg-rose-50 disabled:opacity-40"><X className="h-3.5 w-3.5" /></button>
+                    )}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+        </section>
 
         <details className="group mt-3 overflow-hidden rounded-xl border border-rose-200 bg-rose-50">
           <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-3 py-2 marker:hidden">
@@ -806,6 +914,42 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
         {error && <p className="mt-3 rounded-xl bg-rose-50 p-3 text-xs font-bold text-rose-800">{error}</p>}
         {saving && <p className="mt-2 flex items-center gap-2 text-xs font-bold text-slate-500"><Clock3 className="h-4 w-4" />保存しています…</p>}
       </section>
+
+      {additionalPickerOpen && (
+        <div className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/55 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label={`${selectedDate}の追加利用児童を登録`}>
+          <div className="max-h-[90dvh] w-full overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:max-w-xl sm:rounded-2xl">
+            <header className="flex items-center justify-between border-b border-slate-200 p-4">
+              <div><p className="text-[10px] font-black text-teal-700">{selectedDate}</p><h3 className="text-lg font-black text-slate-950">追加利用児童を登録</h3></div>
+              <button type="button" onClick={() => { setAdditionalPickerOpen(false); setAdditionalSearch(''); }} aria-label="閉じる" className="grid h-10 w-10 place-items-center rounded-xl bg-slate-100"><X className="h-5 w-5" /></button>
+            </header>
+            <div className="border-b border-slate-100 p-3">
+              <label className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-300 bg-white px-3">
+                <Search className="h-4 w-4 shrink-0 text-slate-400" />
+                <span className="sr-only">児童名で検索</span>
+                <input value={additionalSearch} onChange={(event) => setAdditionalSearch(event.target.value)} autoFocus placeholder="児童名で検索" className="min-w-0 flex-1 border-0 bg-transparent text-sm outline-none" />
+              </label>
+            </div>
+            <div className="max-h-[60dvh] overflow-y-auto p-3">
+              {additionalCandidates.length > 0 ? (
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {additionalCandidates.map((child) => {
+                    const savingChild = attendanceSavingChildId === child.id;
+                    const previousPlan = dailyChildPlans.find((plan) => plan.childId === child.id && plan.date === selectedDate);
+                    return (
+                      <button key={child.id} type="button" disabled={Boolean(attendanceSavingChildId)} onClick={() => void addAdditionalChild(child.id)} className="flex min-h-14 items-center gap-3 rounded-xl border border-slate-200 px-3 text-left hover:border-teal-400 hover:bg-teal-50 disabled:opacity-50">
+                        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-teal-100 text-teal-700"><UserPlus className="h-4 w-4" /></span>
+                        <span className="min-w-0 flex-1"><strong className="block truncate text-sm text-slate-950">{child.name}</strong><span className="block truncate text-[10px] text-slate-500">{savingChild ? '登録中…' : previousPlan?.attendancePlan === '欠席' ? '欠席予定から追加利用へ変更' : child.transportationRequired ? '送迎条件も自動作成' : '送迎なしで登録'}</span></span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="rounded-xl bg-slate-50 p-6 text-center text-xs font-bold text-slate-500">該当する児童はいません。すでに利用予定へ入っている児童は表示されません。</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

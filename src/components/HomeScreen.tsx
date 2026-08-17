@@ -5,6 +5,7 @@ import {
   Bell,
   Bot,
   CalendarDays,
+  CalendarRange,
   CheckCircle2,
   ChevronRight,
   ClipboardPenLine,
@@ -53,6 +54,7 @@ import { HandoverPanel } from './HandoverPanel';
 import { MorningMeetingPanel } from './MorningMeetingPanel';
 import { AnnouncementPanel } from './AnnouncementPanel';
 import { TodayWorkPanel } from './TodayWorkPanel';
+import { MonthlyTransportPlanner } from './MonthlyTransportPlanner';
 import { getLocalDateString } from '../utils/weekdays';
 
 interface HomeScreenProps {
@@ -130,7 +132,7 @@ interface HomeScreenProps {
   onUpdateTransportStatus: (run: TransportRun, recorder: RecorderProfile, pin: string, status: TransportRunStatus) => Promise<void> | void;
 }
 
-export type HomeWorkspace = 'menu' | 'todayWork' | 'operations' | 'communication' | 'assistant';
+export type HomeWorkspace = 'menu' | 'todayWork' | 'monthlySchedule' | 'operations' | 'communication' | 'assistant';
 type CommunicationView = 'announcements' | 'morning' | 'handover';
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
@@ -354,6 +356,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <WorkspaceCard icon={CalendarDays} title="本日の業務" description="職員配置・予定・出勤・送迎" meta={todayWorkCount > 0 ? `${todayWorkCount}件の予定` : '予定を確認'} tone="teal" onClick={() => setActivePanel('todayWork')} />
+              <WorkspaceCard icon={CalendarRange} title="月間予定" description="利用予定・追加利用・欠席・送迎条件" meta="日ごとの予定を確認・編集" tone="violet" onClick={() => setActivePanel('monthlySchedule')} />
               <WorkspaceCard icon={ClipboardList} title="記録状況" description="利用児童・入力中・保存済み" meta={`本日 ${todayRecords.length}件／入力中 ${drafts.length}件${carriedOverDrafts.length > 0 ? `／持越し ${carriedOverDrafts.length}件` : ''}`} tone="sky" onClick={() => setActivePanel('operations')} />
               <WorkspaceCard icon={MessageSquareText} title="共有・連絡" description="お知らせ・朝礼・申し送り" meta={`${visibleAnnouncements.length + openHandovers}件を確認`} tone="amber" onClick={() => setActivePanel('communication')} />
               <WorkspaceCard icon={Bot} title="AIアシスタント" description="児童情報の変更や記録の整理" meta="実行前に内容を確認" tone="indigo" onClick={() => setActivePanel('assistant')} />
@@ -363,10 +366,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       ) : (
         <>
           <WorkspaceBackBar
-            title={activePanel === 'todayWork' ? '本日の業務' : activePanel === 'operations' ? '記録状況' : activePanel === 'communication' ? '共有・連絡' : 'AIアシスタント'}
+            title={activePanel === 'todayWork' ? '本日の業務' : activePanel === 'monthlySchedule' ? '月間予定' : activePanel === 'operations' ? '記録状況' : activePanel === 'communication' ? '共有・連絡' : 'AIアシスタント'}
             onBack={() => setActivePanel('menu')}
           />
-          <div key={activePanel} className="ui-panel-enter" role="region" aria-label={activePanel === 'todayWork' ? '本日の業務' : activePanel === 'operations' ? '記録状況' : activePanel === 'communication' ? '共有・連絡' : 'AIアシスタント'}>
+          <div key={activePanel} className="ui-panel-enter" role="region" aria-label={activePanel === 'todayWork' ? '本日の業務' : activePanel === 'monthlySchedule' ? '月間予定' : activePanel === 'operations' ? '記録状況' : activePanel === 'communication' ? '共有・連絡' : 'AIアシスタント'}>
         {activePanel === 'todayWork' && (
           <TodayWorkPanel
             staffScheduleItems={staffScheduleItems}
@@ -393,19 +396,31 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             onReviewAttendanceCorrection={onReviewAttendanceCorrection}
             onSaveVehicle={onSaveVehicle}
             onDeleteVehicle={onDeleteVehicle}
-            onSaveTransportPlanDay={onSaveTransportPlanDay}
-            onSaveDailyTransportRequirements={onSaveDailyTransportRequirements}
-            onReplaceMonthlyTransportRequirements={onReplaceMonthlyTransportRequirements}
-            onReplaceChildMonthlyTransportRequirements={onReplaceChildMonthlyTransportRequirements}
-            onSaveDailyChildPlan={onSaveDailyChildPlan}
-            onDeleteDailyChildPlan={onDeleteDailyChildPlan}
-            onDeleteDailyTransportRequirement={onDeleteDailyTransportRequirement}
-            onDeleteMonthlyDailySchedules={onDeleteMonthlyDailySchedules}
             onSaveTransportRun={onSaveTransportRun}
             onChangeTransportAssignment={onChangeTransportAssignment}
             onDeleteTransportRun={onDeleteTransportRun}
             onSaveTransportRouteSettings={onSaveTransportRouteSettings}
             onUpdateTransportStatus={onUpdateTransportStatus}
+          />
+        )}
+
+        {activePanel === 'monthlySchedule' && (
+          <MonthlyTransportPlanner
+            initialDate={today}
+            childrenList={childrenList}
+            dailyChildPlans={dailyChildPlans}
+            requirements={dailyTransportRequirements}
+            planDays={transportPlanDays}
+            routeSettings={transportRouteSettings}
+            canManage={canManageSettings}
+            onSavePlanDay={onSaveTransportPlanDay}
+            onSaveDailyChildPlan={onSaveDailyChildPlan}
+            onDeleteDailyChildPlan={onDeleteDailyChildPlan}
+            onDeleteRequirement={onDeleteDailyTransportRequirement}
+            onDeleteMonthSchedules={onDeleteMonthlyDailySchedules}
+            onSaveRequirements={onSaveDailyTransportRequirements}
+            onReplaceMonthRequirements={onReplaceMonthlyTransportRequirements}
+            onReplaceChildMonthRequirements={onReplaceChildMonthlyTransportRequirements}
           />
         )}
 
@@ -741,7 +756,7 @@ function WorkspaceCard({
   title: string;
   description: string;
   meta: string;
-  tone: 'teal' | 'sky' | 'amber' | 'indigo';
+  tone: 'teal' | 'sky' | 'amber' | 'indigo' | 'violet';
   onClick: () => void;
 }) {
   const tones = {
@@ -749,6 +764,7 @@ function WorkspaceCard({
     sky: 'bg-sky-50 text-sky-700 group-hover:bg-sky-100',
     amber: 'bg-amber-50 text-amber-700 group-hover:bg-amber-100',
     indigo: 'bg-indigo-50 text-indigo-700 group-hover:bg-indigo-100',
+    violet: 'bg-violet-50 text-violet-700 group-hover:bg-violet-100',
   };
   return (
     <button

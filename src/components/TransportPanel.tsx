@@ -4,7 +4,6 @@ import {
   ArrowDown,
   ArrowUp,
   BusFront,
-  CalendarRange,
   CarFront,
   CheckCircle2,
   ExternalLink,
@@ -28,7 +27,6 @@ import type {
   CalendarEvent,
   DailyChildPlan,
   DailyTransportRequirement,
-  MonthlyScheduleDeleteResult,
   RecorderProfile,
   StaffScheduleItem,
   TransportDirection,
@@ -48,7 +46,6 @@ import {
   getTransportLocationOptions,
 } from "../utils/transportLocations";
 import { DailyTransportPlanner } from "./DailyTransportPlanner";
-import { MonthlyTransportPlanner } from "./MonthlyTransportPlanner";
 import { inferTransportArea, resolvedTransportArea } from "../utils/transportArea";
 
 const TRANSPORT_LOCATION_TYPES: TransportLocationType[] = [
@@ -105,14 +102,6 @@ interface TransportPanelProps {
   onDeleteRun: (runId: string) => Promise<void> | void;
   onSaveVehicle: (vehicle: Vehicle) => Promise<void> | void;
   onDeleteVehicle: (vehicleId: string) => Promise<void> | void;
-  onSaveTransportPlanDay: (day: TransportPlanDay) => Promise<void> | void;
-  onSaveDailyChildPlan: (plan: DailyChildPlan) => Promise<void> | void;
-  onDeleteDailyChildPlan: (childId: string, date: string) => Promise<void> | void;
-  onDeleteDailyTransportRequirement: (childId: string, date: string) => Promise<void> | void;
-  onDeleteMonthlyDailySchedules: (month: string, childId?: string) => Promise<MonthlyScheduleDeleteResult>;
-  onSaveDailyTransportRequirements: (requirements: DailyTransportRequirement[]) => Promise<void> | void;
-  onReplaceMonthlyTransportRequirements: (month: string, requirements: DailyTransportRequirement[]) => Promise<DailyTransportRequirement[]>;
-  onReplaceChildMonthlyTransportRequirements: (month: string, childId: string, requirements: DailyTransportRequirement[]) => Promise<DailyTransportRequirement[]>;
   onSaveRouteSettings: (settings: TransportRouteSettings) => Promise<void> | void;
   onUpdateStatus: (
     run: TransportRun,
@@ -122,7 +111,7 @@ interface TransportPanelProps {
   ) => Promise<void> | void;
 }
 
-type ViewMode = "runs" | "monthly" | "vehicles";
+type ViewMode = "runs" | "vehicles";
 
 export const TransportPanel: React.FC<TransportPanelProps> = ({
   runs,
@@ -146,14 +135,6 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
   onDeleteRun,
   onSaveVehicle,
   onDeleteVehicle,
-  onSaveTransportPlanDay,
-  onSaveDailyChildPlan,
-  onDeleteDailyChildPlan,
-  onDeleteDailyTransportRequirement,
-  onDeleteMonthlyDailySchedules,
-  onSaveDailyTransportRequirements,
-  onReplaceMonthlyTransportRequirements,
-  onReplaceChildMonthlyTransportRequirements,
   onSaveRouteSettings,
   onUpdateStatus,
 }) => {
@@ -526,7 +507,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
     <div className="space-y-4">
       {assignmentNotice && <div className="fixed left-1/2 top-[max(5rem,calc(env(safe-area-inset-top)+4rem))] z-[95] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-bold text-white shadow-2xl" role="status"><CheckCircle2 className="mr-2 inline h-5 w-5 text-teal-300" />{assignmentNotice}</div>}
       <section className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-        <div className="grid grid-cols-3 gap-1">
+        <div className="grid grid-cols-2 gap-1">
           <button
             type="button"
             onClick={() => setView("runs")}
@@ -534,14 +515,6 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
           >
             <BusFront className="mr-2 inline h-5 w-5" />
             送迎便
-          </button>
-          <button
-            type="button"
-            onClick={() => setView("monthly")}
-            className={`min-h-11 rounded-xl text-sm font-black ${view === "monthly" ? "bg-slate-900 text-white" : "text-slate-600"}`}
-          >
-            <CalendarRange className="mr-2 inline h-5 w-5" />
-            月間予定
           </button>
           <button
             type="button"
@@ -774,24 +747,6 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
             </div>
           )}
         </section>
-      ) : view === "monthly" ? (
-        <MonthlyTransportPlanner
-          initialDate={selectedDate}
-          childrenList={childrenList}
-          dailyChildPlans={dailyChildPlans}
-          requirements={dailyTransportRequirements}
-          planDays={transportPlanDays}
-          routeSettings={routeSettings}
-          canManage={canManage}
-          onSavePlanDay={onSaveTransportPlanDay}
-          onSaveDailyChildPlan={onSaveDailyChildPlan}
-          onDeleteDailyChildPlan={onDeleteDailyChildPlan}
-          onDeleteRequirement={onDeleteDailyTransportRequirement}
-          onDeleteMonthSchedules={onDeleteMonthlyDailySchedules}
-          onSaveRequirements={onSaveDailyTransportRequirements}
-          onReplaceMonthRequirements={onReplaceMonthlyTransportRequirements}
-          onReplaceChildMonthRequirements={onReplaceChildMonthlyTransportRequirements}
-        />
       ) : (
         <section className="rounded-2xl border border-slate-200 bg-white shadow-sm">
           <div className="flex items-center justify-between gap-3 border-b border-slate-200 p-4">

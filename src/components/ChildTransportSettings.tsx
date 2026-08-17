@@ -94,10 +94,29 @@ export const ChildTransportSettings: React.FC<ChildTransportSettingsProps> = ({
           <p className="text-base font-black text-slate-900">送迎設定</p>
           <p className="mt-0.5 text-[11px] leading-relaxed text-slate-500">送迎先の名称・区分・住所を登録すると、月間予定と配車画面へそのまま反映されます。</p>
         </div>
-        <label className={`flex min-h-11 shrink-0 cursor-pointer items-center justify-between gap-4 rounded-xl border px-4 text-sm font-black ${enabled ? 'border-teal-400 bg-teal-50 text-teal-900' : 'border-slate-300 bg-slate-50 text-slate-600'}`}>
-          <span>{enabled ? '送迎を利用する' : '送迎を利用しない'}</span>
-          <input type="checkbox" checked={enabled} onChange={(event) => onEnabledChange(event.target.checked)} className="h-5 w-5 accent-teal-600" />
-        </label>
+        <div className="shrink-0" role="radiogroup" aria-label="送迎利用の有無">
+          <p className="mb-1 text-[10px] font-black text-slate-500">送迎利用</p>
+          <div className="grid grid-cols-2 rounded-xl border border-slate-300 bg-slate-100 p-1">
+            <button
+              type="button"
+              role="radio"
+              aria-checked={enabled}
+              onClick={() => onEnabledChange(true)}
+              className={`min-h-9 rounded-lg px-3 text-xs font-black transition-colors ${enabled ? 'bg-teal-600 text-white shadow-sm' : 'text-slate-500 hover:bg-white'}`}
+            >
+              利用する
+            </button>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={!enabled}
+              onClick={() => onEnabledChange(false)}
+              className={`min-h-9 rounded-lg px-3 text-xs font-black transition-colors ${!enabled ? 'bg-slate-700 text-white shadow-sm' : 'text-slate-500 hover:bg-white'}`}
+            >
+              利用しない
+            </button>
+          </div>
+        </div>
       </div>
 
       {enabled && (
