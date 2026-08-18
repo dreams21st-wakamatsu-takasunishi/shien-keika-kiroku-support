@@ -261,7 +261,7 @@ export const GoogleTransportMap: React.FC<GoogleTransportMapProps> = ({
 
   return (
     <div className="relative">
-      <div ref={containerRef} className={`h-[30rem] w-full sm:h-[36rem] xl:h-[44rem] ${simple ? 'google-transport-map-simple' : ''}`} aria-label="Google送迎地点マップ" />
+      <div ref={containerRef} className={`h-[36rem] w-full sm:h-[44rem] xl:h-[calc(100dvh-9rem)] xl:min-h-[46rem] xl:max-h-[68rem] ${simple ? 'google-transport-map-simple' : ''}`} aria-label="Google送迎地点マップ" />
       {!ready && !error && <div className="absolute inset-0 grid place-items-center bg-slate-50/90 text-sm font-bold text-slate-600">Google地図を読み込んでいます…</div>}
       {error && <div role="alert" className="absolute inset-0 grid place-items-center bg-rose-50 p-6 text-center text-sm font-bold leading-relaxed text-rose-800">{error}</div>}
     </div>

@@ -75,6 +75,17 @@ interface SimpleMarkerGroup {
   entries: Array<{ source: SourceLocation; location: TransportMapLocation }>;
 }
 
+type MapLocationFilter = 'all' | 'facility' | 'homeSchool' | 'residential' | 'education' | 'other';
+
+const MAP_LOCATION_FILTERS: Array<{ id: MapLocationFilter; label: string }> = [
+  { id: 'all', label: 'すべて' },
+  { id: 'facility', label: '事業所のみ' },
+  { id: 'homeSchool', label: '自宅・学校' },
+  { id: 'residential', label: '自宅・親族宅' },
+  { id: 'education', label: '学校・学童' },
+  { id: 'other', label: 'その他' },
+];
+
 const DEFAULT_CENTER: [number, number] = [33.883, 130.875];
 const ZONE_COLORS = ['#0f766e', '#0284c7', '#7c3aed', '#d97706', '#dc2626', '#475569'];
 const createUuid = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -128,6 +139,17 @@ function markerColor(type: SourceLocation['locationType']) {
   if (type === '自宅' || type === '親族宅') return '#059669';
   if (type === '学校' || type === '学童') return '#0284c7';
   return '#d97706';
+}
+
+function matchesMapLocationFilter(source: SourceLocation, filter: MapLocationFilter) {
+  if (filter === 'all') return true;
+  const residential = source.locationType === '自宅' || source.locationType === '親族宅';
+  const education = source.locationType === '学校' || source.locationType === '学童';
+  if (filter === 'facility') return source.sourceType === 'facility';
+  if (filter === 'homeSchool') return residential || education;
+  if (filter === 'residential') return residential;
+  if (filter === 'education') return education;
+  return source.sourceType !== 'facility' && !residential && !education;
 }
 
 function markerIcon(type: SourceLocation['locationType'], simple = false, assignedColor?: string, selected = false) {
@@ -202,10 +224,17 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
   const [zoneDraft, setZoneDraft] = useState<TransportAreaZone>();
   const [placingZoneCenter, setPlacingZoneCenter] = useState(false);
   const [mapMode, setMapMode] = useState<'simple' | 'detail'>('simple');
+  const [mapLocationFilter, setMapLocationFilter] = useState<MapLocationFilter>('all');
   const [showSettings, setShowSettings] = useState(false);
   const [selectingZonePins, setSelectingZonePins] = useState(false);
   const autoGeocodeAttemptRef = useRef('');
   const activeZones = useMemo(() => [...zones].filter((zone) => zone.active).sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name, 'ja')), [zones]);
+  const visiblePlaced = useMemo(() => placed.filter(({ source }) => matchesMapLocationFilter(source, mapLocationFilter)), [mapLocationFilter, placed]);
+  const visibleActiveZones = useMemo(() => mapLocationFilter === 'facility' ? [] : activeZones, [activeZones, mapLocationFilter]);
+  const filterCounts = useMemo(() => Object.fromEntries(MAP_LOCATION_FILTERS.map((filter) => [
+    filter.id,
+    placed.filter(({ source }) => matchesMapLocationFilter(source, filter.id)).length,
+  ])) as Record<MapLocationFilter, number>, [placed]);
   const center = useMemo<[number, number]>(() => {
     const facility = placed.find((entry) => entry.source.sourceType === 'facility')?.location;
     if (facility) return [facility.latitude, facility.longitude];
@@ -219,7 +248,7 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
   }, [placed]);
   const simpleMarkerGroups = useMemo<SimpleMarkerGroup[]>(() => {
     const groups = new Map<string, SimpleMarkerGroup>();
-    placed.forEach((entry) => {
+    visiblePlaced.forEach((entry) => {
       const key = `${entry.location.latitude.toFixed(4)}:${entry.location.longitude.toFixed(4)}`;
       const current = groups.get(key);
       if (current) current.entries.push(entry);
@@ -231,7 +260,7 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
       });
     });
     return [...groups.values()];
-  }, [placed]);
+  }, [visiblePlaced]);
   const selectedZoneLocationIds = zoneDraft?.locationIds || [];
   const recalculateZoneFromPins = useCallback((locationIds: string[], base: TransportAreaZone) => {
     const selected = placed.filter(({ source, location }) => locationIds.includes(source.id) || locationIds.includes(location.id));
@@ -259,8 +288,8 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
     setMessage(allSelected ? 'この地点を配車グループから外しました。' : 'この地点を同じ送迎車へまとめる候補に追加しました。');
   };
   const fitPoints = useMemo<Array<[number, number]>>(() => {
-    const points = placed.map((entry) => [entry.location.latitude, entry.location.longitude] as [number, number]);
-    activeZones.forEach((zone) => {
+    const points = visiblePlaced.map((entry) => [entry.location.latitude, entry.location.longitude] as [number, number]);
+    visibleActiveZones.forEach((zone) => {
       const latitudeRadius = zone.radiusKm / 111;
       const longitudeRadius = zone.radiusKm / Math.max(30, 111 * Math.cos(zone.centerLatitude * Math.PI / 180));
       points.push(
@@ -271,12 +300,13 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
       );
     });
     return points;
-  }, [activeZones, placed]);
+  }, [visibleActiveZones, visiblePlaced]);
   const filteredSources = useMemo(() => {
     const query = search.trim().toLocaleLowerCase('ja-JP');
-    if (!query) return sources;
-    return sources.filter((source) => `${source.childName || ''} ${source.locationName} ${source.locationType} ${source.address}`.toLocaleLowerCase('ja-JP').includes(query));
-  }, [search, sources]);
+    return sources
+      .filter((source) => matchesMapLocationFilter(source, mapLocationFilter))
+      .filter((source) => !query || `${source.childName || ''} ${source.locationName} ${source.locationType} ${source.address}`.toLocaleLowerCase('ja-JP').includes(query));
+  }, [mapLocationFilter, search, sources]);
 
   const beginNewZone = () => {
     const now = new Date().toISOString();
@@ -297,6 +327,7 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
     setSelectingZonePins(true);
     setShowSettings(true);
     setMapMode('simple');
+    setMapLocationFilter('homeSchool');
     setManualSourceId('');
     setPendingManual(undefined);
     setMessage('同じ送迎車へまとめたい地点のピンを順番に選択してください。');
@@ -476,7 +507,7 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
         };
       });
     }
-    return placed.map(({ source, location }) => {
+    return visiblePlaced.map(({ source, location }) => {
       const zone = findTransportZone(location, activeZones);
       return {
         id: source.id,
@@ -487,7 +518,7 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
         details: [source.locationType, source.address, zone ? `優先範囲：${zone.name}` : '優先範囲外'],
       };
     });
-  }, [activeZones, mapMode, placed, selectedZoneLocationIds, selectingZonePins, simpleMarkerGroups, zoneDraft]);
+  }, [activeZones, mapMode, selectedZoneLocationIds, selectingZonePins, simpleMarkerGroups, visiblePlaced, zoneDraft]);
   const pendingGoogleMarker = pendingManual ? {
     id: `pending:${pendingManual.source.id}`,
     latitude: pendingManual.latitude,
@@ -524,6 +555,25 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
           {unresolved.length > 0 && <span className="rounded-full bg-amber-50 px-3 py-1.5 text-amber-800">未配置 {unresolved.length}件</span>}
           {activeZones.map((zone) => <span key={zone.id} className="rounded-full border bg-white px-3 py-1.5 text-slate-700" style={{ borderColor: zone.color }}><span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ backgroundColor: zone.color }} />{zone.name}</span>)}
         </div>
+        <div className="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-2">
+          <div className="flex items-center justify-between gap-3 px-1 pb-2">
+            <p className="text-[10px] font-black text-slate-600">地図に表示する地点</p>
+            <span className="text-[10px] font-bold text-slate-400">表示 {visiblePlaced.length}地点</span>
+          </div>
+          <div className="ui-scrollbar flex gap-1.5 overflow-x-auto pb-1" role="group" aria-label="地図に表示する地点の絞り込み">
+            {MAP_LOCATION_FILTERS.map((filter) => (
+              <button
+                key={filter.id}
+                type="button"
+                aria-pressed={mapLocationFilter === filter.id}
+                onClick={() => setMapLocationFilter(filter.id)}
+                className={`min-h-10 shrink-0 rounded-lg border px-3 text-xs font-black transition ${mapLocationFilter === filter.id ? 'border-teal-700 bg-teal-700 text-white shadow-sm' : 'border-slate-200 bg-white text-slate-600 hover:border-teal-300 hover:text-teal-800'}`}
+              >
+                {filter.label}<span className={`ml-1.5 text-[10px] ${mapLocationFilter === filter.id ? 'text-teal-100' : 'text-slate-400'}`}>{filterCounts[filter.id]}</span>
+              </button>
+            ))}
+          </div>
+        </div>
         <p className="mt-3 text-[10px] font-bold leading-relaxed text-amber-800"><ShieldAlert className="mr-1 inline h-3.5 w-3.5" />児童宅・学校の位置は個人情報です。業務上必要な範囲でのみ閲覧してください。住所の自動配置を実行すると、登録住所をGoogle Maps Platformへ送信して位置へ変換します。</p>
         {!GOOGLE_MAP_CONFIGURED && <p role="status" className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold leading-relaxed text-amber-900">Google地図の公開設定が未完了です。現在は手動配置用の代替地図だけを表示し、Googleで取得した位置と住所の自動変換は停止しています。</p>}
         {message && <p role="status" className="mt-3 rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800"><CheckCircle2 className="mr-2 inline h-4 w-4" />{message}</p>}
@@ -540,24 +590,24 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
             center={center}
             fitPoints={fitPoints}
             markers={googleMarkers}
-            zones={activeZones}
+            zones={visibleActiveZones}
             draftZone={zoneDraft}
             pendingMarker={pendingGoogleMarker}
             simple={mapMode === 'simple'}
             interactiveMapClick={Boolean(manualSourceId || (placingZoneCenter && zoneDraft))}
             onMapClick={handleMapClick}
             onMarkerClick={handleGoogleMarkerClick}
-          /> : <MapContainer center={center} zoom={12} scrollWheelZoom zoomControl={mapMode === 'detail'} className={`h-[30rem] w-full sm:h-[36rem] xl:h-[44rem] ${mapMode === 'simple' ? 'transport-map-simple' : ''}`} aria-label="送迎地点マップ（手動配置用）">
+          /> : <MapContainer center={center} zoom={12} scrollWheelZoom zoomControl={mapMode === 'detail'} className={`h-[36rem] w-full sm:h-[44rem] xl:h-[calc(100dvh-9rem)] xl:min-h-[46rem] xl:max-h-[68rem] ${mapMode === 'simple' ? 'transport-map-simple' : ''}`} aria-label="送迎地点マップ（手動配置用）">
             <TileLayer className={mapMode === 'simple' ? 'transport-map-muted-tiles' : ''} opacity={mapMode === 'simple' ? 0.52 : 1} attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
             <FitMap points={fitPoints} />
             <MapClickHandler enabled={Boolean(manualSourceId || (placingZoneCenter && zoneDraft))} onClick={handleMapClick} />
-            {activeZones.map((zone) => <Circle key={zone.id} center={[zone.centerLatitude, zone.centerLongitude]} radius={zone.radiusKm * 1000} pathOptions={{ color: zone.color, fillColor: zone.color, fillOpacity: mapMode === 'simple' ? 0.22 : 0.12, weight: mapMode === 'simple' ? 4 : 3 }}><Popup><strong>{zone.name}</strong><br />半径 {zone.radiusKm}km・優先 {zone.priority}</Popup>{mapMode === 'simple' && <Tooltip permanent direction="center" className="transport-zone-label">{zone.name}</Tooltip>}</Circle>)}
+            {visibleActiveZones.map((zone) => <Circle key={zone.id} center={[zone.centerLatitude, zone.centerLongitude]} radius={zone.radiusKm * 1000} pathOptions={{ color: zone.color, fillColor: zone.color, fillOpacity: mapMode === 'simple' ? 0.22 : 0.12, weight: mapMode === 'simple' ? 4 : 3 }}><Popup><strong>{zone.name}</strong><br />半径 {zone.radiusKm}km・優先 {zone.priority}</Popup>{mapMode === 'simple' && <Tooltip permanent direction="center" className="transport-zone-label">{zone.name}</Tooltip>}</Circle>)}
             {mapMode === 'simple' ? simpleMarkerGroups.map((group) => {
               const first = group.entries[0];
               const draftSelected = group.entries.some(({ source }) => selectedZoneLocationIds.includes(source.id));
               const zone = draftSelected && zoneDraft ? zoneDraft : findTransportZone(first.location, activeZones);
               return <Marker key={group.id} position={[group.latitude, group.longitude]} icon={markerIcon(first.source.locationType, true, zone?.color, draftSelected)} eventHandlers={{ click: () => toggleGroupForZone(group) }}><Tooltip permanent direction="top" offset={[0, -13]} className="transport-map-label">{simpleGroupLabel(group)}</Tooltip><Popup><div className="min-w-44"><strong>{simpleGroupLabel(group)}</strong><p className="mt-1 text-xs font-bold" style={{ color: zone?.color || '#64748b' }}>{selectingZonePins ? draftSelected ? '選択済み・クリックで解除' : 'クリックして同じ送迎車へ追加' : zone ? `優先範囲：${zone.name}` : '優先範囲外'}</p><ul className="mt-2 space-y-1 text-xs">{group.entries.map(({ source }) => <li key={source.id}>{source.childName ? `${source.childName}・` : ''}{source.locationName}</li>)}</ul></div></Popup></Marker>;
-            }) : placed.map(({ source, location }) => {
+            }) : visiblePlaced.map(({ source, location }) => {
               const zone = findTransportZone(location, activeZones);
               return <Marker key={source.id} position={[location.latitude, location.longitude]} icon={markerIcon(source.locationType)}><Popup><div className="min-w-48"><strong>{source.childName ? `${source.childName}・` : ''}{source.locationName}</strong><p>{source.locationType}</p><p className="mt-1 text-xs">{source.address}</p><p className="mt-2 font-bold" style={{ color: zone?.color || '#64748b' }}>{zone ? `優先範囲：${zone.name}` : '優先範囲外'}</p>{canManage && <button type="button" onClick={() => { setManualSourceId(source.id); setPendingManual(undefined); setPlacingZoneCenter(false); setShowSettings(true); }} className="mt-2 rounded-lg bg-slate-900 px-3 py-2 text-xs font-bold text-white">位置を修正</button>}</div></Popup></Marker>;
             })}
@@ -605,7 +655,7 @@ export const TransportMapPanel: React.FC<TransportMapPanelProps> = ({
 
           <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
             <div className="flex items-center justify-between gap-2"><h4 className="font-black text-slate-950">優先範囲</h4>{canManage && <button type="button" onClick={beginNewZone} className="rounded-lg bg-slate-100 p-2" aria-label="優先範囲を追加"><Plus className="h-4 w-4" /></button>}</div>
-            <div className="mt-3 space-y-2">{[...zones].sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name, 'ja')).map((zone) => <article key={zone.id} className={`rounded-xl border p-3 ${zone.active ? 'border-slate-200' : 'border-dashed border-slate-300 opacity-60'}`}><div className="flex items-start gap-2"><span className="mt-1 h-4 w-4 shrink-0 rounded-full" style={{ backgroundColor: zone.color }} /><div className="min-w-0 flex-1"><strong className="block truncate text-sm text-slate-900">{zone.name}</strong><span className="text-[10px] font-bold text-slate-500">優先 {zone.priority}・選択 {zone.locationIds?.length || 0}地点・半径 {zone.radiusKm}km{zone.active ? '' : '・停止中'}</span></div>{canManage && <><button type="button" onClick={() => { setZoneDraft({ ...zone, locationIds: zone.locationIds || [] }); setPlacingZoneCenter(false); setSelectingZonePins(true); setMapMode('simple'); setManualSourceId(''); setMessage('追加・解除する地点のピンを選択してください。'); }} className="grid h-8 w-8 place-items-center rounded-lg bg-slate-100" aria-label={`${zone.name}を編集`}><PencilLine className="h-3.5 w-3.5" /></button><button type="button" onClick={() => removeZone(zone)} className="grid h-8 w-8 place-items-center rounded-lg bg-rose-50 text-rose-700" aria-label={`${zone.name}を削除`}><Trash2 className="h-3.5 w-3.5" /></button></>}</div></article>)}{zones.length === 0 && <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-500">まだ範囲はありません。地図を見ながら追加できます。</p>}</div>
+            <div className="mt-3 space-y-2">{[...zones].sort((a, b) => a.priority - b.priority || a.name.localeCompare(b.name, 'ja')).map((zone) => <article key={zone.id} className={`rounded-xl border p-3 ${zone.active ? 'border-slate-200' : 'border-dashed border-slate-300 opacity-60'}`}><div className="flex items-start gap-2"><span className="mt-1 h-4 w-4 shrink-0 rounded-full" style={{ backgroundColor: zone.color }} /><div className="min-w-0 flex-1"><strong className="block truncate text-sm text-slate-900">{zone.name}</strong><span className="text-[10px] font-bold text-slate-500">優先 {zone.priority}・選択 {zone.locationIds?.length || 0}地点・半径 {zone.radiusKm}km{zone.active ? '' : '・停止中'}</span></div>{canManage && <><button type="button" onClick={() => { setZoneDraft({ ...zone, locationIds: zone.locationIds || [] }); setPlacingZoneCenter(false); setSelectingZonePins(true); setMapMode('simple'); setMapLocationFilter('homeSchool'); setManualSourceId(''); setMessage('追加・解除する地点のピンを選択してください。'); }} className="grid h-8 w-8 place-items-center rounded-lg bg-slate-100" aria-label={`${zone.name}を編集`}><PencilLine className="h-3.5 w-3.5" /></button><button type="button" onClick={() => removeZone(zone)} className="grid h-8 w-8 place-items-center rounded-lg bg-rose-50 text-rose-700" aria-label={`${zone.name}を削除`}><Trash2 className="h-3.5 w-3.5" /></button></>}</div></article>)}{zones.length === 0 && <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-500">まだ範囲はありません。地図を見ながら追加できます。</p>}</div>
           </section>
 
           <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
