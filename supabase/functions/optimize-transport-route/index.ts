@@ -22,6 +22,7 @@ type RequestBody = {
   stops?: RequestedStop[];
   avoidTolls?: boolean;
   avoidHighways?: boolean;
+  preserveOrder?: boolean;
 };
 
 type GoogleLeg = { distanceMeters?: number; duration?: string };
@@ -30,6 +31,7 @@ type GoogleRoute = {
   distanceMeters?: number;
   duration?: string;
   legs?: GoogleLeg[];
+  polyline?: { encodedPolyline?: string };
 };
 
 function parseDuration(value?: string) {
@@ -83,6 +85,7 @@ Deno.serve(async (request) => {
     label: normalizeText(stop.label, 100),
     location: normalizeText(stop.location, 300),
   }));
+  const preserveOrder = body?.preserveOrder === true;
   const serviceClient = createClient(supabaseUrl, serviceRoleKey);
   const writeUsageLog = async (entry: Record<string, unknown>) => {
     const { error } = await serviceClient.from('route_optimization_logs').insert(entry);
@@ -101,7 +104,7 @@ Deno.serve(async (request) => {
     : stops.length === 0
       ? '乗降場所を1件以上登録してください。'
       : stops.length > 10
-        ? '費用管理のため、1便あたりの自動最適化は10地点までです。'
+        ? '費用管理のため、1便あたりの時間計算は10地点までです。'
         : stops.some((stop) => !stop.id || !stop.location)
           ? '乗降場所が未入力の地点があります。'
           : new Set(stops.map((stop) => stop.id)).size !== stops.length
@@ -118,7 +121,7 @@ Deno.serve(async (request) => {
     destination: { address: destination },
     intermediates: stops.map((stop) => ({ address: stop.location })),
     travelMode: 'DRIVE',
-    optimizeWaypointOrder: true,
+    optimizeWaypointOrder: !preserveOrder,
     languageCode: 'ja',
     units: 'METRIC',
     routeModifiers: {
@@ -143,6 +146,7 @@ Deno.serve(async (request) => {
         'routes.duration',
         'routes.legs.distanceMeters',
         'routes.legs.duration',
+        'routes.polyline.encodedPolyline',
       ].join(','),
     },
     body: JSON.stringify(googleBody),
@@ -175,7 +179,9 @@ Deno.serve(async (request) => {
     return jsonResponse({ error: '入力された地点を結ぶ経路が見つかりませんでした。', code: 'NO_ROUTE' }, 422);
   }
 
-  const indexes = route.optimizedIntermediateWaypointIndex || stops.map((_, index) => index);
+  const indexes = preserveOrder
+    ? stops.map((_, index) => index)
+    : route.optimizedIntermediateWaypointIndex || stops.map((_, index) => index);
   const validIndexes = indexes.length === stops.length
     && new Set(indexes).size === stops.length
     && indexes.every((index) => Number.isInteger(index) && index >= 0 && index < stops.length);
@@ -207,6 +213,7 @@ Deno.serve(async (request) => {
     totalDistanceMeters,
     totalDurationSeconds,
     legs,
+    encodedPolyline: route.polyline?.encodedPolyline || undefined,
     warnings: stops.length > 3
       ? ['Googleマップを携帯ブラウザで開く場合、一部の経由地点が省略されることがあります。']
       : [],

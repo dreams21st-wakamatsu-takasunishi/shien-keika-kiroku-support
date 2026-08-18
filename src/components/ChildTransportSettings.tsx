@@ -152,7 +152,7 @@ export const ChildTransportSettings: React.FC<ChildTransportSettingsProps> = ({
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-amber-100 text-amber-800"><Users className="h-4 w-4" /></span>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-black text-slate-900">兄弟設定</p>
-            <p className="mt-0.5 text-[10px] leading-relaxed text-slate-600">登録済みの児童を選ぶと、自動配車で同じ便を優先します。当日の迎え先が同じ場合は、同じ到着時刻として計算します。</p>
+            <p className="mt-0.5 text-[10px] leading-relaxed text-slate-600">登録済みの児童を選ぶと、配車画面で兄弟関係と同じ送迎先が分かりやすく表示されます。当日の送迎先が同じ場合は、時間計算で同じ到着時刻として扱います。</p>
             <div className="mt-2 flex flex-wrap gap-1.5">
               {selectedSiblings.map((child) => <button key={child.id} type="button" onClick={() => toggleSibling(child.id)} className="rounded-full border border-amber-300 bg-white px-2.5 py-1 text-[10px] font-black text-amber-900">{child.name}<span className="ml-1 text-amber-500">×</span></button>)}
               {selectedSiblings.length === 0 && <span className="rounded-lg border border-dashed border-amber-300 bg-white/70 px-2.5 py-1.5 text-[10px] font-bold text-slate-500">兄弟は未設定です</span>}

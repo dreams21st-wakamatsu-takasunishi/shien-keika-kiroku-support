@@ -688,6 +688,7 @@ export interface TransportRouteOptimizationResult {
   totalDistanceMeters: number;
   totalDurationSeconds: number;
   legs: TransportRouteLeg[];
+  encodedPolyline?: string;
   warnings: string[];
 }
 
@@ -700,6 +701,8 @@ export interface TransportRouteOptimizationRequest {
   stops: Array<{ id: string; label: string; location: string }>;
   avoidTolls: boolean;
   avoidHighways: boolean;
+  /** Keep the manually arranged stop order and calculate times only. */
+  preserveOrder?: boolean;
 }
 
 export interface TransportMatrixLocation {

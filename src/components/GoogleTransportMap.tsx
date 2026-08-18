@@ -13,6 +13,13 @@ export interface GoogleTransportMarker {
   selected?: boolean;
 }
 
+export interface GoogleTransportPolyline {
+  id: string;
+  path: Array<[number, number]>;
+  color: string;
+  selected?: boolean;
+}
+
 interface GoogleTransportMapProps {
   apiKey: string;
   mapId: string;
@@ -22,13 +29,17 @@ interface GoogleTransportMapProps {
   zones: TransportAreaZone[];
   draftZone?: TransportAreaZone;
   pendingMarker?: GoogleTransportMarker;
+  polylines?: GoogleTransportPolyline[];
   simple: boolean;
+  heightClassName?: string;
+  gestureHandling?: 'auto' | 'cooperative' | 'greedy' | 'none';
   interactiveMapClick: boolean;
   onMapClick: (latitude: number, longitude: number) => void;
   onMarkerClick: (markerId: string) => void;
 }
 
 let configuredKey = '';
+const EMPTY_POLYLINES: GoogleTransportPolyline[] = [];
 
 function configureLoader(apiKey: string, mapId: string) {
   if (configuredKey) return;
@@ -131,7 +142,10 @@ export const GoogleTransportMap: React.FC<GoogleTransportMapProps> = ({
   zones,
   draftZone,
   pendingMarker,
+  polylines = EMPTY_POLYLINES,
   simple,
+  heightClassName,
+  gestureHandling = 'greedy',
   interactiveMapClick,
   onMapClick,
   onMarkerClick,
@@ -139,7 +153,7 @@ export const GoogleTransportMap: React.FC<GoogleTransportMapProps> = ({
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<google.maps.Map>();
   const callbacksRef = useRef({ onMapClick, onMarkerClick, interactiveMapClick });
-  const overlaysRef = useRef<Array<google.maps.Circle | google.maps.marker.AdvancedMarkerElement>>([]);
+  const overlaysRef = useRef<Array<google.maps.Circle | google.maps.Polyline | google.maps.marker.AdvancedMarkerElement>>([]);
   const infoWindowsRef = useRef<google.maps.InfoWindow[]>([]);
   const [ready, setReady] = useState(false);
   const [error, setError] = useState('');
@@ -163,7 +177,7 @@ export const GoogleTransportMap: React.FC<GoogleTransportMapProps> = ({
           rotateControl: false,
           scaleControl: false,
           zoomControl: !simple,
-          gestureHandling: 'greedy',
+          gestureHandling,
         });
         map.addListener('click', (event: google.maps.MapMouseEvent) => {
           if (!callbacksRef.current.interactiveMapClick || !event.latLng) return;
@@ -192,7 +206,7 @@ export const GoogleTransportMap: React.FC<GoogleTransportMapProps> = ({
   useEffect(() => {
     const map = mapRef.current;
     if (!ready || !map) return;
-    map.setOptions({ zoomControl: !simple });
+    map.setOptions({ zoomControl: !simple, gestureHandling });
     overlaysRef.current.forEach((overlay) => {
       if ('setMap' in overlay) overlay.setMap(null);
       else overlay.map = null;
@@ -227,6 +241,19 @@ export const GoogleTransportMap: React.FC<GoogleTransportMapProps> = ({
     zones.forEach((zone) => addCircle(zone));
     if (draftZone) addCircle(draftZone, true);
 
+    polylines.forEach((polylineData) => {
+      if (polylineData.path.length < 2) return;
+      const polyline = new google.maps.Polyline({
+        map,
+        path: polylineData.path.map(([latitude, longitude]) => ({ lat: latitude, lng: longitude })),
+        strokeColor: polylineData.color,
+        strokeOpacity: polylineData.selected ? 0.95 : 0.62,
+        strokeWeight: polylineData.selected ? 7 : 4,
+        zIndex: polylineData.selected ? 8 : 5,
+      });
+      overlaysRef.current.push(polyline);
+    });
+
     [...markers, ...(pendingMarker ? [pendingMarker] : [])].forEach((markerData) => {
       const marker = new google.maps.marker.AdvancedMarkerElement({
         map,
@@ -257,11 +284,11 @@ export const GoogleTransportMap: React.FC<GoogleTransportMapProps> = ({
       map.setCenter({ lat: center[0], lng: center[1] });
       map.setZoom(12);
     }
-  }, [center, draftZone, fitPoints, markers, pendingMarker, ready, simple, zones]);
+  }, [center, draftZone, fitPoints, gestureHandling, markers, pendingMarker, polylines, ready, simple, zones]);
 
   return (
     <div className="relative">
-      <div ref={containerRef} className={`h-[36rem] w-full sm:h-[44rem] xl:h-[calc(100dvh-9rem)] xl:min-h-[46rem] xl:max-h-[68rem] ${simple ? 'google-transport-map-simple' : ''}`} aria-label="Google送迎地点マップ" />
+      <div ref={containerRef} className={`${heightClassName || 'h-[36rem] sm:h-[44rem] xl:h-[calc(100dvh-9rem)] xl:min-h-[46rem] xl:max-h-[68rem]'} w-full ${simple ? 'google-transport-map-simple' : ''}`} aria-label="Google送迎地点マップ" />
       {!ready && !error && <div className="absolute inset-0 grid place-items-center bg-slate-50/90 text-sm font-bold text-slate-600">Google地図を読み込んでいます…</div>}
       {error && <div role="alert" className="absolute inset-0 grid place-items-center bg-rose-50 p-6 text-center text-sm font-bold leading-relaxed text-rose-800">{error}</div>}
     </div>

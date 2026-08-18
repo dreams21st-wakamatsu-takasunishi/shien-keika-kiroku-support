@@ -446,7 +446,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
     if (!runForm) return;
     if (!routeOrigin.trim() || !routeDestination.trim()) return setError("出発地点と終着地点を入力してください。");
     if (runForm.stops.length === 0) return setError("乗降場所を1件以上登録してください。");
-    if (runForm.stops.length > 10) return setError("費用管理のため、自動最適化は1便10地点までです。");
+    if (runForm.stops.length > 10) return setError("費用管理のため、時間計算は1便10地点までです。");
     if (runForm.stops.some((stop) => !stop.location.trim())) return setError("乗降場所が未入力の地点があります。");
     setOptimizingRoute(true);
     setRoutePreview(null);
@@ -466,10 +466,11 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
         })),
         avoidTolls: routeSettings.avoidTolls,
         avoidHighways: routeSettings.avoidHighways,
+        preserveOrder: true,
       });
       setRoutePreview(result);
     } catch (optimizationError) {
-      setError(optimizationError instanceof Error ? optimizationError.message : "経路候補を作成できませんでした。");
+      setError(optimizationError instanceof Error ? optimizationError.message : "経路と時間を計算できませんでした。");
     } finally {
       setOptimizingRoute(false);
     }
@@ -503,7 +504,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
       routeOptimizedAt: new Date().toISOString(),
     });
     setRoutePreview(null);
-    setRouteMessage("最適化した順番と到着予定時刻を反映しました。最後に「送迎便を保存」を押してください。");
+    setRouteMessage("現在の乗降順を維持して到着予定時刻を反映しました。最後に「送迎便を保存」を押してください。");
     setError("");
   };
 
@@ -831,8 +832,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
                 </p>
                 <p className="mt-1 text-xs font-bold text-slate-600">
                   {vehicle.vehicleKind === 'private' ? '自家用車' : vehicle.vehicleKind === 'reserve' ? '予備車' : '通常使用車'}
-                  ・優先 {vehicle.assignmentPriority || 100}
-                  ・{vehicle.autoAssignmentPolicy === 'manual_only' ? '手動のみ' : vehicle.autoAssignmentPolicy === 'when_needed' ? '不足時のみ' : '自動配車'}
+                  ・表示順 {vehicle.assignmentPriority || 100}
                 </p>
                 <p className="mt-1 text-xs text-slate-500">
                   点検・車検期限：{vehicle.inspectionDueDate || "未登録"}
@@ -1140,8 +1140,8 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
           <section className="rounded-xl border border-sky-200 bg-sky-50/70 p-3">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h4 className="flex items-center gap-2 font-black text-sky-950"><Route className="h-5 w-5" />経路最適化</h4>
-                <p className="mt-1 text-xs leading-relaxed text-sky-900">Google Routes APIで移動時間を基準に乗降順を提案します。候補を確認するまでは現在の順番を変更しません。</p>
+                <h4 className="flex items-center gap-2 font-black text-sky-950"><Route className="h-5 w-5" />経路・時間計算</h4>
+                <p className="mt-1 text-xs leading-relaxed text-sky-900">Google Routes APIで、現在の乗降順を変えずに移動時間・距離・到着予定時刻を計算します。</p>
               </div>
               <button
                 type="button"
@@ -1175,13 +1175,13 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
               className="mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-sky-700 px-4 text-sm font-black text-white disabled:opacity-50"
             >
               {optimizingRoute ? <LoaderCircle className="h-5 w-5 animate-spin" /> : <Route className="h-5 w-5" />}
-              {optimizingRoute ? "経路を計算中…" : "経路候補を作成"}
+              {optimizingRoute ? "経路を計算中…" : "時間計算"}
             </button>
             {routePreview && (
               <div className="mt-3 rounded-xl border border-sky-200 bg-white p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
-                    <p className="text-[10px] font-black text-sky-700">最適化候補</p>
+                    <p className="text-[10px] font-black text-sky-700">現在の乗降順での計算結果</p>
                     <p className="mt-1 font-black text-slate-950">{formatDistance(routePreview.totalDistanceMeters)}・走行約{formatDuration(routePreview.totalDurationSeconds)}</p>
                     <p className="mt-1 text-[10px] text-slate-500">停車時間は含みません。</p>
                   </div>
@@ -1205,7 +1205,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
                   })}
                 </ol>
                 {routePreview.warnings.map((warning) => <p key={warning} className="mt-2 text-[10px] font-bold text-amber-800">※ {warning}</p>)}
-                <button type="button" onClick={applyOptimizedRoute} className="mt-3 min-h-12 w-full rounded-xl bg-teal-600 px-4 text-sm font-black text-white">この順番と予定時刻を反映</button>
+                <button type="button" onClick={applyOptimizedRoute} className="mt-3 min-h-12 w-full rounded-xl bg-teal-600 px-4 text-sm font-black text-white">到着予定時刻を反映</button>
               </div>
             )}
             {routeMessage && <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold leading-relaxed text-emerald-900">{routeMessage}</p>}
@@ -1254,7 +1254,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
             <span className="mt-1 block text-[10px] font-normal text-slate-500">到着予定時刻の計算に使用します。乗降・確認に必要な平均時間を設定してください。</span>
           </label>
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="block text-sm font-bold">休日の開所時刻<input type="time" value={routeSettingsForm.holidayOpeningTime} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, holidayOpeningTime: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3" /><span className="mt-1 block text-[10px] font-normal text-slate-500">休日の自動配車は原則この時刻以降に出発します。</span></label>
+            <label className="block text-sm font-bold">休日の開所時刻<input type="time" value={routeSettingsForm.holidayOpeningTime} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, holidayOpeningTime: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3" /><span className="mt-1 block text-[10px] font-normal text-slate-500">休日便を組む際の出発可能時刻の目安として表示します。</span></label>
             <label className="block text-sm font-bold">長期休暇の来所目標<input type="time" value={routeSettingsForm.holidayArrivalTime} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, holidayArrivalTime: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3" /></label>
             <label className="block text-sm font-bold">学校待機許容（分）<input type="number" min="0" max="60" value={routeSettingsForm.schoolWaitToleranceMinutes} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, schoolWaitToleranceMinutes: Number(event.target.value) })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3" /></label>
             <label className="block text-sm font-bold">施設内の最低職員数<input type="number" min="0" max="30" value={routeSettingsForm.minimumFacilityStaff} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, minimumFacilityStaff: Number(event.target.value) })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3" /></label>
@@ -1317,7 +1317,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
               }
               className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3"
             />
-            <span className="mt-1 block text-[10px] font-normal leading-relaxed text-slate-500">車検証に記載された人数を入力します。自動配車では、ここから運転者1名と添乗職員数を差し引いて児童の乗車可能人数を計算します。</span>
+            <span className="mt-1 block text-[10px] font-normal leading-relaxed text-slate-500">車検証に記載された人数を入力します。配車画面では、ここから運転者1名と添乗職員数を差し引いて児童の乗車可能人数を表示します。</span>
           </label>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-sm font-bold">
@@ -1329,19 +1329,11 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
               </select>
             </label>
             <label className="block text-sm font-bold">
-              使用優先順
+              配車画面の表示順
               <input type="number" min="1" max="999" value={vehicleForm.assignmentPriority || 100} onChange={(event) => setVehicleForm({ ...vehicleForm, assignmentPriority: Number(event.target.value) })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3" />
-              <span className="mt-1 block text-[10px] font-normal text-slate-500">小さい数値の車両から使用します。</span>
+              <span className="mt-1 block text-[10px] font-normal text-slate-500">小さい数値の車両から左・上に表示します。</span>
             </label>
           </div>
-          <label className="block text-sm font-bold">
-            自動配車での使用
-            <select value={vehicleForm.autoAssignmentPolicy || 'always'} onChange={(event) => setVehicleForm({ ...vehicleForm, autoAssignmentPolicy: event.target.value as Vehicle['autoAssignmentPolicy'] })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3">
-              <option value="always">優先順に自動使用</option>
-              <option value="when_needed">通常車で不足した場合のみ</option>
-              <option value="manual_only">自動では使用しない</option>
-            </select>
-          </label>
           {vehicleForm.vehicleKind === 'private' && (
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block text-sm font-bold">所有職員<select value={vehicleForm.ownerRecorderProfileId || ''} onChange={(event) => setVehicleForm({ ...vehicleForm, ownerRecorderProfileId: event.target.value || undefined })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3"><option value="">未設定</option>{recorderProfiles.filter((profile) => profile.active).map((profile) => <option key={profile.id} value={profile.id}>{profile.displayName}</option>)}</select></label>
