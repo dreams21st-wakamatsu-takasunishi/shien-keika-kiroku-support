@@ -20,6 +20,7 @@ import {
   ArrowUp,
   AlertTriangle,
   BusFront,
+  Calculator,
   ChevronDown,
   ChevronUp,
   GripVertical,
@@ -81,6 +82,37 @@ interface DailyTransportPlannerProps {
   onClose: () => void;
 }
 
+interface AutoRoutingCandidateLog {
+  runId: string;
+  runName: string;
+  vehicleName: string;
+  selected: boolean;
+  score: number;
+  hasCapacity: boolean;
+  occupancyBefore: number;
+  capacity: number;
+  sameLocation: boolean;
+  matchedArea?: string;
+  matchedAreaRank?: number;
+  roadMinutes: number;
+  lateMinutes: number;
+  waitMinutes: number;
+  factors: Array<{ label: string; value: number }>;
+}
+
+interface AutoRoutingDecisionLog {
+  id: string;
+  childNames: string[];
+  preferredAreas: string[];
+  targetTime?: string;
+  selectedRunName: string;
+  selectedVehicleName: string;
+  assignedArea?: string;
+  decisionType: 'same_location' | 'best_score' | 'new_run';
+  summary: string;
+  candidates: AutoRoutingCandidateLog[];
+}
+
 interface DragChildData {
   childId: string;
   sourceRunId?: string;
@@ -94,6 +126,10 @@ const transportCollisionDetection: CollisionDetection = (args) => {
 
 const LOCATION_TYPES: TransportLocationType[] = ['自宅', '学校', '学童', '習い事', '親族宅', '事業所', 'その他'];
 const createUuid = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+const signedScore = (value: number) => {
+  const rounded = Math.round(value * 10) / 10;
+  return rounded > 0 ? `+${rounded}` : `${rounded}`;
+};
 
 function createRun(date: string, direction: TransportDirection, sequence: number, vehicle?: Vehicle): TransportRun {
   const now = new Date().toISOString();
@@ -789,6 +825,10 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
   const [error, setError] = useState('');
   const [routingNotice, setRoutingNotice] = useState('');
   const [autoRouting, setAutoRouting] = useState(false);
+  const [autoRoutingLog, setAutoRoutingLog] = useState<AutoRoutingDecisionLog[]>([]);
+  const [autoRoutingLogDirection, setAutoRoutingLogDirection] = useState<TransportDirection>('迎え');
+  const [autoRoutingUsedRoadTimes, setAutoRoutingUsedRoadTimes] = useState(false);
+  const [showAutoRoutingLog, setShowAutoRoutingLog] = useState(false);
   const [saving, setSaving] = useState(false);
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
@@ -1032,6 +1072,9 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
     if (usableVehicles.length === 0) return setError('自動配車に使用できる車両がありません。「手動のみ」の車両は自動では使用しません。');
 
     const direction = activeDirection;
+    const decisionLogs: AutoRoutingDecisionLog[] = [];
+    setAutoRoutingLog([]);
+    setShowAutoRoutingLog(false);
     let routeMatrix: TransportMatrixResult | undefined;
     const matrixLocations = eligible.map((child) => {
       const requirement = requirementByChild.get(child.id);
@@ -1123,7 +1166,30 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
             : schoolTarget ? minutes(schoolTarget) : 0;
           const lateMinutes = schoolTarget ? Math.max(0, estimatedArrival - minutes(schoolTarget)) : 0;
           const excessiveWait = schoolTarget ? Math.max(0, minutes(schoolTarget) - estimatedArrival - routeSettings.schoolWaitToleranceMinutes) : 0;
-          return { run, matchedArea, score: (hasCapacity ? 100 : -1000) + (sameLocation ? 60 : 0) + areaPreferenceScore - run.stops.length * 3 - roadMinutes - lateMinutes * 25 - excessiveWait * 0.5 - ((vehicle?.assignmentPriority || 100) / 100) };
+          const factors = [
+            { label: hasCapacity ? '定員内' : '定員超過', value: hasCapacity ? 100 : -1000 },
+            { label: sameLocation ? '同じ送迎先' : '送迎先不一致', value: sameLocation ? 60 : 0 },
+            { label: matchedArea ? `優先エリア第${matchedAreaIndex + 1}位` : '優先エリア一致なし', value: areaPreferenceScore },
+            { label: `既存${run.stops.length}名`, value: -run.stops.length * 3 },
+            { label: `移動${roadMinutes}分`, value: -roadMinutes },
+            { label: `遅れ${lateMinutes}分`, value: -lateMinutes * 25 },
+            { label: `早着待機${excessiveWait}分`, value: -excessiveWait * 0.5 },
+            { label: `車両優先度${vehicle?.assignmentPriority || 100}`, value: -((vehicle?.assignmentPriority || 100) / 100) },
+          ];
+          return {
+            run,
+            vehicle,
+            matchedArea,
+            matchedAreaIndex,
+            sameLocation,
+            hasCapacity,
+            capacity,
+            roadMinutes,
+            lateMinutes,
+            excessiveWait,
+            factors,
+            score: factors.reduce((sum, factor) => sum + factor.value, 0),
+          };
         }).sort((left, right) => right.score - left.score);
         const retainedSharedLocationRun = groupSharedLocationKey
           ? lanes.find((run) => {
@@ -1135,6 +1201,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         const bestCandidate = ranked[0]?.score >= 0 ? ranked[0] : undefined;
         let target = retainedSharedLocationRun || bestCandidate?.run;
         const assignedArea = retainedSharedLocationRun ? firstArea : bestCandidate?.matchedArea || firstArea;
+        const createdNewRun = !target;
         if (!target) {
           const fittingVehicles = usableVehicles.filter((vehicle) => (vehicle?.capacity || 30) >= group.length);
           const vehicle = (fittingVehicles.length ? fittingVehicles : usableVehicles).slice().sort((left, right) => {
@@ -1145,6 +1212,39 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
           nextDrafts.push(target);
           lanes.push(target);
         }
+        const selectedVehicle = usableVehicles.find((candidate) => candidate?.id === target.vehicleId);
+        decisionLogs.push({
+          id: createUuid(),
+          childNames: group.map((child) => child.name),
+          preferredAreas: firstAreas,
+          targetTime: direction === '迎え' ? firstRequirement?.pickupTargetTime : firstRequirement?.dropoffTargetTime,
+          selectedRunName: target.name,
+          selectedVehicleName: selectedVehicle?.name || target.vehicleName || '車両未設定',
+          assignedArea,
+          decisionType: retainedSharedLocationRun ? 'same_location' : createdNewRun ? 'new_run' : 'best_score',
+          summary: retainedSharedLocationRun
+            ? '同じ送迎先の児童がいる便を、定員内のため最優先しました。'
+            : createdNewRun
+              ? '既存便の最高得点が0未満だったため、新しい便を作成しました。'
+              : `候補の中で合計得点が最も高い「${target.name}」を選びました。`,
+          candidates: ranked.map((candidate) => ({
+            runId: candidate.run.id,
+            runName: candidate.run.name,
+            vehicleName: candidate.vehicle?.name || candidate.run.vehicleName || '車両未設定',
+            selected: candidate.run.id === target!.id,
+            score: candidate.score,
+            hasCapacity: candidate.hasCapacity,
+            occupancyBefore: candidate.run.stops.length,
+            capacity: candidate.capacity,
+            sameLocation: candidate.sameLocation,
+            matchedArea: candidate.matchedArea,
+            matchedAreaRank: candidate.matchedAreaIndex >= 0 ? candidate.matchedAreaIndex + 1 : undefined,
+            roadMinutes: candidate.roadMinutes,
+            lateMinutes: candidate.lateMinutes,
+            waitMinutes: candidate.excessiveWait,
+            factors: candidate.factors,
+          })),
+        });
         const additions = group.map((child, index) => {
           const requirement = requirementByChild.get(child.id);
           return {
@@ -1186,6 +1286,10 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
       }
     }
     setDrafts(nextDrafts);
+    setAutoRoutingLog(decisionLogs);
+    setAutoRoutingLogDirection(direction);
+    setAutoRoutingUsedRoadTimes(Boolean(routeMatrix));
+    setShowAutoRoutingLog(true);
     setError('');
     setAutoRouting(false);
   };
@@ -1250,6 +1354,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
           {(['迎え', '送り'] as TransportDirection[]).map((direction) => <button key={direction} type="button" onClick={() => setActiveDirection(direction)} className={`min-h-9 rounded-lg text-xs font-black ${activeDirection === direction ? direction === '迎え' ? 'bg-sky-600 text-white shadow-sm' : 'bg-violet-600 text-white shadow-sm' : 'text-slate-500'}`}>{direction}配車</button>)}
         </div>
         <button type="button" disabled={autoRouting} onClick={() => void autoAllocate()} className="flex min-h-10 items-center gap-1 rounded-xl bg-gradient-to-r from-teal-600 to-cyan-600 px-3 text-xs font-black text-white disabled:opacity-60"><Sparkles className={`h-4 w-4 ${autoRouting ? 'animate-spin' : ''}`} />{autoRouting ? '道路時間を計算中…' : `${activeDirection}を自動配車`}</button>
+        {autoRoutingLog.length > 0 && <button type="button" onClick={() => setShowAutoRoutingLog(true)} className="flex min-h-10 items-center gap-1 rounded-xl border border-amber-300 bg-amber-50 px-3 text-xs font-black text-amber-900"><Calculator className="h-4 w-4" />{autoRoutingLogDirection}の判断ログ</button>}
         <button type="button" onClick={() => setChildPickerOpen(true)} className="flex min-h-10 items-center gap-1 rounded-xl border border-teal-300 bg-teal-50 px-3 text-xs font-black text-teal-800"><UserPlus className="h-4 w-4" />児童を追加</button>
         <p className="min-w-0 flex-1 text-[10px] font-bold leading-relaxed text-slate-500">{routingNotice || '児童カードを車両の便へドラッグして配車します。自動振り分け後も移動・順番変更・送迎先編集ができます。'}</p>
       </div>
@@ -1308,7 +1413,125 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
           </section>
         </div>
       )}
+      {showAutoRoutingLog && createPortal(
+        <AutoRoutingLogDialog
+          direction={autoRoutingLogDirection}
+          decisions={autoRoutingLog}
+          usedRoadTimes={autoRoutingUsedRoadTimes}
+          onClose={() => setShowAutoRoutingLog(false)}
+        />,
+        document.body,
+      )}
     </div>
+  );
+};
+
+function AutoRoutingLogDialog({
+  direction,
+  decisions,
+  usedRoadTimes,
+  onClose,
+}: {
+  direction: TransportDirection;
+  decisions: AutoRoutingDecisionLog[];
+  usedRoadTimes: boolean;
+  onClose: () => void;
+}) {
+  return (
+    <div className="ui-fade-in fixed inset-0 z-[180] flex items-end justify-center bg-slate-950/60 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label="自動配車の判断ログ">
+      <section className="ui-panel-enter flex max-h-[94dvh] w-full max-w-5xl flex-col overflow-hidden rounded-t-3xl bg-slate-50 shadow-2xl sm:max-h-[90dvh] sm:rounded-3xl">
+        <header className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 bg-white p-4 sm:px-5">
+          <div className="min-w-0">
+            <p className="flex items-center gap-1 text-[10px] font-black uppercase tracking-[0.14em] text-amber-700"><Calculator className="h-4 w-4" />診断用・保存されません</p>
+            <h3 className="mt-1 text-lg font-black text-slate-950 sm:text-xl">{direction}の自動配車 判断ログ</h3>
+            <p className="mt-1 text-xs font-bold text-slate-500">{decisions.length}グループを順番に判定・{usedRoadTimes ? 'Routes APIの道路所要時間を使用' : '概算移動時間を使用'}</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="閉じる" className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-100 text-slate-700"><X className="h-5 w-5" /></button>
+        </header>
+        <div className="ui-scrollbar flex-1 overflow-y-auto p-3 sm:p-5">
+          <section className="mb-3 rounded-2xl border border-amber-200 bg-amber-50 p-3 sm:p-4">
+            <h4 className="text-sm font-black text-amber-950">自動配車は次の順番で決めています</h4>
+            <ol className="mt-2 grid gap-2 text-[11px] font-bold leading-relaxed text-amber-950 sm:grid-cols-4">
+              <li className="rounded-xl bg-white/80 p-2"><span className="mr-1 text-amber-600">1.</span>兄弟をまとめ、迎え時刻・優先エリア順に処理</li>
+              <li className="rounded-xl bg-white/80 p-2"><span className="mr-1 text-amber-600">2.</span>同一送迎先が既存便にあれば定員内で最優先</li>
+              <li className="rounded-xl bg-white/80 p-2"><span className="mr-1 text-amber-600">3.</span>各候補便を加点・減点し、最高得点を採用</li>
+              <li className="rounded-xl bg-white/80 p-2"><span className="mr-1 text-amber-600">4.</span>最高得点が0未満なら新しい便を作成</li>
+            </ol>
+            <p className="mt-2 text-[10px] font-bold leading-relaxed text-amber-800">定員内 +100／同一地点 +60／優先エリア 第1位 +45・第2位 +30・第3位以降 +15／既存人数 -3点/名／移動 -1点/分／遅刻 -25点/分／許容を超える早着待機 -0.5点/分／車両優先度を減点</p>
+          </section>
+          <div className="space-y-3">
+            {decisions.map((decision, index) => <AutoRoutingDecisionCard key={decision.id} decision={decision} index={index} />)}
+          </div>
+        </div>
+        <footer className="shrink-0 border-t border-slate-200 bg-white p-3 sm:px-5">
+          <button type="button" onClick={onClose} className="min-h-11 w-full rounded-xl bg-slate-900 px-5 text-sm font-black text-white sm:ml-auto sm:block sm:w-auto">配車ボードへ戻る</button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+const AutoRoutingDecisionCard: React.FC<{ decision: AutoRoutingDecisionLog; index: number }> = ({ decision, index }) => {
+  const selectedCandidate = decision.candidates.find((candidate) => candidate.selected);
+  const bestCandidate = decision.candidates[0];
+  return (
+    <details className="group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm" open={index === 0}>
+      <summary className="flex cursor-pointer list-none items-center gap-3 p-3 sm:p-4">
+        <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-900 text-xs font-black text-white">{index + 1}</span>
+        <span className="min-w-0 flex-1">
+          <strong className="block truncate text-sm text-slate-950">{decision.childNames.join('・')}</strong>
+          <span className="mt-0.5 block text-[10px] font-bold text-slate-500">{decision.selectedRunName}／{decision.selectedVehicleName}{decision.assignedArea ? `／${decision.assignedArea}` : ''}</span>
+        </span>
+        <span className={`hidden shrink-0 rounded-full px-2 py-1 text-[9px] font-black sm:block ${decision.decisionType === 'same_location' ? 'bg-fuchsia-100 text-fuchsia-800' : decision.decisionType === 'new_run' ? 'bg-orange-100 text-orange-800' : 'bg-teal-100 text-teal-800'}`}>{decision.decisionType === 'same_location' ? '同一地点を優先' : decision.decisionType === 'new_run' ? '新しい便' : '最高得点'}</span>
+        <ChevronDown className="h-5 w-5 shrink-0 text-slate-400 transition-transform group-open:rotate-180" />
+      </summary>
+      <div className="border-t border-slate-100 bg-slate-50/70 p-3 sm:p-4">
+        <div className="rounded-xl border border-teal-200 bg-teal-50 p-3">
+          <p className="text-xs font-black text-teal-950">採用理由</p>
+          <p className="mt-1 text-xs font-bold leading-relaxed text-teal-900">{decision.summary}</p>
+          <div className="mt-2 flex flex-wrap gap-1.5 text-[9px] font-black">
+            {decision.targetTime && <span className="rounded-full bg-white px-2 py-1 text-slate-700">目標 {decision.targetTime}</span>}
+            {decision.preferredAreas.map((area, areaIndex) => <span key={`${decision.id}-${area}`} className="rounded-full bg-white px-2 py-1 text-slate-700">エリア第{areaIndex + 1}位 {area}</span>)}
+            {decision.preferredAreas.length === 0 && <span className="rounded-full bg-white px-2 py-1 text-slate-500">優先エリア未設定</span>}
+          </div>
+        </div>
+        <h5 className="mb-2 mt-3 text-[11px] font-black text-slate-700">判定時点の候補便（得点が高い順）</h5>
+        <div className="space-y-2">
+          {decision.candidates.map((candidate) => {
+            const rejectedReason = !candidate.hasCapacity
+              ? '定員超過のため不採用'
+              : decision.decisionType === 'same_location' && !candidate.selected
+                ? '同一送迎先の便を優先したため不採用'
+                : decision.decisionType === 'new_run'
+                  ? '合計得点が0未満のため不採用'
+                  : bestCandidate && candidate.score < bestCandidate.score
+                    ? `最高候補より${Math.round((bestCandidate.score - candidate.score) * 10) / 10}点低いため不採用`
+                    : '候補として比較';
+            return (
+              <article key={candidate.runId} className={`rounded-xl border p-3 ${candidate.selected ? 'border-teal-400 bg-teal-50 ring-2 ring-teal-100' : 'border-slate-200 bg-white'}`}>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0"><strong className="block truncate text-xs text-slate-950">{candidate.runName}</strong><span className="text-[9px] font-bold text-slate-500">{candidate.vehicleName}・判定前 {candidate.occupancyBefore}/{candidate.capacity}名</span></div>
+                  <div className="text-right"><span className={`block text-lg font-black ${candidate.score >= 0 ? 'text-teal-700' : 'text-rose-700'}`}>{Math.round(candidate.score * 10) / 10}点</span><span className={`text-[9px] font-black ${candidate.selected ? 'text-teal-700' : 'text-slate-500'}`}>{candidate.selected ? 'この便を採用' : rejectedReason}</span></div>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-1.5 text-[9px] font-black">
+                  <span className={`rounded-full px-2 py-1 ${candidate.hasCapacity ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}>{candidate.hasCapacity ? '定員内' : '定員超過'}</span>
+                  {candidate.sameLocation && <span className="rounded-full bg-fuchsia-100 px-2 py-1 text-fuchsia-800">同じ送迎先</span>}
+                  {candidate.matchedArea ? <span className="rounded-full bg-sky-100 px-2 py-1 text-sky-800">第{candidate.matchedAreaRank}位 {candidate.matchedArea}</span> : <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-500">エリア一致なし</span>}
+                  <span className="rounded-full bg-slate-100 px-2 py-1 text-slate-600">移動 {candidate.roadMinutes}分</span>
+                  {candidate.lateMinutes > 0 && <span className="rounded-full bg-rose-100 px-2 py-1 text-rose-800">遅れ {candidate.lateMinutes}分</span>}
+                  {candidate.waitMinutes > 0 && <span className="rounded-full bg-amber-100 px-2 py-1 text-amber-800">早着待機 {candidate.waitMinutes}分</span>}
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-1 sm:grid-cols-4">
+                  {candidate.factors.map((factor) => <div key={`${candidate.runId}-${factor.label}`} className="flex items-center justify-between gap-2 rounded-lg bg-slate-50 px-2 py-1.5 text-[9px] font-bold text-slate-600"><span className="truncate">{factor.label}</span><strong className={factor.value > 0 ? 'text-teal-700' : factor.value < 0 ? 'text-rose-700' : 'text-slate-400'}>{signedScore(factor.value)}</strong></div>)}
+                </div>
+              </article>
+            );
+          })}
+          {decision.decisionType === 'new_run' && <div className="rounded-xl border-2 border-orange-300 bg-orange-50 p-3 text-xs font-black text-orange-900">新規作成 → {decision.selectedRunName}／{decision.selectedVehicleName}</div>}
+          {selectedCandidate && decision.decisionType === 'same_location' && selectedCandidate !== bestCandidate && <p className="rounded-xl bg-fuchsia-50 p-2 text-[10px] font-bold leading-relaxed text-fuchsia-900">得点1位よりも、同じ送迎先へ兄弟・児童をまとめる規則を優先しています。</p>}
+        </div>
+      </div>
+    </details>
   );
 };
 
