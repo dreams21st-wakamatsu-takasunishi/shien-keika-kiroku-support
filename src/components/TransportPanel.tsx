@@ -51,9 +51,7 @@ import {
 } from "../utils/transportLocations";
 import { DailyTransportPlanner } from "./DailyTransportPlanner";
 import { inferTransportArea, resolvedTransportArea } from "../utils/transportArea";
-
-const TransportMapPanel = React.lazy(() => import('./TransportMapPanel')
-  .then((module) => ({ default: module.TransportMapPanel })));
+import { TransportMapPanel } from "./TransportMapPanel";
 
 const TRANSPORT_LOCATION_TYPES: TransportLocationType[] = [
   "自宅",
@@ -870,19 +868,17 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
           </div>
         </section>
       ) : (
-        <React.Suspense fallback={<section className="grid min-h-72 place-items-center rounded-2xl border border-slate-200 bg-white"><span className="flex items-center gap-2 text-sm font-black text-slate-600"><LoaderCircle className="h-5 w-5 animate-spin" />送迎マップを読み込んでいます</span></section>}>
-          <TransportMapPanel
-            childrenList={childrenList}
-            schools={schools}
-            facilityAddress={routeSettings.facilityAddress}
-            locations={mapLocations}
-            zones={areaZones}
-            canManage={canManage}
-            onSaveLocation={onSaveMapLocation}
-            onSaveZone={onSaveAreaZone}
-            onDeleteZone={onDeleteAreaZone}
-          />
-        </React.Suspense>
+        <TransportMapPanel
+          childrenList={childrenList}
+          schools={schools}
+          facilityAddress={routeSettings.facilityAddress}
+          locations={mapLocations}
+          zones={areaZones}
+          canManage={canManage}
+          onSaveLocation={onSaveMapLocation}
+          onSaveZone={onSaveAreaZone}
+          onDeleteZone={onDeleteAreaZone}
+        />
       )}
 
       {runForm && (

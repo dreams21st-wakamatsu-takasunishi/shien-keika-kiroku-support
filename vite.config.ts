@@ -5,8 +5,11 @@ import { defineConfig } from 'vite';
 
 export default defineConfig(() => {
   const gitVersion = process.env.GITHUB_SHA?.slice(0, 7);
+  const githubBuildNumber = process.env.GITHUB_RUN_NUMBER
+    ? `${process.env.GITHUB_RUN_NUMBER}.${process.env.GITHUB_RUN_ATTEMPT || '1'}`
+    : undefined;
   const appVersion = process.env.VITE_APP_VERSION?.trim()
-    || gitVersion
+    || (gitVersion && githubBuildNumber ? `${gitVersion}.${githubBuildNumber}` : gitVersion)
     || `${process.env.npm_package_version || '0.0.0'}-local`;
   const buildTime = process.env.VITE_APP_BUILD_TIME?.trim() || new Date().toISOString();
 
@@ -18,11 +21,21 @@ export default defineConfig(() => {
       tailwindcss(),
       {
         name: 'emit-app-version',
-        generateBundle() {
+        generateBundle(_options, bundle) {
           this.emitFile({
             type: 'asset',
             fileName: 'version.json',
             source: JSON.stringify({ version: appVersion, buildTime }),
+          });
+          this.emitFile({
+            type: 'asset',
+            fileName: 'asset-manifest.json',
+            source: JSON.stringify({
+              version: appVersion,
+              assets: Object.keys(bundle)
+                .filter((fileName) => fileName.startsWith('assets/'))
+                .map((fileName) => `./${fileName}`),
+            }),
           });
         },
       },

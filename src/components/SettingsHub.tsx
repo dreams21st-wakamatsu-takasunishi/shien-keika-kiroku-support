@@ -4,9 +4,7 @@ import type { AiWritingSettings, ChildProfile, SchoolProfile, Template, Transpor
 import { AISettingsEditor } from './AISettingsEditor';
 import { SchoolManager } from './SchoolManager';
 import { TemplateEditor } from './TemplateEditor';
-
-const TransportMapPanel = React.lazy(() => import('./TransportMapPanel')
-  .then((module) => ({ default: module.TransportMapPanel })));
+import { TransportMapPanel } from './TransportMapPanel';
 
 interface SettingsHubProps {
   aiWritingSettings: AiWritingSettings;
@@ -58,7 +56,7 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
         {page === 'ai' && <AISettingsEditor settings={aiWritingSettings} onSave={onSaveAiWritingSettings} />}
         {page === 'templates' && <TemplateEditor templates={templates} onSaveTemplate={onSaveTemplate} onDeleteTemplate={onDeleteTemplate} />}
         {page === 'schools' && <SchoolManager schools={schools} childrenList={childrenList} onSave={onSaveSchool} onDelete={onDeleteSchool} />}
-        {page === 'transportMap' && <React.Suspense fallback={<div className="rounded-2xl bg-white p-8 text-center text-sm font-bold text-slate-500">送迎地図を読み込んでいます…</div>}><TransportMapPanel childrenList={childrenList} schools={schools} facilityAddress={facilityAddress} locations={mapLocations} zones={areaZones} canManage onSaveLocation={onSaveMapLocation} onSaveZone={onSaveAreaZone} onDeleteZone={onDeleteAreaZone} /></React.Suspense>}
+        {page === 'transportMap' && <TransportMapPanel childrenList={childrenList} schools={schools} facilityAddress={facilityAddress} locations={mapLocations} zones={areaZones} canManage onSaveLocation={onSaveMapLocation} onSaveZone={onSaveAreaZone} onDeleteZone={onDeleteAreaZone} />}
       </div>
     );
   }

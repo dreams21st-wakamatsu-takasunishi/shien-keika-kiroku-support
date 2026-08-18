@@ -1,9 +1,19 @@
 const WORKER_VERSION = new URL(self.location.href).searchParams.get('v') || 'local';
 const CACHE_NAME = `support-record-shell-${WORKER_VERSION}`;
-const SHELL_FILES = ['./', './index.html', './manifest.webmanifest', './favicon.svg', './app-icon.svg'];
+const SHELL_FILES = [
+  './',
+  './index.html',
+  './version.json',
+  './asset-manifest.json',
+  './manifest.webmanifest',
+  './favicon.svg',
+  './app-icon.svg',
+];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(cacheApplicationShell().then(() => self.skipWaiting()));
+  // A new worker waits until the user accepts the update. This keeps the old
+  // cache available to tabs that are still running the previous application.
+  event.waitUntil(cacheApplicationShell());
 });
 
 self.addEventListener('message', (event) => {
@@ -12,20 +22,12 @@ self.addEventListener('message', (event) => {
 
 async function cacheApplicationShell() {
   const cache = await caches.open(CACHE_NAME);
-  await cache.addAll(SHELL_FILES);
-
-  // Vite adds hashed JavaScript and CSS filenames to index.html at build time.
-  // Cache those critical files during the first install so the app can reopen
-  // offline without requiring a second online page load.
-  const indexResponse = await fetch('./index.html', { cache: 'no-store' });
-  const indexHtml = await indexResponse.text();
-  const assetPaths = Array.from(
-    indexHtml.matchAll(/(?:src|href)="(\.\/assets\/[^"]+)"/g),
-    (match) => match[1]
-  );
-  if (assetPaths.length > 0) {
-    await cache.addAll([...new Set(assetPaths)]);
-  }
+  const manifestResponse = await fetch('./asset-manifest.json', { cache: 'no-store' });
+  const manifest = manifestResponse.ok ? await manifestResponse.json() : { assets: [] };
+  const assetPaths = Array.isArray(manifest.assets)
+    ? manifest.assets.filter((path) => typeof path === 'string' && path.startsWith('./assets/'))
+    : [];
+  await cache.addAll([...new Set([...SHELL_FILES, ...assetPaths])]);
 }
 
 self.addEventListener('activate', (event) => {
