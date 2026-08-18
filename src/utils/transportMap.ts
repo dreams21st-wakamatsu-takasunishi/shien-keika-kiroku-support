@@ -20,13 +20,28 @@ export function findTransportZone(
   location: Pick<TransportMapLocation, 'id' | 'latitude' | 'longitude'> | undefined,
   zones: TransportAreaZone[],
 ) {
-  if (!location) return undefined;
+  return findTransportZones(location, zones)[0];
+}
+
+export function findTransportZones(
+  location: Pick<TransportMapLocation, 'id' | 'latitude' | 'longitude'> | undefined,
+  zones: TransportAreaZone[],
+) {
+  if (!location) return [];
+  const ranked = zones
+    .flatMap((zone) => {
+      const rank = Number(zone.locationPriorities?.[location.id]);
+      return zone.active && Number.isFinite(rank) && rank > 0 ? [{ zone, rank }] : [];
+    })
+    .sort((left, right) => left.rank - right.rank || left.zone.priority - right.zone.priority)
+    .map(({ zone }) => zone);
+  if (ranked.length) return ranked;
   const explicitlySelected = zones
     .filter((zone) => zone.active && zone.locationIds?.includes(location.id))
-    .sort((left, right) => left.priority - right.priority)[0];
-  if (explicitlySelected) return explicitlySelected;
+    .sort((left, right) => left.priority - right.priority);
+  if (explicitlySelected.length) return explicitlySelected;
   return zones
-    .filter((zone) => zone.active && distanceKm(
+    .filter((zone) => zone.active && zone.showBoundary !== false && distanceKm(
       location.latitude,
       location.longitude,
       zone.centerLatitude,
@@ -34,7 +49,7 @@ export function findTransportZone(
     ) <= zone.radiusKm)
     .sort((left, right) => left.priority - right.priority
       || distanceKm(location.latitude, location.longitude, left.centerLatitude, left.centerLongitude) / left.radiusKm
-        - distanceKm(location.latitude, location.longitude, right.centerLatitude, right.centerLongitude) / right.radiusKm)[0];
+        - distanceKm(location.latitude, location.longitude, right.centerLatitude, right.centerLongitude) / right.radiusKm);
 }
 
 export function normalizeMapAddress(value?: string) {

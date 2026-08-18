@@ -169,6 +169,13 @@ function mapTransportMapLocation(row: any): TransportMapLocation {
 }
 
 function mapTransportAreaZone(row: any): TransportAreaZone {
+  const locationPriorities = row.location_priorities && typeof row.location_priorities === 'object' && !Array.isArray(row.location_priorities)
+    ? Object.entries(row.location_priorities).reduce<Record<string, number>>((result, [locationId, rawPriority]) => {
+      const priority = Number(rawPriority);
+      if (Number.isFinite(priority) && priority > 0) result[locationId] = priority;
+      return result;
+    }, {})
+    : {};
   return {
     id: row.id,
     name: row.name,
@@ -179,6 +186,8 @@ function mapTransportAreaZone(row: any): TransportAreaZone {
     priority: Number(row.priority),
     active: row.active !== false,
     locationIds: Array.isArray(row.location_ids) ? row.location_ids : [],
+    locationPriorities,
+    showBoundary: row.show_boundary !== false,
     note: row.note || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -1462,6 +1471,8 @@ export async function saveTransportAreaZone(
     priority: zone.priority,
     active: zone.active,
     location_ids: zone.locationIds || [],
+    location_priorities: zone.locationPriorities || {},
+    show_boundary: zone.showBoundary !== false,
     note: zone.note?.trim() || null,
   }, { onConflict: 'organization_id,id' });
   if (error) throw error;

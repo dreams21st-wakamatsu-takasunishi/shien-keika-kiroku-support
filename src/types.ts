@@ -73,8 +73,12 @@ export interface TransportAreaZone {
   radiusKm: number;
   priority: number;
   active: boolean;
-  /** Pins explicitly selected for this dispatch group. Circular inclusion remains as a fallback. */
+  /** Legacy pin membership retained for backward compatibility. */
   locationIds?: string[];
+  /** Per-pin preferred area rank. 1 is the highest priority for that pin. */
+  locationPriorities?: Record<string, number>;
+  /** Whether the circular boundary is shown and used as a fallback. */
+  showBoundary?: boolean;
   note?: string;
   createdAt: string;
   updatedAt: string;

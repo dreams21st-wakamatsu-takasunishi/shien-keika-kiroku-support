@@ -59,7 +59,7 @@ import { getDefaultDepartureTime } from '../utils/transportDeparture';
 import { getLocalDateString, getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
 import { inferTransportArea, resolvedTransportArea } from '../utils/transportArea';
 import { buildSiblingGroupByChild, buildSiblingIdsByChild } from '../utils/childSiblings';
-import { findTransportMapLocation, findTransportZone } from '../utils/transportMap';
+import { findTransportMapLocation, findTransportZones } from '../utils/transportMap';
 
 interface DailyTransportPlannerProps {
   date: string;
@@ -483,13 +483,27 @@ function resolvedPlanningArea(
   mapLocations: TransportMapLocation[],
   zones: TransportAreaZone[],
 ) {
+  return resolvedPlanningAreas(child, direction, date, requirement, stop, mapLocations, zones)[0];
+}
+
+function resolvedPlanningAreas(
+  child: ChildProfile,
+  direction: TransportDirection,
+  date: string,
+  requirement: DailyTransportRequirement | undefined,
+  stop: TransportStop | undefined,
+  mapLocations: TransportMapLocation[],
+  zones: TransportAreaZone[],
+) {
   const resolved = resolvedPlanningLocation(child, direction, date, requirement, stop);
   const profileId = stop?.locationProfileId || (direction === '迎え'
     ? requirement?.pickupLocationProfileId
     : requirement?.dropoffLocationProfileId);
   const mapLocation = findTransportMapLocation(mapLocations, child.id, profileId, resolved.locationAddress);
-  return findTransportZone(mapLocation, zones)?.name
-    || resolvedTransportArea(resolved.locationAddress, resolved.locationArea);
+  const preferredAreas = findTransportZones(mapLocation, zones).map((zone) => zone.name);
+  if (preferredAreas.length) return preferredAreas;
+  const fallbackArea = resolvedTransportArea(resolved.locationAddress, resolved.locationArea);
+  return fallbackArea ? [fallbackArea] : [];
 }
 
 const ChildCardContent: React.FC<{
@@ -1087,14 +1101,17 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         const firstRequirement = requirementByChild.get(group[0].id);
         const firstSuggestion = getSuggestedTransportLocation(group[0], direction, date);
         const firstAddress = direction === '迎え' ? firstRequirement?.pickupAddress : firstRequirement?.dropoffAddress;
-        const firstArea = resolvedPlanningArea(group[0], direction, date, firstRequirement, undefined, transportMapLocations, transportAreaZones);
+        const firstAreas = resolvedPlanningAreas(group[0], direction, date, firstRequirement, undefined, transportMapLocations, transportAreaZones);
+        const firstArea = firstAreas[0];
         const firstStop = childStop(group[0], direction, date, dayPlansByChild.get(group[0].id), firstRequirement, routeSettings, transportPlanDay?.pickupMode, siblingGroupByChild.get(group[0].id), firstArea);
         const groupSharedLocationKey = sharedStopLocationKey(firstStop);
         const ranked = lanes.map((run) => {
           const vehicle = usableVehicles.find((candidate) => candidate?.id === run.vehicleId);
           const capacity = vehicle?.capacity || 30;
           const sameLocation = run.stops.some((stop) => normalizedStopLocation(stop.location) === normalizedStopLocation(firstAddress || firstSuggestion?.address));
-          const sameArea = Boolean(firstArea) && run.stops.some((stop) => stop.area === firstArea);
+          const matchedAreaIndex = firstAreas.findIndex((area) => run.stops.some((stop) => stop.area === area));
+          const matchedArea = matchedAreaIndex >= 0 ? firstAreas[matchedAreaIndex] : undefined;
+          const areaPreferenceScore = matchedAreaIndex < 0 ? 0 : Math.max(15, 45 - matchedAreaIndex * 15);
           const hasCapacity = run.stops.length + group.length <= capacity;
           const lastStop = run.stops.at(-1);
           const roadMinutes = matrixMinutes(routeMatrix, lastStop?.childId || 'facility', group[0].id);
@@ -1106,7 +1123,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
             : schoolTarget ? minutes(schoolTarget) : 0;
           const lateMinutes = schoolTarget ? Math.max(0, estimatedArrival - minutes(schoolTarget)) : 0;
           const excessiveWait = schoolTarget ? Math.max(0, minutes(schoolTarget) - estimatedArrival - routeSettings.schoolWaitToleranceMinutes) : 0;
-          return { run, score: (hasCapacity ? 100 : -1000) + (sameLocation ? 60 : 0) + (sameArea ? 35 : 0) - run.stops.length * 3 - roadMinutes - lateMinutes * 25 - excessiveWait * 0.5 - ((vehicle?.assignmentPriority || 100) / 100) };
+          return { run, matchedArea, score: (hasCapacity ? 100 : -1000) + (sameLocation ? 60 : 0) + areaPreferenceScore - run.stops.length * 3 - roadMinutes - lateMinutes * 25 - excessiveWait * 0.5 - ((vehicle?.assignmentPriority || 100) / 100) };
         }).sort((left, right) => right.score - left.score);
         const retainedSharedLocationRun = groupSharedLocationKey
           ? lanes.find((run) => {
@@ -1115,7 +1132,9 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
                 && run.stops.some((stop) => sharedStopLocationKey(stop) === groupSharedLocationKey);
             })
           : undefined;
-        let target = retainedSharedLocationRun || (ranked[0]?.score >= 0 ? ranked[0].run : undefined);
+        const bestCandidate = ranked[0]?.score >= 0 ? ranked[0] : undefined;
+        let target = retainedSharedLocationRun || bestCandidate?.run;
+        const assignedArea = retainedSharedLocationRun ? firstArea : bestCandidate?.matchedArea || firstArea;
         if (!target) {
           const fittingVehicles = usableVehicles.filter((vehicle) => (vehicle?.capacity || 30) >= group.length);
           const vehicle = (fittingVehicles.length ? fittingVehicles : usableVehicles).slice().sort((left, right) => {
@@ -1138,7 +1157,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
               routeSettings,
               transportPlanDay?.pickupMode,
               siblingGroupByChild.get(child.id),
-              resolvedPlanningArea(child, direction, date, requirement, undefined, transportMapLocations, transportAreaZones),
+              assignedArea || resolvedPlanningArea(child, direction, date, requirement, undefined, transportMapLocations, transportAreaZones),
             ),
             order: target!.stops.length + index + 1,
           };
