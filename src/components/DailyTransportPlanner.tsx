@@ -61,6 +61,7 @@ import { getLocalDateString, getRegularDaysForDate, getWeekdayFromDate } from '.
 import { inferTransportArea, resolvedTransportArea } from '../utils/transportArea';
 import { buildSiblingGroupByChild, buildSiblingIdsByChild } from '../utils/childSiblings';
 import { findTransportMapLocation, findTransportZones } from '../utils/transportMap';
+import { getVehicleChildCapacity, getVehicleStaffSeatCount } from '../utils/vehicleCapacity';
 
 interface DailyTransportPlannerProps {
   date: string;
@@ -91,6 +92,8 @@ interface AutoRoutingCandidateLog {
   hasCapacity: boolean;
   occupancyBefore: number;
   capacity: number;
+  totalCapacity: number;
+  staffSeatCount: number;
   sameLocation: boolean;
   matchedArea?: string;
   matchedAreaRank?: number;
@@ -685,7 +688,7 @@ const TransportRunLane: React.FC<{
   onRemoveRun,
 }) => {
   const { setNodeRef, isOver } = useDroppable({ id: `run-${run.id}`, data: { runId: run.id } });
-  const capacity = vehicle?.capacity || 30;
+  const capacity = getVehicleChildCapacity(vehicle, run);
   const overCapacity = run.stops.length > capacity;
   const laneSharedLocations = Array.from(new Map<string, SharedLocationVisual>(run.stops
     .map((stop) => stop.childId ? sharedLocationByChild.get(stop.childId) : undefined)
@@ -696,7 +699,7 @@ const TransportRunLane: React.FC<{
       <header className={`p-2 ${run.direction === '迎え' ? 'bg-sky-50' : 'bg-violet-50'}`}>
         <div className="flex items-center gap-1.5">
           <input aria-label="便名" value={run.name} onChange={(event) => onUpdateRun(run.id, { name: event.target.value })} className="min-h-9 min-w-0 flex-1 rounded-lg border border-white bg-white px-2 text-[11px] font-black" />
-          <span className={`shrink-0 rounded-full px-2 py-1 text-[9px] font-black ${overCapacity ? 'bg-rose-600 text-white' : 'bg-white text-slate-600'}`}>{run.stops.length}/{capacity}名</span>
+          <span title={vehicle ? `総定員${vehicle.capacity}名から運転者1名・添乗${getVehicleStaffSeatCount(run) - 1}名を除いた児童枠` : '車両未設定'} className={`shrink-0 rounded-full px-2 py-1 text-[9px] font-black ${overCapacity ? 'bg-rose-600 text-white' : 'bg-white text-slate-600'}`}>児童 {run.stops.length}/{capacity}名</span>
           <button type="button" onClick={() => onRemoveRun(run)} aria-label={`${run.name}を削除`} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-rose-600"><Trash2 className="h-4 w-4" /></button>
         </div>
         <div className="mt-1.5 grid grid-cols-2 gap-1.5">
@@ -1066,10 +1069,12 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
     const reserveVehicles = boardVehicles.filter((vehicle) => vehicle.autoAssignmentPolicy === 'when_needed');
     const retainedCount = nextDrafts.filter((run) => run.direction === activeDirection).reduce((sum, run) => sum + run.stops.length, 0);
     const neededSeats = Math.max(0, eligible.length - retainedCount);
-    const preferredCapacity = preferredVehicles.reduce((sum, vehicle) => sum + vehicle.capacity, 0);
+    const preferredCapacity = preferredVehicles.reduce((sum, vehicle) => sum + getVehicleChildCapacity(vehicle), 0);
     const selectedVehicles = neededSeats > preferredCapacity ? [...preferredVehicles, ...reserveVehicles] : preferredVehicles;
     const usableVehicles: Array<Vehicle | undefined> = selectedVehicles.length ? selectedVehicles : boardVehicles.length === 0 ? [undefined] : [];
     if (usableVehicles.length === 0) return setError('自動配車に使用できる車両がありません。「手動のみ」の車両は自動では使用しません。');
+    const maximumUsableChildCapacity = Math.max(...usableVehicles.map((vehicle) => getVehicleChildCapacity(vehicle)));
+    if (maximumUsableChildCapacity <= 0) return setError('自動配車に使用できる児童席がありません。車両の総乗車定員は運転者1名を含む人数で登録してください。');
 
     const direction = activeDirection;
     const decisionLogs: AutoRoutingDecisionLog[] = [];
@@ -1123,7 +1128,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         const key = siblingGroup || `child-${child.id}`;
         familyGroups.set(key, [...(familyGroups.get(key) || []), child]);
       });
-      const maximumVehicleCapacity = Math.max(...usableVehicles.map((vehicle) => vehicle?.capacity || 30));
+      const maximumVehicleCapacity = maximumUsableChildCapacity;
       const groups = Array.from(familyGroups.values())
         .sort((left, right) => {
           const leftRequirement = requirementByChild.get(left[0].id);
@@ -1150,7 +1155,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         const groupSharedLocationKey = sharedStopLocationKey(firstStop);
         const ranked = lanes.map((run) => {
           const vehicle = usableVehicles.find((candidate) => candidate?.id === run.vehicleId);
-          const capacity = vehicle?.capacity || 30;
+          const capacity = getVehicleChildCapacity(vehicle, run);
           const sameLocation = run.stops.some((stop) => normalizedStopLocation(stop.location) === normalizedStopLocation(firstAddress || firstSuggestion?.address));
           const matchedAreaIndex = firstAreas.findIndex((area) => run.stops.some((stop) => stop.area === area));
           const matchedArea = matchedAreaIndex >= 0 ? firstAreas[matchedAreaIndex] : undefined;
@@ -1167,7 +1172,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
           const lateMinutes = schoolTarget ? Math.max(0, estimatedArrival - minutes(schoolTarget)) : 0;
           const excessiveWait = schoolTarget ? Math.max(0, minutes(schoolTarget) - estimatedArrival - routeSettings.schoolWaitToleranceMinutes) : 0;
           const factors = [
-            { label: hasCapacity ? '定員内' : '定員超過', value: hasCapacity ? 100 : -1000 },
+            { label: hasCapacity ? `児童枠${capacity}名以内` : `児童枠${capacity}名を超過`, value: hasCapacity ? 100 : -1000 },
             { label: sameLocation ? '同じ送迎先' : '送迎先不一致', value: sameLocation ? 60 : 0 },
             { label: matchedArea ? `優先エリア第${matchedAreaIndex + 1}位` : '優先エリア一致なし', value: areaPreferenceScore },
             { label: `既存${run.stops.length}名`, value: -run.stops.length * 3 },
@@ -1194,7 +1199,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         const retainedSharedLocationRun = groupSharedLocationKey
           ? lanes.find((run) => {
               const vehicle = usableVehicles.find((candidate) => candidate?.id === run.vehicleId);
-              return run.stops.length + group.length <= (vehicle?.capacity || 30)
+              return run.stops.length + group.length <= getVehicleChildCapacity(vehicle, run)
                 && run.stops.some((stop) => sharedStopLocationKey(stop) === groupSharedLocationKey);
             })
           : undefined;
@@ -1203,7 +1208,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         const assignedArea = retainedSharedLocationRun ? firstArea : bestCandidate?.matchedArea || firstArea;
         const createdNewRun = !target;
         if (!target) {
-          const fittingVehicles = usableVehicles.filter((vehicle) => (vehicle?.capacity || 30) >= group.length);
+          const fittingVehicles = usableVehicles.filter((vehicle) => getVehicleChildCapacity(vehicle) >= group.length);
           const vehicle = (fittingVehicles.length ? fittingVehicles : usableVehicles).slice().sort((left, right) => {
             const laneDifference = lanes.filter((run) => run.vehicleId === left?.id).length - lanes.filter((run) => run.vehicleId === right?.id).length;
             return laneDifference || (left?.capacity || 30) - (right?.capacity || 30);
@@ -1236,6 +1241,8 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
             hasCapacity: candidate.hasCapacity,
             occupancyBefore: candidate.run.stops.length,
             capacity: candidate.capacity,
+            totalCapacity: candidate.vehicle?.capacity || candidate.capacity,
+            staffSeatCount: candidate.vehicle ? getVehicleStaffSeatCount(candidate.run) : 0,
             sameLocation: candidate.sameLocation,
             matchedArea: candidate.matchedArea,
             matchedAreaRank: candidate.matchedAreaIndex >= 0 ? candidate.matchedAreaIndex + 1 : undefined,
@@ -1329,7 +1336,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
           return (
             <section key={vehicle?.id || 'unassigned'} className="rounded-xl border border-slate-200 bg-white/80 p-2">
               <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="flex min-w-0 items-center gap-1.5 text-xs font-black text-slate-800"><BusFront className={`h-4 w-4 ${direction === '迎え' ? 'text-sky-600' : 'text-violet-600'}`} /><span className="truncate">{vehicle?.name || '車両未設定'}</span>{vehicle && <span className="text-[9px] font-bold text-slate-400">定員{vehicle.capacity}</span>}</span>
+                <span className="flex min-w-0 items-center gap-1.5 text-xs font-black text-slate-800"><BusFront className={`h-4 w-4 ${direction === '迎え' ? 'text-sky-600' : 'text-violet-600'}`} /><span className="truncate">{vehicle?.name || '車両未設定'}</span>{vehicle && <span className="text-[9px] font-bold text-slate-400">総定員{vehicle.capacity}名</span>}</span>
                 <button type="button" onClick={() => addRun(direction, vehicle)} className={`min-h-9 shrink-0 rounded-lg px-2 text-[10px] font-black text-white ${direction === '迎え' ? 'bg-sky-600' : 'bg-violet-600'}`}><Plus className="mr-0.5 inline h-3.5 w-3.5" />便を追加</button>
               </div>
               <div className="space-y-2">
@@ -1510,7 +1517,7 @@ const AutoRoutingDecisionCard: React.FC<{ decision: AutoRoutingDecisionLog; inde
             return (
               <article key={candidate.runId} className={`rounded-xl border p-3 ${candidate.selected ? 'border-teal-400 bg-teal-50 ring-2 ring-teal-100' : 'border-slate-200 bg-white'}`}>
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="min-w-0"><strong className="block truncate text-xs text-slate-950">{candidate.runName}</strong><span className="text-[9px] font-bold text-slate-500">{candidate.vehicleName}・判定前 {candidate.occupancyBefore}/{candidate.capacity}名</span></div>
+                  <div className="min-w-0"><strong className="block truncate text-xs text-slate-950">{candidate.runName}</strong><span className="text-[9px] font-bold text-slate-500">{candidate.vehicleName}・児童 {candidate.occupancyBefore}/{candidate.capacity}名（総定員{candidate.totalCapacity}名・職員{candidate.staffSeatCount}名）</span></div>
                   <div className="text-right"><span className={`block text-lg font-black ${candidate.score >= 0 ? 'text-teal-700' : 'text-rose-700'}`}>{Math.round(candidate.score * 10) / 10}点</span><span className={`text-[9px] font-black ${candidate.selected ? 'text-teal-700' : 'text-slate-500'}`}>{candidate.selected ? 'この便を採用' : rejectedReason}</span></div>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-1.5 text-[9px] font-black">
@@ -1572,7 +1579,7 @@ function getDraftPlanningWarnings({
     const vehicle = vehicles.find((candidate) => candidate.id === run.vehicleId);
     if (!run.vehicleId) warnings.push(`${run.name}：車両が未設定です。`);
     if (!run.driverRecorderProfileId) warnings.push(`${run.name}：運転者が未設定です。`);
-    if (vehicle && run.stops.length > vehicle.capacity) warnings.push(`${run.name}：定員${vehicle.capacity}名を超えています。`);
+    if (vehicle && run.stops.length > getVehicleChildCapacity(vehicle, run)) warnings.push(`${run.name}：総定員${vehicle.capacity}名から運転者1名・添乗${getVehicleStaffSeatCount(run) - 1}名を除いた児童枠${getVehicleChildCapacity(vehicle, run)}名を超えています。`);
     if (vehicle?.vehicleKind === 'private') warnings.push(`${run.name}：職員の自家用車を使用します。使用許可・保険を確認してください。`);
     if (run.stops.some((stop) => !stop.location.trim())) warnings.push(`${run.name}：送迎先が未入力の児童がいます。`);
     if (run.driverRecorderProfileId && dayAttendance.length > 0 && !workingIds.has(run.driverRecorderProfileId)) warnings.push(`${run.name}：運転者が出勤予定として確認できません。`);

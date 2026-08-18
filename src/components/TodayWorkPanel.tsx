@@ -31,6 +31,7 @@ import type {
   Vehicle,
 } from '../types';
 import { getLocalDateString, getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
+import { getVehicleChildCapacity, getVehicleStaffSeatCount } from '../utils/vehicleCapacity';
 import { AttendancePanel } from './AttendancePanel';
 import { CalendarPanel } from './CalendarPanel';
 import { StaffSchedulePanel } from './StaffSchedulePanel';
@@ -480,7 +481,7 @@ function getTransportWarnings(runs: TransportRun[], vehicles: Vehicle[], attenda
     const passengerIds = [...new Set(run.stops.map((stop) => stop.childId).filter(Boolean))];
     if (!run.vehicleId) push(run.id, `${run.name}：車両が未設定です。`);
     if (!run.driverRecorderProfileId) push(run.id, `${run.name}：運転担当者が未設定です。`);
-    if (vehicle && passengerIds.length > vehicle.capacity) push(run.id, `${run.name}：乗車児童${passengerIds.length}名が${vehicle.name}の定員${vehicle.capacity}名を超えています。`);
+    if (vehicle && passengerIds.length > getVehicleChildCapacity(vehicle, run)) push(run.id, `${run.name}：乗車児童${passengerIds.length}名が、${vehicle.name}の総定員${vehicle.capacity}名から運転者1名・添乗${getVehicleStaffSeatCount(run) - 1}名を除いた児童枠${getVehicleChildCapacity(vehicle, run)}名を超えています。`);
     if (vehicle && !vehicle.available) push(run.id, `${run.name}：使用不可の車両が割り当てられています。`);
     if (vehicle?.inspectionDueDate && vehicle.inspectionDueDate < run.date) push(run.id, `${run.name}：${vehicle.name}の点検・車検期限（${vehicle.inspectionDueDate}）を過ぎています。`);
     if (run.driverRecorderProfileId) {

@@ -412,7 +412,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
     if (!vehicleForm) return;
     if (!vehicleForm.name.trim()) return setError("車両名を入力してください。");
     if (vehicleForm.capacity < 1)
-      return setError("乗車定員は1名以上にしてください。");
+      return setError("総乗車定員は1名以上にしてください。");
     await onSaveVehicle({
       ...vehicleForm,
       name: vehicleForm.name.trim(),
@@ -778,7 +778,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
             <div>
               <h3 className="font-black">車両台帳</h3>
               <p className="mt-1 text-xs text-slate-500">
-                定員・設備・点検期限・利用可否を管理します。
+                車検証上の総乗車定員（運転者を含む）・設備・点検期限・利用可否を管理します。
               </p>
             </div>
             {canManage && (
@@ -826,7 +826,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
                   </span>
                 </div>
                 <p className="mt-3 text-sm">
-                  定員 {vehicle.capacity}名
+                  総乗車定員 {vehicle.capacity}名（運転者を含む）
                   {vehicle.wheelchairAccessible ? "・車椅子対応" : ""}
                 </p>
                 <p className="mt-1 text-xs font-bold text-slate-600">
@@ -1304,7 +1304,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
             />
           </label>
           <label className="block text-sm font-bold">
-            乗車定員
+            総乗車定員（運転者を含む）
             <input
               type="number"
               min="1"
@@ -1317,6 +1317,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
               }
               className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3"
             />
+            <span className="mt-1 block text-[10px] font-normal leading-relaxed text-slate-500">車検証に記載された人数を入力します。自動配車では、ここから運転者1名と添乗職員数を差し引いて児童の乗車可能人数を計算します。</span>
           </label>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-sm font-bold">
