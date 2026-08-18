@@ -237,7 +237,7 @@ export const GoogleTransportMap: React.FC<GoogleTransportMapProps> = ({
         zIndex: markerData.selected ? 20 : 10,
       });
       const infoWindow = new google.maps.InfoWindow({ content: infoContent(markerData) });
-      marker.addListener('click', () => {
+      marker.addEventListener('gmp-click', () => {
         callbacksRef.current.onMarkerClick(markerData.id);
         infoWindowsRef.current.forEach((candidate) => candidate.close());
         infoWindow.open({ map, anchor: marker });
