@@ -491,6 +491,7 @@ export interface Vehicle {
 }
 
 export type TransportPickupMode = 'school' | 'home' | 'custom';
+export type TransportTimeMode = 'fixed' | 'arrival_backward' | 'departure_forward';
 export type TransportPlanDayStatus = 'draft' | 'requirements_confirmed' | 'dispatch_draft' | 'dispatch_confirmed';
 
 export interface TransportPlanDay {
@@ -516,11 +517,13 @@ export interface DailyTransportRequirement {
   pickupLocationName?: string;
   pickupAddress?: string;
   pickupArea?: string;
+  pickupTimeMode: TransportTimeMode;
   pickupTargetTime?: string;
   dropoffLocationProfileId?: string;
   dropoffLocationName?: string;
   dropoffAddress?: string;
   dropoffArea?: string;
+  dropoffTimeMode: TransportTimeMode;
   dropoffTargetTime?: string;
   stopDurationMinutes: number;
   keepSiblingsTogether: boolean;
@@ -550,6 +553,8 @@ export interface TransportStop {
   locationName?: string;
   locationType: TransportLocationType;
   location: string;
+  timeMode?: TransportTimeMode;
+  timeAnchorTime?: string;
   plannedTime?: string;
   area?: string;
   stopDurationMinutes?: number;

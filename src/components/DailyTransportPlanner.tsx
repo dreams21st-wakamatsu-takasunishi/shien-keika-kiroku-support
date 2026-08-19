@@ -5,6 +5,7 @@ import {
   DragOverlay,
   MouseSensor,
   TouchSensor,
+  closestCenter,
   pointerWithin,
   rectIntersection,
   useDraggable,
@@ -15,6 +16,8 @@ import {
   type DragEndEvent,
   type DragStartEvent,
 } from '@dnd-kit/core';
+import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import {
   ArrowDown,
   ArrowUp,
@@ -23,6 +26,7 @@ import {
   ChevronDown,
   ChevronUp,
   Clock3,
+  GripVertical,
   LoaderCircle,
   Plus,
   Save,
@@ -50,6 +54,7 @@ import type {
   TransportLocationType,
   TransportRun,
   TransportStop,
+  TransportTimeMode,
   Vehicle,
 } from '../types';
 import { optimizeTransportRoute } from '../services/dataService';
@@ -121,6 +126,21 @@ function createRun(date: string, direction: TransportDirection, sequence: number
   };
 }
 
+function requirementTimeMode(requirement: DailyTransportRequirement | undefined, direction: TransportDirection, pickupMode?: TransportPlanDay['pickupMode']): TransportTimeMode {
+  if (direction === '迎え') return requirement?.pickupTimeMode || (pickupMode === 'home' ? 'arrival_backward' : 'fixed');
+  return requirement?.dropoffTimeMode || 'departure_forward';
+}
+
+function requirementAnchorTime(requirement: DailyTransportRequirement | undefined, direction: TransportDirection) {
+  return direction === '迎え' ? requirement?.pickupTargetTime : requirement?.dropoffTargetTime;
+}
+
+function timeModeShortLabel(mode: TransportTimeMode) {
+  if (mode === 'arrival_backward') return '来所・帰着から逆算';
+  if (mode === 'departure_forward') return '施設出発から順算';
+  return '時刻固定';
+}
+
 function childStop(
   child: ChildProfile,
   direction: TransportDirection,
@@ -136,6 +156,10 @@ function childStop(
   const requirementName = direction === '迎え' ? requirement?.pickupLocationName : requirement?.dropoffLocationName;
   const requirementProfileId = direction === '迎え' ? requirement?.pickupLocationProfileId : requirement?.dropoffLocationProfileId;
   const requirementArea = direction === '迎え' ? requirement?.pickupArea : requirement?.dropoffArea;
+  const timeMode = requirementTimeMode(requirement, direction, pickupMode);
+  const timeAnchorTime = requirementAnchorTime(requirement, direction)
+    || dailyTransportTargetTime(child, date, direction, dailyPlan, routeSettings, pickupMode)
+    || undefined;
   const requirementOption = getTransportLocationOptions(child, direction, date)
     .find((option) => option.id === requirementProfileId);
   const suggestion = requirementOption || getSuggestedTransportLocation(child, direction, date);
@@ -148,7 +172,9 @@ function childStop(
     locationType: suggestion?.type || (direction === '迎え' ? '学校' : '自宅'),
     locationName: requirementName || suggestion?.name,
     locationProfileId: requirementProfileId || (suggestion?.source === 'registered' ? suggestion.id : undefined),
-    plannedTime: (direction === '迎え' ? requirement?.pickupTargetTime : requirement?.dropoffTargetTime) || dailyTransportTargetTime(child, date, direction, dailyPlan, routeSettings, pickupMode) || undefined,
+    timeMode,
+    timeAnchorTime,
+    plannedTime: timeMode === 'fixed' ? timeAnchorTime : undefined,
     area: preferredArea || resolvedTransportArea(
       requirementAddress || suggestion?.address,
       requirementArea || suggestion?.area,
@@ -176,13 +202,17 @@ function applyMonthlyRequirementToStop(
   const name = direction === '迎え' ? requirement.pickupLocationName : requirement.dropoffLocationName;
   const area = direction === '迎え' ? requirement.pickupArea : requirement.dropoffArea;
   const targetTime = direction === '迎え' ? requirement.pickupTargetTime : requirement.dropoffTargetTime;
+  const timeMode = requirementTimeMode(requirement, direction);
+  const timeRuleChanged = stop.timeMode !== timeMode || stop.timeAnchorTime !== targetTime;
   return {
     ...stop,
     location: address || stop.location,
     locationType: option?.type || stop.locationType,
     locationName: name || option?.name || stop.locationName,
     locationProfileId: profileId || stop.locationProfileId,
-    plannedTime: targetTime || stop.plannedTime,
+    timeMode,
+    timeAnchorTime: targetTime,
+    plannedTime: timeMode === 'fixed' ? targetTime || stop.plannedTime : timeRuleChanged ? undefined : stop.plannedTime,
     area: resolvedTransportArea(address || stop.location, area || option?.area || stop.area),
     stopDurationMinutes: requirement.stopDurationMinutes,
     note: requirement.note || option?.note || stop.note,
@@ -288,6 +318,32 @@ function clusterTargetMinute(cluster: TransportStopCluster, useLatest = false) {
   return useLatest ? Math.max(...targets) : Math.min(...targets);
 }
 
+type RunTimeMode = TransportTimeMode | 'mixed';
+
+function runTimeMode(run: TransportRun): RunTimeMode {
+  const modes = Array.from(new Set(run.stops.map((stop) => stop.timeMode || 'fixed')));
+  return modes.length <= 1 ? modes[0] || 'fixed' : 'mixed';
+}
+
+function runAnchorMinute(run: TransportRun, mode: TransportTimeMode, planDay?: TransportPlanDay, settings?: TransportRouteSettings) {
+  const anchors = run.stops.map((stop) => stop.timeAnchorTime).filter((time): time is string => Boolean(time)).map(minutes);
+  if (anchors.length) return mode === 'arrival_backward' ? Math.max(...anchors) : Math.min(...anchors);
+  if (mode === 'arrival_backward' && run.direction === '迎え') {
+    const fallback = planDay?.targetArrivalTime || settings?.holidayArrivalTime;
+    return fallback ? minutes(fallback) : undefined;
+  }
+  return mode === 'departure_forward' ? minutes(run.startTime) : undefined;
+}
+
+function estimatedRunMinutes(run: TransportRun, settings: TransportRouteSettings) {
+  const clusters = clusterTransportStops(run.stops);
+  return (clusters.length + 1) * 15 + clusters.reduce((sum, cluster) => sum + clusterDwellMinutes(cluster, settings), 0);
+}
+
+function invalidateCalculatedStopTimes(stops: TransportStop[]) {
+  return stops.map((stop) => stop.timeMode && stop.timeMode !== 'fixed' ? { ...stop, plannedTime: undefined } : stop);
+}
+
 function alignHouseholdStopTimes(stops: TransportStop[]) {
   return clusterTransportStops(stops).flatMap((cluster) => {
     const target = clusterTargetMinute(cluster, true);
@@ -313,24 +369,21 @@ function finalizeRunTimes(
   settings: TransportRouteSettings,
 ) {
   const clusteredStops = clusterTransportStops(run.stops).flatMap((cluster) => cluster.stops);
-  if (run.direction !== '迎え' || planDay?.pickupMode !== 'home' || run.stops.length === 0) {
-    return adjustRunTimes({ ...run, stops: alignHouseholdStopTimes(clusteredStops) });
+  if (run.stops.length === 0) return run;
+  const mode = runTimeMode(run);
+  if (mode === 'mixed') return { ...run, stops: clusteredStops };
+  if (mode === 'fixed') return adjustRunTimes({ ...run, stops: alignHouseholdStopTimes(clusteredStops) });
+  const totalEstimate = estimatedRunMinutes(run, settings);
+  const anchor = runAnchorMinute(run, mode, planDay, settings);
+  if (anchor === undefined || anchor === Number.MAX_SAFE_INTEGER) return { ...run, stops: clusteredStops };
+  if (mode === 'departure_forward') {
+    return { ...run, startTime: formattedMinutes(anchor), endTime: formattedMinutes(anchor + totalEstimate), stops: clusteredStops.map((stop) => ({ ...stop, plannedTime: undefined })) };
   }
-  const arrival = planDay.targetArrivalTime || settings.holidayArrivalTime;
-  const clusters = clusterTransportStops(clusteredStops);
-  const travelEstimate = (clusters.length + 1) * 15;
-  const serviceEstimate = clusters.reduce((sum, cluster) => sum + clusterDwellMinutes(cluster, settings), 0);
-  const totalEstimate = travelEstimate + serviceEstimate;
-  const startMinute = Math.max(minutes(settings.holidayOpeningTime), minutes(arrival) - totalEstimate);
-  const startTime = formattedMinutes(startMinute);
-  let elapsed = 15;
-  const stops: TransportStop[] = [];
-  clusters.forEach((cluster) => {
-    const plannedTime = shiftedTime(startTime, elapsed);
-    cluster.stops.forEach((stop) => stops.push({ ...stop, plannedTime, order: stops.length + 1 }));
-    elapsed += clusterDwellMinutes(cluster, settings) + 15;
-  });
-  return { ...run, startTime, endTime: formattedMinutes(startMinute + totalEstimate), stops };
+  const calculatedStart = anchor - totalEstimate;
+  const startMinute = run.direction === '迎え' && planDay?.pickupMode === 'home'
+    ? Math.max(minutes(settings.holidayOpeningTime), calculatedStart)
+    : calculatedStart;
+  return { ...run, startTime: formattedMinutes(startMinute), endTime: formattedMinutes(startMinute + totalEstimate), stops: clusteredStops.map((stop) => ({ ...stop, plannedTime: undefined })) };
 }
 
 interface SharedLocationVisual {
@@ -352,6 +405,21 @@ type ChildSortField = 'time' | 'area' | 'grade';
 type SortDirection = 'asc' | 'desc';
 interface ChildSortRule { field: ChildSortField; direction: SortDirection }
 const SORT_FIELD_LABELS: Record<ChildSortField, string> = { time: '下校・迎え時間', area: 'エリア', grade: '学年' };
+
+const SortableSortRuleRow: React.FC<{
+  rule: ChildSortRule;
+  index: number;
+  rules: ChildSortRule[];
+  onChange: (rule: ChildSortRule) => void;
+}> = ({ rule, index, rules, onChange }) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: rule.field });
+  return <div ref={setNodeRef} style={{ transform: CSS.Transform.toString(transform), transition }} className={`grid grid-cols-[1.2rem_1.8rem_minmax(0,1fr)_3.4rem] items-center gap-1 rounded-lg border bg-white p-1 ${isDragging ? 'z-20 scale-[1.02] border-emerald-400 shadow-xl' : 'border-slate-100'}`}>
+    <span className="text-center text-[9px] font-black text-slate-400">{index + 1}</span>
+    <button type="button" {...attributes} {...listeners} className="grid h-8 w-7 touch-none cursor-grab place-items-center rounded-md bg-emerald-50 text-emerald-700 active:cursor-grabbing" aria-label={`${SORT_FIELD_LABELS[rule.field]}の優先順位をドラッグして変更`}><GripVertical className="h-4 w-4" /></button>
+    <select value={rule.field} onChange={(event) => onChange({ ...rule, field: event.target.value as ChildSortField })} className="min-h-8 min-w-0 rounded-lg border border-slate-200 bg-white px-1 text-[9px] font-bold">{(Object.keys(SORT_FIELD_LABELS) as ChildSortField[]).map((field) => <option key={field} value={field} disabled={rules.some((item, itemIndex) => itemIndex !== index && item.field === field)}>{SORT_FIELD_LABELS[field]}</option>)}</select>
+    <button type="button" onClick={() => onChange({ ...rule, direction: rule.direction === 'asc' ? 'desc' : 'asc' })} className="min-h-8 rounded-lg border border-slate-200 text-[9px] font-black text-slate-700">{rule.direction === 'asc' ? '昇順' : '降順'}</button>
+  </div>;
+};
 
 function gradeSortValue(grade?: string) {
   if (!grade) return 999;
@@ -431,7 +499,10 @@ function resolvedPlanningAreas(
   const profileId = stop?.locationProfileId || (direction === '迎え'
     ? requirement?.pickupLocationProfileId
     : requirement?.dropoffLocationProfileId);
-  const mapLocation = findTransportMapLocation(mapLocations, child.id, profileId, resolved.locationAddress);
+  const mapLocation = ((resolved.locationType === '学校' || resolved.locationType === '学童') && child.schoolId
+    ? mapLocations.find((location) => location.id === `school:${child.schoolId}`)
+    : undefined)
+    || findTransportMapLocation(mapLocations, child.id, profileId, resolved.locationAddress);
   const preferredAreas = findTransportZones(mapLocation, zones).map((zone) => zone.name);
   if (preferredAreas.length) return preferredAreas;
   const fallbackArea = resolvedTransportArea(resolved.locationAddress, resolved.locationArea);
@@ -457,12 +528,18 @@ const ChildCardContent: React.FC<{
 }) => {
   const schedule = getTransportScheduleForDate(child, date);
   const { locationName } = resolvedPlanningLocation(child, direction, date, requirement, stop);
-  const dailyTargetTime = direction === '迎え' ? requirement?.pickupTargetTime : requirement?.dropoffTargetTime;
-  const targetTime = dailyTargetTime || stop?.plannedTime || schedule?.schoolEndTime || schedule?.pickupTime;
+  const mode = stop?.timeMode || requirementTimeMode(requirement, direction);
+  const dailyTargetTime = stop?.timeAnchorTime || requirementAnchorTime(requirement, direction);
+  const fallbackTime = schedule?.schoolEndTime || schedule?.pickupTime;
+  const timeText = mode === 'fixed'
+    ? dailyTargetTime || stop?.plannedTime || fallbackTime || '時刻未設定'
+    : stop?.plannedTime
+      ? `到着見込 ${stop.plannedTime}`
+      : `${mode === 'arrival_backward' ? '逆算待ち' : '順算待ち'}${dailyTargetTime ? `（基準 ${dailyTargetTime}）` : ''}`;
   return (
     <div className="min-w-0" title={sharedLocation ? `${sharedLocation.label}・${sharedLocation.count}名が設定時間内です` : undefined}>
       <strong className="block truncate text-xs text-slate-950">{child.name}</strong>
-      <span className="mt-0.5 block truncate text-[10px] font-black text-slate-700">{direction === '迎え' ? '下校・迎え' : '送り'} {targetTime || '時刻未設定'}</span>
+      <span className="mt-0.5 block truncate text-[10px] font-black text-slate-700">{direction === '迎え' ? '下校・迎え' : '送り'} {timeText}</span>
       <span className={`mt-0.5 block truncate font-bold text-slate-500 ${compact ? 'text-[8px]' : 'text-[9px]'}`}>{locationName || `${direction}先未登録`}</span>
     </div>
   );
@@ -517,6 +594,7 @@ const TransportRunLane: React.FC<{
   routeCalculation?: CalculatedTransportRunRoute;
   routeSelected: boolean;
   calculatingRoute: boolean;
+  needsRecalculation: boolean;
   expandedStopId?: string;
   holidayOpeningTime?: string;
   onExpandStop: (stopId?: string) => void;
@@ -538,6 +616,7 @@ const TransportRunLane: React.FC<{
   routeCalculation,
   routeSelected,
   calculatingRoute,
+  needsRecalculation,
   expandedStopId,
   holidayOpeningTime,
   onExpandStop,
@@ -552,6 +631,15 @@ const TransportRunLane: React.FC<{
   const { setNodeRef, isOver } = useDroppable({ id: `run-${run.id}`, data: { runId: run.id } });
   const capacity = getVehicleChildCapacity(vehicle, run);
   const overCapacity = run.stops.length > capacity;
+  const calculationMode = runTimeMode(run);
+  const anchor = calculationMode === 'mixed' ? undefined : runAnchorMinute(run, calculationMode);
+  const calculationState = run.routeOptimizedAt
+    ? '計算済み'
+    : needsRecalculation
+      ? '再計算が必要'
+      : calculationMode === 'fixed'
+        ? '時刻確認待ち'
+        : '計算待ち';
   return (
     <article className={`overflow-hidden rounded-xl border bg-white shadow-sm ${overCapacity ? 'border-rose-400' : routeSelected ? 'border-teal-500 ring-2 ring-teal-100' : 'border-slate-200'}`}>
       <header className={`p-2 ${run.direction === '迎え' ? 'bg-sky-50' : 'bg-violet-50'}`}>
@@ -561,9 +649,10 @@ const TransportRunLane: React.FC<{
           <button type="button" onClick={() => onRemoveRun(run)} aria-label={`${run.name}を削除`} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-rose-600"><Trash2 className="h-4 w-4" /></button>
         </div>
         <div className="mt-1.5 grid grid-cols-2 gap-1.5">
-          <label className="text-[8px] font-black text-slate-500">開始<input type="time" value={run.startTime} onChange={(event) => onUpdateRun(run.id, { startTime: event.target.value })} className="mt-0.5 min-h-9 w-full rounded-lg border border-white bg-white px-1 text-[10px] font-bold" /></label>
-          <label className="text-[8px] font-black text-slate-500">終了<input type="time" value={run.endTime} onChange={(event) => onUpdateRun(run.id, { endTime: event.target.value })} className="mt-0.5 min-h-9 w-full rounded-lg border border-white bg-white px-1 text-[10px] font-bold" /></label>
+          <label className="text-[8px] font-black text-slate-500">{calculationMode === 'departure_forward' ? '送迎開始（基準）' : '開始'}<input type="time" value={run.startTime} onChange={(event) => onUpdateRun(run.id, { startTime: event.target.value })} className="mt-0.5 min-h-9 w-full rounded-lg border border-white bg-white px-1 text-[10px] font-bold" /></label>
+          <label className="text-[8px] font-black text-slate-500">{calculationMode === 'arrival_backward' ? '来所・帰着（基準）' : '終了'}<input type="time" value={run.endTime} onChange={(event) => onUpdateRun(run.id, { endTime: event.target.value })} className="mt-0.5 min-h-9 w-full rounded-lg border border-white bg-white px-1 text-[10px] font-bold" /></label>
         </div>
+        {run.stops.length > 0 && <p className={`mt-1.5 rounded-md px-2 py-1 text-[9px] font-black ${calculationMode === 'mixed' ? 'bg-rose-100 text-rose-800' : run.routeOptimizedAt ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}`}>{calculationMode === 'mixed' ? '時刻方式が混在・便を分けてください' : `${timeModeShortLabel(calculationMode)}${anchor !== undefined ? ` ${formattedMinutes(anchor)}` : ''}・${calculationState}`}</p>}
         {holidayOpeningTime && run.startTime < holidayOpeningTime && <p className="mt-1.5 rounded-md bg-amber-100 px-2 py-1 text-[9px] font-black text-amber-900">開所前の手動設定（開所 {holidayOpeningTime}）</p>}
         <label className="mt-1.5 block text-[8px] font-black text-slate-500">運転者<select value={run.driverRecorderProfileId || ''} onChange={(event) => onUpdateRun(run.id, { driverRecorderProfileId: event.target.value || undefined })} className="mt-0.5 min-h-9 w-full rounded-lg border border-white bg-white px-1 text-[10px] font-bold"><option value="">未設定</option>{activeRecorders.map((profile) => <option key={profile.id} value={profile.id}>{profile.displayName}</option>)}</select></label>
         <div className="mt-1.5 flex items-center gap-1.5">
@@ -602,7 +691,7 @@ const TransportRunLane: React.FC<{
                     <select value={stop.locationType} onChange={(event) => onUpdateStop(run.id, stop.id, { locationType: event.target.value as TransportLocationType, locationProfileId: undefined })} className="min-h-9 rounded-lg border border-slate-300 px-1 text-[10px] font-bold">{LOCATION_TYPES.map((type) => <option key={type}>{type}</option>)}</select>
                     <input value={stop.location} onChange={(event) => { const location = event.target.value; onUpdateStop(run.id, stop.id, { location, locationProfileId: undefined, locationName: '今回のみの送迎先', area: inferTransportArea(location) }); }} placeholder="住所・乗降場所" className="min-h-9 min-w-0 rounded-lg border border-slate-300 px-2 text-[10px]" />
                   </div>
-                  <label className="block text-[9px] font-black text-slate-500">予定時刻<input type="time" value={stop.plannedTime || ''} onChange={(event) => onUpdateStop(run.id, stop.id, { plannedTime: event.target.value || undefined })} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-[10px] font-bold" /></label>
+                  <label className="block text-[9px] font-black text-slate-500">{stop.timeMode && stop.timeMode !== 'fixed' ? '到着時刻を手動固定' : '予定時刻'}<input type="time" value={stop.plannedTime || stop.timeAnchorTime || ''} onChange={(event) => onUpdateStop(run.id, stop.id, { timeMode: 'fixed', timeAnchorTime: event.target.value || undefined, plannedTime: event.target.value || undefined })} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-[10px] font-bold" /><span className="mt-1 block text-[8px] font-normal text-slate-400">変更すると、この児童は「時刻固定」になります。</span></label>
                 </div>
               )}
             </div>
@@ -688,6 +777,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
   const [error, setError] = useState('');
   const [routingNotice, setRoutingNotice] = useState('');
   const [calculatedRoutes, setCalculatedRoutes] = useState<Record<string, CalculatedTransportRunRoute>>({});
+  const [recalculationRequiredRunIds, setRecalculationRequiredRunIds] = useState<Set<string>>(() => new Set());
   const [selectedRouteRunId, setSelectedRouteRunId] = useState<string>();
   const [calculatingRouteRunId, setCalculatingRouteRunId] = useState<string>();
   const [saving, setSaving] = useState(false);
@@ -847,7 +937,10 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
     const requirement = requirementByChild.get(child.id);
     const resolved = resolvedPlanningLocation(child, activeDirection, date, requirement, stop);
     const locationProfileId = stop?.locationProfileId || (activeDirection === '迎え' ? requirement?.pickupLocationProfileId : requirement?.dropoffLocationProfileId);
-    const mapLocation = findTransportMapLocation(transportMapLocations, child.id, locationProfileId, resolved.locationAddress);
+    const mapLocation = ((resolved.locationType === '学校' || resolved.locationType === '学童') && child.schoolId
+      ? transportMapLocations.find((location) => location.id === `school:${child.schoolId}`)
+      : undefined)
+      || findTransportMapLocation(transportMapLocations, child.id, locationProfileId, resolved.locationAddress);
     if (!mapLocation) return [];
     const assignedArea = findTransportZones(mapLocation, transportAreaZones)[0];
     return [{
@@ -886,40 +979,63 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
     minimumFacilityStaff: routeSettings.minimumFacilityStaff,
   }), [activeDirection, activeRecorders, attendanceRecords, calendarEvents, date, drafts, routeSettings.minimumFacilityStaff, staffScheduleItems, vehicles]);
 
-  const clearRouteCalculations = (runIds: string[]) => {
+  useEffect(() => {
+    setRecalculationRequiredRunIds(new Set());
+  }, [date]);
+
+  const clearRouteCalculations = (runIds: string[], markRecalculation = true) => {
     if (!runIds.length) return;
     const targets = new Set(runIds);
+    if (markRecalculation) {
+      const calculatedRunIds = runIds.filter((runId) => calculatedRoutes[runId] || drafts.some((run) => run.id === runId && Boolean(run.routeOptimizedAt)));
+      if (calculatedRunIds.length) {
+        setRecalculationRequiredRunIds((current) => new Set([...current, ...calculatedRunIds]));
+      }
+    }
     setCalculatedRoutes((current) => Object.fromEntries(Object.entries(current).filter(([runId]) => !targets.has(runId))));
     setSelectedRouteRunId((current) => current && targets.has(current) ? undefined : current);
   };
 
   const updateRun = (runId: string, patch: Partial<TransportRun>) => {
+    const routeAffectingChange = patch.startTime !== undefined || patch.endTime !== undefined || patch.stops !== undefined;
+    if (!routeAffectingChange) {
+      setDrafts((current) => current.map((run) => run.id === runId ? { ...run, ...patch } : run));
+      if (patch.name !== undefined) {
+        setCalculatedRoutes((current) => current[runId]
+          ? { ...current, [runId]: { ...current[runId], runName: patch.name || current[runId].runName } }
+          : current);
+      }
+      return;
+    }
     clearRouteCalculations([runId]);
     setDrafts((current) => current.map((run) => {
-    if (run.id !== runId) return run;
-    if (patch.startTime && patch.startTime !== run.startTime) {
-      const offset = minutes(patch.startTime) - minutes(run.startTime);
-      return {
-        ...run,
-        ...patch,
-        endTime: patch.endTime || shiftedTime(run.endTime, offset),
-        stops: run.stops.map((stop) => ({
-          ...stop,
-          plannedTime: stop.plannedTime ? shiftedTime(stop.plannedTime, offset) : undefined,
-        })),
-        routeOptimizedAt: undefined,
-      };
-    }
-    return { ...run, ...patch, routeOptimizedAt: undefined };
+      if (run.id !== runId) return run;
+      const mode = runTimeMode(run);
+      if (patch.startTime && patch.startTime !== run.startTime) {
+        const offset = minutes(patch.startTime) - minutes(run.startTime);
+        return {
+          ...run,
+          ...patch,
+          endTime: patch.endTime || (mode === 'departure_forward' ? shiftedTime(run.endTime, offset) : run.endTime),
+          stops: mode === 'departure_forward'
+            ? run.stops.map((stop) => ({ ...stop, timeAnchorTime: patch.startTime, plannedTime: undefined }))
+            : invalidateCalculatedStopTimes(run.stops),
+          routeOptimizedAt: undefined,
+        };
+      }
+      if (patch.endTime && patch.endTime !== run.endTime && mode === 'arrival_backward') {
+        return { ...run, ...patch, stops: run.stops.map((stop) => ({ ...stop, timeAnchorTime: patch.endTime, plannedTime: undefined })), routeOptimizedAt: undefined };
+      }
+      return { ...run, ...patch, stops: patch.stops || invalidateCalculatedStopTimes(run.stops), routeOptimizedAt: undefined };
     }));
   };
   const updateStop = (runId: string, stopId: string, patch: Partial<TransportStop>) => {
     clearRouteCalculations([runId]);
-    setDrafts((current) => current.map((run) => run.id === runId ? { ...run, routeOptimizedAt: undefined, stops: run.stops.map((stop) => stop.id === stopId ? { ...stop, ...patch } : stop) } : run));
+    setDrafts((current) => current.map((run) => run.id === runId ? { ...run, routeOptimizedAt: undefined, stops: run.stops.map((stop) => { const next = stop.id === stopId ? { ...stop, ...patch } : stop; return next.timeMode && next.timeMode !== 'fixed' ? { ...next, plannedTime: undefined } : next; }) } : run));
   };
   const removeStop = (runId: string, stopId: string) => {
     clearRouteCalculations([runId]);
-    setDrafts((current) => current.map((run) => run.id === runId ? { ...run, routeOptimizedAt: undefined, stops: run.stops.filter((stop) => stop.id !== stopId).map((stop, index) => ({ ...stop, order: index + 1 })) } : run));
+    setDrafts((current) => current.map((run) => run.id === runId ? { ...run, routeOptimizedAt: undefined, stops: invalidateCalculatedStopTimes(run.stops.filter((stop) => stop.id !== stopId)).map((stop, index) => ({ ...stop, order: index + 1 })) } : run));
   };
   const moveStop = (runId: string, stopId: string, offset: number) => {
     clearRouteCalculations([runId]);
@@ -930,7 +1046,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
     if (index < 0 || target < 0 || target >= run.stops.length) return run;
     const stops = [...run.stops];
     [stops[index], stops[target]] = [stops[target], stops[index]];
-    return { ...run, routeOptimizedAt: undefined, stops: stops.map((stop, order) => ({ ...stop, order: order + 1 })) };
+    return { ...run, routeOptimizedAt: undefined, stops: invalidateCalculatedStopTimes(stops).map((stop, order) => ({ ...stop, order: order + 1 })) };
     }));
   };
 
@@ -942,7 +1058,12 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
   const removeRun = (run: TransportRun) => {
     if (run.stops.length && !window.confirm(`${run.name}には児童がいます。便を削除して児童を未配車へ戻しますか？`)) return;
     if (runs.some((saved) => saved.id === run.id)) setDeletedIds((current) => Array.from(new Set([...current, run.id])));
-    clearRouteCalculations([run.id]);
+    clearRouteCalculations([run.id], false);
+    setRecalculationRequiredRunIds((current) => {
+      const next = new Set(current);
+      next.delete(run.id);
+      return next;
+    });
     setDrafts((current) => current.filter((candidate) => candidate.id !== run.id));
   };
 
@@ -953,7 +1074,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
     clearRouteCalculations(Array.from(new Set([targetRunId, ...drafts.filter((run) => run.direction === targetRun.direction && run.stops.some((stop) => stop.childId === childId)).map((run) => run.id)])));
     setDrafts((current) => current.map((run) => {
       const withoutSameDirection = run.direction === targetRun.direction ? run.stops.filter((stop) => stop.childId !== childId) : run.stops;
-      if (run.id !== targetRunId) return { ...run, stops: withoutSameDirection.map((stop, index) => ({ ...stop, order: index + 1 })) };
+      if (run.id !== targetRunId) return { ...run, routeOptimizedAt: undefined, stops: invalidateCalculatedStopTimes(withoutSameDirection).map((stop, index) => ({ ...stop, order: index + 1 })) };
       const requirement = requirementByChild.get(child.id);
       const nextStop = childStop(
         child,
@@ -991,6 +1112,8 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
     if (run.stops.some((stop) => !stop.location.trim())) return setError(`${run.name}に住所未入力の送迎先があります。`);
     const clusters = clusterTransportStops(run.stops);
     if (clusters.length > 10) return setError('費用管理のため、1便で時間計算できる送迎先は10地点までです。同じ住所の児童は1地点として数えます。');
+    const calculationMode = runTimeMode(run);
+    if (calculationMode === 'mixed') return setError(`${run.name}には時刻の決め方が異なる児童が混在しています。「時刻固定」「逆算」「順算」ごとに便を分けてください。`);
 
     setCalculatingRouteRunId(runId);
     setSelectedRouteRunId(runId);
@@ -1016,24 +1139,58 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         avoidHighways: routeSettings.avoidHighways,
         preserveOrder: true,
       });
+      const legSeconds = clusters.map((_, index) => result.legs[index]?.durationSeconds || 0);
+      const returnLegSeconds = result.legs[clusters.length]?.durationSeconds || 0;
+      const dwellSeconds = clusters.map((cluster) => clusterDwellMinutes(cluster, routeSettings) * 60);
+      const totalElapsedSeconds = legSeconds.reduce((sum, value) => sum + value, 0)
+        + dwellSeconds.reduce((sum, value) => sum + value, 0)
+        + returnLegSeconds;
+      const anchorMinute = calculationMode === 'fixed'
+        ? clusterTargetMinute(clusters[0])
+        : runAnchorMinute(run, calculationMode, transportPlanDay, routeSettings);
+      let startMinute = minutes(run.startTime);
+      const calculationWarnings: string[] = [];
+      if (calculationMode === 'arrival_backward' && anchorMinute !== undefined) {
+        startMinute = anchorMinute - totalElapsedSeconds / 60;
+        if (run.direction === '迎え' && transportPlanDay?.pickupMode === 'home' && startMinute < minutes(routeSettings.holidayOpeningTime)) {
+          startMinute = minutes(routeSettings.holidayOpeningTime);
+          calculationWarnings.push(`開所時刻${routeSettings.holidayOpeningTime}以降へ調整したため、目標時刻に遅れる可能性があります。`);
+        }
+      } else if (calculationMode === 'departure_forward' && anchorMinute !== undefined) {
+        startMinute = anchorMinute;
+      } else if (calculationMode === 'fixed' && anchorMinute !== undefined) {
+        startMinute = anchorMinute - (legSeconds[0] || 0) / 60;
+      }
+
       let elapsedSeconds = 0;
       const legMinutesByStopId: Record<string, number> = {};
       const calculatedStops: TransportStop[] = [];
       clusters.forEach((cluster, clusterIndex) => {
-        const legSeconds = result.legs[clusterIndex]?.durationSeconds || 0;
-        elapsedSeconds += legSeconds;
-        const plannedTime = formattedMinutes(minutes(run.startTime) + elapsedSeconds / 60);
+        const travelSeconds = legSeconds[clusterIndex];
+        elapsedSeconds += travelSeconds;
+        const arrivalMinute = startMinute + elapsedSeconds / 60;
+        const fixedTarget = calculationMode === 'fixed' ? clusterTargetMinute(cluster, true) : undefined;
+        const plannedMinute = fixedTarget === undefined ? arrivalMinute : Math.max(arrivalMinute, fixedTarget);
+        if (fixedTarget !== undefined && arrivalMinute > fixedTarget + routeSettings.schoolWaitToleranceMinutes) {
+          calculationWarnings.push(`${cluster.stops.map((stop) => stop.childName || stop.locationName || '乗降地点').join('・')}は固定時刻より約${Math.ceil(arrivalMinute - fixedTarget)}分遅れる見込みです。`);
+        }
+        if (plannedMinute > arrivalMinute) elapsedSeconds += (plannedMinute - arrivalMinute) * 60;
+        const plannedTime = formattedMinutes(plannedMinute);
         cluster.stops.forEach((stop) => {
-          legMinutesByStopId[stop.id] = Math.max(0, Math.ceil(legSeconds / 60));
+          legMinutesByStopId[stop.id] = Math.max(0, Math.ceil(travelSeconds / 60));
           calculatedStops.push({ ...stop, plannedTime, order: calculatedStops.length + 1 });
         });
-        elapsedSeconds += clusterDwellMinutes(cluster, routeSettings) * 60;
+        elapsedSeconds += dwellSeconds[clusterIndex];
       });
-      const returnLegSeconds = result.legs[clusters.length]?.durationSeconds || 0;
       elapsedSeconds += returnLegSeconds;
+      const endMinute = startMinute + elapsedSeconds / 60;
+      if (calculationMode === 'arrival_backward' && anchorMinute !== undefined && endMinute > anchorMinute + 1) {
+        calculationWarnings.push(`来所・帰着目標${formattedMinutes(anchorMinute)}に対して、約${Math.ceil(endMinute - anchorMinute)}分遅れる見込みです。`);
+      }
       const updatedRun: TransportRun = {
         ...run,
-        endTime: formattedMinutes(minutes(run.startTime) + elapsedSeconds / 60),
+        startTime: formattedMinutes(startMinute),
+        endTime: formattedMinutes(endMinute),
         routeOrigin: routeSettings.facilityAddress.trim(),
         routeDestination: routeSettings.facilityAddress.trim(),
         routeOptimizedAt: new Date().toISOString(),
@@ -1054,8 +1211,13 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
           encodedPolyline: result.encodedPolyline,
         },
       }));
+      setRecalculationRequiredRunIds((current) => {
+        const next = new Set(current);
+        next.delete(runId);
+        return next;
+      });
       const totalMinutes = Math.ceil(result.totalDurationSeconds / 60);
-      setRoutingNotice(`${run.name}：走行${totalMinutes}分・${(result.totalDistanceMeters / 1000).toFixed(1)}kmとして、各到着時刻と帰着${updatedRun.endTime}を反映しました。${result.warnings.join(' ')}`.trim());
+      setRoutingNotice(`${run.name}：${timeModeShortLabel(calculationMode)}で、出発${updatedRun.startTime}・帰着${updatedRun.endTime}を反映しました。走行${totalMinutes}分・${(result.totalDistanceMeters / 1000).toFixed(1)}km。${[...result.warnings, ...calculationWarnings].join(' ')}`.trim());
     } catch (routeError) {
       setRoutingNotice('');
       setError(routeError instanceof Error ? routeError.message : `${run.name}の時間を計算できませんでした。`);
@@ -1104,7 +1266,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
               </div>
               <div className="space-y-2 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
                 {vehicleRuns.length === 0 && <button type="button" onClick={() => addRun(direction, vehicle)} className="min-h-20 w-full rounded-xl border-2 border-dashed border-slate-300 bg-white text-[10px] font-bold text-slate-400">この車両に{direction}便を追加</button>}
-                {vehicleRuns.map((run) => <TransportRunLane key={run.id} run={run} vehicle={vehicle} childrenList={childrenList} date={date} activeRecorders={activeRecorders} requirementByChild={requirementByChild} sharedLocationByChild={sharedLocationByChild} routeCalculation={calculatedRoutes[run.id]} routeSelected={selectedRouteRunId === run.id} calculatingRoute={calculatingRouteRunId === run.id} expandedStopId={expandedStopId} holidayOpeningTime={direction === '迎え' && transportPlanDay?.pickupMode === 'home' ? routeSettings.holidayOpeningTime : undefined} onExpandStop={setExpandedStopId} onUpdateRun={updateRun} onUpdateStop={updateStop} onMoveStop={moveStop} onRemoveStop={removeStop} onRemoveRun={removeRun} onCalculateTime={(runId) => void calculateRunTime(runId)} onSelectRoute={setSelectedRouteRunId} />)}
+                {vehicleRuns.map((run) => <TransportRunLane key={run.id} run={run} vehicle={vehicle} childrenList={childrenList} date={date} activeRecorders={activeRecorders} requirementByChild={requirementByChild} sharedLocationByChild={sharedLocationByChild} routeCalculation={calculatedRoutes[run.id]} routeSelected={selectedRouteRunId === run.id} calculatingRoute={calculatingRouteRunId === run.id} needsRecalculation={recalculationRequiredRunIds.has(run.id)} expandedStopId={expandedStopId} holidayOpeningTime={direction === '迎え' && transportPlanDay?.pickupMode === 'home' ? routeSettings.holidayOpeningTime : undefined} onExpandStop={setExpandedStopId} onUpdateRun={updateRun} onUpdateStop={updateStop} onMoveStop={moveStop} onRemoveStop={removeStop} onRemoveRun={removeRun} onCalculateTime={(runId) => void calculateRunTime(runId)} onSelectRoute={setSelectedRouteRunId} />)}
               </div>
             </section>
           );
@@ -1137,7 +1299,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
           <div className="mx-auto grid max-w-[1800px] items-start gap-2 lg:h-full lg:min-h-0 lg:grid-cols-[220px_minmax(0,1fr)_minmax(300px,0.72fr)] lg:grid-rows-[minmax(18rem,3fr)_minmax(11rem,2fr)] lg:items-stretch">
             <aside className="min-w-0 rounded-2xl border border-emerald-300 bg-emerald-50/70 p-2 lg:col-start-1 lg:row-span-2 lg:flex lg:h-full lg:min-h-0 lg:flex-col">
               <div className="mb-2 flex shrink-0 items-center justify-between gap-1 px-1"><div><p className="text-[9px] font-black text-emerald-700">{weekday}曜日・{activeDirection}</p><h3 className="text-sm font-black text-slate-950">未配車児童</h3></div><div className="flex items-center gap-1"><button type="button" onClick={() => setSortPanelOpen((current) => !current)} aria-expanded={sortPanelOpen} className={`grid h-8 w-8 place-items-center rounded-lg border ${sortPanelOpen ? 'border-emerald-700 bg-emerald-700 text-white' : 'border-emerald-200 bg-white text-emerald-800'}`} aria-label="児童リストの並べ替え"><SlidersHorizontal className="h-3.5 w-3.5" /></button><span className="rounded-full bg-white px-2 py-1 text-[9px] font-black text-emerald-800">{unassignedDirectionChildren.length}名</span></div></div>
-              {sortPanelOpen && <div className="mb-2 shrink-0 space-y-1.5 rounded-xl border border-emerald-200 bg-white p-2"><div className="flex items-center justify-between"><p className="text-[9px] font-black text-slate-700">上から優先して並べ替え</p><button type="button" onClick={() => setSortRules([{ field: 'time', direction: 'asc' }, { field: 'area', direction: 'asc' }, { field: 'grade', direction: 'asc' }])} className="text-[8px] font-black text-emerald-700">初期値へ戻す</button></div>{sortRules.map((rule, index) => <div key={`${rule.field}-${index}`} className="grid grid-cols-[1.2rem_minmax(0,1fr)_3.3rem_2.7rem] items-center gap-1"><span className="text-center text-[9px] font-black text-slate-400">{index + 1}</span><select value={rule.field} onChange={(event) => setSortRules((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, field: event.target.value as ChildSortField } : item))} className="min-h-8 min-w-0 rounded-lg border border-slate-200 bg-white px-1 text-[9px] font-bold">{(Object.keys(SORT_FIELD_LABELS) as ChildSortField[]).map((field) => <option key={field} value={field} disabled={sortRules.some((item, itemIndex) => itemIndex !== index && item.field === field)}>{SORT_FIELD_LABELS[field]}</option>)}</select><button type="button" onClick={() => setSortRules((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, direction: item.direction === 'asc' ? 'desc' : 'asc' } : item))} className="min-h-8 rounded-lg border border-slate-200 text-[9px] font-black text-slate-700">{rule.direction === 'asc' ? '昇順' : '降順'}</button><div className="flex"><button type="button" disabled={index === 0} onClick={() => setSortRules((current) => { const next = [...current]; [next[index - 1], next[index]] = [next[index], next[index - 1]]; return next; })} className="grid h-8 w-5 place-items-center disabled:opacity-20" aria-label={`${SORT_FIELD_LABELS[rule.field]}の優先度を上げる`}><ArrowUp className="h-3 w-3" /></button><button type="button" disabled={index === sortRules.length - 1} onClick={() => setSortRules((current) => { const next = [...current]; [next[index], next[index + 1]] = [next[index + 1], next[index]]; return next; })} className="grid h-8 w-5 place-items-center disabled:opacity-20" aria-label={`${SORT_FIELD_LABELS[rule.field]}の優先度を下げる`}><ArrowDown className="h-3 w-3" /></button></div></div>)}</div>}
+              {sortPanelOpen && <div className="mb-2 shrink-0 space-y-1.5 rounded-xl border border-emerald-200 bg-white p-2"><div className="flex items-center justify-between"><div><p className="text-[9px] font-black text-slate-700">上から優先して並べ替え</p><p className="text-[8px] font-bold text-slate-400">つまみをドラッグして優先順を変更</p></div><button type="button" onClick={() => setSortRules([{ field: 'time', direction: 'asc' }, { field: 'area', direction: 'asc' }, { field: 'grade', direction: 'asc' }])} className="text-[8px] font-black text-emerald-700">初期値へ戻す</button></div><DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={({ active, over }) => { if (!over || active.id === over.id) return; setSortRules((current) => { const oldIndex = current.findIndex((rule) => rule.field === active.id); const newIndex = current.findIndex((rule) => rule.field === over.id); return oldIndex < 0 || newIndex < 0 ? current : arrayMove(current, oldIndex, newIndex); }); }}><SortableContext items={sortRules.map((rule) => rule.field)} strategy={verticalListSortingStrategy}><div className="space-y-1">{sortRules.map((rule, index) => <SortableSortRuleRow key={rule.field} rule={rule} index={index} rules={sortRules} onChange={(nextRule) => setSortRules((current) => current.map((item, itemIndex) => itemIndex === index ? nextRule : item))} />)}</div></SortableContext></DndContext></div>}
               <div className="space-y-1.5 md:max-h-[calc(100dvh-15rem)] md:overflow-y-auto md:pr-0.5 lg:min-h-0 lg:flex-1 lg:max-h-none">
                 {unassignedDirectionChildren.map((child) => <DraggableChildCard key={child.id} child={child} date={date} direction={activeDirection} requirement={requirementByChild.get(child.id)} data={{ childId: child.id }} sharedLocation={sharedLocationByChild.get(child.id)} />)}
                 {unassignedDirectionChildren.length === 0 && <div className="rounded-xl border-2 border-dashed border-emerald-200 bg-white p-4 text-center"><Users className="mx-auto h-7 w-7 text-emerald-300" /><p className="mt-1 text-[10px] font-bold text-slate-400">{directionChildren.length ? '全員の配車が完了しています。' : '対象児童がいません。「児童を追加」から追加できます。'}</p></div>}

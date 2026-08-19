@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { ArrowLeft, BrainCircuit, ChevronRight, ListChecks, MapPinned, School, Settings } from 'lucide-react';
-import type { AiWritingSettings, ChildProfile, SchoolProfile, Template, TransportAreaZone, TransportMapLocation } from '../types';
+import type { AiWritingSettings, ChildProfile, SchoolProfile, Template, TransportAreaZone, TransportMapLocation, TransportRouteSettings } from '../types';
 import { AISettingsEditor } from './AISettingsEditor';
 import { SchoolManager } from './SchoolManager';
 import { TemplateEditor } from './TemplateEditor';
@@ -12,6 +12,7 @@ interface SettingsHubProps {
   childrenList: ChildProfile[];
   schools: SchoolProfile[];
   facilityAddress: string;
+  routeSettings: TransportRouteSettings;
   mapLocations: TransportMapLocation[];
   areaZones: TransportAreaZone[];
   onSaveAiWritingSettings: (settings: AiWritingSettings) => void;
@@ -22,6 +23,7 @@ interface SettingsHubProps {
   onSaveMapLocation: (location: TransportMapLocation) => Promise<void> | void;
   onSaveAreaZone: (zone: TransportAreaZone) => Promise<void> | void;
   onDeleteAreaZone: (zoneId: string) => Promise<void> | void;
+  onSaveRouteSettings: (settings: TransportRouteSettings) => Promise<void> | void;
 }
 
 type SettingsPage = 'menu' | 'ai' | 'templates' | 'schools' | 'transportMap';
@@ -32,6 +34,7 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
   childrenList,
   schools,
   facilityAddress,
+  routeSettings,
   mapLocations,
   areaZones,
   onSaveAiWritingSettings,
@@ -42,6 +45,7 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
   onSaveMapLocation,
   onSaveAreaZone,
   onDeleteAreaZone,
+  onSaveRouteSettings,
 }) => {
   const [page, setPage] = useState<SettingsPage>('menu');
 
@@ -56,7 +60,10 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
         {page === 'ai' && <AISettingsEditor settings={aiWritingSettings} onSave={onSaveAiWritingSettings} />}
         {page === 'templates' && <TemplateEditor templates={templates} onSaveTemplate={onSaveTemplate} onDeleteTemplate={onDeleteTemplate} />}
         {page === 'schools' && <SchoolManager schools={schools} childrenList={childrenList} onSave={onSaveSchool} onDelete={onDeleteSchool} />}
-        {page === 'transportMap' && <TransportMapPanel childrenList={childrenList} schools={schools} facilityAddress={facilityAddress} locations={mapLocations} zones={areaZones} canManage onSaveLocation={onSaveMapLocation} onSaveZone={onSaveAreaZone} onDeleteZone={onDeleteAreaZone} />}
+        {page === 'transportMap' && <div className="space-y-4">
+          <TransportPinColorSettings settings={routeSettings} onSave={onSaveRouteSettings} />
+          <TransportMapPanel childrenList={childrenList} schools={schools} facilityAddress={facilityAddress} locations={mapLocations} zones={areaZones} pinColors={{ facility: routeSettings.facilityPinColor, residential: routeSettings.residentialPinColor, education: routeSettings.educationPinColor, other: routeSettings.otherPinColor }} canManage onSaveLocation={onSaveMapLocation} onSaveZone={onSaveAreaZone} onDeleteZone={onDeleteAreaZone} />
+        </div>}
       </div>
     );
   }
@@ -82,8 +89,8 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
         />
         <SettingsCard
           icon={MapPinned}
-          title="送迎地点・優先エリア"
-          description="住所から反映したピンを選び、同じ送迎車へまとめたい範囲を色分けします。"
+          title="送迎地点・エリア"
+          description="住所から反映した地点へ送迎エリアを登録し、配車画面のピンを色分けします。"
           onClick={() => setPage('transportMap')}
         />
       </section>
@@ -116,4 +123,44 @@ function SettingsCard({ icon: Icon, title, description, onClick }: { icon: React
       <ChevronRight className="w-5 h-5 shrink-0 text-slate-300" />
     </button>
   );
+}
+
+function TransportPinColorSettings({ settings, onSave }: { settings: TransportRouteSettings; onSave: (settings: TransportRouteSettings) => Promise<void> | void }) {
+  const [draft, setDraft] = useState({
+    facilityPinColor: settings.facilityPinColor,
+    residentialPinColor: settings.residentialPinColor,
+    educationPinColor: settings.educationPinColor,
+    otherPinColor: settings.otherPinColor,
+  });
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+
+  const save = async () => {
+    setSaving(true);
+    setMessage('');
+    try {
+      await onSave({ ...settings, ...draft });
+      setMessage('既定ピン色を保存しました。');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '既定ピン色を保存できませんでした。');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const colorFields = [
+    ['facilityPinColor', '事業所'],
+    ['residentialPinColor', '自宅・親族宅'],
+    ['educationPinColor', '学校・学童'],
+    ['otherPinColor', 'その他'],
+  ] as const;
+
+  return <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div><h3 className="font-black text-slate-900">エリア未設定地点の既定ピン色</h3><p className="mt-1 text-xs leading-relaxed text-slate-500">地点に送迎エリアを登録した場合は、送迎エリアの色を優先して地図へ表示します。</p></div>
+      <button type="button" disabled={saving} onClick={() => void save()} className="min-h-10 rounded-xl bg-teal-700 px-4 text-xs font-black text-white disabled:opacity-60">{saving ? '保存中…' : '色を保存'}</button>
+    </div>
+    <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{colorFields.map(([key, label]) => <label key={key} className="flex min-h-12 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-700">{label}<input type="color" value={draft[key]} onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))} className="h-9 w-14 rounded-lg border border-slate-300 bg-white p-1" /></label>)}</div>
+    {message && <p className={`mt-3 rounded-lg px-3 py-2 text-xs font-bold ${message.includes('保存しました') ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'}`}>{message}</p>}
+  </section>;
 }

@@ -2175,6 +2175,7 @@ export default function App() {
             childrenList={childrenList}
             schools={schools}
             facilityAddress={transportRouteSettings.facilityAddress}
+            routeSettings={transportRouteSettings}
             mapLocations={transportMapLocations}
             areaZones={transportAreaZones}
             onSaveAiWritingSettings={handleSaveAiWritingSettings}
@@ -2185,6 +2186,7 @@ export default function App() {
             onSaveMapLocation={handleSaveTransportMapLocation}
             onSaveAreaZone={handleSaveTransportAreaZone}
             onDeleteAreaZone={handleDeleteTransportAreaZone}
+            onSaveRouteSettings={handleSaveTransportRouteSettings}
           />
         )}
         {activeTab === 'team' && auth.profile && canReview && <TeamManager currentUser={auth.profile} />}
