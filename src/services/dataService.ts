@@ -553,11 +553,17 @@ function mapTransportRun(
 
 function mapTransportRouteSettings(row: any): TransportRouteSettings {
   const stopDuration = Number(row?.stop_duration_minutes);
+  const sameLocationTimeWindow = Number(row?.same_location_time_window_minutes);
   const waitTolerance = Number(row?.school_wait_tolerance_minutes);
   const minimumStaff = Number(row?.minimum_facility_staff);
   return {
     facilityAddress: row?.facility_address || '',
     stopDurationMinutes: Math.max(0, Math.min(30, Number.isFinite(stopDuration) ? stopDuration : 5)),
+    sameLocationTimeWindowMinutes: Math.max(0, Math.min(120, Number.isFinite(sameLocationTimeWindow) ? sameLocationTimeWindow : 15)),
+    facilityPinColor: row?.facility_pin_color || '#7c3aed',
+    residentialPinColor: row?.residential_pin_color || '#059669',
+    educationPinColor: row?.education_pin_color || '#0284c7',
+    otherPinColor: row?.other_pin_color || '#d97706',
     holidayOpeningTime: String(row?.holiday_opening_time || '09:00').slice(0, 5),
     holidayArrivalTime: String(row?.holiday_arrival_time || '10:00').slice(0, 5),
     weekdayElementaryDepartureTime: String(row?.weekday_elementary_departure_time || '17:45').slice(0, 5),
@@ -1364,6 +1370,11 @@ export async function saveTransportRouteSettings(
     id: 'default',
     facility_address: settings.facilityAddress.trim(),
     stop_duration_minutes: Math.max(0, Math.min(30, Math.round(settings.stopDurationMinutes))),
+    same_location_time_window_minutes: Math.max(0, Math.min(120, Math.round(settings.sameLocationTimeWindowMinutes))),
+    facility_pin_color: settings.facilityPinColor,
+    residential_pin_color: settings.residentialPinColor,
+    education_pin_color: settings.educationPinColor,
+    other_pin_color: settings.otherPinColor,
     holiday_opening_time: settings.holidayOpeningTime,
     holiday_arrival_time: settings.holidayArrivalTime,
     weekday_elementary_departure_time: settings.weekdayElementaryDepartureTime,

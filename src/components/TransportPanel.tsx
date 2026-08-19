@@ -874,6 +874,12 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
           facilityAddress={routeSettings.facilityAddress}
           locations={mapLocations}
           zones={areaZones}
+          pinColors={{
+            facility: routeSettings.facilityPinColor,
+            residential: routeSettings.residentialPinColor,
+            education: routeSettings.educationPinColor,
+            other: routeSettings.otherPinColor,
+          }}
           canManage={canManage}
           onSaveLocation={onSaveMapLocation}
           onSaveZone={onSaveAreaZone}
@@ -1253,6 +1259,20 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
             <input type="number" min="0" max="30" value={routeSettingsForm.stopDurationMinutes} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, stopDurationMinutes: Number(event.target.value) })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3" />
             <span className="mt-1 block text-[10px] font-normal text-slate-500">到着予定時刻の計算に使用します。乗降・確認に必要な平均時間を設定してください。</span>
           </label>
+          <label className="block text-sm font-bold">同じ送迎先として強調する時間差（分）
+            <input type="number" min="0" max="120" value={routeSettingsForm.sameLocationTimeWindowMinutes} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, sameLocationTimeWindowMinutes: Number(event.target.value) })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3" />
+            <span className="mt-1 block text-[10px] font-normal text-slate-500">同じ迎え先・送り先で、この時間差以内の児童カードを同じ色で強調します。初期値は15分です。</span>
+          </label>
+          <fieldset className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            <legend className="px-1 text-sm font-black text-slate-900">エリア未設定地点のピン色</legend>
+            <p className="mb-3 text-[10px] leading-relaxed text-slate-500">地点へ送迎エリアを設定した場合は、ここで設定した色よりエリア色を優先します。</p>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex items-center justify-between gap-3 text-xs font-bold">事業所<input type="color" value={routeSettingsForm.facilityPinColor} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, facilityPinColor: event.target.value })} className="h-10 w-16 rounded-lg border border-slate-300 bg-white p-1" /></label>
+              <label className="flex items-center justify-between gap-3 text-xs font-bold">自宅・親族宅<input type="color" value={routeSettingsForm.residentialPinColor} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, residentialPinColor: event.target.value })} className="h-10 w-16 rounded-lg border border-slate-300 bg-white p-1" /></label>
+              <label className="flex items-center justify-between gap-3 text-xs font-bold">学校・学童<input type="color" value={routeSettingsForm.educationPinColor} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, educationPinColor: event.target.value })} className="h-10 w-16 rounded-lg border border-slate-300 bg-white p-1" /></label>
+              <label className="flex items-center justify-between gap-3 text-xs font-bold">その他<input type="color" value={routeSettingsForm.otherPinColor} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, otherPinColor: event.target.value })} className="h-10 w-16 rounded-lg border border-slate-300 bg-white p-1" /></label>
+            </div>
+          </fieldset>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="block text-sm font-bold">休日の開所時刻<input type="time" value={routeSettingsForm.holidayOpeningTime} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, holidayOpeningTime: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3" /><span className="mt-1 block text-[10px] font-normal text-slate-500">休日便を組む際の出発可能時刻の目安として表示します。</span></label>
             <label className="block text-sm font-bold">長期休暇の来所目標<input type="time" value={routeSettingsForm.holidayArrivalTime} onChange={(event) => setRouteSettingsForm({ ...routeSettingsForm, holidayArrivalTime: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3" /></label>

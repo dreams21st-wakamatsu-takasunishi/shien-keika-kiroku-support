@@ -15,6 +15,8 @@ export interface DailyTransportMiniMapPoint {
   address: string;
   latitude: number;
   longitude: number;
+  color: string;
+  areaName?: string;
   assignedRunId?: string;
   assignedRunName?: string;
   plannedTime?: string;
@@ -34,7 +36,7 @@ export interface CalculatedTransportRunRoute {
 interface DailyTransportMiniMapProps {
   direction: TransportDirection;
   points: DailyTransportMiniMapPoint[];
-  facilityPoint?: { latitude: number; longitude: number; address: string };
+  facilityPoint?: { latitude: number; longitude: number; address: string; color: string };
   expectedCount: number;
   activeChildId?: string;
   routes: CalculatedTransportRunRoute[];
@@ -57,7 +59,6 @@ export const DailyTransportMiniMap: React.FC<DailyTransportMiniMapProps> = ({
   fillHeight = false,
   onSelectRoute,
 }) => {
-  const routeByRun = useMemo(() => new Map(routes.map((route) => [route.runId, route])), [routes]);
   const markers = useMemo<GoogleTransportMarker[]>(() => {
     const grouped = new Map<string, DailyTransportMiniMapPoint[]>();
     points.forEach((point) => {
@@ -65,7 +66,6 @@ export const DailyTransportMiniMap: React.FC<DailyTransportMiniMapProps> = ({
       grouped.set(key, [...(grouped.get(key) || []), point]);
     });
     const childMarkers = Array.from(grouped.entries()).map(([id, group]) => {
-      const assignedRoutes = group.map((point) => point.assignedRunId ? routeByRun.get(point.assignedRunId) : undefined).filter((route): route is CalculatedTransportRunRoute => Boolean(route));
       const highlighted = group.some((point) => point.childId === activeChildId);
       const names = group.map((point) => point.childName).join('・');
       const first = group[0];
@@ -73,12 +73,13 @@ export const DailyTransportMiniMap: React.FC<DailyTransportMiniMapProps> = ({
         id: `daily:${id}`,
         latitude: first.latitude,
         longitude: first.longitude,
-        color: highlighted ? '#f59e0b' : assignedRoutes[0]?.color || (first.assignedRunId ? '#0f766e' : '#64748b'),
+        color: first.color,
         title: names,
         label: names,
         selected: highlighted,
         details: [
           first.locationName || `${direction}先`,
+          first.areaName ? `送迎エリア：${first.areaName}` : '送迎エリア未設定',
           first.address,
           ...group.map((point) => `${point.childName}${point.assignedRunName ? `・${point.assignedRunName}` : '・未配車'}${point.plannedTime ? `・到着${point.plannedTime}` : ''}`),
           highlighted ? 'ドラッグ中の児童です' : '',
@@ -90,12 +91,12 @@ export const DailyTransportMiniMap: React.FC<DailyTransportMiniMapProps> = ({
       id: 'daily:facility',
       latitude: facilityPoint.latitude,
       longitude: facilityPoint.longitude,
-      color: '#111827',
+      color: facilityPoint.color,
       title: '事業所',
       label: '事業所',
       details: [facilityPoint.address, '全便の出発・帰着地点'],
     }, ...childMarkers];
-  }, [activeChildId, direction, facilityPoint, points, routeByRun]);
+  }, [activeChildId, direction, facilityPoint, points]);
   const polylines = useMemo<GoogleTransportPolyline[]>(() => routes.flatMap((route) => {
     if (!route.encodedPolyline) return [];
     const path = decodeGooglePolyline(route.encodedPolyline);

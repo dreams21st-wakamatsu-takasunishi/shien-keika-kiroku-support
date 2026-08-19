@@ -34,6 +34,7 @@ import { getTransportScheduleForDate } from '../utils/transportSchedule';
 import { getDefaultDepartureTime } from '../utils/transportDeparture';
 import { getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
 import { inferTransportArea, resolvedTransportArea } from '../utils/transportArea';
+import { buildSiblingGroupByChild } from '../utils/childSiblings';
 
 interface MonthlyTransportPlannerProps {
   initialDate: string;
@@ -54,6 +55,7 @@ interface MonthlyTransportPlannerProps {
 }
 
 const createUuid = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+type CalendarViewMode = 'all' | 'child' | 'household' | 'school';
 
 function monthDates(month: string) {
   const [year, value] = month.split('-').map(Number);
@@ -138,9 +140,7 @@ function buildRequirement(
     pickupLocationName: pickup?.name,
     pickupAddress: pickup?.address,
     pickupArea: resolvedTransportArea(pickup?.address, pickup?.area || child.pickupArea),
-    pickupTargetTime: pickupMode === 'home'
-      ? undefined
-      : timeValue(dailyPlan?.schoolEndTime || schedule?.schoolEndTime) || undefined,
+    pickupTargetTime: timeValue(dailyPlan?.schoolEndTime || schedule?.schoolEndTime) || undefined,
     dropoffLocationProfileId: dropoff?.source === 'registered' ? dropoff.id : undefined,
     dropoffLocationName: dropoff?.name,
     dropoffAddress: dropoff?.address,
@@ -264,6 +264,9 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
   const [additionalPickerOpen, setAdditionalPickerOpen] = useState(false);
   const [additionalSearch, setAdditionalSearch] = useState('');
   const [monthChildId, setMonthChildId] = useState('');
+  const [calendarViewMode, setCalendarViewMode] = useState<CalendarViewMode>('all');
+  const [calendarViewKey, setCalendarViewKey] = useState('');
+  const [bulkPickupTime, setBulkPickupTime] = useState('');
   const [holidayFrom, setHolidayFrom] = useState(`${month}-01`);
   const [holidayTo, setHolidayTo] = useState(monthDates(month).at(-1) || `${month}-01`);
   const dates = useMemo(() => monthDates(month), [month]);
@@ -299,6 +302,38 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
     .sort((left, right) => left.name.localeCompare(right.name, 'ja')), [childrenList]);
   const transportChildren = useMemo(() => activeChildren
     .filter((child) => child.transportationRequired), [activeChildren]);
+  const siblingGroupByChild = useMemo(() => buildSiblingGroupByChild(activeChildren), [activeChildren]);
+  const householdOptions = useMemo(() => {
+    const groups = new Map<string, ChildProfile[]>();
+    activeChildren.forEach((child) => {
+      const key = siblingGroupByChild.get(child.id) || `household:${child.id}`;
+      groups.set(key, [...(groups.get(key) || []), child]);
+    });
+    return Array.from(groups, ([key, members]) => ({ key, label: members.map((child) => child.name).join('・'), childIds: members.map((child) => child.id) }))
+      .sort((left, right) => left.label.localeCompare(right.label, 'ja'));
+  }, [activeChildren, siblingGroupByChild]);
+  const schoolOptions = useMemo(() => {
+    const groups = new Map<string, ChildProfile[]>();
+    activeChildren.forEach((child) => {
+      const name = child.schoolName?.trim();
+      if (!name) return;
+      const key = child.schoolId ? `school:${child.schoolId}` : `school-name:${name}`;
+      groups.set(key, [...(groups.get(key) || []), child]);
+    });
+    return Array.from(groups, ([key, members]) => ({ key, label: members[0].schoolName || '学校未設定', childIds: members.map((child) => child.id) }))
+      .sort((left, right) => left.label.localeCompare(right.label, 'ja'));
+  }, [activeChildren]);
+  const calendarViewOptions = useMemo(() => {
+    if (calendarViewMode === 'child') return activeChildren.map((child) => ({ key: child.id, label: child.name, childIds: [child.id] }));
+    if (calendarViewMode === 'household') return householdOptions;
+    if (calendarViewMode === 'school') return schoolOptions;
+    return [];
+  }, [activeChildren, calendarViewMode, householdOptions, schoolOptions]);
+  const calendarChildIds = useMemo(() => {
+    if (calendarViewMode === 'all') return undefined;
+    const selected = calendarViewOptions.find((option) => option.key === calendarViewKey) || calendarViewOptions[0];
+    return new Set(selected?.childIds || []);
+  }, [calendarViewKey, calendarViewMode, calendarViewOptions]);
   const additionalCandidates = useMemo(() => {
     const scheduledIds = new Set(selectedServiceChildren.map((child) => child.id));
     const query = additionalSearch.trim().toLocaleLowerCase('ja');
@@ -322,6 +357,10 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
   const selectedRequirements = drafts.length > 0 && drafts.every((item) => item.date === selectedDate)
     ? drafts.filter((item) => activeChildIds.has(item.childId) && !absentPlanKeys.has(`${item.childId}:${item.date}`))
     : requirements.filter((item) => item.date === selectedDate && activeChildIds.has(item.childId) && !absentPlanKeys.has(`${item.childId}:${item.date}`));
+  const displayedSelectedRequirements = useMemo(() => {
+    const rows = selectedRequirements.length ? selectedRequirements : drafts;
+    return calendarChildIds ? rows.filter((item) => calendarChildIds.has(item.childId)) : rows;
+  }, [calendarChildIds, drafts, selectedRequirements]);
 
   const selectDate = (date: string) => {
     setSelectedDate(date);
@@ -330,6 +369,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
     setExpandedChildId(undefined);
     setAdditionalPickerOpen(false);
     setAdditionalSearch('');
+    setBulkPickupTime('');
     setMessage('');
     setError('');
   };
@@ -706,7 +746,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
         pickupLocationName: pickup?.name,
         pickupAddress: pickup?.address,
         pickupArea: resolvedTransportArea(pickup?.address, pickup?.area || child.pickupArea),
-        pickupTargetTime: pickupMode === 'home' ? undefined : item.pickupTargetTime,
+        pickupTargetTime: item.pickupTargetTime,
         source: 'manual',
         status: 'draft',
       };
@@ -813,17 +853,27 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+        <div className="mb-3 flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2 sm:flex-row sm:items-end sm:justify-between">
+          <div className="min-w-0">
+            <p className="text-[10px] font-black text-slate-500">月間カレンダーの表示単位</p>
+            <div className="mt-1 grid grid-cols-4 rounded-lg bg-white p-1 shadow-sm">
+              {([['all', '全体'], ['child', '児童別'], ['household', '家庭別'], ['school', '学校別']] as Array<[CalendarViewMode, string]>).map(([mode, label]) => <button key={mode} type="button" onClick={() => { setCalendarViewMode(mode); setCalendarViewKey(''); }} className={`min-h-9 rounded-md px-2 text-[10px] font-black ${calendarViewMode === mode ? 'bg-slate-900 text-white' : 'text-slate-500'}`}>{label}</button>)}
+            </div>
+          </div>
+          {calendarViewMode !== 'all' && <label className="min-w-0 text-[10px] font-black text-slate-600 sm:w-72">{calendarViewMode === 'child' ? '児童' : calendarViewMode === 'household' ? '家庭' : '学校'}を選択<select value={calendarViewKey || calendarViewOptions[0]?.key || ''} onChange={(event) => setCalendarViewKey(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm font-bold">{calendarViewOptions.length === 0 && <option value="">対象なし</option>}{calendarViewOptions.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}</select></label>}
+        </div>
         <div className="grid grid-cols-7 gap-1 text-center text-[10px] font-black text-slate-400">{['日','月','火','水','木','金','土'].map((day) => <span key={day}>{day}</span>)}</div>
         <div className="mt-1 grid grid-cols-7 gap-1">
           {Array.from({ length: new Date(`${month}-01T00:00:00`).getDay() }).map((_, index) => <span key={`blank-${index}`} />)}
           {dates.map((date) => {
-            const rows = monthRequirements.filter((item) => item.date === date);
-            const absentCount = dailyChildPlans.filter((plan) => plan.date === date && plan.attendancePlan === '欠席' && activeChildIds.has(plan.childId)).length;
-            const additionalCount = dailyChildPlans.filter((plan) => plan.date === date && plan.attendancePlan === '追加利用' && activeChildIds.has(plan.childId)).length;
-            const serviceCount = serviceChildrenForDate(childrenList, dailyChildPlans, date).length;
+            const rows = monthRequirements.filter((item) => item.date === date && (!calendarChildIds || calendarChildIds.has(item.childId)));
+            const absentCount = dailyChildPlans.filter((plan) => plan.date === date && plan.attendancePlan === '欠席' && activeChildIds.has(plan.childId) && (!calendarChildIds || calendarChildIds.has(plan.childId))).length;
+            const additionalCount = dailyChildPlans.filter((plan) => plan.date === date && plan.attendancePlan === '追加利用' && activeChildIds.has(plan.childId) && (!calendarChildIds || calendarChildIds.has(plan.childId))).length;
+            const serviceCount = serviceChildrenForDate(childrenList, dailyChildPlans, date).filter((child) => !calendarChildIds || calendarChildIds.has(child.id)).length;
             const day = planDays.find((candidate) => candidate.date === date);
             const missing = rows.some((item) => missingFields(item).length > 0);
-            return <button key={date} type="button" onClick={() => selectDate(date)} className={`min-h-16 rounded-lg border p-1 text-left ${selectedDate === date ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-100' : 'border-slate-200 bg-white'}`}><span className="block text-xs font-black">{Number(date.slice(-2))}</span><span className={`mt-1 block truncate text-[9px] font-bold ${missing ? 'text-rose-700' : day?.status && day.status !== 'draft' ? 'text-emerald-700' : serviceCount ? 'text-sky-700' : 'text-slate-300'}`}>{missing ? '要確認' : day?.status && day.status !== 'draft' ? `確定 ${serviceCount}名` : serviceCount ? `${serviceCount}名` : '予定なし'}</span>{additionalCount > 0 && <span className="mt-0.5 block truncate text-[8px] font-black text-teal-700">追加{additionalCount}名</span>}{absentCount > 0 && <span className="mt-0.5 block truncate text-[8px] font-black text-rose-600">欠席{absentCount}名</span>}</button>;
+            const focused = calendarViewMode !== 'all';
+            return <button key={date} type="button" onClick={() => selectDate(date)} className={`${focused ? 'min-h-24' : 'min-h-16'} min-w-0 rounded-lg border p-1 text-left ${selectedDate === date ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-100' : 'border-slate-200 bg-white'}`}><span className="block text-xs font-black">{Number(date.slice(-2))}</span>{focused ? <span className="mt-1 block max-h-16 space-y-0.5 overflow-hidden">{rows.map((item) => <span key={item.childId} className="block truncate text-[8px] font-black text-sky-800">{childrenList.find((child) => child.id === item.childId)?.name || '児童'}：{item.pickupTargetTime || '未設定'}</span>)}{rows.length === 0 && <span className="block text-[8px] font-bold text-slate-300">予定なし</span>}{absentCount > 0 && <span className="block truncate text-[8px] font-black text-rose-600">欠席 {absentCount}名</span>}</span> : <><span className={`mt-1 block truncate text-[9px] font-bold ${missing ? 'text-rose-700' : day?.status && day.status !== 'draft' ? 'text-emerald-700' : serviceCount ? 'text-sky-700' : 'text-slate-300'}`}>{missing ? '要確認' : day?.status && day.status !== 'draft' ? `確定 ${serviceCount}名` : serviceCount ? `${serviceCount}名` : '予定なし'}</span>{additionalCount > 0 && <span className="mt-0.5 block truncate text-[8px] font-black text-teal-700">追加{additionalCount}名</span>}{absentCount > 0 && <span className="mt-0.5 block truncate text-[8px] font-black text-rose-600">欠席{absentCount}名</span>}</>}</button>;
           })}
         </div>
       </section>
@@ -836,6 +886,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
             {dayDraft.pickupMode === 'home' && <label className="text-[10px] font-bold text-slate-600">事業所到着目標<input type="time" value={dayDraft.targetArrivalTime} disabled={!canManage} onChange={(event) => setDayDraft((current) => ({ ...current, targetArrivalTime: event.target.value }))} className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-2 text-sm font-bold" /></label>}
           </div>
         </div>
+        {canManage && calendarViewMode !== 'all' && displayedSelectedRequirements.length > 1 && <div className="mt-3 flex flex-col gap-2 rounded-xl border border-sky-200 bg-sky-50 p-3 sm:flex-row sm:items-end"><label className="min-w-0 flex-1 text-[10px] font-black text-sky-950">表示中 {displayedSelectedRequirements.length}名の下校・迎え時刻を一括変更<input type="time" value={bulkPickupTime} onChange={(event) => setBulkPickupTime(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-sky-300 bg-white px-3 text-sm" /></label><button type="button" disabled={!bulkPickupTime} onClick={() => { const targetIds = new Set(displayedSelectedRequirements.map((item) => item.childId)); const now = new Date().toISOString(); setDrafts((current) => current.map((item) => targetIds.has(item.childId) ? { ...item, pickupTargetTime: bulkPickupTime, source: 'manual', status: 'draft', revision: item.revision + 1, updatedAt: now } : item)); setMessage(`表示中の${targetIds.size}名へ下校・迎え時刻 ${bulkPickupTime} を反映しました。保存すると確定します。`); }} className="min-h-10 shrink-0 rounded-lg bg-sky-700 px-4 text-xs font-black text-white disabled:opacity-40">表示中の児童へ反映</button></div>}
 
         <section className="mt-3 rounded-xl border border-teal-200 bg-teal-50 p-3" aria-label="追加利用児童">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -906,11 +957,11 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
           </div>
         </details>
 
-        {selectedRequirements.length === 0 && drafts.length === 0 ? (
+        {displayedSelectedRequirements.length === 0 ? (
           <div className="py-8 text-center"><CalendarRange className="mx-auto h-9 w-9 text-slate-300" /><p className="mt-2 text-sm font-bold text-slate-500">この日の送迎予定は未作成です。</p>{canManage && <button type="button" onClick={() => prepareSelectedDate()} className="mt-3 min-h-10 rounded-xl bg-teal-600 px-4 text-xs font-black text-white">この日の基本予定を作成</button>}</div>
         ) : (
           <div className="mt-3 space-y-2">
-            {(selectedRequirements.length ? selectedRequirements : drafts).sort((left, right) => (left.pickupTargetTime || '99:99').localeCompare(right.pickupTargetTime || '99:99') || (left.pickupArea || '').localeCompare(right.pickupArea || '')).map((item) => {
+            {[...displayedSelectedRequirements].sort((left, right) => (left.pickupTargetTime || '99:99').localeCompare(right.pickupTargetTime || '99:99') || (left.pickupArea || '').localeCompare(right.pickupArea || '')).map((item) => {
               const child = childrenList.find((candidate) => candidate.id === item.childId);
               const pickupLocations = child ? getTransportLocationOptions(child, '迎え', selectedDate) : [];
               const selectedPickupLocationId = item.pickupLocationProfileId
@@ -944,7 +995,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
                   )}
                 </div>
                 {expanded && <div className="grid gap-3 border-t border-slate-100 bg-slate-50 p-3 lg:grid-cols-2">
-                  <fieldset className="rounded-xl border border-sky-200 bg-white p-3"><legend className="px-1 text-xs font-black text-sky-800">迎え</legend><label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={item.pickupEnabled} disabled={!canManage} onChange={(event) => updateRequirement(item.childId, { pickupEnabled: event.target.checked })} />迎えを利用</label>{item.pickupEnabled && <div className="mt-2 grid gap-2"><label className="text-[10px] font-bold text-slate-600">児童情報に登録した迎え先<select value={selectedPickupLocationId} disabled={!canManage} onChange={(event) => changePickupLocation(item.childId, event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-sky-300 bg-sky-50 px-2 text-sm font-bold"><option value="manual">直接入力する</option>{pickupLocations.map((location) => <option key={location.id} value={location.id}>{location.name}（{location.type}）{location.recommended ? '・おすすめ' : !location.activeOnDate ? '・対象日外' : ''}</option>)}</select><span className="mt-1 block text-[9px] font-normal text-slate-500">選択すると名称・住所・エリアを自動反映します。下の欄を変更すると、その日だけの直接入力として保存されます。</span></label><label className="text-[10px] font-bold text-slate-600">迎え先の名称<input value={item.pickupLocationName || ''} disabled={!canManage} onChange={(event) => updateRequirement(item.childId, { pickupLocationProfileId: undefined, pickupLocationName: event.target.value })} placeholder="例：祖母宅、○○学童" className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label><label className="text-[10px] font-bold text-slate-600">迎え先の住所<input value={item.pickupAddress || ''} disabled={!canManage} onChange={(event) => { const address = event.target.value; updateRequirement(item.childId, { pickupLocationProfileId: undefined, pickupAddress: address, pickupArea: inferTransportArea(address) }); }} placeholder="登録先と異なる場合は直接入力" className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label><div className="grid grid-cols-2 gap-2"><label className="text-[10px] font-bold text-slate-600">エリア（自動）<input value={item.pickupArea || ''} disabled={!canManage} onChange={(event) => updateRequirement(item.childId, { pickupArea: event.target.value })} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label>{item.pickupPattern !== 'home' && <label className="text-[10px] font-bold text-slate-600">下校・迎え時刻<input type="time" value={item.pickupTargetTime || ''} disabled={!canManage} onChange={(event) => updateRequirement(item.childId, { pickupTargetTime: event.target.value || undefined })} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label>}</div></div>}</fieldset>
+                  <fieldset className="rounded-xl border border-sky-200 bg-white p-3"><legend className="px-1 text-xs font-black text-sky-800">迎え</legend><label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={item.pickupEnabled} disabled={!canManage} onChange={(event) => updateRequirement(item.childId, { pickupEnabled: event.target.checked })} />迎えを利用</label>{item.pickupEnabled && <div className="mt-2 grid gap-2"><label className="text-[10px] font-bold text-slate-600">児童情報に登録した迎え先<select value={selectedPickupLocationId} disabled={!canManage} onChange={(event) => changePickupLocation(item.childId, event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-sky-300 bg-sky-50 px-2 text-sm font-bold"><option value="manual">直接入力する</option>{pickupLocations.map((location) => <option key={location.id} value={location.id}>{location.name}（{location.type}）{location.recommended ? '・おすすめ' : !location.activeOnDate ? '・対象日外' : ''}</option>)}</select><span className="mt-1 block text-[9px] font-normal text-slate-500">選択すると名称・住所・エリアを自動反映します。下の欄を変更すると、その日だけの直接入力として保存されます。</span></label><label className="text-[10px] font-bold text-slate-600">迎え先の名称<input value={item.pickupLocationName || ''} disabled={!canManage} onChange={(event) => updateRequirement(item.childId, { pickupLocationProfileId: undefined, pickupLocationName: event.target.value })} placeholder="例：祖母宅、○○学童" className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label><label className="text-[10px] font-bold text-slate-600">迎え先の住所<input value={item.pickupAddress || ''} disabled={!canManage} onChange={(event) => { const address = event.target.value; updateRequirement(item.childId, { pickupLocationProfileId: undefined, pickupAddress: address, pickupArea: inferTransportArea(address) }); }} placeholder="登録先と異なる場合は直接入力" className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label><div className="grid grid-cols-2 gap-2"><label className="text-[10px] font-bold text-slate-600">エリア（自動）<input value={item.pickupArea || ''} disabled={!canManage} onChange={(event) => updateRequirement(item.childId, { pickupArea: event.target.value })} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label><label className="text-[10px] font-bold text-slate-600">下校・迎え時刻<input type="time" value={item.pickupTargetTime || ''} disabled={!canManage} onChange={(event) => updateRequirement(item.childId, { pickupTargetTime: event.target.value || undefined })} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label></div></div>}</fieldset>
                   <fieldset className="rounded-xl border border-violet-200 bg-white p-3"><legend className="px-1 text-xs font-black text-violet-800">送り</legend><label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={item.dropoffEnabled} disabled={!canManage} onChange={(event) => updateRequirement(item.childId, { dropoffEnabled: event.target.checked })} />送りを利用</label>{item.dropoffEnabled && <div className="mt-2 grid gap-2"><label className="text-[10px] font-bold text-slate-600">児童情報に登録した送り先<select value={selectedDropoffLocationId} disabled={!canManage} onChange={(event) => changeDropoffLocation(item.childId, event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-violet-300 bg-violet-50 px-2 text-sm font-bold"><option value="manual">直接入力する</option>{dropoffLocations.map((location) => <option key={location.id} value={location.id}>{location.name}（{location.type}）{location.recommended ? '・おすすめ' : !location.activeOnDate ? '・対象日外' : ''}</option>)}</select><span className="mt-1 block text-[9px] font-normal text-slate-500">選択すると名称・住所・エリアを自動反映します。下の欄を変更すると、その日だけの直接入力として保存されます。</span></label><label className="text-[10px] font-bold text-slate-600">送り先の名称<input value={item.dropoffLocationName || ''} disabled={!canManage} onChange={(event) => updateRequirement(item.childId, { dropoffLocationProfileId: undefined, dropoffLocationName: event.target.value })} placeholder="例：自宅、祖母宅、○○学童" className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label><label className="text-[10px] font-bold text-slate-600">送り先の住所<input value={item.dropoffAddress || ''} disabled={!canManage} onChange={(event) => { const address = event.target.value; updateRequirement(item.childId, { dropoffLocationProfileId: undefined, dropoffAddress: address, dropoffArea: inferTransportArea(address) }); }} placeholder="登録先と異なる場合は直接入力" className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label><div className="grid grid-cols-2 gap-2"><label className="text-[10px] font-bold text-slate-600">エリア（自動）<input value={item.dropoffArea || ''} disabled={!canManage} onChange={(event) => updateRequirement(item.childId, { dropoffArea: event.target.value })} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label><label className="text-[10px] font-bold text-slate-600">送り希望時刻<input type="time" value={item.dropoffTargetTime || ''} disabled={!canManage} onChange={(event) => updateRequirement(item.childId, { dropoffTargetTime: event.target.value || undefined })} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label></div></div>}</fieldset>
                   <div className="grid gap-2 lg:col-span-2 sm:grid-cols-3"><label className="text-[10px] font-bold text-slate-600">乗降対応時間（分）<input type="number" min="0" max="60" value={item.stopDurationMinutes} disabled={!canManage} onChange={(event) => updateRequirement(item.childId, { stopDurationMinutes: Number(event.target.value) })} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label><label className="flex min-h-12 items-center gap-2 self-end rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold"><input type="checkbox" checked={item.keepSiblingsTogether} disabled={!canManage} onChange={(event) => updateRequirement(item.childId, { keepSiblingsTogether: event.target.checked })} />兄弟を同じ便にする</label><label className="text-[10px] font-bold text-slate-600">補足<input value={item.note || ''} disabled={!canManage} onChange={(event) => updateRequirement(item.childId, { note: event.target.value })} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label></div>
                 </div>}

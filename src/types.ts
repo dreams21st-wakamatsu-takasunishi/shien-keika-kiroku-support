@@ -649,6 +649,11 @@ export interface TransportFieldDashboard {
 export interface TransportRouteSettings {
   facilityAddress: string;
   stopDurationMinutes: number;
+  sameLocationTimeWindowMinutes: number;
+  facilityPinColor: string;
+  residentialPinColor: string;
+  educationPinColor: string;
+  otherPinColor: string;
   holidayOpeningTime: string;
   holidayArrivalTime: string;
   weekdayElementaryDepartureTime: string;
@@ -664,6 +669,11 @@ export interface TransportRouteSettings {
 export const DEFAULT_TRANSPORT_ROUTE_SETTINGS: TransportRouteSettings = {
   facilityAddress: '',
   stopDurationMinutes: 5,
+  sameLocationTimeWindowMinutes: 15,
+  facilityPinColor: '#7c3aed',
+  residentialPinColor: '#059669',
+  educationPinColor: '#0284c7',
+  otherPinColor: '#d97706',
   holidayOpeningTime: '09:00',
   holidayArrivalTime: '10:00',
   weekdayElementaryDepartureTime: '17:45',
