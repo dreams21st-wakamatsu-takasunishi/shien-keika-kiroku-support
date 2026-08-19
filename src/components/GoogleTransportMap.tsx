@@ -31,6 +31,7 @@ interface GoogleTransportMapProps {
   pendingMarker?: GoogleTransportMarker;
   polylines?: GoogleTransportPolyline[];
   simple: boolean;
+  containerClassName?: string;
   heightClassName?: string;
   gestureHandling?: 'auto' | 'cooperative' | 'greedy' | 'none';
   interactiveMapClick: boolean;
@@ -144,6 +145,7 @@ export const GoogleTransportMap: React.FC<GoogleTransportMapProps> = ({
   pendingMarker,
   polylines = EMPTY_POLYLINES,
   simple,
+  containerClassName,
   heightClassName,
   gestureHandling = 'greedy',
   interactiveMapClick,
@@ -287,7 +289,7 @@ export const GoogleTransportMap: React.FC<GoogleTransportMapProps> = ({
   }, [center, draftZone, fitPoints, gestureHandling, markers, pendingMarker, polylines, ready, simple, zones]);
 
   return (
-    <div className="relative">
+    <div className={`relative ${containerClassName || ''}`}>
       <div ref={containerRef} className={`${heightClassName || 'h-[36rem] sm:h-[44rem] xl:h-[calc(100dvh-9rem)] xl:min-h-[46rem] xl:max-h-[68rem]'} w-full ${simple ? 'google-transport-map-simple' : ''}`} aria-label="Google送迎地点マップ" />
       {!ready && !error && <div className="absolute inset-0 grid place-items-center bg-slate-50/90 text-sm font-bold text-slate-600">Google地図を読み込んでいます…</div>}
       {error && <div role="alert" className="absolute inset-0 grid place-items-center bg-rose-50 p-6 text-center text-sm font-bold leading-relaxed text-rose-800">{error}</div>}

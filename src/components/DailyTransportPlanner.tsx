@@ -1079,21 +1079,21 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
   };
 
   const renderDirection = (direction: TransportDirection) => (
-    <section className={`min-w-0 rounded-2xl border p-2 ${direction === '迎え' ? 'border-sky-300 bg-sky-50/60' : 'border-violet-300 bg-violet-50/60'}`}>
-      <header className="mb-2 flex items-center justify-between gap-2 px-1">
+    <section className={`flex h-full min-h-0 min-w-0 flex-col rounded-2xl border p-2 ${direction === '迎え' ? 'border-sky-300 bg-sky-50/60' : 'border-violet-300 bg-violet-50/60'}`}>
+      <header className="mb-2 flex shrink-0 items-center justify-between gap-2 px-1">
         <div><p className={`text-[10px] font-black uppercase tracking-[0.14em] ${direction === '迎え' ? 'text-sky-700' : 'text-violet-700'}`}>{direction}配車</p><h3 className="text-base font-black text-slate-950">{direction}便</h3></div>
         <span className="rounded-full bg-white px-2 py-1 text-[9px] font-black text-slate-600">{drafts.filter((run) => run.direction === direction && run.stops.length > 0).length}便使用</span>
       </header>
-      <div className="space-y-2">
+      <div className="space-y-2 lg:grid lg:min-h-0 lg:flex-1 lg:auto-cols-[minmax(15rem,1fr)] lg:grid-flow-col lg:gap-2 lg:space-y-0 lg:overflow-x-auto lg:pb-1">
         {vehicleSlots.map((vehicle) => {
           const vehicleRuns = drafts.filter((run) => run.direction === direction && run.vehicleId === vehicle?.id);
           return (
-            <section key={vehicle?.id || 'unassigned'} className="rounded-xl border border-slate-200 bg-white/80 p-2">
-              <div className="mb-2 flex items-center justify-between gap-2">
+            <section key={vehicle?.id || 'unassigned'} className="rounded-xl border border-slate-200 bg-white/80 p-2 lg:flex lg:h-full lg:min-h-0 lg:flex-col">
+              <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
                 <span className="flex min-w-0 items-center gap-1.5 text-xs font-black text-slate-800"><BusFront className={`h-4 w-4 ${direction === '迎え' ? 'text-sky-600' : 'text-violet-600'}`} /><span className="truncate">{vehicle?.name || '車両未設定'}</span>{vehicle && <span className="text-[9px] font-bold text-slate-400">総定員{vehicle.capacity}名</span>}</span>
                 <button type="button" onClick={() => addRun(direction, vehicle)} className={`min-h-9 shrink-0 rounded-lg px-2 text-[10px] font-black text-white ${direction === '迎え' ? 'bg-sky-600' : 'bg-violet-600'}`}><Plus className="mr-0.5 inline h-3.5 w-3.5" />便を追加</button>
               </div>
-              <div className="space-y-2">
+              <div className="space-y-2 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
                 {vehicleRuns.length === 0 && <button type="button" onClick={() => addRun(direction, vehicle)} className="min-h-20 w-full rounded-xl border-2 border-dashed border-slate-300 bg-white text-[10px] font-bold text-slate-400">この車両に{direction}便を追加</button>}
                 {vehicleRuns.map((run) => <TransportRunLane key={run.id} run={run} vehicle={vehicle} childrenList={childrenList} date={date} activeRecorders={activeRecorders} pickupAssignedIds={pickupAssignedIds} dropoffAssignedIds={dropoffAssignedIds} siblingNamesByChild={siblingNamesByChild} sharedLocationByChild={sharedLocationByChild} routeCalculation={calculatedRoutes[run.id]} routeSelected={selectedRouteRunId === run.id} calculatingRoute={calculatingRouteRunId === run.id} expandedStopId={expandedStopId} holidayOpeningTime={direction === '迎え' && transportPlanDay?.pickupMode === 'home' ? routeSettings.holidayOpeningTime : undefined} onExpandStop={setExpandedStopId} onUpdateRun={updateRun} onUpdateStop={updateStop} onMoveStop={moveStop} onRemoveStop={removeStop} onRemoveRun={removeRun} onCalculateTime={(runId) => void calculateRunTime(runId)} onSelectRoute={setSelectedRouteRunId} />)}
               </div>
@@ -1124,21 +1124,23 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         onDragCancel={() => setActiveDragData(undefined)}
         onDragEnd={handleDragEnd}
       >
-        <div className="ui-scrollbar flex-1 overflow-y-auto p-2 sm:p-3">
-          <div className="sticky top-0 z-20 mx-auto mb-2 max-w-[1600px] bg-slate-100 pb-1">
-            <DailyTransportMiniMap direction={activeDirection} points={miniMapPoints} facilityPoint={facilityMapPoint} expectedCount={directionChildren.length} activeChildId={activeDragData?.childId} routes={visibleCalculatedRoutes} selectedRouteRunId={selectedRouteRunId} onSelectRoute={setSelectedRouteRunId} />
-          </div>
-          <div className="mx-auto grid max-w-[1600px] items-start gap-2 md:grid-cols-[220px_minmax(0,1fr)] xl:grid-cols-[280px_minmax(0,1fr)]">
-            <aside className="min-w-0 rounded-2xl border border-emerald-300 bg-emerald-50/70 p-2 md:sticky md:top-0">
-              <div className="mb-2 flex items-center justify-between gap-1 px-1"><div><p className="text-[9px] font-black text-emerald-700">{weekday}曜日・{activeDirection}</p><h3 className="text-sm font-black text-slate-950">対象児童</h3></div><span className="rounded-full bg-white px-2 py-1 text-[9px] font-black text-emerald-800">{directionChildren.length}名</span></div>
-              <div className="space-y-1.5 md:max-h-[calc(100dvh-15rem)] md:overflow-y-auto md:pr-0.5">
+        <div className="ui-scrollbar flex-1 overflow-y-auto p-2 sm:p-3 lg:overflow-auto">
+          <div className="mx-auto grid max-w-[1800px] items-start gap-2 lg:h-full lg:min-h-0 lg:grid-cols-[220px_minmax(0,1fr)_minmax(300px,0.72fr)] lg:grid-rows-[minmax(18rem,3fr)_minmax(11rem,2fr)] lg:items-stretch">
+            <aside className="min-w-0 rounded-2xl border border-emerald-300 bg-emerald-50/70 p-2 lg:col-start-1 lg:row-span-2 lg:flex lg:h-full lg:min-h-0 lg:flex-col">
+              <div className="mb-2 flex shrink-0 items-center justify-between gap-1 px-1"><div><p className="text-[9px] font-black text-emerald-700">{weekday}曜日・{activeDirection}</p><h3 className="text-sm font-black text-slate-950">利用児童リスト</h3></div><span className="rounded-full bg-white px-2 py-1 text-[9px] font-black text-emerald-800">{directionChildren.length}名</span></div>
+              <div className="space-y-1.5 md:max-h-[calc(100dvh-15rem)] md:overflow-y-auto md:pr-0.5 lg:min-h-0 lg:flex-1 lg:max-h-none">
                 {directionChildren.map((child) => <DraggableChildCard key={child.id} child={child} date={date} direction={activeDirection} requirement={requirementByChild.get(child.id)} data={{ childId: child.id }} pickupAssigned={pickupAssignedIds.has(child.id)} dropoffAssigned={dropoffAssignedIds.has(child.id)} siblingNames={siblingNamesByChild.get(child.id)} sharedLocation={sharedLocationByChild.get(child.id)} />)}
                 {directionChildren.length === 0 && <div className="rounded-xl border-2 border-dashed border-emerald-200 bg-white p-4 text-center"><Users className="mx-auto h-7 w-7 text-emerald-300" /><p className="mt-1 text-[10px] font-bold text-slate-400">対象児童がいません。「児童を追加」から追加できます。</p></div>}
               </div>
             </aside>
-            {renderDirection(activeDirection)}
+            <div className="min-w-0 lg:col-start-2 lg:row-start-1 lg:h-full lg:min-h-0">{renderDirection(activeDirection)}</div>
+            <div className="min-w-0 lg:col-start-3 lg:row-start-1 lg:h-full lg:min-h-0">
+              <DailyTransportMiniMap direction={activeDirection} points={miniMapPoints} facilityPoint={facilityMapPoint} expectedCount={directionChildren.length} activeChildId={activeDragData?.childId} routes={visibleCalculatedRoutes} selectedRouteRunId={selectedRouteRunId} fillHeight onSelectRoute={setSelectedRouteRunId} />
+            </div>
+            <div className="min-w-0 lg:col-span-2 lg:col-start-2 lg:row-start-2 lg:h-full lg:min-h-0 lg:overflow-y-auto">
+              <DraftTransportGantt date={date} direction={activeDirection} drafts={drafts} recorders={activeRecorders} warnings={planningWarnings} minimumFacilityStaff={routeSettings.minimumFacilityStaff} embedded />
+            </div>
           </div>
-          <DraftTransportGantt date={date} direction={activeDirection} drafts={drafts} recorders={activeRecorders} warnings={planningWarnings} minimumFacilityStaff={routeSettings.minimumFacilityStaff} />
         </div>
         {createPortal(
           <DragOverlay
@@ -1244,7 +1246,8 @@ const DraftTransportGantt: React.FC<{
   recorders: RecorderProfile[];
   warnings: string[];
   minimumFacilityStaff: number;
-}> = ({ date, direction, drafts, recorders, warnings, minimumFacilityStaff }) => {
+  embedded?: boolean;
+}> = ({ date, direction, drafts, recorders, warnings, minimumFacilityStaff, embedded = false }) => {
   const runs = drafts.filter((run) => run.direction === direction && run.stops.length > 0);
   const assignedIds = new Set(runs.flatMap((run) => [run.driverRecorderProfileId, ...run.assistantRecorderProfileIds].filter((id): id is string => Boolean(id))));
   const rows = recorders.filter((recorder) => assignedIds.has(recorder.id));
@@ -1256,10 +1259,10 @@ const DraftTransportGantt: React.FC<{
     return Math.max(0, Math.min(100, (((hour * 60 + minute) - startMinute) / width) * 100));
   };
   return (
-    <section className="mx-auto mt-3 max-w-[1600px] rounded-2xl border border-slate-300 bg-white p-3 shadow-sm">
+    <section className={`${embedded ? 'min-h-full' : 'mx-auto mt-3 max-w-[1600px]'} rounded-2xl border border-slate-300 bg-white p-3 shadow-sm`}>
       <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-[9px] font-black text-teal-700">保存前の配車を即時反映</p><h3 className="text-sm font-black text-slate-950">職員配置ガント・{date} {direction}</h3></div><span className="rounded-full bg-slate-100 px-2 py-1 text-[9px] font-black text-slate-600">施設内最低 {minimumFacilityStaff}名</span></div>
       {runs.length === 0 ? <p className="mt-3 rounded-xl bg-slate-50 p-4 text-center text-xs text-slate-400">児童を配車すると、ここに職員の対応時間が表示されます。</p> : <div className="mt-3 overflow-x-auto"><div className="min-w-[680px]"><div className="ml-28 grid grid-cols-7 text-[9px] font-bold text-slate-400">{[8,10,12,14,16,18,20].map((hour) => <span key={hour}>{hour}:00</span>)}</div><div className="mt-1 space-y-1">{rows.length === 0 && <div className="rounded-lg bg-amber-50 p-2 text-xs font-bold text-amber-800">運転者・添乗者が未設定です。</div>}{rows.map((recorder) => <div key={recorder.id} className="grid grid-cols-[7rem_1fr] items-center gap-2"><span className="truncate text-[10px] font-black text-slate-700">{recorder.displayName}</span><div className="relative h-8 overflow-hidden rounded-lg bg-[linear-gradient(to_right,#e2e8f0_1px,transparent_1px)] bg-[size:16.666%_100%] bg-slate-50">{runs.filter((run) => run.driverRecorderProfileId === recorder.id || run.assistantRecorderProfileIds.includes(recorder.id)).map((run) => <div key={run.id} title={`${run.name} ${run.startTime}～${run.endTime}`} className={`absolute top-1 h-6 overflow-hidden rounded-md px-2 text-[9px] font-black leading-6 text-white ${direction === '迎え' ? 'bg-sky-600' : 'bg-violet-600'}`} style={{ left: `${position(run.startTime)}%`, width: `${Math.max(2, position(run.endTime) - position(run.startTime))}%` }}>{run.name}</div>)}</div></div>)}</div></div></div>}
-      {warnings.length > 0 && <details className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3" open><summary className="cursor-pointer text-xs font-black text-amber-950"><AlertTriangle className="mr-1 inline h-4 w-4" />要確認 {warnings.length}件</summary><ul className="mt-2 space-y-1 text-[10px] font-bold text-amber-900">{warnings.map((warning) => <li key={warning}>・{warning}</li>)}</ul></details>}
+      {warnings.length > 0 && <details className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3" open={!embedded}><summary className="cursor-pointer text-xs font-black text-amber-950"><AlertTriangle className="mr-1 inline h-4 w-4" />要確認 {warnings.length}件</summary><ul className="mt-2 space-y-1 text-[10px] font-bold text-amber-900">{warnings.map((warning) => <li key={warning}>・{warning}</li>)}</ul></details>}
     </section>
   );
 };

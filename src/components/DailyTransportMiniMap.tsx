@@ -39,6 +39,7 @@ interface DailyTransportMiniMapProps {
   activeChildId?: string;
   routes: CalculatedTransportRunRoute[];
   selectedRouteRunId?: string;
+  fillHeight?: boolean;
   onSelectRoute: (runId: string) => void;
 }
 
@@ -53,6 +54,7 @@ export const DailyTransportMiniMap: React.FC<DailyTransportMiniMapProps> = ({
   activeChildId,
   routes,
   selectedRouteRunId,
+  fillHeight = false,
   onSelectRoute,
 }) => {
   const routeByRun = useMemo(() => new Map(routes.map((route) => [route.runId, route])), [routes]);
@@ -112,7 +114,7 @@ export const DailyTransportMiniMap: React.FC<DailyTransportMiniMapProps> = ({
   const missingCount = Math.max(0, expectedCount - points.length);
 
   return (
-    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+    <section className={`overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm ${fillHeight ? 'flex h-full min-h-0 flex-col' : ''}`}>
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-3 py-2">
         <div className="min-w-0">
           <h3 className="flex items-center gap-1.5 text-xs font-black text-slate-900"><MapPinned className="h-4 w-4 text-teal-700" />本日の{direction}先ミニマップ</h3>
@@ -130,7 +132,8 @@ export const DailyTransportMiniMap: React.FC<DailyTransportMiniMapProps> = ({
           zones={[]}
           polylines={polylines}
           simple
-          heightClassName="h-56 sm:h-64 lg:h-72"
+          containerClassName={fillHeight ? 'min-h-0 flex-1' : undefined}
+          heightClassName={fillHeight ? 'h-full min-h-56' : 'h-56 sm:h-64 lg:h-72'}
           gestureHandling="cooperative"
           interactiveMapClick={false}
           onMapClick={() => undefined}
