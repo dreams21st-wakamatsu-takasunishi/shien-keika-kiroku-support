@@ -57,6 +57,7 @@ import { SetPasswordScreen } from './components/SetPasswordScreen';
 import { RecorderSessionGate } from './components/RecorderSessionGate';
 import { PrivacyReauthGate } from './components/PrivacyReauthGate';
 import { PersonalTransportMode } from './components/PersonalTransportMode';
+import { QuickGuide, type QuickGuideContent } from './components/QuickGuide';
 import { useAuth } from './hooks/useAuth';
 import { supabase } from './lib/supabase';
 import { FEATURE_FLAGS } from './config/features';
@@ -285,6 +286,7 @@ export default function App() {
   const remoteRefreshInFlightRef = useRef(false);
   const remoteRefreshQueuedRef = useRef(false);
   const remoteRefreshTimerRef = useRef<number | null>(null);
+  const loadedOrganizationIdRef = useRef<string | null>(remoteMode ? null : 'local');
   const [activeDraftKey, setActiveDraftKey] = useState(createRecordDraftKey);
   const [online, setOnline] = useState(() => navigator.onLine);
   const [pendingSyncs, setPendingSyncs] = useState<PendingRecordSync[]>([]);
@@ -460,7 +462,12 @@ export default function App() {
       return;
     }
     remoteRefreshInFlightRef.current = true;
-    if (showLoading) setDataLoading(true);
+    // Only the first load for an organization may replace the whole screen.
+    // Realtime and visibility refreshes keep the current component mounted so
+    // focused inputs and in-screen UI state are not discarded.
+    const blockingInitialLoad = showLoading && loadedOrganizationIdRef.current !== auth.profile.organizationId;
+    if (blockingInitialLoad) setDataLoading(true);
+    let loadedSuccessfully = false;
     try {
       do {
         remoteRefreshQueuedRef.current = false;
@@ -493,6 +500,7 @@ export default function App() {
           setSchools([]);
           setPendingSyncs([]);
           setDataError(null);
+          loadedSuccessfully = true;
           return;
         }
         let workspace = await loadWorkspaceData(auth.profile.organizationId);
@@ -532,12 +540,14 @@ export default function App() {
         setTransportMapLocations(workspace.transportMapLocations);
         setTransportAreaZones(workspace.transportAreaZones);
         setDataError(null);
+        loadedSuccessfully = true;
       } while (remoteRefreshQueuedRef.current);
     } catch (error) {
       setDataError(error instanceof Error ? error.message : '共有データを取得できませんでした。');
     } finally {
       remoteRefreshInFlightRef.current = false;
-      setDataLoading(false);
+      if (loadedSuccessfully) loadedOrganizationIdRef.current = auth.profile.organizationId;
+      if (blockingInitialLoad) setDataLoading(false);
     }
   }, [auth.profile]);
 
@@ -2282,15 +2292,15 @@ function ScreenContextBar({
   description?: string;
   badge?: string;
 }) {
-  const meta: Record<ActiveTab | 'preview', { title: string; description: string }> = {
-    home: { title: 'ホーム', description: '' },
-    form: { title: '記録作成', description: '質問に沿って支援経過を入力' },
-    records: { title: '記録一覧', description: '確認・修正・出力' },
-    preview: { title: '記録確認', description: '内容確認・修正指摘・承認' },
-    children: { title: '児童名簿', description: '児童情報・利用曜日の管理' },
-    plans: { title: '個別支援計画', description: '現在は機能凍結中' },
-    templates: { title: '設定', description: 'AI・記録フォーマットの管理' },
-    team: { title: '職員管理', description: '記録者・ログイン職員の管理' },
+  const meta: Record<ActiveTab | 'preview', { title: string; description: string; guide: QuickGuideContent }> = {
+    home: { title: 'ホーム', description: '', guide: { title: 'ホーム', summary: '行いたい業務の入口を選びます。', steps: ['今日行う業務を選びます。', '確認後は「機能を選び直す」でホームへ戻ります。'] } },
+    form: { title: '記録作成', description: '質問に沿って支援経過を入力', guide: { title: '記録作成', summary: '児童タブを切り替えながら、必要な記録項目だけを入力します。', steps: ['日付・児童・記録者を確認します。', '「何を記録しますか？」から項目を選び、質問へ回答します。', '質問一覧で未回答を確認し、「入力を終えて確認」へ進みます。', '対象児童を選んで保存します。'], tips: ['入力内容は児童選択後に自動保存されます。', '別職員が入力中の児童は閲覧または引き継ぎを使います。'] } },
+    records: { title: '記録一覧', description: '確認・修正・出力', guide: { title: '記録一覧', summary: '日付で絞り込み、必要な記録を確認・出力します。', steps: ['1日表示または期間表示を選びます。', '必要な場合だけ検索・絞り込みを開きます。', '記録を選んで確認します。戻ると検索位置は保持されます。', '月間PDFは児童と月を選んで出力します。'] } },
+    preview: { title: '記録確認', description: '内容確認・修正指摘・承認', guide: { title: '記録確認', summary: '保存内容と文章合成結果を確認します。', steps: ['記録内容と文章を確認します。', '必要なら再編集または修正指摘を行います。', '確認後は一覧へ戻ります。'] } },
+    children: { title: '児童名簿', description: '児童情報・利用曜日の管理', guide: { title: '児童名簿', summary: '児童の基本情報と日常運用で使う情報を管理します。', steps: ['検索・絞り込みで児童を探します。', '児童カードの編集を開きます。', '基本情報、利用曜日、送迎地点を必要な範囲だけ編集して保存します。'] } },
+    plans: { title: '個別支援計画', description: '現在は機能凍結中', guide: { title: '個別支援計画', summary: 'この機能は現在凍結中です。', steps: ['現在の運用では使用しません。'] } },
+    templates: { title: '設定', description: 'AI・記録フォーマットの管理', guide: { title: '設定', summary: '変更したい種類を選び、必要な設定だけを開きます。', steps: ['設定カテゴリを選びます。', '変更対象の項目を開きます。', '内容を確認して保存します。'], tips: ['運用中のテンプレート変更は、入力中記録への影響を確認してから行ってください。'] } },
+    team: { title: '職員管理', description: '記録者・ログイン職員の管理', guide: { title: '職員管理', summary: '職員、ログイン、登録端末を管理します。', steps: ['管理対象のカテゴリを選びます。', '職員・ログイン・端末の状態を確認します。', '変更後に保存または承認を実行します。'] } },
   };
   const current = meta[activeTab];
   return (
@@ -2305,9 +2315,12 @@ function ScreenContextBar({
           <p className="hidden truncate text-[10px] text-slate-500 sm:block">{description ?? current.description}</p>
         </div>
       </div>
-      <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-500">
-        {badge || (activeTab === 'form' ? '入力内容は自動保存' : 'ホームへすぐ戻れます')}
-      </span>
+      <div className="flex shrink-0 items-center gap-2">
+        <span className="hidden rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-500 md:inline">
+          {badge || (activeTab === 'form' ? '入力内容は自動保存' : 'ホームへすぐ戻れます')}
+        </span>
+        <QuickGuide content={current.guide} compact />
+      </div>
     </div>
   );
 }

@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { SupportRecord, ApprovalStatus } from '../types';
-import { Search, FileText, Clock, Eye, Edit, Copy, Trash2, Download, Wrench, SlidersHorizontal, X } from 'lucide-react';
+import { Search, FileText, Clock, Eye, Edit, Copy, Trash2, Download, Wrench, SlidersHorizontal, X, CalendarRange, LoaderCircle, ChevronDown } from 'lucide-react';
 import { downloadRecordsCsv } from '../utils/recordCsv';
 import { getLocalDateString } from '../utils/weekdays';
+import { MonthlyRecordsPDFDocument } from './MonthlyRecordsPDFDocument';
+import { generatePagedPDFFromElement } from '../utils/pdfGenerator';
 
 interface RecordListProps {
   records: SupportRecord[];
@@ -16,6 +18,37 @@ interface RecordListProps {
   onNewRecord: () => void;
 }
 
+interface StoredRecordListState {
+  searchTerm: string;
+  statusFilter: string;
+  templateFilter: string;
+  dateMode: 'day' | 'range';
+  selectedDate: string;
+  dateFrom: string;
+  dateTo: string;
+  filtersOpen: boolean;
+  monthlyPdfOpen: boolean;
+  pdfChildId: string;
+  pdfMonth: string;
+  scrollY: number;
+}
+
+const RECORD_LIST_STATE_KEY = 'support-record-list-view-v1';
+
+function readStoredState(today: string): StoredRecordListState {
+  const fallback: StoredRecordListState = {
+    searchTerm: '', statusFilter: 'all', templateFilter: 'all', dateMode: 'day',
+    selectedDate: today, dateFrom: today, dateTo: today, filtersOpen: false,
+    monthlyPdfOpen: false, pdfChildId: '', pdfMonth: today.slice(0, 7), scrollY: 0,
+  };
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(RECORD_LIST_STATE_KEY) || '{}') as Partial<StoredRecordListState>;
+    return { ...fallback, ...saved };
+  } catch {
+    return fallback;
+  }
+}
+
 export const RecordList: React.FC<RecordListProps> = ({
   records,
   initialSearchTerm,
@@ -27,15 +60,80 @@ export const RecordList: React.FC<RecordListProps> = ({
   canDeleteRecords = true,
   onNewRecord,
 }) => {
-  const [searchTerm, setSearchTerm] = useState(initialSearchTerm || '');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [templateFilter, setTemplateFilter] = useState<string>('all');
   const today = getLocalDateString();
-  const [dateMode, setDateMode] = useState<'day' | 'range'>('day');
-  const [selectedDate, setSelectedDate] = useState(today);
-  const [dateFrom, setDateFrom] = useState(today);
-  const [dateTo, setDateTo] = useState(today);
-  const [filtersOpen, setFiltersOpen] = useState(false);
+  const initialState = useRef(readStoredState(today));
+  const [searchTerm, setSearchTerm] = useState(initialSearchTerm || initialState.current.searchTerm);
+  const [statusFilter, setStatusFilter] = useState<string>(initialState.current.statusFilter);
+  const [templateFilter, setTemplateFilter] = useState<string>(initialState.current.templateFilter);
+  const [dateMode, setDateMode] = useState<'day' | 'range'>(initialState.current.dateMode);
+  const [selectedDate, setSelectedDate] = useState(initialState.current.selectedDate);
+  const [dateFrom, setDateFrom] = useState(initialState.current.dateFrom);
+  const [dateTo, setDateTo] = useState(initialState.current.dateTo);
+  const [filtersOpen, setFiltersOpen] = useState(initialState.current.filtersOpen);
+  const [monthlyPdfOpen, setMonthlyPdfOpen] = useState(initialState.current.monthlyPdfOpen);
+  const [pdfChildId, setPdfChildId] = useState(initialState.current.pdfChildId);
+  const [pdfMonth, setPdfMonth] = useState(initialState.current.pdfMonth);
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const [pdfError, setPdfError] = useState('');
+
+  const childOptions = useMemo(() => Array.from(new Map<string, string>(
+    records.map((record) => [record.childId, record.childName] as const),
+  ).entries()).map(([id, name]) => ({ id, name })).sort((left, right) => left.name.localeCompare(right.name, 'ja')), [records]);
+  const monthlyPdfRecords = useMemo(() => records
+    .filter((record) => record.childId === pdfChildId && record.date.startsWith(`${pdfMonth}-`))
+    .sort((left, right) => left.date.localeCompare(right.date)), [pdfChildId, pdfMonth, records]);
+  const pdfChildName = childOptions.find((child) => child.id === pdfChildId)?.name || '';
+  const monthlyPdfTargetId = 'monthly-records-pdf-target';
+
+  useEffect(() => {
+    if (!initialSearchTerm) return;
+    setSearchTerm(initialSearchTerm);
+  }, [initialSearchTerm]);
+
+  useEffect(() => {
+    if (pdfChildId || childOptions.length === 0) return;
+    setPdfChildId(childOptions[0].id);
+  }, [childOptions, pdfChildId]);
+
+  useEffect(() => {
+    const state: StoredRecordListState = {
+      searchTerm, statusFilter, templateFilter, dateMode, selectedDate, dateFrom, dateTo,
+      filtersOpen, monthlyPdfOpen, pdfChildId, pdfMonth, scrollY: initialState.current.scrollY,
+    };
+    initialState.current = state;
+    sessionStorage.setItem(RECORD_LIST_STATE_KEY, JSON.stringify(state));
+  }, [dateFrom, dateMode, dateTo, filtersOpen, monthlyPdfOpen, pdfChildId, pdfMonth, searchTerm, selectedDate, statusFilter, templateFilter]);
+
+  useEffect(() => {
+    const targetScroll = initialState.current.scrollY;
+    if (targetScroll <= 0) return;
+    const frame = window.requestAnimationFrame(() => window.scrollTo({ top: targetScroll, behavior: 'auto' }));
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
+
+  const rememberPosition = () => {
+    initialState.current = { ...initialState.current, scrollY: window.scrollY };
+    sessionStorage.setItem(RECORD_LIST_STATE_KEY, JSON.stringify(initialState.current));
+  };
+
+  const openRecord = (record: SupportRecord) => {
+    rememberPosition();
+    onSelectRecord(record);
+  };
+
+  const exportMonthlyPdf = async () => {
+    if (!pdfChildId || monthlyPdfRecords.length === 0) return;
+    setExportingPdf(true);
+    setPdfError('');
+    try {
+      const safeName = pdfChildName.replace(/[\\/:*?"<>|]/g, '_');
+      await generatePagedPDFFromElement(monthlyPdfTargetId, `${safeName}_${pdfMonth}_支援経過記録.pdf`);
+    } catch (error) {
+      setPdfError(error instanceof Error ? error.message : '月間PDFを作成できませんでした。');
+    } finally {
+      setExportingPdf(false);
+    }
+  };
 
   // Filter records
   const filteredRecords = records.filter((r) => {
@@ -70,6 +168,7 @@ export const RecordList: React.FC<RecordListProps> = ({
     setSelectedDate(today);
     setDateFrom(today);
     setDateTo(today);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   return (
@@ -90,7 +189,7 @@ export const RecordList: React.FC<RecordListProps> = ({
           </p>
         </div>
 
-        <div className="flex w-full gap-2 md:w-auto">
+        <div className="grid w-full grid-cols-2 gap-2 md:flex md:w-auto">
           <button
             type="button"
             disabled={filteredRecords.length === 0}
@@ -100,6 +199,14 @@ export const RecordList: React.FC<RecordListProps> = ({
             <Download className="h-4 w-4" />表示中をCSV出力
           </button>
           <button
+            type="button"
+            onClick={() => setMonthlyPdfOpen((current) => !current)}
+            className="flex min-h-11 items-center justify-center gap-2 rounded-lg border border-teal-200 bg-teal-50 px-4 text-xs font-black text-teal-800 md:flex-none"
+            aria-expanded={monthlyPdfOpen}
+          >
+            <CalendarRange className="h-4 w-4" />月間PDF<ChevronDown className={`h-3.5 w-3.5 transition-transform ${monthlyPdfOpen ? 'rotate-180' : ''}`} />
+          </button>
+          <button
             onClick={onNewRecord}
             className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-teal-600 px-4 text-xs font-bold text-white shadow-xs transition-all hover:bg-teal-500 md:flex-none"
           >
@@ -107,6 +214,32 @@ export const RecordList: React.FC<RecordListProps> = ({
           </button>
         </div>
       </div>
+
+      {monthlyPdfOpen && (
+        <section className="ui-panel-enter rounded-2xl border border-teal-200 bg-white p-4 shadow-sm" aria-label="児童1か月分のPDF出力">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+            <div className="min-w-0 flex-1">
+              <h3 className="text-sm font-black text-slate-950">児童1か月分を1つのPDFにまとめる</h3>
+              <p className="mt-1 text-[11px] leading-relaxed text-slate-500">表紙の後に、対象月の記録を日付順で収録します。</p>
+            </div>
+            <label className="text-xs font-black text-slate-600">児童
+              <select value={pdfChildId} onChange={(event) => setPdfChildId(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm lg:w-56">
+                <option value="">児童を選択</option>
+                {childOptions.map((child) => <option key={child.id} value={child.id}>{child.name}</option>)}
+              </select>
+            </label>
+            <label className="text-xs font-black text-slate-600">対象月
+              <input type="month" value={pdfMonth} onChange={(event) => setPdfMonth(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm lg:w-44" />
+            </label>
+            <button type="button" disabled={exportingPdf || monthlyPdfRecords.length === 0} onClick={() => void exportMonthlyPdf()} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-teal-700 px-5 text-sm font-black text-white disabled:bg-slate-300">
+              {exportingPdf ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+              {exportingPdf ? '作成中…' : `${monthlyPdfRecords.length}件をPDF出力`}
+            </button>
+          </div>
+          {pdfError && <p className="mt-3 rounded-xl bg-rose-50 p-3 text-xs font-bold text-rose-800" role="alert">{pdfError}</p>}
+          {pdfChildId && monthlyPdfRecords.length === 0 && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs font-bold text-amber-900">選択した月の保存済み記録はありません。</p>}
+        </section>
+      )}
 
       {/* Search & Filter Bar */}
       <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
@@ -208,7 +341,7 @@ export const RecordList: React.FC<RecordListProps> = ({
               const summary = study?.detailText || life?.detailText || record.synthesizedSummary || '記録内容あり';
               return (
                 <article key={record.id} className="p-4">
-                  <button type="button" onClick={() => onSelectRecord(record)} className="w-full text-left">
+                  <button type="button" onClick={() => openRecord(record)} className="w-full text-left">
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="text-base font-black text-slate-950">{record.childName}</p>
@@ -226,7 +359,7 @@ export const RecordList: React.FC<RecordListProps> = ({
                     <p className="mt-2 text-[10px] text-slate-500">出欠：{record.attendance || '未回答'}・記録者：{record.recorderName}</p>
                   </button>
                   <div className="mt-3 grid grid-cols-2 gap-2">
-                    <button type="button" onClick={() => onSelectRecord(record)} className="flex min-h-10 items-center justify-center gap-1 rounded-lg bg-slate-900 text-xs font-black text-white"><Eye className="h-4 w-4" />確認</button>
+                    <button type="button" onClick={() => openRecord(record)} className="flex min-h-10 items-center justify-center gap-1 rounded-lg bg-slate-900 text-xs font-black text-white"><Eye className="h-4 w-4" />確認</button>
                     {record.approvalStatus === '要修正' && onCorrectRecord ? (
                       <button type="button" onClick={() => onCorrectRecord(record)} className="flex min-h-10 items-center justify-center gap-1 rounded-lg bg-rose-600 text-xs font-black text-white"><Wrench className="h-4 w-4" />修正</button>
                     ) : (
@@ -265,7 +398,7 @@ export const RecordList: React.FC<RecordListProps> = ({
                     <tr
                       key={r.id}
                       className="hover:bg-slate-50/80 transition-colors group cursor-pointer"
-                      onClick={() => onSelectRecord(r)}
+                      onClick={() => openRecord(r)}
                     >
                       <td className="p-3 font-mono font-bold text-slate-800 whitespace-nowrap">
                         {r.date}
@@ -315,7 +448,7 @@ export const RecordList: React.FC<RecordListProps> = ({
                         onClick={(e) => e.stopPropagation()}
                       >
                         <button
-                          onClick={() => onSelectRecord(r)}
+                          onClick={() => openRecord(r)}
                           className="p-1.5 hover:bg-slate-200 text-slate-700 rounded-md"
                           title="プレビュー・PDF"
                         >
@@ -364,6 +497,9 @@ export const RecordList: React.FC<RecordListProps> = ({
             </table>
           </div>
         </div>
+      )}
+      {pdfChildId && monthlyPdfRecords.length > 0 && (
+        <MonthlyRecordsPDFDocument id={monthlyPdfTargetId} records={monthlyPdfRecords} childName={pdfChildName} month={pdfMonth} />
       )}
     </div>
   );

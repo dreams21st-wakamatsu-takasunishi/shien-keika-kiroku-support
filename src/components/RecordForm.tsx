@@ -913,6 +913,11 @@ interface MockExamAttempt {
   pastRound: string;
 }
 
+interface WritingPracticeAttempt {
+  round: string;
+  characterCount: string;
+}
+
 function getMockExamAttempts(details: Record<string, string | string[]>): MockExamAttempt[] {
   const counts = detailArray(details, 'mockCharacterCounts');
   const rounds = detailArray(details, 'mockPastRounds');
@@ -937,6 +942,27 @@ function withMockExamAttempts(
   delete next.mockCharacterCount;
   delete next.mockPastRound;
   return next;
+}
+
+function getWritingPracticeAttempts(details: Record<string, string | string[]>): WritingPracticeAttempt[] {
+  const rounds = detailArray(details, 'writingPracticeRounds');
+  const counts = detailArray(details, 'writingPracticeCharacterCounts');
+  const count = Math.max(rounds.length, counts.length, 1);
+  return Array.from({ length: count }, (_, index) => ({
+    round: String(rounds[index] || ''),
+    characterCount: String(counts[index] || ''),
+  }));
+}
+
+function withWritingPracticeAttempts(
+  details: Record<string, string | string[]>,
+  attempts: WritingPracticeAttempt[],
+) {
+  return {
+    ...details,
+    writingPracticeRounds: attempts.map((attempt) => attempt.round),
+    writingPracticeCharacterCounts: attempts.map((attempt) => attempt.characterCount),
+  };
 }
 
 function clampHandCount(value: string) {
@@ -1439,7 +1465,16 @@ function ThirdPeriodInput({
     } else if (nextMode === 'パソコン') {
       const activities = detailArray(nextDetails, 'pcActivities');
       const other = activities.includes('その他') ? String(nextDetails.pcOtherNote || '').trim() : '';
-      const detailParts = [...activities.filter((item) => item !== 'その他'), other && `その他：${other}`].filter(Boolean);
+      const writingAttempts = activities.includes('文章入力練習')
+        ? getWritingPracticeAttempts(nextDetails).filter((attempt) => attempt.round || attempt.characterCount)
+        : [];
+      const detailParts = [
+        ...activities.filter((item) => !['文章入力練習', 'その他'].includes(item)),
+        activities.includes('文章入力練習')
+          ? `文章入力練習${writingAttempts.length ? `（${writingAttempts.map((attempt) => `第${attempt.round || '—'}回・${attempt.characterCount || '—'}文字`).join('、')}）` : ''}`
+          : '',
+        other && `その他：${other}`,
+      ].filter(Boolean);
       value = detailParts.length ? `パソコン（${detailParts.join('・')}）` : 'パソコン';
     } else if (nextMode === 'その他') {
       const other = String(nextDetails.otherNote || '').trim();
@@ -1459,6 +1494,8 @@ function ThirdPeriodInput({
       ...(nextMode === 'パソコン' ? {
         pcActivities: detailArray(details, 'pcActivities'),
         pcOtherNote: details.pcOtherNote || '',
+        writingPracticeRounds: detailArray(details, 'writingPracticeRounds'),
+        writingPracticeCharacterCounts: detailArray(details, 'writingPracticeCharacterCounts'),
       } : {}),
       ...(nextMode === 'その他' ? { otherNote: details.otherNote || '' } : {}),
     });
@@ -1509,6 +1546,26 @@ function ThirdPeriodInput({
               return <button key={option} type="button" onClick={() => toggleActivity('pcActivities', option)} className={`${choiceClass} ${selected ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300 bg-white text-slate-700'}`}>{selected && <Check className="mr-1 inline h-4 w-4" />}{option}</button>;
             })}
           </div>
+          {detailArray(details, 'pcActivities').includes('文章入力練習') && (
+            <div className="space-y-2 rounded-xl border border-indigo-200 bg-white p-3">
+              <div>
+                <strong className="text-sm text-slate-900">文章入力練習の結果</strong>
+                <p className="mt-0.5 text-[11px] text-slate-500">取り組んだ回ごとに「回」と「文字数」を登録できます。</p>
+              </div>
+              {getWritingPracticeAttempts(details).map((attempt, index, attempts) => (
+                <div key={index} className="grid grid-cols-[1fr_1fr_auto] items-end gap-2 rounded-xl bg-indigo-50 p-2">
+                  <label className="text-[11px] font-black text-slate-600">回
+                    <div className="mt-1 flex items-center gap-1"><span className="shrink-0 text-xs">第</span><input type="number" min="1" inputMode="numeric" value={attempt.round} onChange={(event) => { const next = [...attempts]; next[index] = { ...attempt, round: event.target.value }; commit(withWritingPracticeAttempts({ ...details, mode }, next)); }} className="min-h-11 min-w-0 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm" /><span className="shrink-0 text-xs">回</span></div>
+                  </label>
+                  <label className="text-[11px] font-black text-slate-600">文字数
+                    <div className="mt-1 flex items-center gap-1"><input type="number" min="0" inputMode="numeric" value={attempt.characterCount} onChange={(event) => { const next = [...attempts]; next[index] = { ...attempt, characterCount: event.target.value }; commit(withWritingPracticeAttempts({ ...details, mode }, next)); }} className="min-h-11 min-w-0 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm" /><span className="shrink-0 text-xs">文字</span></div>
+                  </label>
+                  <button type="button" disabled={attempts.length === 1} onClick={() => commit(withWritingPracticeAttempts({ ...details, mode }, attempts.filter((_, attemptIndex) => attemptIndex !== index)))} className="grid h-11 w-11 place-items-center rounded-lg border border-rose-200 text-rose-600 disabled:opacity-30" aria-label={`${index + 1}件目を削除`}><Trash2 className="h-4 w-4" /></button>
+                </div>
+              ))}
+              <button type="button" onClick={() => commit(withWritingPracticeAttempts({ ...details, mode }, [...getWritingPracticeAttempts(details), { round: '', characterCount: '' }]))} className="min-h-11 w-full rounded-xl border border-dashed border-indigo-300 bg-indigo-50 text-xs font-black text-indigo-800">＋ 取り組み回を追加</button>
+            </div>
+          )}
           {detailArray(details, 'pcActivities').includes('その他') && <textarea rows={2} value={String(details.pcOtherNote || '')} onChange={(event) => commit({ ...details, mode, pcOtherNote: event.target.value })} placeholder="パソコンのその他の内容" className={inputClass} />}
         </div>
       )}
@@ -2849,52 +2906,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     return field ? fieldIsVisible(field, childDraft, step.sectionId) : false;
   };
 
-  const fieldAnswerIsComplete = (field: TemplateField, answer?: SectionFieldAnswer) => {
-    if (!answer?.value?.trim()) return false;
-    if (field.type === 'homework_subjects') {
-      const homework = normalizeHomeworkDetails(answer.homeworkDetails, answer.value);
-      return homework.subjects.length > 0 && homework.subjects.every((subject) =>
-        HOMEWORK_ACADEMIC_SUBJECTS.includes(subject as (typeof HOMEWORK_ACADEMIC_SUBJECTS)[number])
-          ? (homework.materials[subject] || []).length > 0
-          : subject === 'その他'
-            ? HOMEWORK_OTHER_MODES.includes(homework.notes['その他区分'] as (typeof HOMEWORK_OTHER_MODES)[number])
-            : Boolean(homework.notes[subject]?.trim())
-      );
-    }
-    if (field.type === 'study_extras') {
-      const details = answer.nestedDetails || {};
-      const selections = detailArray(details, 'selections');
-      return selections.length > 0
-        && (!selections.includes('漢検') || (
-          Boolean(String(details.kankenGrade || '').trim())
-          && detailArray(details, 'kankenActivities').length > 0
-          && (!detailArray(details, 'kankenActivities').includes('その他') || Boolean(String(details.kankenOtherNote || '').trim()))
-        ))
-        && (!selections.includes('エジソン') || detailArray(details, 'edisonActivities').length > 0)
-        && (!selections.includes('その他') || Boolean(String(details.otherNote || '').trim()));
-    }
-    if (field.type === 'pc_activities') {
-      const details = answer.nestedDetails || {};
-      const selections = detailArray(details, 'selections');
-      const attempts = getMockExamAttempts(details);
-      return selections.length > 0
-        && (!selections.includes('Dレッスン') || detailArray(details, 'dLessonActivities').length > 0)
-        && (!selections.includes('文章入力模擬試験') || attempts.every((attempt) =>
-          Boolean(attempt.characterCount.trim()) && Boolean(attempt.pastRound.trim())
-        ))
-        && (!selections.includes('その他') || Boolean(String(details.otherNote || '').trim()));
-    }
-    if (field.type === 'meal_details') {
-      const details = answer.nestedDetails || {};
-      const portion = String(details.portion || '').trim();
-      return Boolean(portion) && (portion === '食べていない' || Boolean(String(details.minutes || '').trim()));
-    }
-    if (field.type === 'hand_count' && answer.value !== 'タイピング練習に取り組んでいない') {
-      const counts = parseHandCount(answer.value);
-      return Boolean(counts.left) && Boolean(counts.right);
-    }
-    return true;
-  };
+  // The question index reports whether the user answered the question itself.
+  // Missing nested detail is surfaced by the pre-save checks as a targeted
+  // warning instead of contradicting the visible selected answer.
+  const fieldAnswerIsComplete = (_field: TemplateField, answer?: SectionFieldAnswer) => Boolean(answer?.value?.trim());
 
   const answerStatus = (step: WizardStep, childDraft?: ChildDraft, template = activeTemplate): AnswerStatus => {
     if (!childDraft) return 'unanswered';
@@ -2918,7 +2933,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       case 'abc-sequence':
         return section?.abcAnalysis?.inputMode === 'free'
           ? section.abcAnalysis.freeText?.trim() ? 'answered' : 'unanswered'
-          : section?.abcAnalysis?.summary?.trim() ? 'answered' : 'unanswered';
+          : section?.abcAnalysis?.summary?.trim()
+            || (section?.abcAnalysis?.antecedent?.trim() && section?.abcAnalysis?.behavior?.trim() && section?.abcAnalysis?.consequence?.trim())
+            ? 'answered'
+            : 'unanswered';
       default: return 'answered';
     }
   };
@@ -3341,6 +3359,24 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                 level: 'warning',
                 title: '左右どちらかの指本数が未入力です',
                 detail: '左・右の両方を0～5本で入力するか、「タイピング練習に取り組んでいない」を選択してください。',
+                stepId,
+              });
+            }
+          }
+          if (field.id.endsWith('_period3_type') && answer?.nestedDetails) {
+            const details = answer.nestedDetails;
+            const pcActivities = detailArray(details, 'pcActivities');
+            const attempts = getWritingPracticeAttempts(details);
+            if (String(details.mode || '') === 'パソコン'
+              && pcActivities.includes('文章入力練習')
+              && attempts.some((attempt) => !attempt.round.trim() || !attempt.characterCount.trim())) {
+              checks.push({
+                id: `${childId}-${stepId}-writing-practice`,
+                childId,
+                childName,
+                level: 'warning',
+                title: '文章入力練習の回または文字数が未入力です',
+                detail: '取り組んだ各回の「回」と「文字数」を確認してください。',
                 stepId,
               });
             }

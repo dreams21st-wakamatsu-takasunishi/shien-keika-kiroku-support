@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Clock3, Laptop, LockKeyhole, RefreshCw, Save, ShieldCheck, ShieldX, Smartphone } from 'lucide-react';
+import { Clock3, Laptop, LockKeyhole, RefreshCw, Save, ShieldCheck, ShieldX, Smartphone, Trash2 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import type { UserProfile } from '../types';
 
@@ -142,6 +142,20 @@ export const StaffDeviceManager: React.FC<{ currentUser: UserProfile }> = ({ cur
     setMessage(error
       ? `端末状態を更新できませんでした: ${error.message}`
       : action === 'approve' ? '端末を承認しました。' : '端末の利用許可を取り消しました。');
+    setBusy(false);
+    if (!error) await refresh();
+  };
+
+  const deleteDevice = async (device: StaffDeviceRow) => {
+    if (!supabase) return;
+    const confirmed = window.confirm(
+      `${recorderName(device)}さんの「${device.label}」を登録端末一覧から削除しますか？\n\n同じ端末で再度ログインすると、新しい端末として登録・承認が必要になります。過去の送迎操作履歴は削除されません。`,
+    );
+    if (!confirmed) return;
+    setBusy(true);
+    setMessage('');
+    const { error } = await supabase.rpc('delete_organization_device', { p_device_id: device.id });
+    setMessage(error ? `端末を削除できませんでした: ${error.message}` : '登録端末を削除しました。');
     setBusy(false);
     if (!error) await refresh();
   };
@@ -298,6 +312,9 @@ export const StaffDeviceManager: React.FC<{ currentUser: UserProfile }> = ({ cur
                       <LockKeyhole className="h-4 w-4" />再承認
                     </button>
                   )}
+                  <button type="button" disabled={busy} onClick={() => void deleteDevice(device)} className="flex min-h-10 items-center gap-1 rounded-lg border border-slate-200 px-3 text-xs font-black text-slate-600 hover:border-rose-200 hover:bg-rose-50 hover:text-rose-700 disabled:text-slate-300">
+                    <Trash2 className="h-4 w-4" />削除
+                  </button>
                 </div>
               </div>
             ))}
