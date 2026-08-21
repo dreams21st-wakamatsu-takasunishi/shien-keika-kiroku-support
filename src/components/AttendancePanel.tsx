@@ -17,6 +17,7 @@ import type {
   AttendanceStatus,
   RecorderProfile,
 } from '../types';
+import { AttendanceQrKiosk } from './AttendanceQr';
 
 type PunchAction = '出勤' | '退勤' | '休憩開始' | '休憩終了';
 
@@ -27,6 +28,8 @@ interface AttendancePanelProps {
   selectedDate: string;
   activeRecorder?: RecorderProfile;
   canManage: boolean;
+  canApproveCorrections: boolean;
+  qrKioskEnabled: boolean;
   onSaveRecord: (record: AttendanceRecord) => Promise<void> | void;
   onPunch: (recorder: RecorderProfile, pin: string, action: PunchAction) => Promise<void> | void;
   onRequestCorrection: (
@@ -56,6 +59,8 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
   selectedDate,
   activeRecorder,
   canManage,
+  canApproveCorrections,
+  qrKioskEnabled,
   onSaveRecord,
   onPunch,
   onRequestCorrection,
@@ -207,9 +212,12 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
             <h3 className="flex items-center gap-2 font-black text-slate-900"><Clock3 className="h-5 w-5 text-teal-600" />出勤・休憩打刻</h3>
             <p className="mt-1 text-xs text-slate-500">共通アカウントでは、本人の名前と個人PINで打刻者を確認します。</p>
           </div>
-          <button type="button" onClick={exportCsv} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-300 px-3 text-sm font-bold text-slate-700">
-            <Download className="h-4 w-4" />{monthPrefix} CSV
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <AttendanceQrKiosk enabled={qrKioskEnabled} />
+            <button type="button" onClick={exportCsv} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-300 px-3 text-sm font-bold text-slate-700">
+              <Download className="h-4 w-4" />{monthPrefix} CSV
+            </button>
+          </div>
         </div>
         <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_180px]">
           <label className="text-sm font-bold text-slate-700">指導員
@@ -269,7 +277,11 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
         </div>
       </section>
 
-      {canManage && pendingCorrections.length > 0 && (
+      {canManage && !canApproveCorrections && pendingCorrections.length > 0 && (
+        <p className="rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm font-bold text-sky-900"><ShieldCheck className="mr-2 inline h-5 w-5" />打刻修正の承認待ちが{pendingCorrections.length}件あります。承認・却下は管理者が行います。</p>
+      )}
+
+      {canApproveCorrections && pendingCorrections.length > 0 && (
         <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
           <h3 className="flex items-center gap-2 font-black text-amber-950"><ShieldCheck className="h-5 w-5" />打刻修正の承認待ち（{pendingCorrections.length}件）</h3>
           <div className="mt-3 space-y-2">

@@ -57,6 +57,8 @@ interface TodayWorkPanelProps {
   dailyChildPlans: DailyChildPlan[];
   activeRecorder?: RecorderProfile;
   canManage: boolean;
+  canApproveAttendanceCorrections: boolean;
+  attendanceQrEnabled: boolean;
   onSaveStaffSchedule: (item: StaffScheduleItem) => Promise<void> | void;
   onDeleteStaffSchedule: (itemId: string) => Promise<void> | void;
   onSaveCalendarEvent: (event: CalendarEvent) => Promise<void> | void;
@@ -95,6 +97,8 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
   dailyChildPlans,
   activeRecorder,
   canManage,
+  canApproveAttendanceCorrections,
+  attendanceQrEnabled,
   onSaveStaffSchedule,
   onDeleteStaffSchedule,
   onSaveCalendarEvent,
@@ -195,7 +199,7 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
         </>
       )}
       {view === 'calendar' && <CalendarPanel events={calendarEvents} recorderProfiles={recorderProfiles} childrenList={childrenList} selectedDate={selectedDate} onDateChange={setSelectedDate} canEdit={canManage} onSave={onSaveCalendarEvent} onDelete={onDeleteCalendarEvent} />}
-      {view === 'attendance' && <AttendancePanel records={attendanceRecords} corrections={attendanceCorrections} recorderProfiles={recorderProfiles} selectedDate={selectedDate} activeRecorder={activeRecorder} canManage={canManage} onSaveRecord={onSaveAttendance} onPunch={onPunchAttendance} onRequestCorrection={onRequestAttendanceCorrection} onReviewCorrection={onReviewAttendanceCorrection} />}
+      {view === 'attendance' && <AttendancePanel records={attendanceRecords} corrections={attendanceCorrections} recorderProfiles={recorderProfiles} selectedDate={selectedDate} activeRecorder={activeRecorder} canManage={canManage} canApproveCorrections={canApproveAttendanceCorrections} qrKioskEnabled={attendanceQrEnabled} onSaveRecord={onSaveAttendance} onPunch={onPunchAttendance} onRequestCorrection={onRequestAttendanceCorrection} onReviewCorrection={onReviewAttendanceCorrection} />}
       {view === 'transport' && (
         <TransportPanel
           runs={transportRuns}

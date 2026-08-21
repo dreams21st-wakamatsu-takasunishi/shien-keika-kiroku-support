@@ -3450,10 +3450,14 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
   const switchChild = (childId: string) => {
     const rememberedStepId = wizard.childStepIds[childId];
+    const targetTemplateSteps = buildStepsForTemplate(templateForChild(childId), wizard.childDrafts[childId]);
+    // The module picker is intentionally excluded from unanswered-question
+    // counts, but it is still a valid per-child return position.
+    const rememberedTarget = targetTemplateSteps.find((step) => step.id === rememberedStepId);
     const firstUnanswered = unansweredForChild(childId)[0];
     const targetSteps = childStepsForDraft(wizard.childDrafts[childId], childId);
-    const target = targetSteps.find((step) => step.id === rememberedStepId) || firstUnanswered || targetSteps[0];
-    const targetTemplateSteps = buildStepsForTemplate(templateForChild(childId), wizard.childDrafts[childId]);
+    const target = rememberedTarget || firstUnanswered || targetSteps[0]
+      || targetTemplateSteps.find((step) => step.kind === 'modules');
     const targetIndex = target ? targetTemplateSteps.findIndex((step) => step.id === target.id) : wizard.currentStepIndex;
     setStepError(null);
     setSaveError(null);
@@ -3461,7 +3465,14 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       ...previous,
       activeChildId: childId,
       currentStepIndex: Math.max(0, targetIndex),
-      childStepIds: target ? { ...previous.childStepIds, [childId]: target.id } : previous.childStepIds,
+      childStepIds: {
+        ...previous.childStepIds,
+        ...(currentStep && previous.activeChildId
+          && !['template', 'children', 'date', 'recorder', 'review'].includes(currentStep.kind)
+          ? { [previous.activeChildId]: currentStep.id }
+          : {}),
+        ...(target ? { [childId]: target.id } : {}),
+      },
     }));
     document.getElementById('question-index')?.removeAttribute('open');
     document.getElementById('record-wizard')?.scrollIntoView({ behavior: 'smooth', block: 'start' });

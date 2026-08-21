@@ -64,7 +64,7 @@ import { getDefaultDepartureTime } from '../utils/transportDeparture';
 import { getLocalDateString, getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
 import { inferTransportArea, resolvedTransportArea } from '../utils/transportArea';
 import { buildSiblingGroupByChild } from '../utils/childSiblings';
-import { findTransportMapLocation, findTransportZones } from '../utils/transportMap';
+import { findTransportMapLocation, findTransportZones, normalizeMapAddress } from '../utils/transportMap';
 import { getVehicleChildCapacity, getVehicleStaffSeatCount } from '../utils/vehicleCapacity';
 import {
   DailyTransportMiniMap,
@@ -507,6 +507,26 @@ function resolvedPlanningAreas(
   if (preferredAreas.length) return preferredAreas;
   const fallbackArea = resolvedTransportArea(resolved.locationAddress, resolved.locationArea);
   return fallbackArea ? [fallbackArea] : [];
+}
+
+function exactNavigationLocation(stop: TransportStop, mapLocations: TransportMapLocation[], childrenList: ChildProfile[]) {
+  const child = childrenList.find((candidate) => candidate.id === stop.childId);
+  const registeredSchoolLocation = (stop.locationType === '学校' || stop.locationType === '学童') && child?.schoolId
+    ? mapLocations.find((location) => location.id === `school:${child.schoolId}`)
+    : undefined;
+  const schoolLocation = registeredSchoolLocation
+    && normalizeMapAddress(registeredSchoolLocation.address) === normalizeMapAddress(stop.location)
+    ? registeredSchoolLocation
+    : undefined;
+  const mapLocation = schoolLocation || findTransportMapLocation(
+    mapLocations,
+    stop.childId,
+    stop.locationProfileId,
+    stop.location,
+  );
+  return mapLocation
+    ? `${mapLocation.latitude.toFixed(7)},${mapLocation.longitude.toFixed(7)}`
+    : stop.navigationLocation || stop.location.trim();
 }
 
 const ChildCardContent: React.FC<{
@@ -1125,29 +1145,61 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         return {
           id: `point-${index + 1}`,
           label: cluster.stops.map((item) => item.childName || item.locationName || '乗降地点').join('・'),
-          location: stop.location.trim(),
+          location: exactNavigationLocation(stop, transportMapLocations, childrenList),
         };
       });
-      const result: TransportRouteOptimizationResult = await optimizeTransportRoute({
+      const facilityMapLocation = transportMapLocations.find((location) => location.sourceType === 'facility');
+      const facilityNavigationLocation = facilityMapLocation
+        ? `${facilityMapLocation.latitude.toFixed(7)},${facilityMapLocation.longitude.toFixed(7)}`
+        : routeSettings.facilityAddress.trim();
+      const dwellSeconds = clusters.map((cluster) => clusterDwellMinutes(cluster, routeSettings) * 60);
+      const anchorMinute = calculationMode === 'fixed'
+        ? clusterTargetMinute(clusters[0])
+        : runAnchorMinute(run, calculationMode, transportPlanDay, routeSettings);
+      const requestRoute = (departureTime: string) => optimizeTransportRoute({
         transportRunId: run.id,
         serviceDate: run.date,
-        departureTime: run.startTime,
-        origin: routeSettings.facilityAddress.trim(),
-        destination: routeSettings.facilityAddress.trim(),
+        departureTime,
+        origin: facilityNavigationLocation,
+        destination: facilityNavigationLocation,
         stops: routeStops,
         avoidTolls: routeSettings.avoidTolls,
         avoidHighways: routeSettings.avoidHighways,
         preserveOrder: true,
       });
-      const legSeconds = clusters.map((_, index) => result.legs[index]?.durationSeconds || 0);
-      const returnLegSeconds = result.legs[clusters.length]?.durationSeconds || 0;
-      const dwellSeconds = clusters.map((cluster) => clusterDwellMinutes(cluster, routeSettings) * 60);
-      const totalElapsedSeconds = legSeconds.reduce((sum, value) => sum + value, 0)
-        + dwellSeconds.reduce((sum, value) => sum + value, 0)
-        + returnLegSeconds;
-      const anchorMinute = calculationMode === 'fixed'
-        ? clusterTargetMinute(clusters[0])
-        : runAnchorMinute(run, calculationMode, transportPlanDay, routeSettings);
+      const routeTiming = (routeResult: TransportRouteOptimizationResult) => {
+        const legSeconds = clusters.map((_, index) => routeResult.legs[index]?.durationSeconds || 0);
+        const returnLegSeconds = routeResult.legs[clusters.length]?.durationSeconds || 0;
+        return {
+          legSeconds,
+          returnLegSeconds,
+          totalElapsedSeconds: legSeconds.reduce((sum, value) => sum + value, 0)
+            + dwellSeconds.reduce((sum, value) => sum + value, 0)
+            + returnLegSeconds,
+        };
+      };
+      const firstDepartureMinute = calculationMode === 'departure_forward' && anchorMinute !== undefined
+        ? anchorMinute
+        : minutes(run.startTime);
+      let result: TransportRouteOptimizationResult = await requestRoute(formattedMinutes(firstDepartureMinute));
+      let timing = routeTiming(result);
+      let estimatedDepartureMinute = firstDepartureMinute;
+      if (calculationMode === 'arrival_backward' && anchorMinute !== undefined) {
+        estimatedDepartureMinute = anchorMinute - timing.totalElapsedSeconds / 60;
+        if (run.direction === '迎え' && transportPlanDay?.pickupMode === 'home') {
+          estimatedDepartureMinute = Math.max(estimatedDepartureMinute, minutes(routeSettings.holidayOpeningTime));
+        }
+      } else if (calculationMode === 'fixed' && anchorMinute !== undefined) {
+        estimatedDepartureMinute = anchorMinute - (timing.legSeconds[0] || 0) / 60;
+      }
+      // Backward/fixed schedules only reveal their actual departure after a
+      // first route pass. Recalculate once in that departure time band so the
+      // displayed traffic duration matches the departure shown to staff.
+      if (calculationMode !== 'departure_forward' && Math.abs(estimatedDepartureMinute - firstDepartureMinute) >= 5) {
+        result = await requestRoute(formattedMinutes(estimatedDepartureMinute));
+        timing = routeTiming(result);
+      }
+      const { legSeconds, returnLegSeconds, totalElapsedSeconds } = timing;
       let startMinute = minutes(run.startTime);
       const calculationWarnings: string[] = [];
       if (calculationMode === 'arrival_backward' && anchorMinute !== undefined) {
@@ -1217,7 +1269,10 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         return next;
       });
       const totalMinutes = Math.ceil(result.totalDurationSeconds / 60);
-      setRoutingNotice(`${run.name}：${timeModeShortLabel(calculationMode)}で、出発${updatedRun.startTime}・帰着${updatedRun.endTime}を反映しました。走行${totalMinutes}分・${(result.totalDistanceMeters / 1000).toFixed(1)}km。${[...result.warnings, ...calculationWarnings].join(' ')}`.trim());
+      const trafficLabel = result.trafficApplied
+        ? `出発${updatedRun.startTime}の交通予測を使用`
+        : '通常の道路時間を使用';
+      setRoutingNotice(`${run.name}：${timeModeShortLabel(calculationMode)}で、出発${updatedRun.startTime}・帰着${updatedRun.endTime}を反映しました。${trafficLabel}・走行${totalMinutes}分・${(result.totalDistanceMeters / 1000).toFixed(1)}km。${[...result.warnings, ...calculationWarnings].join(' ')}`.trim());
     } catch (routeError) {
       setRoutingNotice('');
       setError(routeError instanceof Error ? routeError.message : `${run.name}の時間を計算できませんでした。`);
@@ -1239,7 +1294,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
     setSaving(true);
     setError('');
     try {
-      for (const run of runsToSave) await onSaveRun({ ...run, name: run.name.trim(), driverName: activeRecorders.find((profile) => profile.id === run.driverRecorderProfileId)?.displayName, vehicleName: vehicles.find((vehicle) => vehicle.id === run.vehicleId)?.name, stops: run.stops.map((stop, index) => ({ ...stop, order: index + 1 })), updatedAt: new Date().toISOString() });
+      for (const run of runsToSave) await onSaveRun({ ...run, name: run.name.trim(), driverName: activeRecorders.find((profile) => profile.id === run.driverRecorderProfileId)?.displayName, vehicleName: vehicles.find((vehicle) => vehicle.id === run.vehicleId)?.name, stops: run.stops.map((stop, index) => ({ ...stop, navigationLocation: exactNavigationLocation(stop, transportMapLocations, childrenList), order: index + 1 })), updatedAt: new Date().toISOString() });
       for (const id of deletedIds) await onDeleteRun(id);
       onClose();
     } catch (saveError) {

@@ -472,6 +472,12 @@ export interface AttendanceCorrectionRequest {
   updatedAt: string;
 }
 
+export interface AttendanceQrChallenge {
+  token: string;
+  expiresAt: string;
+  refreshAfterSeconds: number;
+}
+
 export interface Vehicle {
   id: string;
   name: string;
@@ -553,6 +559,8 @@ export interface TransportStop {
   locationName?: string;
   locationType: TransportLocationType;
   location: string;
+  /** Exact map pin (lat,lng) used for navigation when available. */
+  navigationLocation?: string;
   timeMode?: TransportTimeMode;
   timeAnchorTime?: string;
   plannedTime?: string;
@@ -704,6 +712,8 @@ export interface TransportRouteOptimizationResult {
   totalDurationSeconds: number;
   legs: TransportRouteLeg[];
   encodedPolyline?: string;
+  trafficApplied?: boolean;
+  departureTimeUsed?: string;
   warnings: string[];
 }
 

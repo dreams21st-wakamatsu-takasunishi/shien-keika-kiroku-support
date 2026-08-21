@@ -1318,7 +1318,7 @@ export default function App() {
   };
 
   const handleReviewAttendanceCorrection = async (request: AttendanceCorrectionRequest, approved: boolean, note?: string) => {
-    if (!canManageSettings) throw new Error('打刻修正を承認できるのは児発管または管理者です。');
+    if (remoteMode && auth.profile?.role !== 'admin') throw new Error('打刻修正を承認できるのは管理者のみです。');
     try {
       if (organizationId) {
         await reviewAttendanceCorrection(organizationId, request.id, approved, note);

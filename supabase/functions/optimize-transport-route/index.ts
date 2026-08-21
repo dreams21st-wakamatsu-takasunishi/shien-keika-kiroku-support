@@ -114,8 +114,20 @@ Deno.serve(async (request) => {
   if (!googleMapsApiKey) return jsonResponse({ error: 'Google Maps API is not configured' }, 503);
 
   const requestedDeparture = new Date(`${serviceDate}T${departureTime}:00+09:00`);
-  const useTraffic = Number.isFinite(requestedDeparture.getTime())
-    && requestedDeparture.getTime() > Date.now() - 5 * 60 * 1000;
+  const validRequestedDeparture = Number.isFinite(requestedDeparture.getTime());
+  const effectiveDeparture = validRequestedDeparture ? new Date(requestedDeparture) : null;
+  let shiftedToComparableFuture = false;
+  // Google Routes does not provide historical traffic. When a past service
+  // date is recalculated, use the next same weekday/time so the estimate still
+  // reflects the requested departure time band instead of dropping traffic.
+  if (effectiveDeparture) {
+    const minimumDeparture = Date.now() + 5 * 60 * 1000;
+    while (effectiveDeparture.getTime() <= minimumDeparture) {
+      effectiveDeparture.setDate(effectiveDeparture.getDate() + 7);
+      shiftedToComparableFuture = true;
+    }
+  }
+  const useTraffic = Boolean(effectiveDeparture);
   const googleBody: Record<string, unknown> = {
     origin: { address: origin },
     destination: { address: destination },
@@ -132,7 +144,7 @@ Deno.serve(async (request) => {
   };
   if (useTraffic) {
     googleBody.routingPreference = 'TRAFFIC_AWARE';
-    googleBody.departureTime = requestedDeparture.toISOString();
+    googleBody.departureTime = effectiveDeparture!.toISOString();
   }
 
   const googleResponse = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
@@ -207,6 +219,15 @@ Deno.serve(async (request) => {
     duration_seconds: totalDurationSeconds,
   });
 
+  const warnings = [
+    ...(stops.length > 3
+      ? ['Googleマップを携帯ブラウザで開く場合、一部の経由地点が省略されることがあります。']
+      : []),
+    ...(shiftedToComparableFuture
+      ? ['指定日時が過去のため、同じ曜日・同じ出発時間帯の将来交通予測で計算しました。']
+      : []),
+    ...(!useTraffic ? ['出発日時を特定できなかったため、通常の道路所要時間で計算しました。'] : []),
+  ];
   return jsonResponse({
     provider: 'google_routes',
     optimizedStopIds: optimizedStops.map((stop) => stop.id),
@@ -214,8 +235,8 @@ Deno.serve(async (request) => {
     totalDurationSeconds,
     legs,
     encodedPolyline: route.polyline?.encodedPolyline || undefined,
-    warnings: stops.length > 3
-      ? ['Googleマップを携帯ブラウザで開く場合、一部の経由地点が省略されることがあります。']
-      : [],
+    trafficApplied: useTraffic,
+    departureTimeUsed: effectiveDeparture?.toISOString(),
+    warnings,
   });
 });

@@ -36,6 +36,7 @@ import {
 } from '../services/dataService';
 import { enableDeviceNotifications } from '../utils/deviceNotifications';
 import { getLocalDateString } from '../utils/weekdays';
+import { PersonalAttendanceQrPunch } from './AttendanceQr';
 
 interface PersonalTransportModeProps {
   currentUser: UserProfile;
@@ -71,13 +72,19 @@ function formatTime(value?: string) {
 }
 
 function buildMapUrl(run: TransportFieldRun) {
-  const locations = run.stops.map((stop) => stop.location).filter(Boolean);
+  const locations = run.stops.map((stop) => stop.navigationLocation || stop.location).filter(Boolean);
   if (locations.length === 0) return '';
   const destination = locations.at(-1)!;
   const waypoints = locations.slice(0, -1);
   const parameters = new URLSearchParams({ api: '1', destination, travelmode: 'driving' });
   if (waypoints.length > 0) parameters.set('waypoints', waypoints.join('|'));
   return `https://www.google.com/maps/dir/?${parameters.toString()}`;
+}
+
+function buildStopMapUrl(stop: TransportFieldStop) {
+  const destination = stop.navigationLocation || stop.location;
+  if (!destination) return '';
+  return `https://www.google.com/maps/dir/?${new URLSearchParams({ api: '1', destination, travelmode: 'driving' }).toString()}`;
 }
 
 export const PersonalTransportMode: React.FC<PersonalTransportModeProps> = ({ currentUser, onSignOut }) => {
@@ -276,6 +283,8 @@ export const PersonalTransportMode: React.FC<PersonalTransportModeProps> = ({ cu
           </div>
         )}
 
+        {serviceDate === getLocalDateString() && <PersonalAttendanceQrPunch currentUser={currentUser} />}
+
         <section className="rounded-2xl bg-white p-3 shadow-sm">
           <div className="flex items-center justify-between gap-2">
             <button type="button" onClick={() => setServiceDate((value) => shiftDate(value, -1))} className="grid h-11 w-11 place-items-center rounded-xl border border-slate-200" aria-label="前日"><ChevronLeft className="h-5 w-5" /></button>
@@ -401,6 +410,7 @@ const TransportStopCard: React.FC<{
   const arrived = findEvent(stop.events || [], 'arrived');
   const completedAction: TransportFieldAction = run.direction === '迎え' ? 'boarded' : 'dropped_off';
   const completed = findEvent(stop.events || [], completedAction);
+  const stopMapUrl = buildStopMapUrl(stop);
   return (
     <li className={`rounded-xl border p-3 ${completed ? 'border-emerald-200 bg-emerald-50/60' : 'border-slate-200'}`}>
       <div className="flex items-start gap-3">
@@ -408,6 +418,7 @@ const TransportStopCard: React.FC<{
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-black">{stop.childName || stop.locationName || `${index + 1}番目の乗降`}</h3><span className="text-xs font-black text-teal-800">予定 {stop.plannedTime || '—'}</span></div>
           <p className="mt-1 flex items-start gap-1 text-xs text-slate-600"><MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span>{stop.locationName || stop.locationType}{stop.location ? `・${stop.location}` : ''}</span></p>
+          {stopMapUrl && <a href={stopMapUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex min-h-9 items-center gap-1 rounded-lg border border-sky-200 bg-sky-50 px-3 text-[11px] font-black text-sky-800"><Route className="h-3.5 w-3.5" />この地点だけ地図を開く<ExternalLink className="h-3 w-3" /></a>}
           {stop.note && <p className="mt-2 rounded-lg bg-amber-50 p-2 text-[11px] font-bold text-amber-900">注意：{stop.note}</p>}
         </div>
       </div>

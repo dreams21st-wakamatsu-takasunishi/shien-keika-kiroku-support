@@ -156,7 +156,7 @@ const HOME_GUIDE: QuickGuideContent = {
 function workspaceGuide(workspace: HomeWorkspace): QuickGuideContent {
   const guides: Partial<Record<HomeWorkspace, QuickGuideContent>> = {
     dailyChanges: { title: '当日変更', summary: '急な欠席と送迎担当交代を、通常の設定画面を探さず処理します。', steps: ['変更種類を選びます。', '対象児童または送迎便を選びます。', '影響内容を確認して確定します。'], tips: ['出発済みの便は自動変更せず、運行中の職員へ連絡してください。'] },
-    todayWork: { title: '本日の業務', summary: '今日の職員配置、予定、出勤、送迎を確認します。', steps: ['確認したい日付を選びます。', '職員配置・予定・出勤・送迎のタブを選びます。', '変更は元データの画面から保存します。'] },
+    todayWork: { title: '本日の業務', summary: '今日の職員配置、予定、出勤、送迎を確認します。', steps: ['確認したい日付を選びます。', '職員配置・予定・出勤・送迎のタブを選びます。', '玄関端末では「出勤」から打刻用QRを全画面表示できます。', '変更は元データの画面から保存します。'] },
     monthlySchedule: { title: '月間予定', summary: '定期利用を基準に、追加利用・欠席・送迎条件を日別に調整します。', steps: ['対象月と表示単位を選びます。', '日付または児童・家庭・学校を選びます。', '変更内容を保存して日次送迎へ反映します。'] },
     operations: { title: '記録状況', summary: '児童ごとの未入力・入力中・保存済みを確認します。', steps: ['対象日を選びます。', '児童の状態を確認します。', '入力開始・再開・閲覧・引き継ぎを選びます。'] },
     communication: { title: '共有・連絡', summary: 'お知らせ、朝礼、申し送りを1か所で確認します。', steps: ['上部タブから種類を選びます。', '未確認の内容を開きます。', '確認または対応状況を登録します。'] },
@@ -443,6 +443,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             schools={schools}
             activeRecorder={activeRecorder}
             canManage={canManageSettings}
+            canApproveAttendanceCorrections={!organizationId || currentUser?.role === 'admin'}
+            attendanceQrEnabled={Boolean(organizationId)}
             onSaveStaffSchedule={onSaveStaffSchedule}
             onDeleteStaffSchedule={onDeleteStaffSchedule}
             onSaveCalendarEvent={onSaveCalendarEvent}

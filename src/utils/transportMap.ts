@@ -49,8 +49,9 @@ export function findTransportMapLocation(
 ) {
   const normalizedAddress = normalizeMapAddress(address);
   return locations.find((location) => childId && location.childId === childId
-    && locationProfileId && location.locationProfileId === locationProfileId
-    && (!normalizedAddress || normalizeMapAddress(location.address) === normalizedAddress))
+    && locationProfileId && location.locationProfileId === locationProfileId)
+  || locations.find((location) => locationProfileId
+      && location.locationProfileId === locationProfileId)
   || locations.find((location) => childId && location.childId === childId
       && normalizedAddress && normalizeMapAddress(location.address) === normalizedAddress)
   || locations.find((location) => normalizedAddress
