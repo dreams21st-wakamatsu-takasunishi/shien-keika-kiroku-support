@@ -213,7 +213,7 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
             <p className="mt-1 text-xs text-slate-500">共通アカウントでは、本人の名前と個人PINで打刻者を確認します。</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <AttendanceQrKiosk enabled={qrKioskEnabled} />
+            <AttendanceQrKiosk enabled={qrKioskEnabled} canRegister={canManage} />
             <button type="button" onClick={exportCsv} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-300 px-3 text-sm font-bold text-slate-700">
               <Download className="h-4 w-4" />{monthPrefix} CSV
             </button>

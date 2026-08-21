@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Camera, CheckCircle2, Clock3, QrCode, RefreshCw, X } from 'lucide-react';
 import type { AttendanceQrChallenge, AttendanceRecord, UserProfile } from '../types';
-import { issueAttendanceQrChallenge, punchAttendanceWithQr } from '../services/dataService';
+import { issueAttendanceQrChallenge, punchAttendanceWithQr, registerAttendanceKioskDevice } from '../services/dataService';
 
 const QR_PREFIX = 'shien-attendance:v1:';
 
@@ -28,17 +28,19 @@ function attendanceErrorMessage(error: unknown) {
   return raw || '打刻できませんでした。';
 }
 
-export function AttendanceQrKiosk({ enabled }: { enabled: boolean }) {
+export function AttendanceQrKiosk({ enabled, canRegister }: { enabled: boolean; canRegister: boolean }) {
   const [open, setOpen] = useState(false);
   const [challenge, setChallenge] = useState<AttendanceQrChallenge | null>(null);
   const [imageUrl, setImageUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [registrationRequired, setRegistrationRequired] = useState(false);
   const [now, setNow] = useState(Date.now());
 
   const issue = useCallback(async () => {
     setLoading(true);
     setError('');
+    setRegistrationRequired(false);
     try {
       const next = await issueAttendanceQrChallenge();
       const qr = await import('qrcode');
@@ -52,11 +54,27 @@ export function AttendanceQrKiosk({ enabled }: { enabled: boolean }) {
       setImageUrl(dataUrl);
       setNow(Date.now());
     } catch (cause) {
+      const raw = cause instanceof Error ? cause.message : String(cause || '');
+      setRegistrationRequired(raw.includes('ATTENDANCE_SHARED_DEVICE_REQUIRED'));
       setError(attendanceErrorMessage(cause));
     } finally {
       setLoading(false);
     }
   }, []);
+
+  const registerKiosk = async () => {
+    if (!window.confirm('この端末を施設共用の玄関QR端末として登録しますか？\n\n個人端末モード用に登録済みの場合は、施設共用端末へ切り替わります。')) return;
+    setLoading(true);
+    setError('');
+    try {
+      await registerAttendanceKioskDevice();
+      await issue();
+    } catch (cause) {
+      setError(attendanceErrorMessage(cause));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -93,6 +111,7 @@ export function AttendanceQrKiosk({ enabled }: { enabled: boolean }) {
             <section className="w-full max-w-xl rounded-3xl bg-white p-5 text-center text-slate-950 shadow-2xl sm:p-8">
               {loading && !imageUrl ? <div className="grid min-h-80 place-items-center"><RefreshCw className="h-12 w-12 animate-spin text-sky-700" /></div> : imageUrl ? <img src={imageUrl} alt="出退勤打刻用QRコード" className="mx-auto aspect-square w-full max-w-[min(60dvh,520px)]" /> : null}
               {error ? <p className="mt-3 rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-700"><AlertTriangle className="mr-1 inline h-5 w-5" />{error}</p> : <p className="mt-3 flex items-center justify-center gap-2 text-sm font-black text-slate-700"><Clock3 className="h-5 w-5 text-sky-700" />あと{remainingSeconds}秒有効・自動で切り替わります</p>}
+              {registrationRequired && canRegister && <button type="button" disabled={loading} onClick={() => void registerKiosk()} className="mt-4 min-h-12 w-full rounded-xl bg-sky-700 px-4 text-sm font-black text-white disabled:opacity-50"><QrCode className="mr-2 inline h-5 w-5" />この端末を玄関QR端末として登録</button>}
               <button type="button" disabled={loading} onClick={() => void issue()} className="mt-4 min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-black disabled:opacity-50"><RefreshCw className={`mr-2 inline h-4 w-4 ${loading ? 'animate-spin' : ''}`} />今すぐ更新</button>
             </section>
           </main>

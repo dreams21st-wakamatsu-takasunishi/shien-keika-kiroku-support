@@ -53,7 +53,7 @@ import { upgradeStandardWeekdayTemplate } from '../data/weekdayTemplate';
 import { upgradeStandardHolidayTemplate } from '../data/holidayTemplate';
 import { calculateSchoolGrade } from '../utils/schoolGrade';
 import { getLocalDateString } from '../utils/weekdays';
-import { getAccessDeviceToken } from '../utils/accessDevice';
+import { getAccessDeviceLabel, getAccessDevicePlatform, getAccessDeviceToken } from '../utils/accessDevice';
 import { resolvedTransportArea } from '../utils/transportArea';
 
 export interface WorkspaceData {
@@ -1038,6 +1038,16 @@ export async function issueAttendanceQrChallenge(): Promise<AttendanceQrChalleng
     expiresAt,
     refreshAfterSeconds: Math.max(30, Number(result.refreshAfterSeconds) || 90),
   };
+}
+
+export async function registerAttendanceKioskDevice() {
+  const { data, error } = await assertSupabase().rpc('register_attendance_kiosk_device', {
+    p_device_token: getAccessDeviceToken(),
+    p_label: getAccessDeviceLabel(),
+    p_platform: getAccessDevicePlatform(),
+  });
+  if (error) throw error;
+  return String(data || '');
 }
 
 export async function punchAttendanceWithQr(
