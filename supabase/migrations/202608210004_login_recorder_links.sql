@@ -52,7 +52,9 @@ with candidates as (
     and profile.role in ('manager', 'admin')
     and (recorder.auth_user_id is null or recorder.auth_user_id = profile.id)
 ), unique_profiles as (
-  select profile_id, min(recorder_id) as recorder_id
+  -- PostgreSQL does not define min(uuid). There is exactly one candidate in
+  -- this group, so take the first deterministic UUID from an ordered array.
+  select profile_id, (array_agg(recorder_id order by recorder_id))[1] as recorder_id
   from candidates
   group by profile_id
   having count(*) = 1
