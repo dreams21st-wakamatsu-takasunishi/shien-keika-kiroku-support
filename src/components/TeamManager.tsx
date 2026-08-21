@@ -159,10 +159,10 @@ export const TeamManager: React.FC<{ currentUser: UserProfile }> = ({ currentUse
       </div>
 
       <section className="rounded-xl border border-slate-200 bg-white p-2 shadow-xs">
-        <div className="grid grid-cols-2 gap-1 sm:grid-cols-3 lg:grid-cols-6" role="tablist" aria-label="職員管理項目">
+        <div className={`grid grid-cols-2 gap-1 sm:grid-cols-3 ${currentUser.role === 'admin' ? 'lg:grid-cols-6' : 'lg:grid-cols-5'}`} role="tablist" aria-label="職員管理項目">
           <TeamSectionButton active={activeSection === 'recorders'} icon={ClipboardList} label="記録者名簿" onClick={() => setActiveSection('recorders')} />
           <TeamSectionButton active={activeSection === 'devices'} icon={Laptop} label="端末・アクセス" onClick={() => setActiveSection('devices')} />
-          <TeamSectionButton active={activeSection === 'members'} icon={Users} label="ログイン職員" count={members.length} onClick={() => setActiveSection('members')} />
+          {currentUser.role === 'admin' && <TeamSectionButton active={activeSection === 'members'} icon={Users} label="ログイン職員" count={members.length} onClick={() => setActiveSection('members')} />}
           <TeamSectionButton active={activeSection === 'invite'} icon={MailPlus} label="メール招待" onClick={() => setActiveSection('invite')} />
           <TeamSectionButton
             active={activeSection === 'invitations'}
@@ -193,7 +193,7 @@ export const TeamManager: React.FC<{ currentUser: UserProfile }> = ({ currentUse
         </div>
       </form>}
 
-      {activeSection === 'members' && <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
+      {activeSection === 'members' && currentUser.role === 'admin' && <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         <div className="p-4 border-b"><h3 className="text-xs font-bold">登録済み職員</h3></div>
         {loading ? <p className="p-6 text-xs text-slate-500">読み込み中...</p> : (
           <div className="divide-y divide-slate-200">

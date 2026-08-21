@@ -476,6 +476,8 @@ export interface AttendanceQrChallenge {
   token: string;
   expiresAt: string;
   refreshAfterSeconds: number;
+  /** Server-synchronized issue time derived from the challenge expiry. */
+  serverNow: string;
 }
 
 export interface Vehicle {

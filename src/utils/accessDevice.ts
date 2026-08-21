@@ -34,7 +34,8 @@ export function getAccessDeviceLabel() {
       : /Safari\//i.test(userAgent)
         ? 'Safari'
         : 'ブラウザー';
-  return `${platform}・${browser}`;
+  const deviceSuffix = getAccessDeviceToken().slice(-6).toUpperCase();
+  return `${platform}・${browser}（${deviceSuffix}）`;
 }
 
 export function getAccessDevicePlatform() {

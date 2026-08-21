@@ -15,6 +15,7 @@ import {
   House,
   Menu,
   X,
+  ChevronDown,
   ChevronRight,
   LoaderCircle,
   RotateCcw,
@@ -73,6 +74,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [draftHidden, setDraftHidden] = useState<RecorderMenuItemId[]>([]);
   const [savingMenu, setSavingMenu] = useState(false);
   const [menuMessage, setMenuMessage] = useState('');
+  const [privilegedMenuOpen, setPrivilegedMenuOpen] = useState(false);
   const {
     state: appUpdateState,
     updateAvailable,
@@ -85,7 +87,8 @@ export const Header: React.FC<HeaderProps> = ({
     (!item.managerOnly || !currentUser || currentUser.role !== 'staff')
     && (!currentUser?.fieldModeOnly || fieldModeItems.has(item.tab))
   );
-  const roleItemIds = roleItems.map((item) => item.tab);
+  const privilegedItemIds = new Set<RecorderMenuItemId>(['templates', 'team']);
+  const roleItemIds = roleItems.filter((item) => !privilegedItemIds.has(item.tab)).map((item) => item.tab);
   const configuredOrder = activeRecorder?.menuPreferences?.order || [];
   const orderedIds = [
     ...configuredOrder.filter((item) => roleItemIds.includes(item)),
@@ -96,6 +99,13 @@ export const Header: React.FC<HeaderProps> = ({
     .filter((item) => item === 'home' || !hiddenItems.has(item))
     .map((item) => roleItems.find((candidate) => candidate.tab === item))
     .filter((item): item is (typeof navigationItems)[number] => Boolean(item));
+  const mainVisibleItems = visibleItems;
+  const privilegedItems = roleItems.filter((item) => privilegedItemIds.has(item.tab));
+  const privilegedMenuLabel = currentUser?.role === 'admin'
+    ? '管理者メニュー'
+    : currentUser?.role === 'manager'
+      ? '児発管メニュー'
+      : '管理メニュー';
   const currentItem = navigationItems.find((item) => item.tab === activeTab);
 
   useEffect(() => {
@@ -104,6 +114,7 @@ export const Header: React.FC<HeaderProps> = ({
       if (event.key === 'Escape') {
         setMenuOpen(false);
         setCustomizingMenu(false);
+        setPrivilegedMenuOpen(false);
       }
     };
     document.addEventListener('keydown', closeOnEscape);
@@ -115,6 +126,7 @@ export const Header: React.FC<HeaderProps> = ({
     setActiveTab(tab);
     setMenuOpen(false);
     setCustomizingMenu(false);
+    setPrivilegedMenuOpen(false);
   };
 
   const openMenuCustomizer = () => {
@@ -163,7 +175,7 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="mx-auto flex h-14 max-w-7xl items-center gap-2 px-2 sm:h-16 sm:px-5">
           <button
             type="button"
-            onClick={() => setMenuOpen(true)}
+            onClick={() => { setMenuOpen(true); setPrivilegedMenuOpen(activeTab === 'templates' || activeTab === 'team'); }}
             aria-label="画面メニューを開く"
             aria-expanded={menuOpen}
             className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-slate-200 transition-colors hover:bg-slate-800 hover:text-white"
@@ -223,7 +235,7 @@ export const Header: React.FC<HeaderProps> = ({
 
       {menuOpen && (
         <div className="fixed inset-0 z-[120] ui-fade-in" role="presentation">
-          <button type="button" aria-label="画面メニューを閉じる" onClick={() => { setMenuOpen(false); setCustomizingMenu(false); }} className="absolute inset-0 h-full w-full bg-slate-950/60 backdrop-blur-[2px]" />
+          <button type="button" aria-label="画面メニューを閉じる" onClick={() => { setMenuOpen(false); setCustomizingMenu(false); setPrivilegedMenuOpen(false); }} className="absolute inset-0 h-full w-full bg-slate-950/60 backdrop-blur-[2px]" />
           <aside role="dialog" aria-modal="true" aria-label="画面メニュー" className="app-safe-block ui-slide-in-left absolute inset-y-0 left-0 flex w-[min(88vw,22rem)] flex-col bg-white shadow-2xl">
             <header className="bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 p-4 text-white">
               <div className="flex items-center justify-between">
@@ -231,7 +243,7 @@ export const Header: React.FC<HeaderProps> = ({
                   <p className="text-[10px] font-black uppercase tracking-[0.16em] text-teal-300">画面メニュー</p>
                   <h2 className="mt-1 text-lg font-black">移動先を選択</h2>
                 </div>
-                <button type="button" onClick={() => { setMenuOpen(false); setCustomizingMenu(false); }} aria-label="閉じる" className="grid h-11 w-11 place-items-center rounded-xl bg-white/10"><X className="h-5 w-5" /></button>
+                <button type="button" onClick={() => { setMenuOpen(false); setCustomizingMenu(false); setPrivilegedMenuOpen(false); }} aria-label="閉じる" className="grid h-11 w-11 place-items-center rounded-xl bg-white/10"><X className="h-5 w-5" /></button>
               </div>
               <div className="mt-4 rounded-2xl border border-white/10 bg-white/10 p-3">
                 <p className="text-[10px] font-bold text-slate-300">現在の操作担当</p>
@@ -306,7 +318,7 @@ export const Header: React.FC<HeaderProps> = ({
                   )}
                   {menuMessage && <p role="status" className="rounded-xl bg-emerald-50 px-3 py-2 text-[11px] font-bold text-emerald-800">{menuMessage}</p>}
                   <div className="space-y-1">
-                    {visibleItems.map((item) => {
+                    {mainVisibleItems.map((item) => {
                       const Icon = item.icon;
                       const selected = activeTab === item.tab;
                       return (
@@ -321,6 +333,43 @@ export const Header: React.FC<HeaderProps> = ({
                         </button>
                       );
                     })}
+                    {privilegedItems.length > 0 && (
+                      <div className={`overflow-hidden rounded-2xl border transition-colors ${privilegedItems.some((item) => item.tab === activeTab) ? 'border-indigo-200 bg-indigo-50/70' : 'border-slate-200 bg-white'}`}>
+                        <button
+                          type="button"
+                          onClick={() => setPrivilegedMenuOpen((current) => !current)}
+                          aria-expanded={privilegedMenuOpen}
+                          className="flex min-h-16 w-full items-center gap-3 px-3 text-left"
+                        >
+                          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-indigo-100 text-indigo-700"><ShieldCheck className="h-5 w-5" /></span>
+                          <span className="min-w-0 flex-1">
+                            <strong className="block text-sm text-slate-900">{privilegedMenuLabel}</strong>
+                            <span className="mt-0.5 block text-[10px] text-slate-500">役割に応じた設定・職員管理</span>
+                          </span>
+                          <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform ${privilegedMenuOpen ? 'rotate-180' : ''}`} />
+                        </button>
+                        {privilegedMenuOpen && (
+                          <div className="ui-panel-enter space-y-1 border-t border-indigo-100 bg-white p-2">
+                            {privilegedItems.map((item) => {
+                              const Icon = item.icon;
+                              const selected = activeTab === item.tab;
+                              const nestedLabel = item.tab === 'templates'
+                                ? '事業所・記録設定'
+                                : currentUser?.role === 'admin'
+                                  ? '職員・権限・端末管理'
+                                  : '記録者・端末・招待管理';
+                              return (
+                                <button key={item.tab} type="button" onClick={() => openTab(item.tab)} aria-current={selected ? 'page' : undefined} className={`flex min-h-14 w-full items-center gap-3 rounded-xl px-3 text-left ${selected ? 'bg-indigo-50 text-indigo-950' : 'text-slate-700 hover:bg-slate-50'}`}>
+                                  <Icon className={`h-4 w-4 shrink-0 ${selected ? 'text-indigo-700' : 'text-slate-500'}`} />
+                                  <span className="min-w-0 flex-1"><strong className="block text-xs">{nestedLabel}</strong><span className="mt-0.5 block text-[9px] text-slate-500">{item.description}</span></span>
+                                  <ChevronRight className="h-4 w-4 text-slate-300" />
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               )}

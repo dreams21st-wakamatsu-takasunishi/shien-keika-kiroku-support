@@ -1033,10 +1033,14 @@ export async function issueAttendanceQrChallenge(): Promise<AttendanceQrChalleng
   const token = String(result.token || '');
   const expiresAt = String(result.expiresAt || '');
   if (!token || !expiresAt) throw new Error('打刻用QRコードを発行できませんでした。');
+  const expiryTime = new Date(expiresAt).getTime();
   return {
     token,
     expiresAt,
     refreshAfterSeconds: Math.max(30, Number(result.refreshAfterSeconds) || 90),
+    serverNow: Number.isFinite(expiryTime)
+      ? new Date(expiryTime - 2 * 60 * 1000).toISOString()
+      : new Date().toISOString(),
   };
 }
 

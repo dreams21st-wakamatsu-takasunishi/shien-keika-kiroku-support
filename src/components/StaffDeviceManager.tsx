@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Clock3, Laptop, LockKeyhole, RefreshCw, Save, ShieldCheck, ShieldX, Smartphone, Trash2 } from 'lucide-react';
+import { Clock3, Laptop, LockKeyhole, Pencil, RefreshCw, Save, ShieldCheck, ShieldX, Smartphone, Trash2, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import type { UserProfile } from '../types';
 
@@ -64,6 +64,8 @@ export const StaffDeviceManager: React.FC<{ currentUser: UserProfile }> = ({ cur
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [editingDeviceId, setEditingDeviceId] = useState<string | null>(null);
+  const [editingDeviceLabel, setEditingDeviceLabel] = useState('');
 
   const refresh = async () => {
     if (!supabase) return;
@@ -107,7 +109,7 @@ export const StaffDeviceManager: React.FC<{ currentUser: UserProfile }> = ({ cur
   const savePolicy = async () => {
     if (!supabase) return;
     if (policy.deviceApprovalEnabled && !window.confirm(
-      '端末承認を有効にすると、未登録の職員ID端末は承認されるまでログインできません。共有アカウントは別設定です。続けますか？'
+      '端末承認を有効にすると、未登録の職員ID端末は承認されるまでログインできません。管理者アカウントと共有アカウントは対象外です。続けますか？'
     )) return;
     setBusy(true);
     setMessage('');
@@ -160,6 +162,39 @@ export const StaffDeviceManager: React.FC<{ currentUser: UserProfile }> = ({ cur
     if (!error) await refresh();
   };
 
+  const startRenamingDevice = (device: StaffDeviceRow) => {
+    setEditingDeviceId(device.id);
+    setEditingDeviceLabel(device.label);
+    setMessage('');
+  };
+
+  const renameDevice = async (device: StaffDeviceRow) => {
+    if (!supabase) return;
+    const nextLabel = editingDeviceLabel.trim();
+    if (!nextLabel) return setMessage('端末名を入力してください。');
+    if (nextLabel.length > 160) return setMessage('端末名は160文字以内で入力してください。');
+    if (devices.some((candidate) => candidate.id !== device.id && candidate.label.trim().toLocaleLowerCase('ja-JP') === nextLabel.toLocaleLowerCase('ja-JP'))) {
+      return setMessage('同じ端末名は登録できません。別の名称を入力してください。');
+    }
+    setBusy(true);
+    setMessage('');
+    const { error } = await supabase.rpc('rename_organization_device', {
+      p_device_id: device.id,
+      p_label: nextLabel,
+    });
+    if (error) {
+      setMessage(error.message.includes('DEVICE_LABEL_DUPLICATE') || error.code === '23505'
+        ? '同じ端末名は登録できません。別の名称を入力してください。'
+        : `端末名を変更できませんでした: ${error.message}`);
+    } else {
+      setMessage('端末名を変更しました。');
+      setEditingDeviceId(null);
+      setEditingDeviceLabel('');
+      await refresh();
+    }
+    setBusy(false);
+  };
+
   const pendingCount = devices.filter((device) => device.status === 'pending').length;
 
   return (
@@ -182,7 +217,7 @@ export const StaffDeviceManager: React.FC<{ currentUser: UserProfile }> = ({ cur
         <div className="mt-4 grid gap-3 lg:grid-cols-2">
           <PolicyToggle
             title="新しい端末を承認制にする"
-            description="職員IDで初めて使う端末を、管理者・児発管の承認待ちにします。"
+            description="職員・児発管が職員IDで初めて使う端末を承認待ちにします。管理者アカウントは承認不要です。"
             checked={policy.deviceApprovalEnabled}
             onChange={(checked) => setPolicy((current) => ({ ...current, deviceApprovalEnabled: checked }))}
           />
@@ -273,7 +308,18 @@ export const StaffDeviceManager: React.FC<{ currentUser: UserProfile }> = ({ cur
                       {device.status === 'approved' ? '承認済み' : device.status === 'pending' ? '承認待ち' : '利用停止'}
                     </span>
                   </div>
-                  <p className="mt-1 truncate text-xs font-bold text-slate-700">{device.label}</p>
+                  {editingDeviceId === device.id ? (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <input autoFocus value={editingDeviceLabel} maxLength={160} onChange={(event) => setEditingDeviceLabel(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); void renameDevice(device); } }} aria-label="端末名" className="min-h-10 min-w-0 flex-1 rounded-lg border border-indigo-300 bg-white px-3 text-xs font-bold text-slate-900" />
+                      <button type="button" disabled={busy} onClick={() => void renameDevice(device)} className="flex min-h-10 items-center gap-1 rounded-lg bg-indigo-700 px-3 text-xs font-black text-white disabled:opacity-50"><Save className="h-4 w-4" />保存</button>
+                      <button type="button" disabled={busy} onClick={() => { setEditingDeviceId(null); setEditingDeviceLabel(''); }} className="grid h-10 w-10 place-items-center rounded-lg border border-slate-200 text-slate-600" aria-label="端末名の変更を取り消す"><X className="h-4 w-4" /></button>
+                    </div>
+                  ) : (
+                    <div className="mt-1 flex min-w-0 items-center gap-2">
+                      <p className="min-w-0 flex-1 truncate text-xs font-bold text-slate-700">{device.label}</p>
+                      <button type="button" disabled={busy} onClick={() => startRenamingDevice(device)} className="flex min-h-9 shrink-0 items-center gap-1 rounded-lg border border-slate-200 px-2 text-[10px] font-black text-slate-600"><Pencil className="h-3.5 w-3.5" />名称変更</button>
+                    </div>
+                  )}
                   <p className="mt-1 text-[10px] text-slate-500">申請 {formatDateTime(device.requested_at)}・最終確認 {formatDateTime(device.last_seen_at)}</p>
                 </div>
 

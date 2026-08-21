@@ -97,6 +97,15 @@ Deno.serve(async (request) => {
     .maybeSingle();
   if (!recorder?.auth_user_id) return genericLoginError();
 
+  const { data: loginProfile } = await serviceClient
+    .from('profiles')
+    .select('role, active')
+    .eq('id', recorder.auth_user_id)
+    .eq('organization_id', organization.id)
+    .maybeSingle();
+  if (!loginProfile?.active) return genericLoginError();
+  const administratorLogin = loginProfile.role === 'admin';
+
   const { data: authUser, error: authUserError } = await serviceClient.auth.admin.getUserById(recorder.auth_user_id);
   const email = authUser.user?.email;
   if (authUserError || !email) return genericLoginError();
@@ -108,6 +117,10 @@ Deno.serve(async (request) => {
   if (error || !data.session) return genericLoginError();
 
   const tokenHash = await sha256Hex(deviceToken);
+  const deviceSuffix = `（${deviceToken.slice(-6).toUpperCase()}）`;
+  const registrationLabel = deviceLabel.endsWith(deviceSuffix)
+    ? deviceLabel
+    : `${deviceLabel.slice(0, Math.max(1, 160 - deviceSuffix.length))}${deviceSuffix}`;
   const { data: existingDevice } = await serviceClient
     .from('organization_devices')
     .select('id, status, device_kind, owner_recorder_profile_id, transport_mode_only')
@@ -117,13 +130,13 @@ Deno.serve(async (request) => {
 
   let device = existingDevice;
   if (!device) {
-    const initiallyApproved = organization.device_approval_enabled !== true;
+    const initiallyApproved = administratorLogin || organization.device_approval_enabled !== true;
     const { data: inserted, error: deviceError } = await serviceClient
       .from('organization_devices')
       .insert({
         organization_id: organization.id,
         token_hash: tokenHash,
-        label: deviceLabel,
+        label: registrationLabel,
         platform,
         device_kind: 'personal',
         owner_recorder_profile_id: recorder.id,
@@ -145,15 +158,14 @@ Deno.serve(async (request) => {
     await serviceClient
       .from('organization_devices')
       .update({
-        label: deviceLabel,
         platform,
         last_seen_at: new Date().toISOString(),
-        ...(!organization.device_approval_enabled && device.status === 'pending'
+        ...((administratorLogin || !organization.device_approval_enabled) && device.status === 'pending'
           ? { status: 'approved', approved_at: new Date().toISOString() }
           : {}),
       })
       .eq('id', device.id);
-    if (!organization.device_approval_enabled && device.status === 'pending') {
+    if ((administratorLogin || !organization.device_approval_enabled) && device.status === 'pending') {
       device = { ...device, status: 'approved' };
     }
   }
@@ -161,7 +173,7 @@ Deno.serve(async (request) => {
   if (device.status === 'revoked') {
     return jsonResponse({ error: 'この端末の利用許可は取り消されています。', code: 'DEVICE_REVOKED' }, 403);
   }
-  if (organization.device_approval_enabled && device.status !== 'approved') {
+  if (!administratorLogin && organization.device_approval_enabled && device.status !== 'approved') {
     return jsonResponse({ error: 'この端末は管理者または児発管の承認待ちです。承認後にもう一度ログインしてください。', code: 'DEVICE_PENDING' }, 403);
   }
   if (device.device_kind === 'personal' && !isWithinPersonalAccessTime(organization)) {

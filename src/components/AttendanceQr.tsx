@@ -22,6 +22,7 @@ function attendanceErrorMessage(error: unknown) {
   if (raw.includes('ATTENDANCE_QR_INVALID')) return 'このQRコードは打刻に使用できません。玄関端末に表示中のQRコードを読み取ってください。';
   if (raw.includes('ATTENDANCE_SHARED_DEVICE_REQUIRED')) return '玄関QRは、承認済みの「施設共用端末」で表示してください。端末管理から種類と承認状態を確認してください。';
   if (raw.includes('ATTENDANCE_PERSONAL_DEVICE_REQUIRED')) return '承認済みの個人端末からのみ打刻できます。端末登録を確認してください。';
+  if (raw.includes('DEVICE_LABEL_DUPLICATE') || raw.includes('organization_devices_org_label_unique_idx')) return '同じ端末名がすでに登録されています。端末・アクセス管理で既存端末の名称を変更してください。';
   if (raw.includes('ATTENDANCE_ALREADY_CLOCKED_IN')) return '本日はすでに出勤打刻されています。';
   if (raw.includes('ATTENDANCE_ALREADY_CLOCKED_OUT')) return '本日はすでに退勤打刻されています。';
   if (raw.includes('ATTENDANCE_NOT_CLOCKED_IN')) return '出勤打刻が確認できないため退勤できません。';
@@ -36,6 +37,7 @@ export function AttendanceQrKiosk({ enabled, canRegister }: { enabled: boolean; 
   const [error, setError] = useState('');
   const [registrationRequired, setRegistrationRequired] = useState(false);
   const [now, setNow] = useState(Date.now());
+  const serverOffsetRef = useRef(0);
 
   const issue = useCallback(async () => {
     setLoading(true);
@@ -52,7 +54,9 @@ export function AttendanceQrKiosk({ enabled, canRegister }: { enabled: boolean; 
       });
       setChallenge(next);
       setImageUrl(dataUrl);
-      setNow(Date.now());
+      const serverTime = new Date(next.serverNow).getTime();
+      serverOffsetRef.current = Number.isFinite(serverTime) ? serverTime - Date.now() : 0;
+      setNow(Date.now() + serverOffsetRef.current);
     } catch (cause) {
       const raw = cause instanceof Error ? cause.message : String(cause || '');
       setRegistrationRequired(raw.includes('ATTENDANCE_SHARED_DEVICE_REQUIRED'));
@@ -82,19 +86,35 @@ export function AttendanceQrKiosk({ enabled, canRegister }: { enabled: boolean; 
   }, [issue, open]);
 
   useEffect(() => {
+    if (!open) return;
+    const countdownTimer = window.setInterval(() => setNow(Date.now() + serverOffsetRef.current), 1000);
+    return () => window.clearInterval(countdownTimer);
+  }, [open]);
+
+  useEffect(() => {
     if (!open || !challenge) return;
     const refreshTimer = window.setTimeout(() => void issue(), challenge.refreshAfterSeconds * 1000);
-    const countdownTimer = window.setInterval(() => setNow(Date.now()), 1000);
-    return () => {
-      window.clearTimeout(refreshTimer);
-      window.clearInterval(countdownTimer);
-    };
+    return () => window.clearTimeout(refreshTimer);
   }, [challenge, issue, open]);
 
   if (!enabled) return null;
   const remainingSeconds = challenge
     ? Math.max(0, Math.ceil((new Date(challenge.expiresAt).getTime() - now) / 1000))
     : 0;
+  const kioskDate = new Intl.DateTimeFormat('ja-JP', {
+    timeZone: 'Asia/Tokyo',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    weekday: 'short',
+  }).format(now);
+  const kioskTime = new Intl.DateTimeFormat('ja-JP', {
+    timeZone: 'Asia/Tokyo',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(now);
 
   return (
     <>
@@ -109,7 +129,11 @@ export function AttendanceQrKiosk({ enabled, canRegister }: { enabled: boolean; 
           </header>
           <main className="mx-auto grid min-h-0 w-full max-w-5xl flex-1 place-items-center py-4">
             <section className="w-full max-w-xl rounded-3xl bg-white p-5 text-center text-slate-950 shadow-2xl sm:p-8">
-              {loading && !imageUrl ? <div className="grid min-h-80 place-items-center"><RefreshCw className="h-12 w-12 animate-spin text-sky-700" /></div> : imageUrl ? <img src={imageUrl} alt="出退勤打刻用QRコード" className="mx-auto aspect-square w-full max-w-[min(60dvh,520px)]" /> : null}
+              <div className="mb-3 rounded-2xl bg-slate-100 px-4 py-3">
+                <p className="text-sm font-black text-slate-600 sm:text-base">{kioskDate}</p>
+                <p className="mt-0.5 font-mono text-3xl font-black tabular-nums text-slate-950 sm:text-5xl">{kioskTime}</p>
+              </div>
+              {loading && !imageUrl ? <div className="grid min-h-72 place-items-center"><RefreshCw className="h-12 w-12 animate-spin text-sky-700" /></div> : imageUrl ? <img src={imageUrl} alt="出退勤打刻用QRコード" className="mx-auto aspect-square w-full max-w-[min(48dvh,520px)]" /> : null}
               {error ? <p className="mt-3 rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-700"><AlertTriangle className="mr-1 inline h-5 w-5" />{error}</p> : <p className="mt-3 flex items-center justify-center gap-2 text-sm font-black text-slate-700"><Clock3 className="h-5 w-5 text-sky-700" />あと{remainingSeconds}秒有効・自動で切り替わります</p>}
               {registrationRequired && canRegister && <button type="button" disabled={loading} onClick={() => void registerKiosk()} className="mt-4 min-h-12 w-full rounded-xl bg-sky-700 px-4 text-sm font-black text-white disabled:opacity-50"><QrCode className="mr-2 inline h-5 w-5" />この端末を玄関QR端末として登録</button>}
               <button type="button" disabled={loading} onClick={() => void issue()} className="mt-4 min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-black disabled:opacity-50"><RefreshCw className={`mr-2 inline h-4 w-4 ${loading ? 'animate-spin' : ''}`} />今すぐ更新</button>
