@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Clock3, Laptop, LockKeyhole, Pencil, RefreshCw, Save, ShieldCheck, ShieldX, Smartphone, Trash2, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import type { UserProfile } from '../types';
+import { getAccessDeviceToken } from '../utils/accessDevice';
 
 interface DevicePolicy {
   deviceApprovalEnabled: boolean;
@@ -66,11 +67,12 @@ export const StaffDeviceManager: React.FC<{ currentUser: UserProfile }> = ({ cur
   const [message, setMessage] = useState('');
   const [editingDeviceId, setEditingDeviceId] = useState<string | null>(null);
   const [editingDeviceLabel, setEditingDeviceLabel] = useState('');
+  const [currentDeviceId, setCurrentDeviceId] = useState<string | null>(currentUser.accessDeviceId || null);
 
   const refresh = async () => {
     if (!supabase) return;
     setLoading(true);
-    const [organizationResult, devicesResult] = await Promise.all([
+    const [organizationResult, devicesResult, currentDeviceResult] = await Promise.all([
       supabase
         .from('organizations')
         .select('device_approval_enabled, personal_access_time_enabled, personal_access_start, personal_access_end, personal_access_days, default_personal_field_mode, shared_staff_login_allowed')
@@ -81,6 +83,9 @@ export const StaffDeviceManager: React.FC<{ currentUser: UserProfile }> = ({ cur
         .select('id, owner_recorder_profile_id, label, platform, device_kind, status, transport_mode_only, requested_at, approved_at, revoked_at, last_seen_at, recorder_profiles(display_name)')
         .eq('organization_id', currentUser.organizationId)
         .order('requested_at', { ascending: false }),
+      supabase.rpc('current_organization_device_id', {
+        p_device_token: getAccessDeviceToken(),
+      }),
     ]);
     if (organizationResult.error) {
       setMessage(organizationResult.error.message);
@@ -98,6 +103,9 @@ export const StaffDeviceManager: React.FC<{ currentUser: UserProfile }> = ({ cur
     }
     if (devicesResult.error) setMessage(devicesResult.error.message);
     else setDevices((devicesResult.data || []) as unknown as StaffDeviceRow[]);
+    if (!currentDeviceResult.error) {
+      setCurrentDeviceId(typeof currentDeviceResult.data === 'string' ? currentDeviceResult.data : null);
+    }
     setLoading(false);
   };
 
@@ -286,6 +294,11 @@ export const StaffDeviceManager: React.FC<{ currentUser: UserProfile }> = ({ cur
           <div>
             <h3 className="text-sm font-black text-slate-900">登録端末</h3>
             <p className="mt-1 text-[11px] text-slate-500">物理端末ごとに1件だけ登録します。承認待ち {pendingCount}件・全{devices.length}件</p>
+            {!loading && (
+              <p className={`mt-2 inline-flex rounded-full px-2.5 py-1 text-[10px] font-black ${currentDeviceId ? 'bg-sky-100 text-sky-800' : 'bg-slate-100 text-slate-600'}`}>
+                {currentDeviceId ? '青枠の「この端末」が現在使用中です' : '現在の端末は、この一覧には登録されていません'}
+              </p>
+            )}
           </div>
           {pendingCount > 0 && <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-black text-amber-900">承認待ちあり</span>}
         </div>
@@ -297,11 +310,14 @@ export const StaffDeviceManager: React.FC<{ currentUser: UserProfile }> = ({ cur
         ) : (
           <div className="divide-y divide-slate-100">
             {devices.map((device) => (
-              <div key={device.id} className="grid gap-3 p-4 lg:grid-cols-[1.3fr_1fr_auto] lg:items-center">
+              <div key={device.id} className={`grid gap-3 p-4 lg:grid-cols-[1.3fr_1fr_auto] lg:items-center ${currentDeviceId === device.id ? 'bg-sky-50/80 ring-2 ring-inset ring-sky-300' : ''}`}>
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     {device.device_kind === 'facility_shared' ? <Laptop className="h-5 w-5 text-indigo-700" /> : <Smartphone className="h-5 w-5 text-teal-700" />}
                     <strong className="text-sm text-slate-900">{recorderName(device)}</strong>
+                    {currentDeviceId === device.id && (
+                      <span className="rounded-full bg-sky-600 px-2 py-1 text-[10px] font-black text-white">この端末</span>
+                    )}
                     <span className={`rounded-full px-2 py-1 text-[10px] font-black ${
                       device.status === 'approved' ? 'bg-emerald-100 text-emerald-800' : device.status === 'pending' ? 'bg-amber-100 text-amber-900' : 'bg-rose-100 text-rose-800'
                     }`}>

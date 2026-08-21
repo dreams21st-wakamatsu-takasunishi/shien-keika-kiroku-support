@@ -51,6 +51,7 @@ Deno.serve(async (request) => {
     displayName?: string;
     email?: string;
     role?: 'staff' | 'manager' | 'admin';
+    recorderProfileId?: string | null;
   } | null;
   const action = body?.action;
   const targetUserId = body?.userId || '';
@@ -61,7 +62,7 @@ Deno.serve(async (request) => {
   const serviceClient = createClient(supabaseUrl, serviceRoleKey);
   const { data: target } = await serviceClient
     .from('profiles')
-    .select('id, organization_id, role, email, display_name')
+    .select('id, organization_id, role, email, display_name, recorder_profile_id')
     .eq('id', targetUserId)
     .single();
   if (!target || target.organization_id !== caller.organization_id) {
@@ -86,14 +87,36 @@ Deno.serve(async (request) => {
     if (target.role === 'admin' && !(await ensureAnotherAdmin())) {
       return jsonResponse({ error: '最後の管理者は削除できません。' }, 400);
     }
-    const { error } = await serviceClient.auth.admin.deleteUser(targetUserId);
-    if (error) return jsonResponse({ error: error.message }, 400);
-    return jsonResponse({ ok: true });
+    // Staff-ID accounts may still be referenced by the recorder roster. Keep
+    // the operational identity and historical records, but remove its login.
+    const { error: unlinkError } = await serviceClient
+      .from('recorder_profiles')
+      .update({ auth_user_id: null, individual_login_enabled: false })
+      .eq('organization_id', caller.organization_id)
+      .eq('auth_user_id', targetUserId);
+    if (unlinkError) return jsonResponse({ error: `職員IDとの紐づけを解除できませんでした: ${unlinkError.message}` }, 400);
+
+    // Soft-delete authentication and archive the public profile instead of
+    // deleting it. Historical attendance, transport and audit foreign keys
+    // therefore stay valid, while the account immediately disappears from the
+    // active login-member list and can no longer sign in.
+    const { error: authDeleteError } = await serviceClient.auth.admin.deleteUser(targetUserId, true);
+    if (authDeleteError) return jsonResponse({ error: `ログイン認証を削除できませんでした: ${authDeleteError.message}` }, 400);
+    const { error: profileArchiveError } = await serviceClient
+      .from('profiles')
+      .update({ active: false, recorder_profile_id: null })
+      .eq('id', targetUserId)
+      .eq('organization_id', caller.organization_id);
+    if (profileArchiveError) return jsonResponse({ error: `ログイン情報を利用停止へ変更できませんでした: ${profileArchiveError.message}` }, 409);
+    return jsonResponse({ ok: true, archived: true });
   }
 
   const displayName = body?.displayName?.trim().slice(0, 100) || '';
   const email = body?.email?.trim().toLowerCase() || '';
   const role = body?.role;
+  const recorderProfileId = typeof body?.recorderProfileId === 'string' && body.recorderProfileId
+    ? body.recorderProfileId
+    : null;
   if (!displayName || !email.includes('@') || !role || !['staff', 'manager', 'admin'].includes(role)) {
     return jsonResponse({ error: '氏名、メールアドレス、権限を確認してください。' }, 400);
   }
@@ -104,6 +127,29 @@ Deno.serve(async (request) => {
     return jsonResponse({ error: '最後の管理者の権限は変更できません。' }, 400);
   }
 
+  if (recorderProfileId) {
+    const [{ data: recorder }, { data: duplicateLink }] = await Promise.all([
+      serviceClient
+        .from('recorder_profiles')
+        .select('id, auth_user_id, active')
+        .eq('organization_id', caller.organization_id)
+        .eq('id', recorderProfileId)
+        .maybeSingle(),
+      serviceClient
+        .from('profiles')
+        .select('id')
+        .eq('organization_id', caller.organization_id)
+        .eq('recorder_profile_id', recorderProfileId)
+        .neq('id', targetUserId)
+        .maybeSingle(),
+    ]);
+    if (!recorder?.active) return jsonResponse({ error: '選択した記録者が見つからないか、名簿から外されています。' }, 400);
+    if (recorder.auth_user_id && recorder.auth_user_id !== targetUserId) {
+      return jsonResponse({ error: '選択した記録者には別の職員IDログインが紐づいています。' }, 409);
+    }
+    if (duplicateLink) return jsonResponse({ error: '選択した記録者は別のログイン職員に紐づいています。' }, 409);
+  }
+
   if (email !== target.email) {
     const { error: authError } = await serviceClient.auth.admin.updateUserById(targetUserId, {
       email,
@@ -112,9 +158,9 @@ Deno.serve(async (request) => {
     if (authError) return jsonResponse({ error: authError.message }, 400);
   }
 
-  const { error: profileError } = await userClient
+  const { error: profileError } = await serviceClient
     .from('profiles')
-    .update({ display_name: displayName, email, role })
+    .update({ display_name: displayName, email, role, recorder_profile_id: recorderProfileId })
     .eq('id', targetUserId)
     .eq('organization_id', caller.organization_id);
   if (profileError) return jsonResponse({ error: profileError.message }, 400);

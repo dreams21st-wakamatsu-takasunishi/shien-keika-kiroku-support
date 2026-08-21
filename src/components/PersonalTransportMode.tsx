@@ -41,6 +41,7 @@ import { PersonalAttendanceQrPunch } from './AttendanceQr';
 interface PersonalTransportModeProps {
   currentUser: UserProfile;
   onSignOut: () => void;
+  onExit?: () => void;
 }
 
 const actionLabels: Record<TransportFieldAction, string> = {
@@ -87,7 +88,7 @@ function buildStopMapUrl(stop: TransportFieldStop) {
   return `https://www.google.com/maps/dir/?${new URLSearchParams({ api: '1', destination, travelmode: 'driving' }).toString()}`;
 }
 
-export const PersonalTransportMode: React.FC<PersonalTransportModeProps> = ({ currentUser, onSignOut }) => {
+export const PersonalTransportMode: React.FC<PersonalTransportModeProps> = ({ currentUser, onSignOut, onExit }) => {
   const [serviceDate, setServiceDate] = useState(getLocalDateString());
   const [view, setView] = useState<'mine' | 'all'>('mine');
   const [dashboard, setDashboard] = useState<TransportFieldDashboard | null>(null);
@@ -258,13 +259,16 @@ export const PersonalTransportMode: React.FC<PersonalTransportModeProps> = ({ cu
 
   return (
     <div className="min-h-dvh bg-slate-100 pb-[max(1.5rem,env(safe-area-inset-bottom))] text-slate-900">
-      <header className="sticky top-0 z-40 border-b border-slate-800 bg-slate-950 text-white shadow-lg">
-        <div className="mx-auto flex max-w-3xl items-center gap-3 px-4 pb-3 pt-[max(.75rem,env(safe-area-inset-top))]">
+      <header className="app-safe-top sticky top-0 z-40 border-b border-slate-800 bg-slate-950 text-white shadow-lg">
+        <div className="mx-auto flex min-h-16 max-w-3xl items-center gap-2 px-3 py-2.5 sm:gap-3 sm:px-4">
           <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-teal-600"><BusFront className="h-6 w-6" /></div>
           <div className="min-w-0 flex-1">
             <p className="text-[10px] font-bold tracking-widest text-teal-300">個人端末・送迎モード</p>
             <h1 className="truncate text-base font-black">{currentUser.displayName}</h1>
           </div>
+          {onExit && (
+            <button type="button" onClick={onExit} className="grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-slate-700" aria-label="管理画面へ戻る" title="管理画面へ戻る"><Undo2 className="h-5 w-5" /></button>
+          )}
           <button type="button" onClick={() => void requestNotifications()} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-700" aria-label="通知を有効にする"><Bell className="h-5 w-5" /></button>
           <button type="button" onClick={onSignOut} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-700" aria-label="ログアウト"><LogOut className="h-5 w-5" /></button>
         </div>

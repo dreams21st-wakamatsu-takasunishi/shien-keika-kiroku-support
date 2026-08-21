@@ -35,6 +35,15 @@ body {
   padding-left: var(--app-safe-area-left);
 }
 
+/* Some older iOS installed-PWA builds report a zero safe-area inset even
+   though the status bar overlays the page. Keep a compact fallback only in
+   standalone mode so normal browser tabs do not gain unnecessary space. */
+@media (display-mode: standalone) and (max-width: 639px) {
+  .app-safe-top {
+    padding-top: max(var(--app-safe-area-top), 2.75rem);
+  }
+}
+
 .app-safe-block {
   padding-top: var(--app-safe-area-top);
   padding-right: var(--app-safe-area-right);

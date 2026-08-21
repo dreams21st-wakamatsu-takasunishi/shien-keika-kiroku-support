@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import {
   ArrowDown,
   ArrowUp,
+  BusFront,
   Eye,
   EyeOff,
   FileText,
@@ -42,6 +43,7 @@ interface HeaderProps {
   activeRecorder?: RecorderProfile | null;
   onSaveMenuPreferences?: (preferences: RecorderMenuPreferences) => Promise<void>;
   onChangeRecorder?: () => void;
+  onOpenFieldOperations?: () => void;
   onSignOut?: () => void;
 }
 
@@ -66,6 +68,7 @@ export const Header: React.FC<HeaderProps> = ({
   activeRecorder,
   onSaveMenuPreferences,
   onChangeRecorder,
+  onOpenFieldOperations,
   onSignOut,
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
@@ -317,6 +320,13 @@ export const Header: React.FC<HeaderProps> = ({
                     </button>
                   )}
                   {menuMessage && <p role="status" className="rounded-xl bg-emerald-50 px-3 py-2 text-[11px] font-bold text-emerald-800">{menuMessage}</p>}
+                  {onOpenFieldOperations && (
+                    <button type="button" onClick={() => { onOpenFieldOperations(); setMenuOpen(false); }} className="flex min-h-14 w-full items-center gap-3 rounded-2xl border border-sky-200 bg-sky-50 px-3 text-left text-sky-950">
+                      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-sky-600 text-white"><BusFront className="h-5 w-5" /></span>
+                      <span className="min-w-0 flex-1"><strong className="block text-sm">出退勤・送迎対応</strong><span className="mt-0.5 block text-[10px] text-sky-700">QR打刻、自分の送迎、全体の送迎を開く</span></span>
+                      <ChevronRight className="h-4 w-4 text-sky-400" />
+                    </button>
+                  )}
                   <div className="space-y-1">
                     {mainVisibleItems.map((item) => {
                       const Icon = item.icon;

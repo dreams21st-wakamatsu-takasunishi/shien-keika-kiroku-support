@@ -279,6 +279,7 @@ export default function App() {
     setInAppAnnouncementQueue((current) => current.filter((item) => item.id !== announcementId));
   }, []);
   const [activeRecorder, setActiveRecorder] = useState<RecorderProfile | null>(null);
+  const [fieldOperationsOpen, setFieldOperationsOpen] = useState(false);
   const [privacyShielded, setPrivacyShielded] = useState(false);
   const [privacyLocked, setPrivacyLocked] = useState(false);
   const privacyHiddenAt = useRef<number | null>(null);
@@ -776,7 +777,7 @@ export default function App() {
   }, [activeRecorder, recorderProfiles]);
 
   useEffect(() => {
-    if (auth.profile?.role !== 'staff' || !auth.profile.recorderProfileId) return;
+    if (!auth.profile?.recorderProfileId) return;
     const boundRecorder = recorderProfiles.find((profile) => profile.id === auth.profile?.recorderProfileId);
     if (boundRecorder && activeRecorder?.id !== boundRecorder.id) setActiveRecorder(boundRecorder);
   }, [activeRecorder?.id, auth.profile, recorderProfiles]);
@@ -843,6 +844,9 @@ export default function App() {
   }
   if (remoteMode && auth.profile?.fieldModeOnly) {
     return <PersonalTransportMode currentUser={auth.profile} onSignOut={auth.signOut} />;
+  }
+  if (remoteMode && fieldOperationsOpen && auth.profile?.recorderProfileId) {
+    return <PersonalTransportMode currentUser={auth.profile} onSignOut={auth.signOut} onExit={() => setFieldOperationsOpen(false)} />;
   }
   if (remoteMode && auth.profile?.role === 'staff' && !activeRecorder) {
     return (
@@ -1954,6 +1958,7 @@ export default function App() {
         activeRecorder={activeRecorder}
         onSaveMenuPreferences={handleSaveRecorderMenuPreferences}
         onChangeRecorder={auth.profile?.recorderProfileId ? undefined : () => setActiveRecorder(null)}
+        onOpenFieldOperations={auth.profile?.recorderProfileId ? () => setFieldOperationsOpen(true) : undefined}
         onSignOut={remoteMode ? auth.signOut : undefined}
       />
 
@@ -2199,7 +2204,7 @@ export default function App() {
             onSaveRouteSettings={handleSaveTransportRouteSettings}
           />
         )}
-        {activeTab === 'team' && auth.profile && canReview && <TeamManager currentUser={auth.profile} />}
+        {activeTab === 'team' && auth.profile && canReview && <TeamManager currentUser={auth.profile} onProfileUpdated={auth.reloadProfile} />}
         </div>
       </main>
     </div>

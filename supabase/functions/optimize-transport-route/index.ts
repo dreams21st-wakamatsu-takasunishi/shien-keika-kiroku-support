@@ -34,6 +34,14 @@ type GoogleRoute = {
   polyline?: { encodedPolyline?: string };
 };
 
+type GoogleErrorPayload = {
+  error?: {
+    code?: number;
+    status?: string;
+    message?: string;
+  };
+};
+
 function parseDuration(value?: string) {
   const seconds = Number(value?.replace(/s$/, '') || 0);
   return Number.isFinite(seconds) ? Math.round(seconds) : 0;
@@ -41,6 +49,49 @@ function parseDuration(value?: string) {
 
 function normalizeText(value: unknown, maxLength: number) {
   return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
+}
+
+async function requestGoogleRoutes(apiKey: string, body: Record<string, unknown>) {
+  let lastResponse: Response | null = null;
+  let lastNetworkError: unknown = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Goog-Api-Key': apiKey,
+          'X-Goog-FieldMask': [
+            'routes.optimizedIntermediateWaypointIndex',
+            'routes.distanceMeters',
+            'routes.duration',
+            'routes.legs.distanceMeters',
+            'routes.legs.duration',
+            'routes.polyline.encodedPolyline',
+          ].join(','),
+        },
+        body: JSON.stringify(body),
+      });
+      lastResponse = response;
+      if (response.status < 500 || attempt === 1) return response;
+    } catch (error) {
+      lastNetworkError = error;
+      if (attempt === 1) throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+  if (lastResponse) return lastResponse;
+  throw lastNetworkError || new Error('Google Routes API request failed');
+}
+
+async function readGooglePayload(response: Response) {
+  const text = await response.text();
+  if (!text) return { payload: null, text: '' };
+  try {
+    return { payload: JSON.parse(text) as GoogleErrorPayload & { routes?: GoogleRoute[] }, text };
+  } catch {
+    return { payload: null, text };
+  }
 }
 
 Deno.serve(async (request) => {
@@ -147,24 +198,52 @@ Deno.serve(async (request) => {
     googleBody.departureTime = effectiveDeparture!.toISOString();
   }
 
-  const googleResponse = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Goog-Api-Key': googleMapsApiKey,
-      'X-Goog-FieldMask': [
-        'routes.optimizedIntermediateWaypointIndex',
-        'routes.distanceMeters',
-        'routes.duration',
-        'routes.legs.distanceMeters',
-        'routes.legs.duration',
-        'routes.polyline.encodedPolyline',
-      ].join(','),
-    },
-    body: JSON.stringify(googleBody),
-  });
+  let googleResponse: Response;
+  let trafficApplied = useTraffic;
+  let trafficFallback = false;
+  try {
+    googleResponse = await requestGoogleRoutes(googleMapsApiKey, googleBody);
+  } catch (error) {
+    console.error('Google Routes API network failure', error instanceof Error ? error.message : 'unknown');
+    await writeUsageLog({ ...baseLog, status: 'error', error_code: 'GOOGLE_API_UNAVAILABLE' });
+    return jsonResponse({
+      error: '経路APIへ接続できませんでした。通信状況を確認し、時間を置いて再度お試しください。',
+      code: 'GOOGLE_API_UNAVAILABLE',
+    }, 503);
+  }
+
+  // Google may reject a traffic-aware request for a particular departure
+  // time even though the same route can be calculated normally. Preserve the
+  // manually arranged stop order and fall back once instead of failing the
+  // whole dispatch board with a generic 502.
+  if (!googleResponse.ok && useTraffic && [400, 422].includes(googleResponse.status)) {
+    const firstFailure = await readGooglePayload(googleResponse);
+    console.warn(
+      'Traffic-aware route rejected; retrying without traffic',
+      googleResponse.status,
+      firstFailure.payload?.error?.status || 'GOOGLE_ROUTE_INVALID',
+    );
+    const fallbackBody = { ...googleBody };
+    delete fallbackBody.routingPreference;
+    delete fallbackBody.departureTime;
+    try {
+      googleResponse = await requestGoogleRoutes(googleMapsApiKey, fallbackBody);
+      if (googleResponse.ok) {
+        trafficApplied = false;
+        trafficFallback = true;
+      }
+    } catch (error) {
+      console.error('Google Routes fallback network failure', error instanceof Error ? error.message : 'unknown');
+      await writeUsageLog({ ...baseLog, status: 'error', error_code: 'GOOGLE_API_UNAVAILABLE' });
+      return jsonResponse({
+        error: '経路APIへ接続できませんでした。通信状況を確認し、時間を置いて再度お試しください。',
+        code: 'GOOGLE_API_UNAVAILABLE',
+      }, 503);
+    }
+  }
 
   if (!googleResponse.ok) {
+    const googleFailure = await readGooglePayload(googleResponse);
     const errorCode = googleResponse.status === 403
       ? 'GOOGLE_API_FORBIDDEN'
       : googleResponse.status === 429
@@ -172,7 +251,13 @@ Deno.serve(async (request) => {
         : googleResponse.status >= 500
           ? 'GOOGLE_API_UNAVAILABLE'
           : 'GOOGLE_ROUTE_INVALID';
-    console.error('Google Routes API failed', googleResponse.status, errorCode);
+    console.error(
+      'Google Routes API failed',
+      googleResponse.status,
+      errorCode,
+      googleFailure.payload?.error?.status || '',
+      (googleFailure.payload?.error?.message || googleFailure.text).slice(0, 300),
+    );
     await writeUsageLog({ ...baseLog, status: 'error', error_code: errorCode });
     const message = errorCode === 'GOOGLE_API_FORBIDDEN'
       ? 'Google Routes APIの有効化、課金設定、APIキー制限を確認してください。'
@@ -181,7 +266,14 @@ Deno.serve(async (request) => {
         : errorCode === 'GOOGLE_ROUTE_INVALID'
           ? '住所を経路として特定できませんでした。都道府県・市区町村から入力してください。'
           : '経路APIへ接続できませんでした。時間を置いて再度お試しください。';
-    return jsonResponse({ error: message, code: errorCode }, 502);
+    const responseStatus = errorCode === 'GOOGLE_API_FORBIDDEN'
+      ? 503
+      : errorCode === 'GOOGLE_API_RATE_LIMIT'
+        ? 429
+        : errorCode === 'GOOGLE_ROUTE_INVALID'
+          ? 422
+          : 503;
+    return jsonResponse({ error: message, code: errorCode }, responseStatus);
   }
 
   const googleData = await googleResponse.json() as { routes?: GoogleRoute[] };
@@ -227,6 +319,9 @@ Deno.serve(async (request) => {
       ? ['指定日時が過去のため、同じ曜日・同じ出発時間帯の将来交通予測で計算しました。']
       : []),
     ...(!useTraffic ? ['出発日時を特定できなかったため、通常の道路所要時間で計算しました。'] : []),
+    ...(trafficFallback
+      ? ['出発時間帯の交通予測を利用できなかったため、通常の道路所要時間で計算しました。']
+      : []),
   ];
   return jsonResponse({
     provider: 'google_routes',
@@ -235,8 +330,8 @@ Deno.serve(async (request) => {
     totalDurationSeconds,
     legs,
     encodedPolyline: route.polyline?.encodedPolyline || undefined,
-    trafficApplied: useTraffic,
-    departureTimeUsed: effectiveDeparture?.toISOString(),
+    trafficApplied,
+    departureTimeUsed: trafficApplied ? effectiveDeparture?.toISOString() : undefined,
     warnings,
   });
 });

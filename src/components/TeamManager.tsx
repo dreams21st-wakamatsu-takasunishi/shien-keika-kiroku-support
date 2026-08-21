@@ -11,7 +11,14 @@ interface TeamMemberRow {
   email: string | null;
   role: UserRole;
   active: boolean;
+  recorder_profile_id: string | null;
   created_at: string;
+}
+
+interface RecorderLinkRow {
+  id: string;
+  display_name: string;
+  active: boolean;
 }
 
 interface InvitationRow {
@@ -48,8 +55,12 @@ async function functionErrorMessage(error: unknown) {
   return typed.message || '処理に失敗しました。';
 }
 
-export const TeamManager: React.FC<{ currentUser: UserProfile }> = ({ currentUser }) => {
+export const TeamManager: React.FC<{
+  currentUser: UserProfile;
+  onProfileUpdated?: () => void;
+}> = ({ currentUser, onProfileUpdated }) => {
   const [members, setMembers] = useState<TeamMemberRow[]>([]);
+  const [recorderLinks, setRecorderLinks] = useState<RecorderLinkRow[]>([]);
   const [invitations, setInvitations] = useState<InvitationRow[]>([]);
   const [audits, setAudits] = useState<AuditRow[]>([]);
   const [email, setEmail] = useState('');
@@ -59,6 +70,7 @@ export const TeamManager: React.FC<{ currentUser: UserProfile }> = ({ currentUse
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editRole, setEditRole] = useState<UserRole>('staff');
+  const [editRecorderProfileId, setEditRecorderProfileId] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -67,13 +79,15 @@ export const TeamManager: React.FC<{ currentUser: UserProfile }> = ({ currentUse
   const refresh = async () => {
     if (!supabase) return;
     setLoading(true);
-    const [membersResult, invitationsResult, auditResult] = await Promise.all([
-      supabase.from('profiles').select('id, display_name, email, role, active, created_at').order('created_at'),
+    const [membersResult, recorderLinksResult, invitationsResult, auditResult] = await Promise.all([
+      supabase.from('profiles').select('id, display_name, email, role, active, recorder_profile_id, created_at').eq('active', true).order('created_at'),
+      supabase.from('recorder_profiles').select('id, display_name, active').eq('organization_id', currentUser.organizationId).eq('active', true).order('display_name'),
       supabase.from('member_invitations').select('id, email, role, created_at, expires_at, accepted_at').order('created_at', { ascending: false }),
       supabase.from('audit_logs').select('id, actor_id, table_name, row_id, action, occurred_at').order('occurred_at', { ascending: false }).limit(30),
     ]);
     if (membersResult.error) setMessage(membersResult.error.message);
     else setMembers((membersResult.data || []) as TeamMemberRow[]);
+    if (!recorderLinksResult.error) setRecorderLinks((recorderLinksResult.data || []) as RecorderLinkRow[]);
     if (!invitationsResult.error) setInvitations((invitationsResult.data || []) as InvitationRow[]);
     if (!auditResult.error) setAudits((auditResult.data || []) as AuditRow[]);
     setLoading(false);
@@ -105,6 +119,7 @@ export const TeamManager: React.FC<{ currentUser: UserProfile }> = ({ currentUse
     setEditName(member.display_name);
     setEditEmail(member.email || '');
     setEditRole(member.role);
+    setEditRecorderProfileId(member.recorder_profile_id || '');
     setMessage(null);
   };
 
@@ -112,20 +127,28 @@ export const TeamManager: React.FC<{ currentUser: UserProfile }> = ({ currentUse
     if (!supabase || !editingId || currentUser.role !== 'admin') return;
     setBusy(true);
     const { error: invokeError } = await supabase.functions.invoke('manage-member', {
-      body: { action: 'update', userId: editingId, displayName: editName, email: editEmail, role: editRole },
+      body: {
+        action: 'update',
+        userId: editingId,
+        displayName: editName,
+        email: editEmail,
+        role: editRole,
+        recorderProfileId: editRecorderProfileId || null,
+      },
     });
     if (invokeError) setMessage(`職員情報を更新できませんでした: ${await functionErrorMessage(invokeError)}`);
     else {
       setMessage('職員情報を更新しました。');
       setEditingId(null);
       await refresh();
+      if (editingId === currentUser.id) onProfileUpdated?.();
     }
     setBusy(false);
   };
 
   const deleteMember = async (member: TeamMemberRow) => {
     if (!supabase || currentUser.role !== 'admin' || member.id === currentUser.id) return;
-    const confirmed = window.confirm(`${member.display_name}さんを完全に削除します。ログインできなくなります。よろしいですか？`);
+    const confirmed = window.confirm(`${member.display_name}さんのログインを削除しますか？\n\nログインできなくなりますが、過去の記録・打刻・送迎操作履歴と記録者名簿は保持されます。`);
     if (!confirmed) return;
     setBusy(true);
     const { error: invokeError } = await supabase.functions.invoke('manage-member', {
@@ -194,13 +217,17 @@ export const TeamManager: React.FC<{ currentUser: UserProfile }> = ({ currentUse
       </form>}
 
       {activeSection === 'members' && currentUser.role === 'admin' && <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
-        <div className="p-4 border-b"><h3 className="text-xs font-bold">登録済み職員</h3></div>
+        <div className="border-b p-4">
+          <h3 className="text-xs font-bold">登録済み職員</h3>
+          <p className="mt-1 text-[10px] leading-relaxed text-slate-500">「編集」から記録者名簿の同一人物を紐づけると、管理者・児発管もその職員名で出退勤と送迎対応を利用できます。二重登録は不要です。</p>
+        </div>
         {loading ? <p className="p-6 text-xs text-slate-500">読み込み中...</p> : (
           <div className="divide-y divide-slate-200">
             {members.map((member) => {
               const editing = editingId === member.id;
+              const linkedRecorder = recorderLinks.find((recorder) => recorder.id === member.recorder_profile_id);
               return (
-                <div key={member.id} className="p-4 grid gap-3 md:grid-cols-[1.2fr_1.5fr_110px_90px_auto] md:items-center text-xs">
+                <div key={member.id} className="grid gap-3 p-4 text-xs md:grid-cols-[1fr_1.25fr_90px_1.1fr_80px_auto] md:items-center">
                   {editing ? (
                     <>
                       <input value={editName} onChange={(event) => setEditName(event.target.value)} className="min-h-10 border rounded-lg px-2" aria-label="職員氏名" />
@@ -208,6 +235,15 @@ export const TeamManager: React.FC<{ currentUser: UserProfile }> = ({ currentUse
                       <select value={editRole} onChange={(event) => setEditRole(event.target.value as UserRole)} disabled={member.id === currentUser.id} className="min-h-10 border rounded-lg px-2 disabled:bg-slate-100">
                         <option value="staff">職員</option><option value="manager">児発管</option><option value="admin">管理者</option>
                       </select>
+                      <label className="text-[10px] font-bold text-slate-600">記録者名簿との紐づけ
+                        <select value={editRecorderProfileId} onChange={(event) => setEditRecorderProfileId(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-xs">
+                          <option value="">紐づけなし</option>
+                          {recorderLinks.map((recorder) => {
+                            const linkedElsewhere = members.some((candidate) => candidate.id !== member.id && candidate.recorder_profile_id === recorder.id);
+                            return <option key={recorder.id} value={recorder.id} disabled={linkedElsewhere}>{recorder.display_name}{linkedElsewhere ? '（他アカウントで使用中）' : ''}</option>;
+                          })}
+                        </select>
+                      </label>
                       <span className={`text-center px-2 py-1 rounded-full text-[10px] font-bold ${member.active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'}`}>{member.active ? '有効' : '停止'}</span>
                       <div className="flex justify-end gap-2">
                         <button type="button" disabled={busy} onClick={saveMember} className="min-h-10 px-3 rounded-lg bg-teal-600 text-white font-bold flex items-center gap-1"><Save className="w-3.5 h-3.5" />保存</button>
@@ -219,6 +255,11 @@ export const TeamManager: React.FC<{ currentUser: UserProfile }> = ({ currentUse
                       <div><span className="font-bold">{member.display_name}</span>{member.id === currentUser.id && <span className="ml-2 text-[10px] text-teal-700">自分</span>}</div>
                       <div className="text-slate-600 break-all">{member.email || 'メール未登録'}</div>
                       <div>{roleLabels[member.role]}</div>
+                      <div>
+                        <span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${linkedRecorder ? 'bg-sky-100 text-sky-800' : 'bg-amber-50 text-amber-800'}`}>
+                          {linkedRecorder ? `記録者：${linkedRecorder.display_name}` : '記録者未紐づけ'}
+                        </span>
+                      </div>
                       <span className={`text-center px-2 py-1 rounded-full text-[10px] font-bold ${member.active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'}`}>{member.active ? '有効' : '停止'}</span>
                       <div className="flex flex-wrap justify-end gap-2">
                         {currentUser.role === 'admin' && <button type="button" onClick={() => startEditing(member)} className="min-h-10 px-2 text-teal-700 font-bold flex items-center gap-1"><Edit3 className="w-3.5 h-3.5" />編集</button>}
