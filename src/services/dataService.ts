@@ -1997,6 +1997,7 @@ export async function takeOverRecordDraftChildren(
     p_items: items,
     p_target_draft_key: targetDraftKey,
     p_recorder_profile_id: recorderId || null,
+    p_device_token: getAccessDeviceToken(),
   });
   if (error) throw error;
   const result = Array.isArray(data) ? data[0] : data;
@@ -2018,6 +2019,7 @@ export async function takeOverRecordDraftChildrenIntoExisting(
     p_items: items,
     p_target_draft_key: targetDraftKey,
     p_recorder_profile_id: recorderId || null,
+    p_device_token: getAccessDeviceToken(),
   });
   if (error) throw error;
   const result = Array.isArray(data) ? data[0] : data;
