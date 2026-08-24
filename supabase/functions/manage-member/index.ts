@@ -69,6 +69,14 @@ Deno.serve(async (request) => {
     return jsonResponse({ error: '対象職員が見つかりません。' }, 404);
   }
 
+  const { data: staffIdRecorder } = await serviceClient
+    .from('recorder_profiles')
+    .select('id, display_name, individual_login_role')
+    .eq('organization_id', caller.organization_id)
+    .eq('auth_user_id', targetUserId)
+    .eq('individual_login_enabled', true)
+    .maybeSingle();
+
   const ensureAnotherAdmin = async () => {
     const { count } = await serviceClient
       .from('profiles')
@@ -112,13 +120,16 @@ Deno.serve(async (request) => {
   }
 
   const displayName = body?.displayName?.trim().slice(0, 100) || '';
-  const email = body?.email?.trim().toLowerCase() || '';
+  const email = body?.email?.trim().toLowerCase() || target.email || '';
   const role = body?.role;
   const recorderProfileId = typeof body?.recorderProfileId === 'string' && body.recorderProfileId
     ? body.recorderProfileId
     : null;
-  if (!displayName || !email.includes('@') || !role || !['staff', 'manager', 'classroom_manager', 'admin'].includes(role)) {
+  if (!displayName || (!staffIdRecorder && !email.includes('@')) || !role || !['staff', 'manager', 'classroom_manager', 'admin'].includes(role)) {
     return jsonResponse({ error: '氏名、メールアドレス、権限を確認してください。' }, 400);
+  }
+  if (staffIdRecorder && role === 'admin') {
+    return jsonResponse({ error: '管理者は復旧用メールアドレスが必要です。職員IDログインには児発管・教室長・指導員を設定してください。' }, 400);
   }
   if (targetUserId === userId && role !== 'admin') {
     return jsonResponse({ error: '自分自身の管理者権限は変更できません。' }, 400);
@@ -127,7 +138,11 @@ Deno.serve(async (request) => {
     return jsonResponse({ error: '最後の管理者の権限は変更できません。' }, 400);
   }
 
-  if (recorderProfileId) {
+  if (staffIdRecorder && recorderProfileId && recorderProfileId !== staffIdRecorder.id) {
+    return jsonResponse({ error: '職員IDログインは、発行元の記録者名簿へ自動的に紐づいています。別の記録者には変更できません。' }, 400);
+  }
+
+  if (!staffIdRecorder && recorderProfileId) {
     const [{ data: recorder }, { data: duplicateLink }] = await Promise.all([
       serviceClient
         .from('recorder_profiles')
@@ -160,7 +175,7 @@ Deno.serve(async (request) => {
     }
   }
 
-  if (email !== target.email) {
+  if (!staffIdRecorder && email !== target.email) {
     const { error: authError } = await serviceClient.auth.admin.updateUserById(targetUserId, {
       email,
       email_confirm: true,
@@ -168,12 +183,37 @@ Deno.serve(async (request) => {
     if (authError) return jsonResponse({ error: authError.message }, 400);
   }
 
+  if (staffIdRecorder) {
+    const { error: recorderRoleError } = await serviceClient
+      .from('recorder_profiles')
+      .update({ display_name: displayName, individual_login_role: role })
+      .eq('id', staffIdRecorder.id)
+      .eq('organization_id', caller.organization_id);
+    if (recorderRoleError) {
+      return jsonResponse({ error: `職員IDログインの権限を更新できませんでした: ${recorderRoleError.message}` }, 400);
+    }
+  }
+
   const { error: profileError } = await serviceClient
     .from('profiles')
-    .update({ display_name: displayName, email, role, recorder_profile_id: recorderProfileId })
+    .update({
+      display_name: displayName,
+      email: staffIdRecorder ? null : email,
+      role,
+      recorder_profile_id: staffIdRecorder ? null : recorderProfileId,
+    })
     .eq('id', targetUserId)
     .eq('organization_id', caller.organization_id);
-  if (profileError) return jsonResponse({ error: profileError.message }, 400);
+  if (profileError) {
+    if (staffIdRecorder) {
+      await serviceClient
+        .from('recorder_profiles')
+        .update({ display_name: staffIdRecorder.display_name, individual_login_role: staffIdRecorder.individual_login_role || 'staff' })
+        .eq('id', staffIdRecorder.id)
+        .eq('organization_id', caller.organization_id);
+    }
+    return jsonResponse({ error: profileError.message }, 400);
+  }
 
   return jsonResponse({ ok: true });
 });

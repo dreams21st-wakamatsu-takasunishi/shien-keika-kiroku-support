@@ -225,18 +225,23 @@ export const TeamManager: React.FC<{
           <div className="divide-y divide-slate-200">
             {members.map((member) => {
               const editing = editingId === member.id;
+              const staffIdLogin = !member.email;
               const linkedRecorder = recorderLinks.find((recorder) => recorder.id === member.recorder_profile_id);
               return (
                 <div key={member.id} className="grid gap-3 p-4 text-xs md:grid-cols-[1fr_1.25fr_90px_1.1fr_80px_auto] md:items-center">
                   {editing ? (
                     <>
                       <input value={editName} onChange={(event) => setEditName(event.target.value)} className="min-h-10 border rounded-lg px-2" aria-label="職員氏名" />
-                      <input type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} className="min-h-10 border rounded-lg px-2" aria-label="メールアドレス" />
+                      {staffIdLogin ? (
+                        <div className="flex min-h-10 items-center rounded-lg border border-sky-200 bg-sky-50 px-2 text-[10px] font-bold text-sky-800">職員IDログイン（メール不要）</div>
+                      ) : (
+                        <input type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} className="min-h-10 border rounded-lg px-2" aria-label="メールアドレス" />
+                      )}
                       <select value={editRole} onChange={(event) => setEditRole(event.target.value as UserRole)} disabled={member.id === currentUser.id} className="min-h-10 border rounded-lg px-2 disabled:bg-slate-100">
-                        <option value="staff">職員</option><option value="manager">児発管</option><option value="classroom_manager">教室長</option><option value="admin">管理者</option>
+                        <option value="staff">職員</option><option value="manager">児発管</option><option value="classroom_manager">教室長</option>{!staffIdLogin && <option value="admin">管理者</option>}
                       </select>
                       <label className="text-[10px] font-bold text-slate-600">記録者名簿との紐づけ
-                        <select value={editRecorderProfileId} onChange={(event) => setEditRecorderProfileId(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-xs">
+                        <select value={editRecorderProfileId} onChange={(event) => setEditRecorderProfileId(event.target.value)} disabled={staffIdLogin} className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-xs disabled:bg-slate-100">
                           <option value="">紐づけなし</option>
                           {recorderLinks.map((recorder) => {
                             const linkedElsewhere = members.some((candidate) => candidate.id !== member.id && candidate.recorder_profile_id === recorder.id);
@@ -253,11 +258,11 @@ export const TeamManager: React.FC<{
                   ) : (
                     <>
                       <div><span className="font-bold">{member.display_name}</span>{member.id === currentUser.id && <span className="ml-2 text-[10px] text-teal-700">自分</span>}</div>
-                      <div className="text-slate-600 break-all">{member.email || 'メール未登録'}</div>
+                      <div className="text-slate-600 break-all">{member.email || '職員IDログイン（メール不要）'}</div>
                       <div>{roleLabels[member.role]}</div>
                       <div>
                         <span className={`inline-flex rounded-full px-2 py-1 text-[10px] font-bold ${linkedRecorder ? 'bg-sky-100 text-sky-800' : 'bg-amber-50 text-amber-800'}`}>
-                          {linkedRecorder ? `記録者：${linkedRecorder.display_name}` : '記録者未紐づけ'}
+                          {staffIdLogin ? '記録者名簿と自動紐づけ' : linkedRecorder ? `記録者：${linkedRecorder.display_name}` : '記録者未紐づけ'}
                         </span>
                       </div>
                       <span className={`text-center px-2 py-1 rounded-full text-[10px] font-bold ${member.active ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-500'}`}>{member.active ? '有効' : '停止'}</span>
