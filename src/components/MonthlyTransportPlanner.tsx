@@ -368,6 +368,8 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [monthlySettingsOpen, setMonthlySettingsOpen] = useState(false);
+  const [calendarOpen, setCalendarOpen] = useState(false);
   const [holidayRangeOpen, setHolidayRangeOpen] = useState(false);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
@@ -578,6 +580,25 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
     setHolidayTo(monthDates(value).at(-1) || first);
     setBulkDeleteOpen(false);
     selectDate(first);
+  };
+
+  const changeSelectedDate = (value: string) => {
+    if (!value) return;
+    const nextMonth = value.slice(0, 7);
+    if (nextMonth !== month) {
+      setMonth(nextMonth);
+      setHolidayFrom(`${nextMonth}-01`);
+      setHolidayTo(monthDates(nextMonth).at(-1) || `${nextMonth}-01`);
+      setBulkDeleteOpen(false);
+    }
+    selectDate(value);
+  };
+
+  const moveSelectedDate = (days: number) => {
+    const date = new Date(`${selectedDate}T00:00:00`);
+    date.setDate(date.getDate() + days);
+    const nextDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    changeSelectedDate(nextDate);
   };
 
   const createForDate = (
@@ -1041,37 +1062,59 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-[11px] font-black text-teal-700">利用・送迎予定</p>
-            <h3 className="text-lg font-black text-slate-950">月間予定</h3>
-            <p className="mt-1 text-xs text-slate-500">定期利用を基準に、追加利用・欠席・当日の送迎条件をまとめて管理します。</p>
+            <p className="text-[11px] font-black text-teal-700">選択日の予定を確認・編集</p>
+            <h3 className="text-lg font-black text-slate-950">利用・送迎一覧</h3>
+            <p className="mt-1 text-xs text-slate-500">普段はこの一覧だけを使います。月全体の操作やカレンダーは必要な時に開けます。</p>
           </div>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => moveSelectedDate(-1)} className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-slate-300 bg-white text-slate-700" aria-label="前の日"><ChevronLeft className="h-5 w-5" /></button>
+            <label className="min-w-0 flex-1 text-[10px] font-black text-slate-500 lg:w-44">対象日
+              <input type="date" value={selectedDate} onChange={(event) => changeSelectedDate(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-black text-slate-900" />
+            </label>
+            <button type="button" onClick={() => moveSelectedDate(1)} className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-slate-300 bg-white text-slate-700" aria-label="次の日"><ChevronRight className="h-5 w-5" /></button>
+          </div>
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <button type="button" onClick={() => setMonthlySettingsOpen((current) => !current)} aria-expanded={monthlySettingsOpen} className={`flex min-h-12 items-center gap-3 rounded-xl border px-3 text-left transition-colors ${monthlySettingsOpen ? 'border-teal-300 bg-teal-50' : 'border-slate-200 bg-slate-50 hover:bg-slate-100'}`}>
+            <CopyCheck className={`h-5 w-5 shrink-0 ${monthlySettingsOpen ? 'text-teal-700' : 'text-slate-500'}`} />
+            <span className="min-w-0 flex-1"><span className="block text-xs font-black text-slate-950">月間予定の設定</span><span className="block truncate text-[9px] font-bold text-slate-500">基本予定の反映・長期休暇・一括削除</span></span>
+            <ChevronDown className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${monthlySettingsOpen ? 'rotate-180' : ''}`} />
+          </button>
+          <button type="button" onClick={() => setCalendarOpen((current) => !current)} aria-expanded={calendarOpen} className={`flex min-h-12 items-center gap-3 rounded-xl border px-3 text-left transition-colors ${calendarOpen ? 'border-violet-300 bg-violet-50' : 'border-slate-200 bg-slate-50 hover:bg-slate-100'}`}>
+            <CalendarRange className={`h-5 w-5 shrink-0 ${calendarOpen ? 'text-violet-700' : 'text-slate-500'}`} />
+            <span className="min-w-0 flex-1"><span className="block text-xs font-black text-slate-950">月間カレンダー</span><span className="block truncate text-[9px] font-bold text-slate-500">全体・児童別・家庭別・学校別で確認</span></span>
+            <ChevronDown className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${calendarOpen ? 'rotate-180' : ''}`} />
+          </button>
+        </div>
+
+        {monthlySettingsOpen && <div className="mt-3 rounded-xl border border-teal-200 bg-teal-50/50 p-3">
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => changeMonth(previousMonthValue(month))} className="flex min-h-11 items-center gap-1 rounded-xl border border-slate-300 bg-white px-3 text-xs font-black text-slate-700"><ChevronLeft className="h-4 w-4" />前月</button>
-            <input type="month" value={month} onChange={(event) => changeMonth(event.target.value)} className="min-h-11 rounded-xl border border-slate-300 px-3 text-sm font-bold" />
+            <input type="month" value={month} onChange={(event) => changeMonth(event.target.value)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm font-bold" />
             <button type="button" onClick={() => changeMonth(nextMonthValue(month))} className="flex min-h-11 items-center gap-1 rounded-xl border border-slate-300 bg-white px-3 text-xs font-black text-slate-700">翌月<ChevronRight className="h-4 w-4" /></button>
             {canManage && <button type="button" disabled={saving} onClick={() => void reflectMonth()} className="flex min-h-11 items-center gap-2 rounded-xl bg-teal-600 px-4 text-xs font-black text-white disabled:opacity-50"><CopyCheck className="h-4 w-4" />基本予定を反映</button>}
             {canManage && <button type="button" disabled={saving} onClick={() => void reapplyMonth()} className="flex min-h-11 items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 text-xs font-black text-amber-900 disabled:opacity-50"><RotateCcw className="h-4 w-4" />月全体を再反映</button>}
             {canManage && <button type="button" onClick={() => setHolidayRangeOpen((current) => !current)} className="flex min-h-11 items-center gap-2 rounded-xl border border-sky-300 bg-sky-50 px-4 text-xs font-black text-sky-800"><Home className="h-4 w-4" />長期休暇期間</button>}
             {canManage && <button type="button" onClick={() => setBulkDeleteOpen((current) => !current)} className="flex min-h-11 items-center gap-2 rounded-xl border border-rose-300 bg-rose-50 px-4 text-xs font-black text-rose-800"><Trash2 className="h-4 w-4" />予定を一括削除</button>}
           </div>
-        </div>
-        <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
-          <div className="rounded-xl bg-emerald-50 p-2"><strong className="block text-lg text-emerald-800">{confirmedDays}</strong>確定日</div>
-          <div className="rounded-xl bg-sky-50 p-2"><strong className="block text-lg text-sky-800">{new Set(monthRequirements.map((item) => item.date)).size}</strong>予定作成日</div>
-          <div className={`rounded-xl p-2 ${missingCount ? 'bg-rose-50 text-rose-800' : 'bg-slate-50'}`}><strong className="block text-lg">{missingCount}</strong>情報不足</div>
-        </div>
-        {canManage && (
-          <div className="mt-3 grid gap-2 rounded-xl border border-teal-200 bg-teal-50 p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-            <label className="text-[10px] font-black text-teal-950">児童ごとに基本予定を反映
-              <select value={monthChildId} onChange={(event) => setMonthChildId(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-teal-300 bg-white px-3 text-sm font-bold">
-                <option value="">児童を選択</option>
-                {transportChildren.map((child) => <option key={child.id} value={child.id}>{child.name}</option>)}
-              </select>
-            </label>
-            <button type="button" disabled={saving || !monthChildId} onClick={() => void reapplyChildMonth()} className="flex min-h-10 items-center justify-center gap-2 rounded-lg bg-teal-700 px-4 text-xs font-black text-white disabled:opacity-40"><CopyCheck className="h-4 w-4" />選択児童へ反映</button>
+          <div className="mt-3 grid grid-cols-3 gap-2 text-center text-xs">
+            <div className="rounded-xl bg-emerald-50 p-2"><strong className="block text-lg text-emerald-800">{confirmedDays}</strong>確定日</div>
+            <div className="rounded-xl bg-sky-50 p-2"><strong className="block text-lg text-sky-800">{new Set(monthRequirements.map((item) => item.date)).size}</strong>予定作成日</div>
+            <div className={`rounded-xl p-2 ${missingCount ? 'bg-rose-50 text-rose-800' : 'bg-slate-50'}`}><strong className="block text-lg">{missingCount}</strong>情報不足</div>
           </div>
-        )}
-        {holidayRangeOpen && (
+          {canManage && (
+            <div className="mt-3 grid gap-2 rounded-xl border border-teal-200 bg-white p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+              <label className="text-[10px] font-black text-teal-950">児童ごとに基本予定を反映
+                <select value={monthChildId} onChange={(event) => setMonthChildId(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-teal-300 bg-white px-3 text-sm font-bold">
+                  <option value="">児童を選択</option>
+                  {transportChildren.map((child) => <option key={child.id} value={child.id}>{child.name}</option>)}
+                </select>
+              </label>
+              <button type="button" disabled={saving || !monthChildId} onClick={() => void reapplyChildMonth()} className="flex min-h-10 items-center justify-center gap-2 rounded-lg bg-teal-700 px-4 text-xs font-black text-white disabled:opacity-40"><CopyCheck className="h-4 w-4" />選択児童へ反映</button>
+            </div>
+          )}
+          {holidayRangeOpen && (
           <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50 p-3">
             <p className="text-xs font-black text-sky-950">長期休暇・自宅等への迎えを一括設定</p>
             <div className="mt-2 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
@@ -1081,8 +1124,8 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
             </div>
             <p className="mt-2 text-[10px] text-sky-800">児童ごとの迎え時刻入力は不要です。{routeSettings.holidayArrivalTime}の事業所到着から逆算します。</p>
           </div>
-        )}
-        {bulkDeleteOpen && canManage && (
+          )}
+          {bulkDeleteOpen && canManage && (
           <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3">
             <div className="flex flex-wrap items-start justify-between gap-2">
               <div>
@@ -1101,10 +1144,15 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
               </button>
             </div>
           </div>
-        )}
+          )}
+        </div>}
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm">
+      {calendarOpen && <section className="ui-panel-enter rounded-2xl border border-violet-200 bg-white p-3 shadow-sm">
+        <div className="mb-3 flex items-center justify-between gap-3 border-b border-slate-100 pb-2">
+          <div><p className="text-[10px] font-black text-violet-700">必要な時だけ確認</p><h3 className="text-sm font-black text-slate-950">月間カレンダー</h3></div>
+          <button type="button" onClick={() => setCalendarOpen(false)} className="min-h-9 rounded-lg border border-slate-200 bg-slate-50 px-3 text-[10px] font-black text-slate-600">閉じる</button>
+        </div>
         <div className="mb-3 flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2 sm:flex-row sm:items-end sm:justify-between">
           <div className="min-w-0">
             <p className="text-[10px] font-black text-slate-500">月間カレンダーの表示単位</p>
@@ -1128,7 +1176,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
             return <button key={date} type="button" onClick={() => selectDate(date)} className={`${focused ? 'min-h-24' : 'min-h-16'} min-w-0 rounded-lg border p-1 text-left ${selectedDate === date ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-100' : 'border-slate-200 bg-white'}`}><span className="block text-xs font-black">{Number(date.slice(-2))}</span>{focused ? <span className="mt-1 block space-y-0.5">{rows.map((item) => { const timeSummary = item.pickupEnabled ? transportTimeSummary(item, '迎え') : '保護者'; return <span key={item.childId} className="block truncate text-[8px] font-black text-sky-800" title={`${childrenList.find((child) => child.id === item.childId)?.name || '児童'}：${timeSummary}`}>{childrenList.find((child) => child.id === item.childId)?.name || '児童'}：{timeSummary}</span>; })}{rows.length === 0 && <span className="block text-[8px] font-bold text-slate-300">予定なし</span>}{absentCount > 0 && <span className="block truncate text-[8px] font-black text-rose-600">欠席 {absentCount}名</span>}</span> : <><span className={`mt-1 block truncate text-[9px] font-bold ${missing ? 'text-rose-700' : day?.status && day.status !== 'draft' ? 'text-emerald-700' : serviceCount ? 'text-sky-700' : 'text-slate-300'}`}>{missing ? '要確認' : day?.status && day.status !== 'draft' ? `確定 ${serviceCount}名` : serviceCount ? `${serviceCount}名` : '予定なし'}</span>{additionalCount > 0 && <span className="mt-0.5 block truncate text-[8px] font-black text-teal-700">追加{additionalCount}名</span>}{absentCount > 0 && <span className="mt-0.5 block truncate text-[8px] font-black text-rose-600">欠席{absentCount}名</span>}</>}</button>;
           })}
         </div>
-      </section>
+      </section>}
 
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 border-b border-slate-100 pb-3 lg:flex-row lg:items-end lg:justify-between">
