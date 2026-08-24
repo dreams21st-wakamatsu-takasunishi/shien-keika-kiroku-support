@@ -141,6 +141,18 @@ import { applySiblingSelection } from './utils/childSiblings';
 const FIELD_MODE_REAUTH_AFTER_MS = 30_000;
 const RECENT_PASSWORD_AUTH_WINDOW_MS = 120_000;
 
+function mutationErrorMessage(error: unknown, fallback = '保存処理に失敗しました。') {
+  const raw = error instanceof Error
+    ? error.message
+    : typeof error === 'object' && error !== null && 'message' in error
+      ? String((error as { message?: unknown }).message || '')
+      : String(error || '');
+  if (raw.includes('PERSONAL_TRANSPORT_ONLY')) {
+    return 'この端末は個人端末として判定されているため、支援記録の入力・変更・引き継ぎはできません。事業所共有端末を使用するか、管理者が「端末・アクセス管理」で現在の端末種別を確認してください。';
+  }
+  return raw || fallback;
+}
+
 export default function App() {
   const auth = useAuth();
   const remoteMode = auth.configured;
@@ -870,7 +882,7 @@ export default function App() {
   const unapprovedCount = records.filter((record) => record.approvalStatus === '未確認').length;
 
   const persistError = (error: unknown) => {
-    const message = error instanceof Error ? error.message : '保存処理に失敗しました。';
+    const message = mutationErrorMessage(error);
     setDataError(message);
     alert(message);
     throw error;
@@ -1742,7 +1754,10 @@ export default function App() {
       return true;
     } catch (error) {
       await refreshRecordDrafts();
-      persistError(error);
+      const message = mutationErrorMessage(error, '記録を引き継げませんでした。');
+      setDataError(message);
+      alert(message);
+      if (message.includes('個人端末として判定')) auth.reloadProfile();
       return false;
     }
   };
