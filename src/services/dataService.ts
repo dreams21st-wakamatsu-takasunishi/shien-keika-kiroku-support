@@ -279,6 +279,9 @@ function mapRecorderProfile(row: any): RecorderProfile {
     partTimeHolidayStartTime: row.part_time_holiday_start_time ? String(row.part_time_holiday_start_time).slice(0, 5) : undefined,
     partTimeHolidayEndTime: row.part_time_holiday_end_time ? String(row.part_time_holiday_end_time).slice(0, 5) : undefined,
     individualLoginEnabled: row.individual_login_enabled === true,
+    individualLoginRole: row.individual_login_role === 'manager' || row.individual_login_role === 'classroom_manager'
+      ? row.individual_login_role
+      : 'staff',
     menuPreferences,
     createdAt: row.created_at || undefined,
   };
@@ -765,7 +768,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     client.from('children').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('name'),
     client.from('schools').select('*').eq('organization_id', organizationId).order('name'),
     client.from('child_regular_day_schedules').select('*').eq('organization_id', organizationId).order('effective_from'),
-    client.from('recorder_profiles').select('id, display_name, active, pin_configured, employee_code, job_title, employment_type, contracted_weekly_hours, part_time_weekday_work_days, part_time_weekday_start_time, part_time_weekday_end_time, part_time_holiday_work_days, part_time_holiday_start_time, part_time_holiday_end_time, individual_login_enabled, menu_preferences, created_at').eq('organization_id', organizationId).eq('active', true).order('display_name'),
+    client.from('recorder_profiles').select('id, display_name, active, pin_configured, employee_code, job_title, employment_type, contracted_weekly_hours, part_time_weekday_work_days, part_time_weekday_start_time, part_time_weekday_end_time, part_time_holiday_work_days, part_time_holiday_start_time, part_time_holiday_end_time, individual_login_enabled, individual_login_role, menu_preferences, created_at').eq('organization_id', organizationId).eq('active', true).order('display_name'),
     client.from('record_templates').select('*').eq('organization_id', organizationId).is('archived_at', null).order('created_at'),
     loadSupportRecordsWithRetry(organizationId),
     client.from('handover_items').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }),

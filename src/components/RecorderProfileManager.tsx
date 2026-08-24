@@ -20,6 +20,7 @@ interface RecorderRow {
   part_time_holiday_start_time: string | null;
   part_time_holiday_end_time: string | null;
   individual_login_enabled: boolean;
+  individual_login_role: 'staff' | 'manager' | 'classroom_manager';
   created_at: string;
 }
 
@@ -39,6 +40,9 @@ const toRecorderProfile = (row: RecorderRow): RecorderProfile => ({
   partTimeHolidayStartTime: row.part_time_holiday_start_time?.slice(0, 5) || undefined,
   partTimeHolidayEndTime: row.part_time_holiday_end_time?.slice(0, 5) || undefined,
   individualLoginEnabled: row.individual_login_enabled,
+  individualLoginRole: row.individual_login_role === 'manager' || row.individual_login_role === 'classroom_manager'
+    ? row.individual_login_role
+    : 'staff',
   createdAt: row.created_at,
 });
 
@@ -78,6 +82,7 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
   const [pinConfirmation, setPinConfirmation] = useState('');
   const [loginEditingId, setLoginEditingId] = useState<string | null>(null);
   const [loginEmployeeCode, setLoginEmployeeCode] = useState('');
+  const [loginRole, setLoginRole] = useState<'staff' | 'manager' | 'classroom_manager'>('staff');
   const [loginPassword, setLoginPassword] = useState('');
   const [loginPasswordConfirmation, setLoginPasswordConfirmation] = useState('');
   const [loading, setLoading] = useState(true);
@@ -90,7 +95,7 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
     const [recordersResult, organizationResult] = await Promise.all([
       supabase
         .from('recorder_profiles')
-        .select('id, display_name, active, pin_configured, employee_code, job_title, employment_type, contracted_weekly_hours, part_time_weekday_work_days, part_time_weekday_start_time, part_time_weekday_end_time, part_time_holiday_work_days, part_time_holiday_start_time, part_time_holiday_end_time, individual_login_enabled, created_at')
+        .select('id, display_name, active, pin_configured, employee_code, job_title, employment_type, contracted_weekly_hours, part_time_weekday_work_days, part_time_weekday_start_time, part_time_weekday_end_time, part_time_holiday_work_days, part_time_holiday_start_time, part_time_holiday_end_time, individual_login_enabled, individual_login_role, created_at')
         .eq('organization_id', currentUser.organizationId)
         .eq('active', true),
       supabase
@@ -202,6 +207,7 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
         recorderProfileId: recorder.id,
         employeeCode: loginEmployeeCode,
         password: loginPassword,
+        loginRole,
       },
     });
     if (error) {
@@ -211,7 +217,8 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
       setLoginEditingId(null);
       setLoginPassword('');
       setLoginPasswordConfirmation('');
-      setMessage(`${recorder.displayName}さんの職員IDログインを設定しました。事業所コードと職員IDを本人へ安全に伝えてください。`);
+      const roleLabel = loginRole === 'manager' ? '児発管' : loginRole === 'classroom_manager' ? '教室長' : '指導員';
+      setMessage(`${recorder.displayName}さんを「${roleLabel}」権限の職員IDログインとして設定しました。事業所コードと職員IDを本人へ安全に伝えてください。`);
       await refresh();
     }
     setBusy(false);
@@ -489,13 +496,16 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
                       {recorder.pinConfigured ? 'PIN設定済み' : 'PIN未設定'}
                     </span>
                     <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${recorder.individualLoginEnabled ? 'bg-sky-100 text-sky-800' : 'bg-slate-100 text-slate-600'}`}>
-                      {recorder.individualLoginEnabled ? '職員IDログイン有効' : '職員ID未発行'}
+                      {recorder.individualLoginEnabled
+                        ? `職員ID：${recorder.individualLoginRole === 'manager' ? '児発管' : recorder.individualLoginRole === 'classroom_manager' ? '教室長' : '指導員'}`
+                        : '職員ID未発行'}
                     </span>
                     <button
                       type="button"
                       onClick={() => {
                         setLoginEditingId(loginEditingId === recorder.id ? null : recorder.id);
                         setLoginEmployeeCode(recorder.employeeCode || '');
+                        setLoginRole(recorder.individualLoginRole || 'staff');
                         setLoginPassword('');
                         setLoginPasswordConfirmation('');
                         setPinEditingId(null);
@@ -573,7 +583,20 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
                         </button>
                       )}
                     </div>
-                    <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                      <label>
+                        <span className="mb-1 block text-[10px] font-bold text-sky-900">ログイン権限</span>
+                        <select
+                          value={loginRole}
+                          onChange={(event) => setLoginRole(event.target.value as 'staff' | 'manager' | 'classroom_manager')}
+                          disabled={currentUser.role !== 'admin'}
+                          className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm disabled:bg-slate-100"
+                        >
+                          <option value="staff">指導員</option>
+                          <option value="manager">児発管</option>
+                          <option value="classroom_manager">教室長</option>
+                        </select>
+                      </label>
                       <label>
                         <span className="mb-1 block text-[10px] font-bold text-sky-900">職員ID</span>
                         <input
@@ -610,10 +633,13 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
                       </label>
                     </div>
                     <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-[10px] text-slate-600">パスワードは画面に再表示されません。安全な方法で本人に伝えてください。</p>
+                      <p className="text-[10px] text-slate-600">
+                        パスワードは画面に再表示されません。安全な方法で本人に伝えてください。
+                        {currentUser.role !== 'admin' && ' 児発管・教室長権限の設定は管理者のみ行えます。'}
+                      </p>
                       <button
                         type="button"
-                        disabled={busy || !loginEmployeeCode || !loginPassword || !loginPasswordConfirmation}
+                        disabled={busy || !loginEmployeeCode || !loginPassword || !loginPasswordConfirmation || (currentUser.role !== 'admin' && loginRole !== 'staff')}
                         onClick={() => void configureIndividualLogin(recorder)}
                         className="min-h-11 rounded-lg bg-sky-700 px-4 text-xs font-bold text-white disabled:bg-slate-400"
                       >

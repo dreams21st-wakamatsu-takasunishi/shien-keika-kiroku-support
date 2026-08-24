@@ -349,6 +349,7 @@ export interface RecorderProfile {
   partTimeHolidayStartTime?: string;
   partTimeHolidayEndTime?: string;
   individualLoginEnabled?: boolean;
+  individualLoginRole?: 'staff' | 'manager' | 'classroom_manager';
   menuPreferences?: RecorderMenuPreferences;
   createdAt?: string;
 }

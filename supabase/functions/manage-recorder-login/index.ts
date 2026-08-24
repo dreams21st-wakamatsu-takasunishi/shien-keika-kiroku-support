@@ -1,5 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
+type IndividualLoginRole = 'staff' | 'manager' | 'classroom_manager';
+
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
@@ -48,6 +50,7 @@ Deno.serve(async (request) => {
     recorderProfileId?: string;
     employeeCode?: string;
     password?: string;
+    loginRole?: IndividualLoginRole;
   } | null;
   const action = body?.action;
   const recorderProfileId = body?.recorderProfileId || '';
@@ -62,11 +65,19 @@ Deno.serve(async (request) => {
   });
   const { data: recorder } = await serviceClient
     .from('recorder_profiles')
-    .select('id, organization_id, display_name, employee_code, auth_user_id, active')
+    .select('id, organization_id, display_name, employee_code, auth_user_id, active, individual_login_enabled, individual_login_role')
     .eq('id', recorderProfileId)
     .eq('organization_id', caller.organization_id)
     .maybeSingle();
   if (!recorder || !recorder.active) return jsonResponse({ error: '対象の記録者が見つかりません。' }, 404);
+
+  const loginRole = (body?.loginRole || recorder.individual_login_role || 'staff') as IndividualLoginRole;
+  if (!['staff', 'manager', 'classroom_manager'].includes(loginRole)) {
+    return jsonResponse({ error: 'ログイン権限の指定が不正です。' }, 400);
+  }
+  if (loginRole !== 'staff' && caller.role !== 'admin') {
+    return jsonResponse({ error: '児発管・教室長権限の設定は管理者のみ行えます。' }, 403);
+  }
 
   if (action === 'disable') {
     if (recorder.auth_user_id) {
@@ -104,6 +115,15 @@ Deno.serve(async (request) => {
   let authUserId = recorder.auth_user_id as string | null;
   let createdNewUser = false;
   if (authUserId) {
+    const { data: existingProfile } = await serviceClient
+      .from('profiles')
+      .select('role')
+      .eq('id', authUserId)
+      .eq('organization_id', caller.organization_id)
+      .maybeSingle();
+    if (existingProfile?.role === 'admin') {
+      return jsonResponse({ error: '管理者ログインの権限は職員ID設定から変更できません。' }, 400);
+    }
     const { error: updateAuthError } = await serviceClient.auth.admin.updateUserById(authUserId, {
       password,
       ban_duration: 'none',
@@ -114,7 +134,6 @@ Deno.serve(async (request) => {
       },
     });
     if (updateAuthError) return jsonResponse({ error: updateAuthError.message }, 400);
-    await serviceClient.from('profiles').update({ active: true, display_name: recorder.display_name, email: null }).eq('id', authUserId);
   } else {
     const internalEmail = `staff-${crypto.randomUUID()}@staff-login.invalid`;
     const { data: invitation, error: invitationError } = await serviceClient
@@ -122,7 +141,7 @@ Deno.serve(async (request) => {
       .insert({
         organization_id: caller.organization_id,
         email: internalEmail,
-        role: 'staff',
+        role: loginRole,
         invited_by: userId,
       })
       .select('id')
@@ -145,7 +164,6 @@ Deno.serve(async (request) => {
     }
     authUserId = created.user.id;
     createdNewUser = true;
-    await serviceClient.from('profiles').update({ email: null }).eq('id', authUserId);
   }
 
   const { error: recorderError } = await serviceClient
@@ -154,12 +172,39 @@ Deno.serve(async (request) => {
       employee_code: employeeCode,
       auth_user_id: authUserId,
       individual_login_enabled: true,
+      individual_login_role: loginRole,
     })
     .eq('id', recorder.id)
     .eq('organization_id', caller.organization_id);
   if (recorderError) {
     if (createdNewUser && authUserId) await serviceClient.auth.admin.deleteUser(authUserId);
     return jsonResponse({ error: recorderError.message }, 400);
+  }
+
+  const { error: profileError } = await serviceClient
+    .from('profiles')
+    .update({
+      active: true,
+      display_name: recorder.display_name,
+      email: null,
+      role: loginRole,
+      recorder_profile_id: null,
+    })
+    .eq('id', authUserId)
+    .eq('organization_id', caller.organization_id);
+  if (profileError) {
+    await serviceClient
+      .from('recorder_profiles')
+      .update({
+        employee_code: recorder.employee_code,
+        auth_user_id: createdNewUser ? null : recorder.auth_user_id,
+        individual_login_enabled: createdNewUser ? false : recorder.individual_login_enabled,
+        individual_login_role: recorder.individual_login_role || 'staff',
+      })
+      .eq('id', recorder.id)
+      .eq('organization_id', caller.organization_id);
+    if (createdNewUser && authUserId) await serviceClient.auth.admin.deleteUser(authUserId);
+    return jsonResponse({ error: `ログイン権限を保存できませんでした: ${profileError.message}` }, 400);
   }
 
   const { data: organization } = await serviceClient
@@ -172,5 +217,6 @@ Deno.serve(async (request) => {
     ok: true,
     organizationCode: organization?.staff_login_code,
     employeeCode,
+    loginRole,
   });
 });
