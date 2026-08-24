@@ -10,6 +10,7 @@ import {
   Clock3,
   CopyCheck,
   Home,
+  Info,
   LoaderCircle,
   MapPin,
   RotateCcw,
@@ -28,8 +29,10 @@ import type {
   TransportPickupMode,
   TransportPlanDay,
   TransportRouteSettings,
+  TransportTimeChangeHistory,
   TransportTimeMode,
 } from '../types';
+import { loadTransportTimeChangeHistory } from '../services/dataService';
 import { getTransportLocationOptions, type TransportLocationOption } from '../utils/transportLocations';
 import { getTransportScheduleForDate } from '../utils/transportSchedule';
 import { getDefaultDepartureTime } from '../utils/transportDeparture';
@@ -38,6 +41,7 @@ import { inferTransportArea, resolvedTransportArea } from '../utils/transportAre
 import { buildSiblingGroupByChild } from '../utils/childSiblings';
 
 interface MonthlyTransportPlannerProps {
+  organizationId?: string;
   initialDate: string;
   childrenList: ChildProfile[];
   dailyChildPlans: DailyChildPlan[];
@@ -85,10 +89,6 @@ const TRANSPORT_TIME_MODE_OPTIONS: Array<{ value: TransportTimeMode; label: stri
   { value: 'arrival_backward', label: '来所・帰着時刻から逆算' },
   { value: 'departure_forward', label: '施設出発時刻から順算' },
 ];
-
-function timeModeLabel(mode: TransportTimeMode) {
-  return TRANSPORT_TIME_MODE_OPTIONS.find((option) => option.value === mode)?.label || '時刻固定';
-}
 
 function timeAnchorLabel(direction: TransportDirection, mode: TransportTimeMode) {
   if (mode === 'fixed') return direction === '迎え' ? '下校・迎え時刻' : '送り先への到着希望時刻';
@@ -283,19 +283,12 @@ function TransportRequirementFieldset({
 }) {
   const pickup = direction === '迎え';
   const enabled = pickup ? item.pickupEnabled : item.dropoffEnabled;
-  const mode = pickup ? item.pickupTimeMode : item.dropoffTimeMode;
-  const anchorTime = pickup ? item.pickupTargetTime : item.dropoffTargetTime;
   const locationName = pickup ? item.pickupLocationName : item.dropoffLocationName;
   const address = pickup ? item.pickupAddress : item.dropoffAddress;
   const area = pickup ? item.pickupArea : item.dropoffArea;
   const tone = pickup
     ? { border: 'border-sky-200', text: 'text-sky-800', select: 'border-sky-300 bg-sky-50' }
     : { border: 'border-violet-200', text: 'text-violet-800', select: 'border-violet-300 bg-violet-50' };
-  const timeHelp = mode === 'fixed'
-    ? '登録時刻を守る前提で、経路計算後に遅れの可能性を確認します。'
-    : mode === 'arrival_backward'
-      ? '指定した来所・帰着時刻に間に合うよう、各地点の時刻と出発時刻を逆算します。'
-      : '指定した施設出発時刻から、各地点の到着時刻を順番に計算します。';
 
   return <fieldset className={`rounded-xl border bg-white p-3 ${tone.border}`}>
     <legend className={`px-1 text-xs font-black ${tone.text}`}>{direction}</legend>
@@ -310,22 +303,14 @@ function TransportRequirementFieldset({
       </label>
       <label className="text-[10px] font-bold text-slate-600">{direction}先の名称<input value={locationName || ''} disabled={!canManage} onChange={(event) => onUpdate(pickup ? { pickupLocationProfileId: undefined, pickupLocationName: event.target.value } : { dropoffLocationProfileId: undefined, dropoffLocationName: event.target.value })} placeholder={pickup ? '例：祖母宅、○○学童' : '例：自宅、祖母宅、○○学童'} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label>
       <label className="text-[10px] font-bold text-slate-600">{direction}先の住所<input value={address || ''} disabled={!canManage} onChange={(event) => { const nextAddress = event.target.value; onUpdate(pickup ? { pickupLocationProfileId: undefined, pickupAddress: nextAddress, pickupArea: inferTransportArea(nextAddress) } : { dropoffLocationProfileId: undefined, dropoffAddress: nextAddress, dropoffArea: inferTransportArea(nextAddress) }); }} placeholder="登録先と異なる場合は直接入力" className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label>
-      <label className="text-[10px] font-bold text-slate-600">時刻の決め方
-        <select value={mode} disabled={!canManage} onChange={(event) => onUpdate(pickup ? { pickupTimeMode: event.target.value as TransportTimeMode } : { dropoffTimeMode: event.target.value as TransportTimeMode })} className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-sm font-bold">
-          {TRANSPORT_TIME_MODE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-        </select>
-        <span className="mt-1 block text-[9px] font-normal leading-relaxed text-slate-500">{timeHelp}</span>
-      </label>
-      <div className="grid grid-cols-2 gap-2">
-        <label className="text-[10px] font-bold text-slate-600">エリア（自動）<input value={area || ''} disabled={!canManage} onChange={(event) => onUpdate(pickup ? { pickupArea: event.target.value } : { dropoffArea: event.target.value })} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label>
-        <label className="text-[10px] font-bold text-slate-600">{timeAnchorLabel(direction, mode)}<input type="time" value={anchorTime || ''} disabled={!canManage} onChange={(event) => onUpdate(pickup ? { pickupTargetTime: event.target.value || undefined } : { dropoffTargetTime: event.target.value || undefined })} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label>
-      </div>
-      <p className={`rounded-lg px-2 py-1.5 text-[9px] font-bold ${mode === 'fixed' ? 'bg-slate-100 text-slate-600' : 'bg-amber-50 text-amber-900'}`}>{timeModeLabel(mode)}・{anchorTime || '基準時刻未設定'}{mode !== 'fixed' && '（配車後に時間計算）'}</p>
+      <label className="text-[10px] font-bold text-slate-600">エリア（自動）<input value={area || ''} disabled={!canManage} onChange={(event) => onUpdate(pickup ? { pickupArea: event.target.value } : { dropoffArea: event.target.value })} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label>
+      <p className="rounded-lg bg-slate-100 px-2 py-1.5 text-[9px] font-bold text-slate-600">時刻は上部の「送迎時刻管理」で変更します。</p>
     </div>}
   </fieldset>;
 }
 
 export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = ({
+  organizationId,
   initialDate,
   childrenList,
   dailyChildPlans,
@@ -362,6 +347,10 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
   const [calendarViewMode, setCalendarViewMode] = useState<CalendarViewMode>('all');
   const [calendarViewKey, setCalendarViewKey] = useState('');
   const [bulkPickupTime, setBulkPickupTime] = useState('');
+  const [historyChildId, setHistoryChildId] = useState<string>();
+  const [historyRows, setHistoryRows] = useState<TransportTimeChangeHistory[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
   const [holidayFrom, setHolidayFrom] = useState(`${month}-01`);
   const [holidayTo, setHolidayTo] = useState(monthDates(month).at(-1) || `${month}-01`);
   const dates = useMemo(() => monthDates(month), [month]);
@@ -456,6 +445,39 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
     const rows = selectedRequirements.length ? selectedRequirements : drafts;
     return calendarChildIds ? rows.filter((item) => calendarChildIds.has(item.childId)) : rows;
   }, [calendarChildIds, drafts, selectedRequirements]);
+
+  const savedRequirementFor = (item: DailyTransportRequirement) => requirements.find(
+    (candidate) => candidate.childId === item.childId && candidate.date === item.date,
+  );
+
+  const baselineTimesFor = (item: DailyTransportRequirement) => {
+    const child = childrenList.find((candidate) => candidate.id === item.childId);
+    if (!child) return { pickup: '', dropoff: '' };
+    const schedule = getTransportScheduleForDate(child, item.date);
+    const dailyPlan = dailyChildPlans.find((plan) => plan.childId === item.childId && plan.date === item.date);
+    const holidayLike = item.pickupPattern === 'home' || dailyPlan?.serviceCategory === '休日';
+    return {
+      pickup: timeValue(schedule?.schoolEndTime),
+      dropoff: timeValue(getDefaultDepartureTime(child, holidayLike ? '休日' : '平日', routeSettings)),
+    };
+  };
+
+  const timeChangedSinceSave = (item: DailyTransportRequirement) => {
+    const saved = savedRequirementFor(item);
+    if (saved) {
+      return saved.pickupTimeMode !== item.pickupTimeMode
+        || saved.dropoffTimeMode !== item.dropoffTimeMode
+        || timeValue(saved.pickupTargetTime) !== timeValue(item.pickupTargetTime)
+        || timeValue(saved.dropoffTargetTime) !== timeValue(item.dropoffTargetTime);
+    }
+    const baseline = baselineTimesFor(item);
+    const expectedPickupMode: TransportTimeMode = item.pickupPattern === 'home' ? 'arrival_backward' : 'fixed';
+    const expectedPickup = item.pickupPattern === 'home' ? dayDraft.targetArrivalTime : baseline.pickup;
+    return item.pickupTimeMode !== expectedPickupMode
+      || timeValue(item.pickupTargetTime) !== timeValue(expectedPickup)
+      || item.dropoffTimeMode !== 'departure_forward'
+      || timeValue(item.dropoffTargetTime) !== baseline.dropoff;
+  };
 
   const selectDate = (date: string) => {
     setSelectedDate(date);
@@ -787,9 +809,50 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
   };
 
   const updateRequirement = (childId: string, patch: Partial<DailyTransportRequirement>) => {
+    const touchesTime = Object.prototype.hasOwnProperty.call(patch, 'pickupTimeMode')
+      || Object.prototype.hasOwnProperty.call(patch, 'pickupTargetTime')
+      || Object.prototype.hasOwnProperty.call(patch, 'dropoffTimeMode')
+      || Object.prototype.hasOwnProperty.call(patch, 'dropoffTargetTime');
     setDrafts((current) => current.map((item) => item.childId === childId
-      ? { ...item, ...patch, source: 'manual', status: 'draft', revision: item.revision + 1, updatedAt: new Date().toISOString() }
+      ? { ...item, ...patch, ...(touchesTime ? { timeChangeNote: undefined } : {}), source: 'manual', status: 'draft', revision: item.revision + 1, updatedAt: new Date().toISOString() }
       : item));
+  };
+
+  const openTimeHistory = async (childId: string) => {
+    setHistoryChildId(childId);
+    setHistoryRows([]);
+    setHistoryError('');
+    if (!organizationId) return;
+    setHistoryLoading(true);
+    try {
+      setHistoryRows(await loadTransportTimeChangeHistory(organizationId, childId));
+    } catch (loadError) {
+      setHistoryError(loadError instanceof Error ? loadError.message : '時刻の変更履歴を取得できませんでした。');
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const saveTimeRequirement = async (item: DailyTransportRequirement) => {
+    if (!canManage) return;
+    if (!timeChangedSinceSave(item)) return setMessage(`${childrenList.find((child) => child.id === item.childId)?.name || '児童'}の時刻に未保存の変更はありません。`);
+    if (!item.timeChangeNote?.trim()) return setError('時刻を変更した理由・連絡内容をメモへ入力してください。');
+    const now = new Date().toISOString();
+    const next = { ...item, source: 'manual' as const, status: 'draft' as const, revision: item.revision + 1, updatedAt: now };
+    const nextDay = { ...dayDraft, status: 'draft' as const, confirmedAt: undefined, revision: dayDraft.revision + 1, updatedAt: now };
+    setSaving(true);
+    setError('');
+    try {
+      await onSaveRequirements([next]);
+      await onSavePlanDay(nextDay);
+      setDrafts((current) => current.map((candidate) => candidate.childId === next.childId ? next : candidate));
+      setDayDraft(nextDay);
+      setMessage(`${childrenList.find((child) => child.id === item.childId)?.name || '児童'}の送迎時刻と変更メモを保存しました。`);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : '送迎時刻を保存できませんでした。');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const changePickupLocation = (childId: string, locationId: string) => {
@@ -843,6 +906,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
         pickupArea: resolvedTransportArea(pickup?.address, pickup?.area || child.pickupArea),
         pickupTimeMode: pickupMode === 'home' ? 'arrival_backward' : item.pickupTimeMode,
         pickupTargetTime: pickupMode === 'home' ? dayDraft.targetArrivalTime : item.pickupTargetTime,
+        timeChangeNote: undefined,
         source: 'manual',
         status: 'draft',
       };
@@ -854,6 +918,8 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
     if (!rows.length) return setError('先に選択日の基本予定を作成してください。');
     const missing = rows.flatMap((item) => missingFields(item).map((field) => `${childrenList.find((child) => child.id === item.childId)?.name || '児童'}：${field}`));
     if (confirm && missing.length > 0) return setError(`未入力があります：${missing.slice(0, 4).join('、')}${missing.length > 4 ? 'ほか' : ''}`);
+    const timeMemoMissing = rows.filter((item) => timeChangedSinceSave(item) && !item.timeChangeNote?.trim());
+    if (timeMemoMissing.length > 0) return setError(`時刻変更メモが未入力です：${timeMemoMissing.slice(0, 4).map((item) => childrenList.find((child) => child.id === item.childId)?.name || '児童').join('、')}${timeMemoMissing.length > 4 ? 'ほか' : ''}`);
     const now = new Date().toISOString();
     const nextRows = rows.map((item) => ({ ...item, status: confirm ? 'confirmed' as const : 'draft' as const, updatedAt: now }));
     const nextDay: TransportPlanDay = {
@@ -982,7 +1048,73 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
             {dayDraft.pickupMode === 'home' && <label className="text-[10px] font-bold text-slate-600">事業所到着目標<input type="time" value={dayDraft.targetArrivalTime} disabled={!canManage} onChange={(event) => setDayDraft((current) => ({ ...current, targetArrivalTime: event.target.value }))} className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-2 text-sm font-bold" /></label>}
           </div>
         </div>
-        {canManage && calendarViewMode !== 'all' && displayedSelectedRequirements.length > 1 && <div className="mt-3 flex flex-col gap-2 rounded-xl border border-sky-200 bg-sky-50 p-3 sm:flex-row sm:items-end"><label className="min-w-0 flex-1 text-[10px] font-black text-sky-950">表示中 {displayedSelectedRequirements.length}名の下校・迎え時刻を一括変更<input type="time" value={bulkPickupTime} onChange={(event) => setBulkPickupTime(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-sky-300 bg-white px-3 text-sm" /></label><button type="button" disabled={!bulkPickupTime} onClick={() => { const targetIds = new Set(displayedSelectedRequirements.map((item) => item.childId)); const now = new Date().toISOString(); setDrafts((current) => current.map((item) => targetIds.has(item.childId) ? { ...item, pickupTargetTime: bulkPickupTime, source: 'manual', status: 'draft', revision: item.revision + 1, updatedAt: now } : item)); setMessage(`表示中の${targetIds.size}名へ下校・迎え時刻 ${bulkPickupTime} を反映しました。保存すると確定します。`); }} className="min-h-10 shrink-0 rounded-lg bg-sky-700 px-4 text-xs font-black text-white disabled:opacity-40">表示中の児童へ反映</button></div>}
+        {canManage && calendarViewMode !== 'all' && displayedSelectedRequirements.length > 1 && <div className="mt-3 flex flex-col gap-2 rounded-xl border border-sky-200 bg-sky-50 p-3 sm:flex-row sm:items-end"><label className="min-w-0 flex-1 text-[10px] font-black text-sky-950">表示中 {displayedSelectedRequirements.length}名の下校・迎え時刻を一括変更<input type="time" value={bulkPickupTime} onChange={(event) => setBulkPickupTime(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-sky-300 bg-white px-3 text-sm" /></label><button type="button" disabled={!bulkPickupTime} onClick={() => { const targetIds = new Set(displayedSelectedRequirements.map((item) => item.childId)); const now = new Date().toISOString(); setDrafts((current) => current.map((item) => targetIds.has(item.childId) ? { ...item, pickupTargetTime: bulkPickupTime, timeChangeNote: undefined, source: 'manual', status: 'draft', revision: item.revision + 1, updatedAt: now } : item)); setMessage(`表示中の${targetIds.size}名へ下校・迎え時刻 ${bulkPickupTime} を反映しました。児童ごとに変更メモを入力して保存してください。`); }} className="min-h-10 shrink-0 rounded-lg bg-sky-700 px-4 text-xs font-black text-white disabled:opacity-40">表示中の児童へ反映</button></div>}
+
+        <section className="mt-3 overflow-hidden rounded-2xl border-2 border-sky-200 bg-sky-50/60" aria-label="送迎時刻管理">
+          <header className="flex flex-col gap-2 border-b border-sky-200 bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-[10px] font-black text-sky-700">時刻を間違えないための独立管理</p>
+              <h4 className="flex items-center gap-2 text-base font-black text-slate-950"><Clock3 className="h-5 w-5 text-sky-700" />送迎時刻管理</h4>
+              <p className="mt-0.5 text-[10px] font-bold text-slate-500">下校・迎え時刻と送り開始時刻だけを、送迎先の編集とは分けて確認・保存します。</p>
+            </div>
+            <span className="rounded-full bg-sky-100 px-3 py-1.5 text-[10px] font-black text-sky-900">{selectedDate}・{displayedSelectedRequirements.length}名</span>
+          </header>
+          {displayedSelectedRequirements.length === 0 ? (
+            <p className="p-4 text-center text-xs font-bold text-slate-500">この日の送迎予定を作成すると時刻を管理できます。</p>
+          ) : (
+            <div className="grid gap-2 p-2 lg:grid-cols-2">
+              {[...displayedSelectedRequirements].sort((left, right) => (left.pickupTargetTime || '99:99').localeCompare(right.pickupTargetTime || '99:99')).map((item) => {
+                const child = childrenList.find((candidate) => candidate.id === item.childId);
+                const baseline = baselineTimesFor(item);
+                const pickupDifferent = item.pickupTimeMode === 'fixed' && Boolean(baseline.pickup) && timeValue(item.pickupTargetTime) !== baseline.pickup;
+                const dropoffDifferent = item.dropoffTimeMode === 'departure_forward' && Boolean(baseline.dropoff) && timeValue(item.dropoffTargetTime) !== baseline.dropoff;
+                const changed = timeChangedSinceSave(item);
+                return (
+                  <article key={`time-${item.childId}`} className={`rounded-xl border bg-white p-3 shadow-sm ${pickupDifferent || dropoffDifferent ? 'border-amber-400 ring-2 ring-amber-100' : changed ? 'border-sky-400 ring-2 ring-sky-100' : 'border-slate-200'}`}>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <strong className="block truncate text-sm font-black text-slate-950">{child?.name || '児童'}</strong>
+                        <span className="mt-0.5 block truncate text-[9px] font-bold text-slate-500">迎え：{item.pickupLocationName || '未設定'}／送り：{item.dropoffLocationName || '未設定'}</span>
+                      </div>
+                      <button type="button" onClick={() => void openTimeHistory(item.childId)} className="flex min-h-9 shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2 text-[10px] font-black text-slate-700" title="時刻の変更履歴"><Info className="h-4 w-4" />履歴</button>
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <div className={`rounded-xl border p-2 ${pickupDifferent ? 'border-amber-300 bg-amber-50' : 'border-sky-100 bg-sky-50'}`}>
+                        <span className="block text-[9px] font-black text-sky-900">{item.pickupTimeMode === 'fixed' ? '下校・迎え時間' : timeAnchorLabel('迎え', item.pickupTimeMode)}</span>
+                        <input type="time" value={item.pickupTargetTime || ''} disabled={!canManage || !item.pickupEnabled} onChange={(event) => updateRequirement(item.childId, { pickupTargetTime: event.target.value || undefined })} className="mt-1 min-h-11 w-full rounded-lg border border-sky-200 bg-white px-2 text-lg font-black text-sky-950 disabled:opacity-50" />
+                        <select value={item.pickupTimeMode} disabled={!canManage || !item.pickupEnabled} onChange={(event) => updateRequirement(item.childId, { pickupTimeMode: event.target.value as TransportTimeMode })} className="mt-1 min-h-8 w-full rounded-md border border-sky-200 bg-white px-1 text-[9px] font-bold">
+                          {TRANSPORT_TIME_MODE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
+                        {baseline.pickup && <span className={`mt-1 block text-[9px] font-black ${pickupDifferent ? 'text-amber-800' : 'text-slate-500'}`}>児童情報の基本：{baseline.pickup}{pickupDifferent && '（変更あり）'}</span>}
+                      </div>
+
+                      <div className={`rounded-xl border p-2 ${dropoffDifferent ? 'border-amber-300 bg-amber-50' : 'border-violet-100 bg-violet-50'}`}>
+                        <span className="block text-[9px] font-black text-violet-900">{item.dropoffTimeMode === 'departure_forward' ? '送り開始時間' : timeAnchorLabel('送り', item.dropoffTimeMode)}</span>
+                        <input type="time" value={item.dropoffTargetTime || ''} disabled={!canManage || !item.dropoffEnabled} onChange={(event) => updateRequirement(item.childId, { dropoffTargetTime: event.target.value || undefined })} className="mt-1 min-h-11 w-full rounded-lg border border-violet-200 bg-white px-2 text-lg font-black text-violet-950 disabled:opacity-50" />
+                        <select value={item.dropoffTimeMode} disabled={!canManage || !item.dropoffEnabled} onChange={(event) => updateRequirement(item.childId, { dropoffTimeMode: event.target.value as TransportTimeMode })} className="mt-1 min-h-8 w-full rounded-md border border-violet-200 bg-white px-1 text-[9px] font-bold">
+                          {TRANSPORT_TIME_MODE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+                        </select>
+                        {baseline.dropoff && <span className={`mt-1 block text-[9px] font-black ${dropoffDifferent ? 'text-amber-800' : 'text-slate-500'}`}>基本の退所：{baseline.dropoff}{dropoffDifferent && '（変更あり）'}</span>}
+                      </div>
+                    </div>
+
+                    {(pickupDifferent || dropoffDifferent) && <p className="mt-2 rounded-lg bg-amber-100 px-2 py-1.5 text-[10px] font-black text-amber-950">児童情報に登録された基本時刻と異なります。変更理由を確認してください。</p>}
+                    {changed && canManage && (
+                      <label className="mt-2 block text-[10px] font-black text-slate-700">時刻変更メモ（必須）
+                        <input value={item.timeChangeNote || ''} onChange={(event) => updateRequirement(item.childId, { timeChangeNote: event.target.value })} placeholder="例：学校から短縮授業の連絡あり（○○先生）" className="mt-1 min-h-10 w-full rounded-lg border border-amber-300 bg-amber-50 px-3 text-xs" />
+                      </label>
+                    )}
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <span className={`text-[9px] font-black ${changed ? 'text-sky-700' : 'text-emerald-700'}`}>{changed ? '未保存の時刻変更あり' : '保存済み'}</span>
+                      {canManage && <button type="button" disabled={saving || !changed} onClick={() => void saveTimeRequirement(item)} className="flex min-h-9 items-center gap-1.5 rounded-lg bg-sky-700 px-3 text-[10px] font-black text-white disabled:bg-slate-300"><Save className="h-3.5 w-3.5" />時刻だけ保存</button>}
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
 
         <section className="mt-3 rounded-xl border border-teal-200 bg-teal-50 p-3" aria-label="追加利用児童">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1123,6 +1255,44 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
         {error && <p className="mt-3 rounded-xl bg-rose-50 p-3 text-xs font-bold text-rose-800">{error}</p>}
         {saving && <p className="mt-2 flex items-center gap-2 text-xs font-bold text-slate-500"><Clock3 className="h-4 w-4" />保存しています…</p>}
       </section>
+
+      {historyChildId && (
+        <div className="fixed inset-0 z-[125] flex items-end justify-center bg-slate-950/55 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label="送迎時刻の変更履歴">
+          <div className="max-h-[90dvh] w-full overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:max-w-2xl sm:rounded-2xl">
+            <header className="flex items-center justify-between border-b border-slate-200 p-4">
+              <div>
+                <p className="text-[10px] font-black text-sky-700">インフォメーション</p>
+                <h3 className="text-lg font-black text-slate-950">{childrenList.find((child) => child.id === historyChildId)?.name || '児童'}の時刻変更履歴</h3>
+              </div>
+              <button type="button" onClick={() => setHistoryChildId(undefined)} aria-label="閉じる" className="grid h-10 w-10 place-items-center rounded-xl bg-slate-100"><X className="h-5 w-5" /></button>
+            </header>
+            <div className="max-h-[72dvh] overflow-y-auto p-4">
+              {historyLoading && <p className="flex items-center justify-center gap-2 py-8 text-xs font-bold text-slate-500"><LoaderCircle className="h-4 w-4 animate-spin" />変更履歴を読み込んでいます…</p>}
+              {historyError && <p className="rounded-xl bg-rose-50 p-3 text-xs font-bold text-rose-800">{historyError}</p>}
+              {!organizationId && <p className="rounded-xl bg-amber-50 p-3 text-xs font-bold text-amber-900">変更履歴は共有データベース接続時に表示されます。</p>}
+              {!historyLoading && !historyError && organizationId && historyRows.length === 0 && <p className="py-8 text-center text-xs font-bold text-slate-500">保存済みの時刻変更履歴はありません。</p>}
+              {historyRows.length > 0 && (
+                <ol className="space-y-2">
+                  {historyRows.map((row) => (
+                    <li key={row.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+                      <div className="flex flex-wrap items-start justify-between gap-2">
+                        <div>
+                          <span className={`inline-flex rounded-full px-2 py-1 text-[9px] font-black ${row.field === 'pickup_target_time' ? 'bg-sky-100 text-sky-900' : 'bg-violet-100 text-violet-900'}`}>{row.field === 'pickup_target_time' ? '下校・迎え時間' : '送り開始時間'}</span>
+                          <p className="mt-1 text-sm font-black text-slate-950">{row.previousTime || '未設定'} <span className="px-1 text-slate-400">→</span> {row.newTime || '未設定'}</p>
+                          {row.previousMode !== row.newMode && <p className="mt-0.5 text-[9px] font-bold text-slate-500">{row.previousMode ? TRANSPORT_TIME_MODE_OPTIONS.find((option) => option.value === row.previousMode)?.label : '未設定'} → {row.newMode ? TRANSPORT_TIME_MODE_OPTIONS.find((option) => option.value === row.newMode)?.label : '未設定'}</p>}
+                        </div>
+                        <span className="text-right text-[9px] font-bold text-slate-500">{row.date}<br />{new Date(row.createdAt).toLocaleString('ja-JP')}</span>
+                      </div>
+                      <p className="mt-2 rounded-lg bg-white px-2 py-1.5 text-xs font-bold text-slate-700">{row.note}</p>
+                      <p className="mt-1 text-[9px] font-bold text-slate-500">変更者：{row.changedByName || 'システム'}</p>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {additionalPickerOpen && (
         <div className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/55 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label={`${selectedDate}の追加利用児童を登録`}>

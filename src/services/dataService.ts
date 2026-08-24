@@ -38,6 +38,7 @@ import {
   TransportRouteOptimizationRequest,
   TransportRouteOptimizationResult,
   TransportRouteSettings,
+  TransportTimeChangeHistory,
   TransportMatrixRequest,
   TransportMatrixResult,
   TransportMapLocation,
@@ -511,6 +512,7 @@ function mapDailyTransportRequirement(row: any): DailyTransportRequirement {
     status: row.status || 'draft',
     revision: Number(row.revision || 1),
     note: row.note || undefined,
+    timeChangeNote: row.time_change_note || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -1144,6 +1146,7 @@ export async function saveDailyTransportRequirement(
     status: requirement.status,
     revision: requirement.revision,
     note: requirement.note?.trim() || null,
+    time_change_note: requirement.timeChangeNote?.trim() || null,
   }, { onConflict: 'organization_id,child_id,service_date' });
   if (error) throw error;
 }
@@ -1179,6 +1182,7 @@ export async function saveDailyTransportRequirements(
     status: requirement.status,
     revision: requirement.revision,
     note: requirement.note?.trim() || null,
+    time_change_note: requirement.timeChangeNote?.trim() || null,
   }));
   const { error } = await assertSupabase().from('daily_transport_requirements').upsert(rows, {
     onConflict: 'organization_id,child_id,service_date',
@@ -1210,7 +1214,40 @@ function monthlyTransportPayload(requirements: DailyTransportRequirement[]) {
     keep_siblings_together: requirement.keepSiblingsTogether,
     revision: Math.max(1, requirement.revision),
     note: requirement.note?.trim() || null,
+    time_change_note: requirement.timeChangeNote?.trim() || null,
   }));
+}
+
+function mapTransportTimeChangeHistory(row: any): TransportTimeChangeHistory {
+  return {
+    id: row.id,
+    childId: row.child_id,
+    date: row.service_date,
+    field: row.time_field,
+    previousTime: row.previous_time ? String(row.previous_time).slice(0, 5) : undefined,
+    newTime: row.new_time ? String(row.new_time).slice(0, 5) : undefined,
+    previousMode: row.previous_mode || undefined,
+    newMode: row.new_mode || undefined,
+    note: row.change_note || '変更理由なし',
+    changedByName: row.changed_by_name || undefined,
+    createdAt: row.created_at,
+  };
+}
+
+export async function loadTransportTimeChangeHistory(
+  organizationId: string,
+  childId: string,
+  limit = 100,
+) {
+  const { data, error } = await assertSupabase()
+    .from('transport_time_change_history')
+    .select('*')
+    .eq('organization_id', organizationId)
+    .eq('child_id', childId)
+    .order('created_at', { ascending: false })
+    .limit(Math.max(1, Math.min(200, limit)));
+  if (error) throw error;
+  return (data || []).map(mapTransportTimeChangeHistory);
 }
 
 async function loadMonthlyTransportRequirementsFromDatabase(

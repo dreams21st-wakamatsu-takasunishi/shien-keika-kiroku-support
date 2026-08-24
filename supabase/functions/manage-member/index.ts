@@ -131,23 +131,33 @@ Deno.serve(async (request) => {
     const [{ data: recorder }, { data: duplicateLink }] = await Promise.all([
       serviceClient
         .from('recorder_profiles')
-        .select('id, auth_user_id, active')
+        .select('id, active')
         .eq('organization_id', caller.organization_id)
         .eq('id', recorderProfileId)
         .maybeSingle(),
       serviceClient
         .from('profiles')
-        .select('id')
+        .select('id, active')
         .eq('organization_id', caller.organization_id)
         .eq('recorder_profile_id', recorderProfileId)
         .neq('id', targetUserId)
         .maybeSingle(),
     ]);
     if (!recorder?.active) return jsonResponse({ error: '選択した記録者が見つからないか、名簿から外されています。' }, 400);
-    if (recorder.auth_user_id && recorder.auth_user_id !== targetUserId) {
-      return jsonResponse({ error: '選択した記録者には別の職員IDログインが紐づいています。' }, 409);
+    // A recorder may already own a staff-ID login. Email login and staff-ID
+    // login are two authentication entrances for the same operational person,
+    // so that is not a conflict. Only another active email-login member is.
+    if (duplicateLink?.active) return jsonResponse({ error: '選択した記録者は別の有効なログイン職員に紐づいています。' }, 409);
+    if (duplicateLink && !duplicateLink.active) {
+      const { error: unlinkInactiveError } = await serviceClient
+        .from('profiles')
+        .update({ recorder_profile_id: null })
+        .eq('id', duplicateLink.id)
+        .eq('organization_id', caller.organization_id);
+      if (unlinkInactiveError) {
+        return jsonResponse({ error: `利用停止済みログインの古い紐づけを解除できませんでした: ${unlinkInactiveError.message}` }, 400);
+      }
     }
-    if (duplicateLink) return jsonResponse({ error: '選択した記録者は別のログイン職員に紐づいています。' }, 409);
   }
 
   if (email !== target.email) {

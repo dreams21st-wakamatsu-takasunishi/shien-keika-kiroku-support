@@ -468,6 +468,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
         {activePanel === 'monthlySchedule' && (
           <MonthlyTransportPlanner
+            organizationId={organizationId}
             initialDate={today}
             childrenList={childrenList}
             dailyChildPlans={dailyChildPlans}

@@ -539,8 +539,26 @@ export interface DailyTransportRequirement {
   status: 'draft' | 'confirmed';
   revision: number;
   note?: string;
+  /** Reason recorded when a pickup/drop-off time is changed. */
+  timeChangeNote?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export type TransportTimeChangeField = 'pickup_target_time' | 'dropoff_target_time';
+
+export interface TransportTimeChangeHistory {
+  id: string;
+  childId: string;
+  date: string;
+  field: TransportTimeChangeField;
+  previousTime?: string;
+  newTime?: string;
+  previousMode?: TransportTimeMode;
+  newMode?: TransportTimeMode;
+  note: string;
+  changedByName?: string;
+  createdAt: string;
 }
 
 export type TransportDirection = '迎え' | '送り';
