@@ -11,6 +11,8 @@ interface RecorderRow {
   pin_configured: boolean;
   employee_code: string | null;
   job_title: string | null;
+  employment_type: 'full_time' | 'part_time';
+  contracted_weekly_hours: number | null;
   individual_login_enabled: boolean;
   created_at: string;
 }
@@ -22,6 +24,8 @@ const toRecorderProfile = (row: RecorderRow): RecorderProfile => ({
   pinConfigured: row.pin_configured,
   employeeCode: row.employee_code || undefined,
   jobTitle: row.job_title || undefined,
+  employmentType: row.employment_type === 'part_time' ? 'part_time' : 'full_time',
+  contractedWeeklyHours: row.contracted_weekly_hours === null ? undefined : Number(row.contracted_weekly_hours),
   individualLoginEnabled: row.individual_login_enabled,
   createdAt: row.created_at,
 });
@@ -45,10 +49,14 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
   const [newName, setNewName] = useState('');
   const [newEmployeeCode, setNewEmployeeCode] = useState('');
   const [newJobTitle, setNewJobTitle] = useState('');
+  const [newEmploymentType, setNewEmploymentType] = useState<'full_time' | 'part_time'>('full_time');
+  const [newContractedWeeklyHours, setNewContractedWeeklyHours] = useState('');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [editingEmployeeCode, setEditingEmployeeCode] = useState('');
   const [editingJobTitle, setEditingJobTitle] = useState('');
+  const [editingEmploymentType, setEditingEmploymentType] = useState<'full_time' | 'part_time'>('full_time');
+  const [editingContractedWeeklyHours, setEditingContractedWeeklyHours] = useState('');
   const [pinEditingId, setPinEditingId] = useState<string | null>(null);
   const [pin, setPin] = useState('');
   const [pinConfirmation, setPinConfirmation] = useState('');
@@ -66,7 +74,7 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
     const [recordersResult, organizationResult] = await Promise.all([
       supabase
         .from('recorder_profiles')
-        .select('id, display_name, active, pin_configured, employee_code, job_title, individual_login_enabled, created_at')
+        .select('id, display_name, active, pin_configured, employee_code, job_title, employment_type, contracted_weekly_hours, individual_login_enabled, created_at')
         .eq('organization_id', currentUser.organizationId)
         .eq('active', true),
       supabase
@@ -104,6 +112,10 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
       display_name: newName.trim(),
       employee_code: newEmployeeCode.trim() || null,
       job_title: newJobTitle.trim() || null,
+      ...(currentUser.role === 'admin' ? {
+        employment_type: newEmploymentType,
+        contracted_weekly_hours: newContractedWeeklyHours ? Number(newContractedWeeklyHours) : null,
+      } : {}),
       created_by: currentUser.id,
     });
     if (error) {
@@ -112,6 +124,8 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
       setNewName('');
       setNewEmployeeCode('');
       setNewJobTitle('');
+      setNewEmploymentType('full_time');
+      setNewContractedWeeklyHours('');
       setMessage('記録者を登録しました。');
       await refresh();
     }
@@ -128,6 +142,10 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
         display_name: editingName.trim(),
         employee_code: editingEmployeeCode.trim() || null,
         job_title: editingJobTitle.trim() || null,
+        ...(currentUser.role === 'admin' ? {
+          employment_type: editingEmploymentType,
+          contracted_weekly_hours: editingContractedWeeklyHours ? Number(editingContractedWeeklyHours) : null,
+        } : {}),
       })
       .eq('organization_id', currentUser.organizationId)
       .eq('id', editingId);
@@ -295,7 +313,10 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
         )}
       </div>
 
-      <form onSubmit={addRecorder} className="grid gap-2 border-b border-slate-200 p-4 md:grid-cols-[1.2fr_1fr_1fr_auto]">
+      <form
+        onSubmit={addRecorder}
+        className={`grid gap-2 border-b border-slate-200 p-4 md:grid-cols-2 ${currentUser.role === 'admin' ? 'xl:grid-cols-6' : 'xl:grid-cols-4'}`}
+      >
         <label>
           <span className="mb-1 block text-[11px] font-bold text-slate-600">指導員氏名</span>
           <input
@@ -326,6 +347,21 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
             className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm focus:border-teal-500 focus:ring-2 focus:ring-teal-200"
           />
         </label>
+        {currentUser.role === 'admin' && (
+          <>
+            <label>
+              <span className="mb-1 block text-[11px] font-bold text-slate-600">勤務区分</span>
+              <select value={newEmploymentType} onChange={(event) => setNewEmploymentType(event.target.value as 'full_time' | 'part_time')} className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm">
+                <option value="full_time">正職</option>
+                <option value="part_time">パート</option>
+              </select>
+            </label>
+            <label>
+              <span className="mb-1 block text-[11px] font-bold text-slate-600">週契約時間（任意）</span>
+              <input type="number" min="0" max="80" step="0.25" value={newContractedWeeklyHours} onChange={(event) => setNewContractedWeeklyHours(event.target.value)} placeholder="例：20" className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm" />
+            </label>
+          </>
+        )}
         <button
           type="submit"
           disabled={busy || !newName.trim()}
@@ -354,7 +390,13 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
             return (
               <div key={recorder.id} className="px-4 py-3">
                 {editing ? (
-                  <div className="grid gap-2 md:grid-cols-[1.2fr_1fr_1fr_auto_auto] md:items-center">
+                  <div
+                    className={`grid gap-2 md:grid-cols-2 ${
+                      currentUser.role === 'admin'
+                        ? 'xl:grid-cols-[1.2fr_1fr_1fr_0.8fr_0.8fr_auto_auto]'
+                        : 'xl:grid-cols-[1.2fr_1fr_1fr_auto_auto]'
+                    } xl:items-center`}
+                  >
                     <input
                       autoFocus
                       value={editingName}
@@ -363,6 +405,15 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
                       aria-label="記録者氏名"
                       className="min-h-10 min-w-0 rounded-lg border border-slate-300 px-3 text-sm"
                     />
+                    {currentUser.role === 'admin' && (
+                      <>
+                        <select value={editingEmploymentType} onChange={(event) => setEditingEmploymentType(event.target.value as 'full_time' | 'part_time')} aria-label="勤務区分" className="min-h-10 min-w-0 rounded-lg border border-slate-300 bg-white px-3 text-sm">
+                          <option value="full_time">正職</option>
+                          <option value="part_time">パート</option>
+                        </select>
+                        <input type="number" min="0" max="80" step="0.25" value={editingContractedWeeklyHours} onChange={(event) => setEditingContractedWeeklyHours(event.target.value)} placeholder="週契約時間" aria-label="週契約時間" className="min-h-10 min-w-0 rounded-lg border border-slate-300 px-3 text-sm" />
+                      </>
+                    )}
                     <input
                       value={editingEmployeeCode}
                       onChange={(event) => setEditingEmployeeCode(event.target.value.replace(/[^A-Za-z0-9._-]/g, '').slice(0, 32))}
@@ -402,6 +453,9 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
                       <span className="mt-0.5 block truncate text-[10px] text-slate-500">
                         {[recorder.jobTitle, recorder.employeeCode ? `ID: ${recorder.employeeCode}` : '職員ID未登録'].filter(Boolean).join('・')}
                       </span>
+                    </span>
+                    <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${recorder.employmentType === 'part_time' ? 'bg-violet-100 text-violet-800' : 'bg-emerald-100 text-emerald-800'}`}>
+                      {recorder.employmentType === 'part_time' ? 'パート' : '正職'}{recorder.contractedWeeklyHours !== undefined ? `・週${recorder.contractedWeeklyHours}h` : ''}
                     </span>
                     <span className={`rounded-full px-2 py-1 text-[10px] font-bold ${
                       recorder.pinConfigured
@@ -449,6 +503,8 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
                         setEditingName(recorder.displayName);
                         setEditingEmployeeCode(recorder.employeeCode || '');
                         setEditingJobTitle(recorder.jobTitle || '');
+                        setEditingEmploymentType(recorder.employmentType || 'full_time');
+                        setEditingContractedWeeklyHours(recorder.contractedWeeklyHours === undefined ? '' : String(recorder.contractedWeeklyHours));
                         setMessage(null);
                       }}
                       className="flex min-h-10 items-center gap-1 rounded-lg px-2.5 text-xs font-bold text-teal-700 hover:bg-teal-50"

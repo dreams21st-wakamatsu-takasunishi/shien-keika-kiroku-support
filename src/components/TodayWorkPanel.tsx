@@ -21,6 +21,7 @@ import type {
   RecorderProfile,
   SchoolProfile,
   StaffScheduleItem,
+  StaffShiftTemplate,
   TransportRun,
   TransportAssignmentChangeInput,
   TransportAreaZone,
@@ -46,6 +47,7 @@ interface TodayWorkPanelProps {
   staffScheduleItems: StaffScheduleItem[];
   calendarEvents: CalendarEvent[];
   attendanceRecords: AttendanceRecord[];
+  staffShiftTemplates: StaffShiftTemplate[];
   attendanceCorrections: AttendanceCorrectionRequest[];
   vehicles: Vehicle[];
   transportRuns: TransportRun[];
@@ -61,12 +63,16 @@ interface TodayWorkPanelProps {
   activeRecorder?: RecorderProfile;
   canManage: boolean;
   canApproveAttendanceCorrections: boolean;
+  canManageShifts: boolean;
   attendanceQrEnabled: boolean;
   onSaveStaffSchedule: (item: StaffScheduleItem) => Promise<void> | void;
   onDeleteStaffSchedule: (itemId: string) => Promise<void> | void;
   onSaveCalendarEvent: (event: CalendarEvent) => Promise<void> | void;
   onDeleteCalendarEvent: (eventId: string) => Promise<void> | void;
   onSaveAttendance: (record: AttendanceRecord) => Promise<void> | void;
+  onSaveAttendanceRecords: (records: AttendanceRecord[]) => Promise<void> | void;
+  onSaveStaffShiftTemplate: (template: StaffShiftTemplate) => Promise<void> | void;
+  onDeleteStaffShiftTemplate: (templateId: string) => Promise<void> | void;
   onPunchAttendance: (recorder: RecorderProfile, pin: string, action: '出勤' | '退勤' | '休憩開始' | '休憩終了') => Promise<void> | void;
   onRequestAttendanceCorrection: (record: AttendanceRecord, pin: string, clockIn: string | undefined, clockOut: string | undefined, reason: string) => Promise<void> | void;
   onReviewAttendanceCorrection: (request: AttendanceCorrectionRequest, approved: boolean, note?: string) => Promise<void> | void;
@@ -90,6 +96,7 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
   staffScheduleItems,
   calendarEvents,
   attendanceRecords,
+  staffShiftTemplates,
   attendanceCorrections,
   vehicles,
   transportRuns,
@@ -105,12 +112,16 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
   activeRecorder,
   canManage,
   canApproveAttendanceCorrections,
+  canManageShifts,
   attendanceQrEnabled,
   onSaveStaffSchedule,
   onDeleteStaffSchedule,
   onSaveCalendarEvent,
   onDeleteCalendarEvent,
   onSaveAttendance,
+  onSaveAttendanceRecords,
+  onSaveStaffShiftTemplate,
+  onDeleteStaffShiftTemplate,
   onPunchAttendance,
   onRequestAttendanceCorrection,
   onReviewAttendanceCorrection,
@@ -141,7 +152,7 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
   const warningsByRunId = useMemo(() => getTransportWarnings(dayRuns, vehicles, dayAttendance, dayEvents, dailyChildPlans, staffScheduleItems, childrenList), [dayRuns, vehicles, dayAttendance, dayEvents, dailyChildPlans, staffScheduleItems, childrenList]);
   const allWarnings = [...warningsByRunId.values()].flat();
   const working = dayAttendance.filter((record) => ['出勤中', '休憩中', '遅刻', '早退'].includes(record.status));
-  const absent = dayAttendance.filter((record) => ['欠勤', '有給', '公休'].includes(record.status));
+  const absent = dayAttendance.filter((record) => ['欠勤', '有給', '公休', '特別休暇'].includes(record.status));
 
   const openGenerated = (item: StaffScheduleItem) => {
     if (item.sourceType === 'calendar') setView('calendar');
@@ -206,8 +217,8 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
           </section>
         </>
       )}
-      {view === 'calendar' && <CalendarPanel events={calendarEvents} recorderProfiles={recorderProfiles} childrenList={childrenList} selectedDate={selectedDate} onDateChange={setSelectedDate} canEdit={canManage} onSave={onSaveCalendarEvent} onDelete={onDeleteCalendarEvent} />}
-      {view === 'attendance' && <AttendancePanel records={attendanceRecords} corrections={attendanceCorrections} recorderProfiles={recorderProfiles} selectedDate={selectedDate} activeRecorder={activeRecorder} canManage={canManage} canApproveCorrections={canApproveAttendanceCorrections} qrKioskEnabled={attendanceQrEnabled} onSaveRecord={onSaveAttendance} onPunch={onPunchAttendance} onRequestCorrection={onRequestAttendanceCorrection} onReviewCorrection={onReviewAttendanceCorrection} />}
+      {view === 'calendar' && <CalendarPanel events={calendarEvents} attendanceRecords={attendanceRecords} recorderProfiles={recorderProfiles} childrenList={childrenList} selectedDate={selectedDate} onDateChange={setSelectedDate} canEdit={canManage} onSave={onSaveCalendarEvent} onDelete={onDeleteCalendarEvent} />}
+      {view === 'attendance' && <AttendancePanel records={attendanceRecords} shiftTemplates={staffShiftTemplates} corrections={attendanceCorrections} recorderProfiles={recorderProfiles} selectedDate={selectedDate} activeRecorder={activeRecorder} canManage={canManage} canApproveCorrections={canApproveAttendanceCorrections} canManageShifts={canManageShifts} qrKioskEnabled={attendanceQrEnabled} onSaveRecord={onSaveAttendance} onSaveRecords={onSaveAttendanceRecords} onSaveShiftTemplate={onSaveStaffShiftTemplate} onDeleteShiftTemplate={onDeleteStaffShiftTemplate} onPunch={onPunchAttendance} onRequestCorrection={onRequestAttendanceCorrection} onReviewCorrection={onReviewAttendanceCorrection} />}
       {view === 'transport' && (
         <TransportPanel
           runs={transportRuns}
@@ -336,7 +347,7 @@ function createGeneratedScheduleItems(events: CalendarEvent[], attendance: Atten
   })));
   const attendanceItems = attendance.flatMap((record) => !record.scheduledStartTime || !record.scheduledEndTime ? [] : [{
     id: `generated-attendance-${record.id}`, recorderProfileId: record.recorderProfileId, recorderName: record.recorderName, date: record.date,
-    startTime: record.scheduledStartTime, endTime: record.scheduledEndTime, title: ['欠勤', '有給', '公休'].includes(record.status) ? record.status : '勤務可能時間', category: 'その他' as const,
+    startTime: record.scheduledStartTime, endTime: record.scheduledEndTime, title: ['欠勤', '有給', '公休', '特別休暇'].includes(record.status) ? record.status : '勤務可能時間', category: 'その他' as const,
     childIds: [], note: record.note, createdAt: record.createdAt, updatedAt: record.updatedAt, sourceType: 'attendance' as const, sourceId: record.id, generated: true,
   }]);
   const transportItems = runs.flatMap((run) => [run.driverRecorderProfileId, ...run.assistantRecorderProfileIds].filter(Boolean).map((recorderId) => ({
@@ -408,7 +419,7 @@ function buildOperationsProposal({
     };
   }
 
-  const attendanceStatus = (['欠勤', '有給', '公休', '研修', '遅刻', '早退'] as const).find((status) => normalized.includes(status));
+  const attendanceStatus = (['欠勤', '有給', '公休', '特別休暇', '研修', '遅刻', '早退'] as const).find((status) => normalized.includes(status));
   if (attendanceStatus) {
     const recorder = mentionedRecorders[0];
     if (!recorder) throw new Error('勤務状態を変更する職員名を指定してください。');
@@ -500,7 +511,7 @@ function getTransportWarnings(runs: TransportRun[], vehicles: Vehicle[], attenda
     if (vehicle?.inspectionDueDate && vehicle.inspectionDueDate < run.date) push(run.id, `${run.name}：${vehicle.name}の点検・車検期限（${vehicle.inspectionDueDate}）を過ぎています。`);
     if (run.driverRecorderProfileId) {
       const work = attendanceByRecorder.get(run.driverRecorderProfileId);
-      if (!work || ['欠勤', '有給', '公休'].includes(work.status)) push(run.id, `${run.name}：運転担当者の出勤予定を確認してください。`);
+      if (!work || ['欠勤', '有給', '公休', '特別休暇'].includes(work.status)) push(run.id, `${run.name}：運転担当者の出勤予定を確認してください。`);
       else if (work.scheduledStartTime && work.scheduledEndTime && (run.startTime < work.scheduledStartTime || run.endTime > work.scheduledEndTime)) push(run.id, `${run.name}：運転担当者の勤務予定時間外です。`);
     }
     run.stops.forEach((stop) => {

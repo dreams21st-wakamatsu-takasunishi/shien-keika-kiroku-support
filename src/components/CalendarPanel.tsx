@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, Clock3, MapPin, Plus, Trash2, X } from 'lucide-react';
 import type {
+  AttendanceRecord,
   CalendarEvent,
   CalendarEventType,
   CalendarRecurrence,
@@ -18,6 +19,7 @@ type CalendarView = 'month' | 'week' | 'day' | 'agenda';
 
 interface CalendarPanelProps {
   events: CalendarEvent[];
+  attendanceRecords: AttendanceRecord[];
   recorderProfiles: RecorderProfile[];
   childrenList: ChildProfile[];
   selectedDate: string;
@@ -29,6 +31,7 @@ interface CalendarPanelProps {
 
 export const CalendarPanel: React.FC<CalendarPanelProps> = ({
   events,
+  attendanceRecords,
   recorderProfiles,
   childrenList,
   selectedDate,
@@ -48,10 +51,32 @@ export const CalendarPanel: React.FC<CalendarPanelProps> = ({
     return () => media.removeEventListener('change', handleChange);
   }, []);
   const visibleDates = useMemo(() => datesForView(view, selectedDate), [view, selectedDate]);
-  const visibleEvents = useMemo(() => events
+  const attendanceEvents = useMemo<CalendarEvent[]>(() => attendanceRecords.map((record) => ({
+    id: `attendance:${record.id}`,
+    title: `${record.recorderName}：${record.status}`,
+    eventType: '勤務予定',
+    date: record.date,
+    allDay: !record.scheduledStartTime,
+    startTime: record.scheduledStartTime,
+    endTime: record.scheduledEndTime,
+    recorderProfileIds: [record.recorderProfileId],
+    childIds: [],
+    notificationEnabled: false,
+    visibility: '全体',
+    color: ['欠勤', '有給', '公休', '特別休暇'].includes(record.status) ? '#7c3aed' : '#0f766e',
+    recurrence: 'なし',
+    note: record.note,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+  })), [attendanceRecords]);
+  const visibleEvents = useMemo(() => [...events, ...attendanceEvents]
     .filter((event) => eventOccursInRange(event, visibleDates[0], visibleDates.at(-1) || visibleDates[0]))
     .sort((left, right) => `${left.date}${left.startTime || ''}`.localeCompare(`${right.date}${right.startTime || ''}`)),
-  [events, visibleDates]);
+  [attendanceEvents, events, visibleDates]);
+  const openEvent = (event: CalendarEvent) => {
+    if (event.id.startsWith('attendance:')) return;
+    setEditing(event);
+  };
 
   const openNew = () => {
     const now = new Date().toISOString();
@@ -131,9 +156,9 @@ export const CalendarPanel: React.FC<CalendarPanelProps> = ({
       </header>
 
       {view === 'month' ? (
-        <MonthGrid dates={visibleDates} events={visibleEvents} selectedDate={selectedDate} onSelectDate={onDateChange} onOpen={setEditing} />
+        <MonthGrid dates={visibleDates} events={visibleEvents} selectedDate={selectedDate} onSelectDate={onDateChange} onOpen={openEvent} />
       ) : (
-        <AgendaList dates={visibleDates} events={visibleEvents} onOpen={setEditing} />
+        <AgendaList dates={visibleDates} events={visibleEvents} onOpen={openEvent} />
       )}
 
       {editing && (

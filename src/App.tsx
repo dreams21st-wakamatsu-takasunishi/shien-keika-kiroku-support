@@ -27,6 +27,7 @@ import {
   ReviewIssue,
   SchoolProfile,
   StaffScheduleItem,
+  StaffShiftTemplate,
   SupportPlan,
   SupportRecord,
   Template,
@@ -79,6 +80,7 @@ import {
   deleteRecordDraft,
   deleteSchool,
   deleteStaffScheduleItem,
+  deleteStaffShiftTemplate,
   deleteTransportRun,
   deleteTransportAreaZone,
   deleteVehicle,
@@ -100,10 +102,12 @@ import {
   saveSchool,
   saveRecorderMenuPreferences,
   saveStaffScheduleItem,
+  saveStaffShiftTemplate,
   saveAiWritingSettings,
   saveAnnouncement,
   saveAnnouncementConfirmation,
   saveAttendanceRecord,
+  saveAttendanceRecords,
   saveCalendarEvent,
   saveDailyChildPlan,
   saveDailyTransportRequirement,
@@ -230,6 +234,11 @@ export default function App() {
   const [attendanceRecords, setAttendanceRecords] = useState<AttendanceRecord[]>(() => {
     if (remoteMode) return [];
     const saved = localStorage.getItem('support_attendance_records_data');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [staffShiftTemplates, setStaffShiftTemplates] = useState<StaffShiftTemplate[]>(() => {
+    if (remoteMode) return [];
+    const saved = localStorage.getItem('support_staff_shift_templates_data');
     return saved ? JSON.parse(saved) : [];
   });
   const [attendanceCorrections, setAttendanceCorrections] = useState<AttendanceCorrectionRequest[]>(() => {
@@ -447,6 +456,9 @@ export default function App() {
     if (!remoteMode) localStorage.setItem('support_attendance_records_data', JSON.stringify(attendanceRecords));
   }, [attendanceRecords, remoteMode]);
   useEffect(() => {
+    if (!remoteMode) localStorage.setItem('support_staff_shift_templates_data', JSON.stringify(staffShiftTemplates));
+  }, [staffShiftTemplates, remoteMode]);
+  useEffect(() => {
     if (!remoteMode) localStorage.setItem('support_attendance_corrections_data', JSON.stringify(attendanceCorrections));
   }, [attendanceCorrections, remoteMode]);
   useEffect(() => {
@@ -503,6 +515,7 @@ export default function App() {
           setCalendarEvents([]);
           setDailyChildPlans([]);
           setAttendanceRecords([]);
+          setStaffShiftTemplates([]);
           setAttendanceCorrections([]);
           setVehicles([]);
           setTransportRuns([]);
@@ -544,6 +557,7 @@ export default function App() {
         setCalendarEvents(workspace.calendarEvents);
         setDailyChildPlans(workspace.dailyChildPlans);
         setAttendanceRecords(workspace.attendanceRecords);
+        setStaffShiftTemplates(workspace.staffShiftTemplates);
         setAttendanceCorrections(workspace.attendanceCorrectionRequests);
         setVehicles(workspace.vehicles);
         setTransportRuns(workspace.transportRuns);
@@ -701,6 +715,8 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_schedule_items', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'calendar_events', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_records', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_shift_templates', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'recorder_profiles', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_correction_requests', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_runs', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
@@ -1281,6 +1297,47 @@ export default function App() {
       if (organizationId) await saveAttendanceRecord(organizationId, record);
       setAttendanceRecords((previous) => [record, ...previous.filter((candidate) => candidate.id !== record.id)]);
     } catch (error) { persistError(error); }
+  };
+
+  const handleSaveAttendanceRecords = async (recordsToSave: AttendanceRecord[]) => {
+    if (remoteMode && auth.profile?.role !== 'admin') throw new Error('月間シフトを変更できるのは管理者のみです。');
+    try {
+      const saved = organizationId
+        ? await saveAttendanceRecords(organizationId, recordsToSave)
+        : recordsToSave;
+      const savedKeys = new Set(saved.map((record) => `${record.recorderProfileId}:${record.date}`));
+      setAttendanceRecords((previous) => [
+        ...saved,
+        ...previous.filter((record) => !savedKeys.has(`${record.recorderProfileId}:${record.date}`)),
+      ]);
+    } catch (error) {
+      persistError(error);
+      throw error;
+    }
+  };
+
+  const handleSaveStaffShiftTemplate = async (template: StaffShiftTemplate) => {
+    if (remoteMode && auth.profile?.role !== 'admin') throw new Error('勤務テンプレートを変更できるのは管理者のみです。');
+    try {
+      const saved = organizationId
+        ? await saveStaffShiftTemplate(organizationId, template)
+        : template;
+      setStaffShiftTemplates((previous) => [saved, ...previous.filter((candidate) => candidate.id !== saved.id)]);
+    } catch (error) {
+      persistError(error);
+      throw error;
+    }
+  };
+
+  const handleDeleteStaffShiftTemplate = async (templateId: string) => {
+    if (remoteMode && auth.profile?.role !== 'admin') throw new Error('勤務テンプレートを削除できるのは管理者のみです。');
+    try {
+      if (organizationId) await deleteStaffShiftTemplate(organizationId, templateId);
+      setStaffShiftTemplates((previous) => previous.filter((template) => template.id !== templateId));
+    } catch (error) {
+      persistError(error);
+      throw error;
+    }
   };
 
   const handlePunchAttendance = async (
@@ -2055,6 +2112,7 @@ export default function App() {
             calendarEvents={calendarEventsForCurrentUser}
             dailyChildPlans={dailyChildPlans}
             attendanceRecords={attendanceRecords}
+            staffShiftTemplates={staffShiftTemplates}
             attendanceCorrections={attendanceCorrections}
             vehicles={vehicles}
             transportRuns={transportRuns}
@@ -2106,6 +2164,9 @@ export default function App() {
             onDeleteDailyTransportRequirement={handleDeleteDailyTransportRequirement}
             onDeleteMonthlyDailySchedules={handleDeleteMonthlyDailySchedules}
             onSaveAttendance={handleSaveAttendance}
+            onSaveAttendanceRecords={handleSaveAttendanceRecords}
+            onSaveStaffShiftTemplate={handleSaveStaffShiftTemplate}
+            onDeleteStaffShiftTemplate={handleDeleteStaffShiftTemplate}
             onPunchAttendance={handlePunchAttendance}
             onRequestAttendanceCorrection={handleRequestAttendanceCorrection}
             onReviewAttendanceCorrection={handleReviewAttendanceCorrection}

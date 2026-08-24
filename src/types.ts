@@ -340,6 +340,8 @@ export interface RecorderProfile {
   pinConfigured?: boolean;
   employeeCode?: string;
   jobTitle?: string;
+  employmentType?: 'full_time' | 'part_time';
+  contractedWeeklyHours?: number;
   individualLoginEnabled?: boolean;
   menuPreferences?: RecorderMenuPreferences;
   createdAt?: string;
@@ -431,7 +433,25 @@ export type AttendanceStatus =
   | '欠勤'
   | '有給'
   | '公休'
+  | '特別休暇'
   | '研修';
+
+export type StaffEmploymentType = 'full_time' | 'part_time';
+export type StaffShiftTemplateTarget = 'all' | StaffEmploymentType;
+
+export interface StaffShiftTemplate {
+  id: string;
+  name: string;
+  targetEmploymentType: StaffShiftTemplateTarget;
+  startTime: string;
+  endTime: string;
+  breakMinutes: number;
+  weekdays: number[];
+  note?: string;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
 
 export interface AttendanceBreakPeriod {
   startedAt: string;
@@ -445,6 +465,7 @@ export interface AttendanceRecord {
   date: string;
   scheduledStartTime?: string;
   scheduledEndTime?: string;
+  scheduledBreakMinutes?: number;
   status: AttendanceStatus;
   clockInAt?: string;
   clockOutAt?: string;

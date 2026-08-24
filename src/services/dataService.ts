@@ -28,6 +28,7 @@ import {
   RegularDaySchedule,
   SnackType,
   StaffScheduleItem,
+  StaffShiftTemplate,
   SupportPlan,
   SupportRecord,
   Template,
@@ -77,6 +78,7 @@ export interface WorkspaceData {
   calendarEvents: CalendarEvent[];
   dailyChildPlans: DailyChildPlan[];
   attendanceRecords: AttendanceRecord[];
+  staffShiftTemplates: StaffShiftTemplate[];
   attendanceCorrectionRequests: AttendanceCorrectionRequest[];
   vehicles: Vehicle[];
   transportRuns: TransportRun[];
@@ -262,9 +264,31 @@ function mapRecorderProfile(row: any): RecorderProfile {
     pinConfigured: row.pin_configured === true,
     employeeCode: row.employee_code || undefined,
     jobTitle: row.job_title || undefined,
+    employmentType: row.employment_type === 'part_time' ? 'part_time' : 'full_time',
+    contractedWeeklyHours: row.contracted_weekly_hours === null || row.contracted_weekly_hours === undefined
+      ? undefined
+      : Number(row.contracted_weekly_hours),
     individualLoginEnabled: row.individual_login_enabled === true,
     menuPreferences,
     createdAt: row.created_at || undefined,
+  };
+}
+
+function mapStaffShiftTemplate(row: any): StaffShiftTemplate {
+  return {
+    id: row.id,
+    name: row.name,
+    targetEmploymentType: row.target_employment_type || 'all',
+    startTime: String(row.start_time || '').slice(0, 5),
+    endTime: String(row.end_time || '').slice(0, 5),
+    breakMinutes: Number(row.break_minutes || 0),
+    weekdays: Array.isArray(row.weekdays)
+      ? row.weekdays.map(Number).filter((day: number) => Number.isInteger(day) && day >= 0 && day <= 6)
+      : [],
+    note: row.note || undefined,
+    active: row.active !== false,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -421,6 +445,7 @@ function mapAttendanceRecord(row: any, recorderNames?: Map<string, string>): Att
     date: row.work_date,
     scheduledStartTime: row.scheduled_start_time ? String(row.scheduled_start_time).slice(0, 5) : undefined,
     scheduledEndTime: row.scheduled_end_time ? String(row.scheduled_end_time).slice(0, 5) : undefined,
+    scheduledBreakMinutes: Number(row.scheduled_break_minutes || 0),
     status: row.status,
     clockInAt: row.clock_in_at || undefined,
     clockOutAt: row.clock_out_at || undefined,
@@ -697,6 +722,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     calendarEventsResult,
     dailyChildPlansResult,
     attendanceRecordsResult,
+    staffShiftTemplatesResult,
     attendanceCorrectionsResult,
     vehiclesResult,
     transportRunsResult,
@@ -709,7 +735,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     client.from('children').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('name'),
     client.from('schools').select('*').eq('organization_id', organizationId).order('name'),
     client.from('child_regular_day_schedules').select('*').eq('organization_id', organizationId).order('effective_from'),
-    client.from('recorder_profiles').select('id, display_name, active, pin_configured, employee_code, job_title, individual_login_enabled, menu_preferences, created_at').eq('organization_id', organizationId).eq('active', true).order('display_name'),
+    client.from('recorder_profiles').select('id, display_name, active, pin_configured, employee_code, job_title, employment_type, contracted_weekly_hours, individual_login_enabled, menu_preferences, created_at').eq('organization_id', organizationId).eq('active', true).order('display_name'),
     client.from('record_templates').select('*').eq('organization_id', organizationId).is('archived_at', null).order('created_at'),
     loadSupportRecordsWithRetry(organizationId),
     client.from('handover_items').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }),
@@ -725,6 +751,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     client.from('calendar_events').select('*').eq('organization_id', organizationId).order('event_date', { ascending: false }).order('start_time'),
     client.from('daily_child_plans').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }),
     client.from('attendance_records').select('*').eq('organization_id', organizationId).order('work_date', { ascending: false }),
+    client.from('staff_shift_templates').select('*').eq('organization_id', organizationId).eq('active', true).order('name'),
     client.from('attendance_correction_requests').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }),
     client.from('vehicles').select('*').eq('organization_id', organizationId).order('name'),
     client.from('transport_runs').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }).order('start_time'),
@@ -832,6 +859,9 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     attendanceRecords: attendanceRecordsResult.error
       ? []
       : (attendanceRecordsResult.data || []).map((row) => mapAttendanceRecord(row, recorderNames)),
+    staffShiftTemplates: staffShiftTemplatesResult.error
+      ? []
+      : (staffShiftTemplatesResult.data || []).map(mapStaffShiftTemplate),
     attendanceCorrectionRequests: attendanceCorrectionsResult.error
       ? []
       : (attendanceCorrectionsResult.data || []).map((row) => mapAttendanceCorrection(row, recorderNames)),
@@ -965,12 +995,69 @@ export async function saveAttendanceRecord(organizationId: string, record: Atten
     work_date: record.date,
     scheduled_start_time: record.scheduledStartTime || null,
     scheduled_end_time: record.scheduledEndTime || null,
+    scheduled_break_minutes: record.scheduledBreakMinutes || 0,
     status: record.status,
     clock_in_at: record.clockInAt || null,
     clock_out_at: record.clockOutAt || null,
     break_periods: record.breakPeriods,
     note: record.note?.trim() || null,
   }, { onConflict: 'organization_id,id' });
+  if (error) throw error;
+}
+
+export async function saveAttendanceRecords(
+  organizationId: string,
+  records: AttendanceRecord[],
+): Promise<AttendanceRecord[]> {
+  if (records.length === 0) return [];
+  const recorderNames = new Map(records.map((record) => [record.recorderProfileId, record.recorderName]));
+  const { data, error } = await assertSupabase().from('attendance_records').upsert(
+    records.map((record) => ({
+      organization_id: organizationId,
+      recorder_profile_id: record.recorderProfileId,
+      work_date: record.date,
+      scheduled_start_time: record.scheduledStartTime || null,
+      scheduled_end_time: record.scheduledEndTime || null,
+      scheduled_break_minutes: record.scheduledBreakMinutes || 0,
+      status: record.status,
+      clock_in_at: record.clockInAt || null,
+      clock_out_at: record.clockOutAt || null,
+      break_periods: record.breakPeriods,
+      note: record.note?.trim() || null,
+      device_id: record.deviceId || null,
+      last_action_by_recorder_id: record.lastActionByRecorderId || null,
+    })),
+    { onConflict: 'organization_id,recorder_profile_id,work_date' },
+  ).select('*');
+  if (error) throw error;
+  return (data || []).map((row) => mapAttendanceRecord(row, recorderNames));
+}
+
+export async function saveStaffShiftTemplate(
+  organizationId: string,
+  template: StaffShiftTemplate,
+): Promise<StaffShiftTemplate> {
+  const { data, error } = await assertSupabase().from('staff_shift_templates').upsert({
+    organization_id: organizationId,
+    id: template.id,
+    name: template.name.trim(),
+    target_employment_type: template.targetEmploymentType,
+    start_time: template.startTime,
+    end_time: template.endTime,
+    break_minutes: template.breakMinutes,
+    weekdays: template.weekdays,
+    note: template.note?.trim() || null,
+    active: template.active,
+  }, { onConflict: 'organization_id,id' }).select('*').single();
+  if (error) throw error;
+  return mapStaffShiftTemplate(data);
+}
+
+export async function deleteStaffShiftTemplate(organizationId: string, templateId: string) {
+  const { error } = await assertSupabase().from('staff_shift_templates')
+    .update({ active: false })
+    .eq('organization_id', organizationId)
+    .eq('id', templateId);
   if (error) throw error;
 }
 

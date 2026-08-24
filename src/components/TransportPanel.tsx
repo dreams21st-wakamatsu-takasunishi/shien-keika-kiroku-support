@@ -75,7 +75,7 @@ function assignmentAvailabilityLabel(
   currentRun: TransportRun,
 ) {
   const work = attendance.find((record) => record.date === date && record.recorderProfileId === recorder.id);
-  if (work && ['欠勤', '有給', '公休'].includes(work.status)) return `${recorder.displayName}（${work.status}）`;
+  if (work && ['欠勤', '有給', '公休', '特別休暇'].includes(work.status)) return `${recorder.displayName}（${work.status}）`;
   const overlap = runs.find((run) => run.id !== currentRun.id
     && rangesOverlap(run.startTime, run.endTime, currentRun.startTime, currentRun.endTime)
     && (run.driverRecorderProfileId === recorder.id || run.assistantRecorderProfileIds.includes(recorder.id)));

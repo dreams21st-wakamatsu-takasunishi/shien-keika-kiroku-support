@@ -40,6 +40,7 @@ import type {
   RecorderProfile,
   SchoolProfile,
   StaffScheduleItem,
+  StaffShiftTemplate,
   SupportRecord,
   TransportRun,
   TransportAssignmentChangeInput,
@@ -80,6 +81,7 @@ interface HomeScreenProps {
   calendarEvents: CalendarEvent[];
   dailyChildPlans: DailyChildPlan[];
   attendanceRecords: AttendanceRecord[];
+  staffShiftTemplates: StaffShiftTemplate[];
   attendanceCorrections: AttendanceCorrectionRequest[];
   vehicles: Vehicle[];
   transportRuns: TransportRun[];
@@ -125,6 +127,9 @@ interface HomeScreenProps {
   onDeleteDailyTransportRequirement: (childId: string, date: string) => Promise<void> | void;
   onDeleteMonthlyDailySchedules: (month: string, childId?: string) => Promise<MonthlyScheduleDeleteResult>;
   onSaveAttendance: (record: AttendanceRecord) => Promise<void> | void;
+  onSaveAttendanceRecords: (records: AttendanceRecord[]) => Promise<void> | void;
+  onSaveStaffShiftTemplate: (template: StaffShiftTemplate) => Promise<void> | void;
+  onDeleteStaffShiftTemplate: (templateId: string) => Promise<void> | void;
   onPunchAttendance: (recorder: RecorderProfile, pin: string, action: '出勤' | '退勤' | '休憩開始' | '休憩終了') => Promise<void> | void;
   onRequestAttendanceCorrection: (record: AttendanceRecord, pin: string, clockIn: string | undefined, clockOut: string | undefined, reason: string) => Promise<void> | void;
   onReviewAttendanceCorrection: (request: AttendanceCorrectionRequest, approved: boolean, note?: string) => Promise<void> | void;
@@ -182,6 +187,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   calendarEvents,
   dailyChildPlans,
   attendanceRecords,
+  staffShiftTemplates,
   attendanceCorrections,
   vehicles,
   transportRuns,
@@ -227,6 +233,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onDeleteDailyTransportRequirement,
   onDeleteMonthlyDailySchedules,
   onSaveAttendance,
+  onSaveAttendanceRecords,
+  onSaveStaffShiftTemplate,
+  onDeleteStaffShiftTemplate,
   onPunchAttendance,
   onRequestAttendanceCorrection,
   onReviewAttendanceCorrection,
@@ -266,10 +275,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     const work = attendanceRecords.filter((record) => record.date === today);
     const runs = transportRuns.filter((run) => run.date === today);
     const events = calendarEvents.filter((event) => homeEventOccursOn(event, today));
-    const absentStaff = work.filter((record) => ['欠勤', '有給', '公休'].includes(record.status)).map((record) => record.recorderName);
+    const absentStaff = work.filter((record) => ['欠勤', '有給', '公休', '特別休暇'].includes(record.status)).map((record) => record.recorderName);
     const absentChildren = events.filter((event) => event.eventType === '欠席').flatMap((event) => event.childIds).map((id) => childrenList.find((child) => child.id === id)?.name).filter(Boolean);
     return [
-      `出勤予定 ${work.filter((record) => !['欠勤', '有給', '公休'].includes(record.status)).length}名${absentStaff.length ? `／欠勤・休暇 ${absentStaff.join('、')}` : ''}`,
+      `出勤予定 ${work.filter((record) => !['欠勤', '有給', '公休', '特別休暇'].includes(record.status)).length}名${absentStaff.length ? `／欠勤・休暇 ${absentStaff.join('、')}` : ''}`,
       `送迎 ${runs.length}便（${runs.map((run) => run.name).join('、') || 'なし'}）`,
       `追加利用 ${events.filter((event) => event.eventType === '追加利用').flatMap((event) => event.childIds).length}名／欠席 ${absentChildren.length}名${absentChildren.length ? `（${absentChildren.join('、')}）` : ''}`,
       `会議・研修・面談・行事 ${events.filter((event) => ['会議', '研修', '保護者面談', '学校行事', '事業所行事'].includes(event.eventType)).length}件`,
@@ -437,6 +446,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             calendarEvents={calendarEvents}
             dailyChildPlans={dailyChildPlans}
             attendanceRecords={attendanceRecords}
+            staffShiftTemplates={staffShiftTemplates}
             attendanceCorrections={attendanceCorrections}
             vehicles={vehicles}
             transportRuns={transportRuns}
@@ -451,12 +461,16 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             activeRecorder={activeRecorder}
             canManage={canManageSettings}
             canApproveAttendanceCorrections={!organizationId || currentUser?.role === 'admin'}
+            canManageShifts={!organizationId || currentUser?.role === 'admin'}
             attendanceQrEnabled={Boolean(organizationId)}
             onSaveStaffSchedule={onSaveStaffSchedule}
             onDeleteStaffSchedule={onDeleteStaffSchedule}
             onSaveCalendarEvent={onSaveCalendarEvent}
             onDeleteCalendarEvent={onDeleteCalendarEvent}
             onSaveAttendance={onSaveAttendance}
+            onSaveAttendanceRecords={onSaveAttendanceRecords}
+            onSaveStaffShiftTemplate={onSaveStaffShiftTemplate}
+            onDeleteStaffShiftTemplate={onDeleteStaffShiftTemplate}
             onPunchAttendance={onPunchAttendance}
             onRequestAttendanceCorrection={onRequestAttendanceCorrection}
             onReviewAttendanceCorrection={onReviewAttendanceCorrection}

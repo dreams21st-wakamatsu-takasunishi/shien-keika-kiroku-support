@@ -16,21 +16,28 @@ import type {
   AttendanceRecord,
   AttendanceStatus,
   RecorderProfile,
+  StaffShiftTemplate,
 } from '../types';
 import { AttendanceQrKiosk } from './AttendanceQr';
+import { StaffShiftManager } from './StaffShiftManager';
 
 type PunchAction = '出勤' | '退勤' | '休憩開始' | '休憩終了';
 
 interface AttendancePanelProps {
   records: AttendanceRecord[];
+  shiftTemplates: StaffShiftTemplate[];
   corrections: AttendanceCorrectionRequest[];
   recorderProfiles: RecorderProfile[];
   selectedDate: string;
   activeRecorder?: RecorderProfile;
   canManage: boolean;
   canApproveCorrections: boolean;
+  canManageShifts: boolean;
   qrKioskEnabled: boolean;
   onSaveRecord: (record: AttendanceRecord) => Promise<void> | void;
+  onSaveRecords: (records: AttendanceRecord[]) => Promise<void> | void;
+  onSaveShiftTemplate: (template: StaffShiftTemplate) => Promise<void> | void;
+  onDeleteShiftTemplate: (templateId: string) => Promise<void> | void;
   onPunch: (recorder: RecorderProfile, pin: string, action: PunchAction) => Promise<void> | void;
   onRequestCorrection: (
     record: AttendanceRecord,
@@ -47,21 +54,27 @@ interface ScheduleForm {
   status: AttendanceStatus;
   scheduledStartTime: string;
   scheduledEndTime: string;
+  scheduledBreakMinutes: number;
   note: string;
 }
 
-const DAY_STATUSES: AttendanceStatus[] = ['勤務予定', '遅刻', '早退', '欠勤', '有給', '公休', '研修'];
+const DAY_STATUSES: AttendanceStatus[] = ['勤務予定', '遅刻', '早退', '欠勤', '有給', '公休', '特別休暇', '研修'];
 
 export const AttendancePanel: React.FC<AttendancePanelProps> = ({
   records,
+  shiftTemplates,
   corrections,
   recorderProfiles,
   selectedDate,
   activeRecorder,
   canManage,
   canApproveCorrections,
+  canManageShifts,
   qrKioskEnabled,
   onSaveRecord,
+  onSaveRecords,
+  onSaveShiftTemplate,
+  onDeleteShiftTemplate,
   onPunch,
   onRequestCorrection,
   onReviewCorrection,
@@ -132,6 +145,7 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
       date: selectedDate,
       scheduledStartTime: scheduleForm.scheduledStartTime || undefined,
       scheduledEndTime: scheduleForm.scheduledEndTime || undefined,
+      scheduledBreakMinutes: scheduleForm.scheduledBreakMinutes,
       status: scheduleForm.status,
       clockInAt: existing?.clockInAt,
       clockOutAt: existing?.clockOutAt,
@@ -152,6 +166,7 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
       status: record?.status || '勤務予定',
       scheduledStartTime: record?.scheduledStartTime || '09:00',
       scheduledEndTime: record?.scheduledEndTime || '18:00',
+      scheduledBreakMinutes: record?.scheduledBreakMinutes || 0,
       note: record?.note || '',
     });
   };
@@ -206,6 +221,17 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
 
   return (
     <div className="space-y-4">
+      {canManageShifts && (
+        <StaffShiftManager
+          templates={shiftTemplates}
+          records={records}
+          recorderProfiles={recorderProfiles}
+          selectedDate={selectedDate}
+          onSaveTemplate={onSaveShiftTemplate}
+          onDeleteTemplate={onDeleteShiftTemplate}
+          onSaveRecords={onSaveRecords}
+        />
+      )}
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
@@ -306,6 +332,7 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
             <label className="text-sm font-bold">開始<input type="time" value={scheduleForm.scheduledStartTime} onChange={(event) => setScheduleForm({ ...scheduleForm, scheduledStartTime: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3" /></label>
             <label className="text-sm font-bold">終了<input type="time" value={scheduleForm.scheduledEndTime} onChange={(event) => setScheduleForm({ ...scheduleForm, scheduledEndTime: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3" /></label>
           </div>
+          <label className="block text-sm font-bold">予定休憩（分）<input type="number" min="0" max="480" step="5" value={scheduleForm.scheduledBreakMinutes} onChange={(event) => setScheduleForm({ ...scheduleForm, scheduledBreakMinutes: Number(event.target.value) })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3" /></label>
           <label className="block text-sm font-bold">状態<select value={scheduleForm.status} onChange={(event) => setScheduleForm({ ...scheduleForm, status: event.target.value as AttendanceStatus })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3">{DAY_STATUSES.map((status) => <option key={status}>{status}</option>)}</select></label>
           <label className="block text-sm font-bold">備考<textarea value={scheduleForm.note} onChange={(event) => setScheduleForm({ ...scheduleForm, note: event.target.value })} className="mt-1 min-h-24 w-full rounded-xl border border-slate-300 p-3" /></label>
           <button type="button" onClick={saveSchedule} className="min-h-12 w-full rounded-xl bg-teal-600 font-black text-white">保存</button>
