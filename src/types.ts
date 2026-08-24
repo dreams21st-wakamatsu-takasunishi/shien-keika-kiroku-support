@@ -280,6 +280,8 @@ export interface ChildProfile {
   pickupArea?: string;
   dropoffArea?: string;
   transportLocations?: ChildTransportLocation[];
+  /** Always-visible transport reminder, such as required child seats or contact instructions. */
+  transportPermanentNote?: string;
   notes?: string;
 }
 
@@ -533,6 +535,11 @@ export interface DailyTransportRequirement {
   dropoffArea?: string;
   dropoffTimeMode: TransportTimeMode;
   dropoffTargetTime?: string;
+  /** Route-calculated pickup/boarding time reflected from the daily dispatch planner. */
+  pickupPlannedTime?: string;
+  /** Route-calculated drop-off time reflected from the daily dispatch planner. */
+  dropoffPlannedTime?: string;
+  plannedTimeUpdatedAt?: string;
   stopDurationMinutes: number;
   keepSiblingsTogether: boolean;
   source: 'baseline' | 'manual' | 'assistant';
@@ -588,6 +595,8 @@ export interface TransportStop {
   stopDurationMinutes?: number;
   sequenceLocked?: boolean;
   order: number;
+  /** Current child-level reminder, hydrated for field transport views. */
+  permanentNote?: string;
   note?: string;
 }
 

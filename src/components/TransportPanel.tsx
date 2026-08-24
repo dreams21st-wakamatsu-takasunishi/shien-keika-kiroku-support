@@ -85,6 +85,14 @@ function assignmentAvailabilityLabel(
   return `${recorder.displayName}（対応可能）`;
 }
 
+function transportStopNote(...notes: Array<string | undefined>) {
+  const parts = notes
+    .flatMap((note) => note?.split('／') || [])
+    .map((note) => note.trim())
+    .filter(Boolean);
+  return Array.from(new Set(parts)).join('／') || undefined;
+}
+
 interface TransportPanelProps {
   runs: TransportRun[];
   vehicles: Vehicle[];
@@ -105,7 +113,9 @@ interface TransportPanelProps {
   activeRecorder?: RecorderProfile;
   warningsByRunId?: Map<string, string[]>;
   focusRunId?: string;
+  initialDayPlannerOpen?: boolean;
   onSaveRun: (run: TransportRun) => Promise<void> | void;
+  onSaveRequirements: (requirements: DailyTransportRequirement[]) => Promise<void> | void;
   onChangeAssignment: (change: TransportAssignmentChangeInput) => Promise<void> | void;
   onDeleteRun: (runId: string) => Promise<void> | void;
   onSaveVehicle: (vehicle: Vehicle) => Promise<void> | void;
@@ -144,7 +154,9 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
   activeRecorder,
   warningsByRunId = new Map(),
   focusRunId,
+  initialDayPlannerOpen = false,
   onSaveRun,
+  onSaveRequirements,
   onChangeAssignment,
   onDeleteRun,
   onSaveVehicle,
@@ -157,7 +169,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
 }) => {
   const [view, setView] = useState<ViewMode>("runs");
   const [runForm, setRunForm] = useState<TransportRun | null>(null);
-  const [dayPlannerOpen, setDayPlannerOpen] = useState(false);
+  const [dayPlannerOpen, setDayPlannerOpen] = useState(initialDayPlannerOpen);
   const [vehicleForm, setVehicleForm] = useState<Vehicle | null>(null);
   const [statusRun, setStatusRun] = useState<TransportRun | null>(null);
   const [statusRecorderId, setStatusRecorderId] = useState(
@@ -280,6 +292,8 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
         ?.name,
       stops: runForm.stops.map((stop, index) => ({
         ...stop,
+        permanentNote: childrenList.find((child) => child.id === stop.childId)?.transportPermanentNote,
+        note: transportStopNote(stop.note),
         order: index + 1,
       })),
       routeOrigin: routeOrigin.trim() || undefined,
@@ -329,13 +343,14 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
     updateStop(index, {
       childId: child?.id,
       childName: child?.name,
+      permanentNote: child?.transportPermanentNote,
       locationProfileId: suggestion?.id,
       locationName: suggestion?.name,
       locationType:
         suggestion?.type || (runForm.direction === "迎え" ? "学校" : "自宅"),
       location: suggestion?.address || "",
       area: resolvedTransportArea(suggestion?.address, suggestion?.area),
-      note: suggestion?.note,
+      note: transportStopNote(suggestion?.note),
     });
   };
 
@@ -365,7 +380,8 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
       locationType: location.type,
       location: location.address,
       area: resolvedTransportArea(location.address, location.area),
-      note: location.note,
+      permanentNote: child?.transportPermanentNote,
+      note: transportStopNote(location.note),
     });
   };
 
@@ -392,7 +408,8 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
           locationType:
             suggestion?.type || (direction === "迎え" ? "学校" : "自宅"),
           location: suggestion?.address || "",
-          note: suggestion?.note,
+          permanentNote: child?.transportPermanentNote,
+          note: transportStopNote(suggestion?.note),
         };
       }),
     });
@@ -1551,6 +1568,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
           attendanceRecords={attendanceRecords}
           calendarEvents={calendarEvents}
           onSaveRun={onSaveRun}
+          onSaveRequirements={onSaveRequirements}
           onDeleteRun={onDeleteRun}
           onClose={() => setDayPlannerOpen(false)}
         />

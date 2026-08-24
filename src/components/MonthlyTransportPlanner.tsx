@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   CalendarRange,
+  BusFront,
   CheckCircle2,
   ChevronLeft,
   ChevronDown,
@@ -59,6 +60,7 @@ interface MonthlyTransportPlannerProps {
   onSaveRequirements: (requirements: DailyTransportRequirement[]) => Promise<void> | void;
   onReplaceMonthRequirements: (month: string, requirements: DailyTransportRequirement[]) => Promise<DailyTransportRequirement[]>;
   onReplaceChildMonthRequirements: (month: string, childId: string, requirements: DailyTransportRequirement[]) => Promise<DailyTransportRequirement[]>;
+  onOpenDispatch: (date: string) => void;
 }
 
 const createUuid = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -120,7 +122,22 @@ function rosterTimeLabel(requirement: DailyTransportRequirement | undefined, dir
   if (!requirement) return transportationRequired ? '未設定' : '保護者';
   const enabled = direction === '迎え' ? requirement.pickupEnabled : requirement.dropoffEnabled;
   if (!enabled) return '保護者';
-  return timeValue(direction === '迎え' ? requirement.pickupTargetTime : requirement.dropoffTargetTime) || '未設定';
+  return timeValue(direction === '迎え'
+    ? requirement.pickupPlannedTime || requirement.pickupTargetTime
+    : requirement.dropoffPlannedTime || requirement.dropoffTargetTime) || '未設定';
+}
+
+function hasCalculatedTime(requirement: DailyTransportRequirement | undefined, direction: TransportDirection) {
+  return Boolean(direction === '迎え' ? requirement?.pickupPlannedTime : requirement?.dropoffPlannedTime);
+}
+
+function transportMemoText(child: ChildProfile, requirement?: DailyTransportRequirement, dailyNote?: string) {
+  return Array.from(new Set([
+    child.transportPermanentNote?.trim(),
+    requirement?.timeChangeNote?.trim(),
+    requirement?.note?.trim(),
+    dailyNote?.trim(),
+  ].filter((value): value is string => Boolean(value)))).join('／');
 }
 
 function rosterLocationLabel(requirement: DailyTransportRequirement | undefined, direction: TransportDirection, transportationRequired: boolean) {
@@ -356,6 +373,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
   onSaveRequirements,
   onReplaceMonthRequirements,
   onReplaceChildMonthRequirements,
+  onOpenDispatch,
 }) => {
   const [month, setMonth] = useState(initialDate.slice(0, 7));
   const [selectedDate, setSelectedDate] = useState(initialDate);
@@ -1230,10 +1248,10 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
                         <span className="flex items-center justify-center bg-white px-2 py-2 text-xs font-black text-slate-700">{compactGrade(child.grade)}</span>
                         <span className="flex min-w-0 items-center gap-1.5 bg-white px-2 py-2 text-xs font-black text-slate-950"><span className="truncate">{child.name}</span>{selectedAdditionalChildIds.has(child.id) && <span className="shrink-0 rounded-full bg-teal-100 px-1.5 py-0.5 text-[8px] text-teal-800">追加</span>}</span>
                         <span className={`flex min-w-0 items-center bg-white px-2 py-2 text-[11px] font-bold ${pickupGuardian ? 'text-sky-800' : 'text-slate-700'}`}><span className="truncate" title={rosterLocationLabel(item, '迎え', Boolean(child.transportationRequired))}>{rosterLocationLabel(item, '迎え', Boolean(child.transportationRequired))}</span></span>
-                        <span className={`flex flex-col items-center justify-center bg-white px-1 py-2 text-xs font-black ${pickupDifferent ? 'text-amber-800' : pickupGuardian ? 'text-sky-800' : 'text-slate-950'}`}>{rosterTimeLabel(item, '迎え', Boolean(child.transportationRequired))}{item?.pickupEnabled && item.pickupTimeMode !== 'fixed' && <small className="text-[8px] text-slate-400">{item.pickupTimeMode === 'arrival_backward' ? '逆算' : '順算'}</small>}{pickupDifferent && <small className="text-[8px]">基本 {baseline.pickup}</small>}</span>
+                        <span className={`flex flex-col items-center justify-center bg-white px-1 py-2 text-xs font-black ${pickupDifferent ? 'text-amber-800' : pickupGuardian ? 'text-sky-800' : 'text-slate-950'}`}>{rosterTimeLabel(item, '迎え', Boolean(child.transportationRequired))}{hasCalculatedTime(item, '迎え') ? <small className="text-[8px] text-teal-700">配車反映</small> : item?.pickupEnabled && item.pickupTimeMode !== 'fixed' && <small className="text-[8px] text-slate-400">{item.pickupTimeMode === 'arrival_backward' ? '逆算' : '順算'}</small>}{pickupDifferent && <small className="text-[8px]">基本 {baseline.pickup}</small>}</span>
                         <span className={`flex min-w-0 items-center bg-white px-2 py-2 text-[11px] font-bold ${dropoffGuardian ? 'text-violet-800' : 'text-slate-700'}`}><span className="truncate" title={rosterLocationLabel(item, '送り', Boolean(child.transportationRequired))}>{rosterLocationLabel(item, '送り', Boolean(child.transportationRequired))}</span></span>
-                        <span className={`flex flex-col items-center justify-center bg-white px-1 py-2 text-xs font-black ${dropoffDifferent ? 'text-amber-800' : dropoffGuardian ? 'text-violet-800' : 'text-slate-950'}`}>{rosterTimeLabel(item, '送り', Boolean(child.transportationRequired))}{item?.dropoffEnabled && item.dropoffTimeMode !== 'fixed' && <small className="text-[8px] text-slate-400">{item.dropoffTimeMode === 'arrival_backward' ? '逆算' : '順算'}</small>}{dropoffDifferent && <small className="text-[8px]">基本 {baseline.dropoff}</small>}</span>
-                        <span className="flex min-w-0 items-center bg-white px-2 py-2 text-[10px] font-bold text-slate-600"><span className="line-clamp-2">{item?.timeChangeNote || item?.note || '—'}</span></span>
+                        <span className={`flex flex-col items-center justify-center bg-white px-1 py-2 text-xs font-black ${dropoffDifferent ? 'text-amber-800' : dropoffGuardian ? 'text-violet-800' : 'text-slate-950'}`}>{rosterTimeLabel(item, '送り', Boolean(child.transportationRequired))}{hasCalculatedTime(item, '送り') ? <small className="text-[8px] text-teal-700">配車反映</small> : item?.dropoffEnabled && item.dropoffTimeMode !== 'fixed' && <small className="text-[8px] text-slate-400">{item.dropoffTimeMode === 'arrival_backward' ? '逆算' : '順算'}</small>}{dropoffDifferent && <small className="text-[8px]">基本 {baseline.dropoff}</small>}</span>
+                        <span className="flex min-w-0 items-center bg-white px-2 py-2 text-[10px] font-bold text-slate-600"><span className="line-clamp-2">{transportMemoText(child, item) || '—'}</span></span>
                         <span className="grid place-items-center bg-white p-1"><button type="button" onClick={() => openRequirementEditor(child)} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-300 bg-white text-slate-700" aria-label={`${child.name}の利用・送迎予定を編集`} title="編集"><Pencil className="h-4 w-4" /></button></span>
                       </div>
                     );
@@ -1262,7 +1280,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
                         <span className="truncate font-bold text-slate-600"><b className="mr-1 text-violet-800">送り</b>{rosterLocationLabel(item, '送り', Boolean(child.transportationRequired))}</span>
                         <span className={`text-right font-black ${dropoffDifferent ? 'text-amber-800' : 'text-slate-900'}`}>{rosterTimeLabel(item, '送り', Boolean(child.transportationRequired))}</span>
                       </div>
-                      {(item?.timeChangeNote || item?.note) && <p className="mt-2 truncate rounded-md bg-slate-100 px-2 py-1 text-[9px] font-bold text-slate-600">連絡：{item.timeChangeNote || item.note}</p>}
+                      {transportMemoText(child, item) && <p className="mt-2 rounded-md bg-amber-50 px-2 py-1 text-[9px] font-bold text-amber-900">連絡：{transportMemoText(child, item)}</p>}
                     </div>
                   );
                 })}
@@ -1310,7 +1328,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
           </div>
         </details>
 
-        {canManage && (selectedRequirements.length > 0 || drafts.length > 0) && <div className="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 pt-3"><button type="button" onClick={() => prepareSelectedDate(true)} className="min-h-10 rounded-xl border border-slate-300 px-3 text-xs font-black text-slate-600">基本情報を再反映</button><button type="button" disabled={saving} onClick={() => void saveSelected(false)} className="flex min-h-10 items-center gap-2 rounded-xl border border-teal-300 bg-white px-4 text-xs font-black text-teal-800"><Save className="h-4 w-4" />下書き保存</button><button type="button" disabled={saving} onClick={() => void saveSelected(true)} className="flex min-h-10 items-center gap-2 rounded-xl bg-slate-900 px-4 text-xs font-black text-white">{saving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}送迎条件を確定</button></div>}
+        {canManage && (selectedRequirements.length > 0 || drafts.length > 0) && <div className="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 pt-3"><button type="button" onClick={() => prepareSelectedDate(true)} className="min-h-10 rounded-xl border border-slate-300 px-3 text-xs font-black text-slate-600">基本情報を再反映</button><button type="button" disabled={saving} onClick={() => void saveSelected(false)} className="flex min-h-10 items-center gap-2 rounded-xl border border-teal-300 bg-white px-4 text-xs font-black text-teal-800"><Save className="h-4 w-4" />下書き保存</button><button type="button" disabled={saving} onClick={() => void saveSelected(true)} className="flex min-h-10 items-center gap-2 rounded-xl bg-slate-900 px-4 text-xs font-black text-white">{saving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}送迎条件を確定</button>{dayDraft.status !== 'draft' && <button type="button" disabled={saving} onClick={() => onOpenDispatch(selectedDate)} className="flex min-h-10 items-center gap-2 rounded-xl bg-teal-600 px-4 text-xs font-black text-white"><BusFront className="h-4 w-4" />この日の配車画面を開く</button>}</div>}
         {message && <p className="mt-3 rounded-xl bg-emerald-50 p-3 text-xs font-bold text-emerald-800">{message}</p>}
         {error && <p className="mt-3 rounded-xl bg-rose-50 p-3 text-xs font-bold text-rose-800">{error}</p>}
         {saving && <p className="mt-2 flex items-center gap-2 text-xs font-bold text-slate-500"><Clock3 className="h-4 w-4" />保存しています…</p>}
@@ -1339,7 +1357,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
                   <td>{child ? rosterTimeLabel(item, '迎え', Boolean(child.transportationRequired)) : ''}</td>
                   <td>{child ? rosterLocationLabel(item, '送り', Boolean(child.transportationRequired)) : ''}</td>
                   <td>{child ? rosterTimeLabel(item, '送り', Boolean(child.transportationRequired)) : ''}</td>
-                  <td>{item?.timeChangeNote || item?.note || dailyPlan?.note || ''}</td>
+                  <td>{child ? transportMemoText(child, item, dailyPlan?.note) : ''}</td>
                   <td />
                 </tr>
               );

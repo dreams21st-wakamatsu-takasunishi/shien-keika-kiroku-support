@@ -35,6 +35,7 @@ import {
   TransportAssignmentChangeInput,
   TransportFieldAction,
   TransportFieldDashboard,
+  TransportFieldRun,
   TransportRouteOptimizationRequest,
   TransportRouteOptimizationResult,
   TransportRouteSettings,
@@ -138,6 +139,7 @@ function mapChild(row: any): ChildProfile {
           area: resolvedTransportArea(location.address, location.area),
         }))
       : [],
+    transportPermanentNote: row.transport_permanent_note || undefined,
     notes: row.notes || undefined,
   };
 }
@@ -506,6 +508,9 @@ function mapDailyTransportRequirement(row: any): DailyTransportRequirement {
     dropoffArea: resolvedTransportArea(row.dropoff_address, row.dropoff_area),
     dropoffTimeMode: row.dropoff_time_mode || 'departure_forward',
     dropoffTargetTime: row.dropoff_target_time ? String(row.dropoff_target_time).slice(0, 5) : undefined,
+    pickupPlannedTime: row.pickup_planned_time ? String(row.pickup_planned_time).slice(0, 5) : undefined,
+    dropoffPlannedTime: row.dropoff_planned_time ? String(row.dropoff_planned_time).slice(0, 5) : undefined,
+    plannedTimeUpdatedAt: row.planned_time_updated_at || undefined,
     stopDurationMinutes: Number(row.stop_duration_minutes || 5),
     keepSiblingsTogether: row.keep_siblings_together !== false,
     source: row.source || 'baseline',
@@ -1140,6 +1145,9 @@ export async function saveDailyTransportRequirement(
     dropoff_area: resolvedTransportArea(requirement.dropoffAddress, requirement.dropoffArea) || null,
     dropoff_time_mode: requirement.dropoffTimeMode,
     dropoff_target_time: requirement.dropoffTargetTime || null,
+    pickup_planned_time: requirement.pickupPlannedTime || null,
+    dropoff_planned_time: requirement.dropoffPlannedTime || null,
+    planned_time_updated_at: requirement.plannedTimeUpdatedAt || null,
     stop_duration_minutes: Math.max(0, Math.min(60, Math.round(requirement.stopDurationMinutes))),
     keep_siblings_together: requirement.keepSiblingsTogether,
     source: requirement.source,
@@ -1176,6 +1184,9 @@ export async function saveDailyTransportRequirements(
     dropoff_area: resolvedTransportArea(requirement.dropoffAddress, requirement.dropoffArea) || null,
     dropoff_time_mode: requirement.dropoffTimeMode,
     dropoff_target_time: requirement.dropoffTargetTime || null,
+    pickup_planned_time: requirement.pickupPlannedTime || null,
+    dropoff_planned_time: requirement.dropoffPlannedTime || null,
+    planned_time_updated_at: requirement.plannedTimeUpdatedAt || null,
     stop_duration_minutes: Math.max(0, Math.min(60, Math.round(requirement.stopDurationMinutes))),
     keep_siblings_together: requirement.keepSiblingsTogether,
     source: requirement.source,
@@ -1405,11 +1416,30 @@ export async function loadPersonalTransportDashboard(serviceDate: string): Promi
   });
   if (error) throw error;
   const dashboard = data as TransportFieldDashboard | null;
-  return dashboard || {
+  const resolvedDashboard = dashboard || {
     serviceDate,
     recorderProfileId: '',
     myRuns: [],
     allRuns: [],
+  };
+  const childIds = Array.from(new Set(resolvedDashboard.allRuns.flatMap((run) => run.stops.map((stop) => stop.childId).filter((id): id is string => Boolean(id)))));
+  if (childIds.length === 0) return resolvedDashboard;
+  const { data: childRows } = await assertSupabase()
+    .from('children')
+    .select('id,transport_permanent_note')
+    .in('id', childIds);
+  const permanentNoteByChild = new Map((childRows || []).map((row: any) => [row.id as string, row.transport_permanent_note as string | null]));
+  const enrichRuns = (runs: TransportFieldRun[]) => runs.map((run) => ({
+    ...run,
+    stops: run.stops.map((stop) => ({
+      ...stop,
+      permanentNote: (stop.childId && permanentNoteByChild.get(stop.childId)) || stop.permanentNote || undefined,
+    })),
+  }));
+  return {
+    ...resolvedDashboard,
+    myRuns: enrichRuns(resolvedDashboard.myRuns),
+    allRuns: enrichRuns(resolvedDashboard.allRuns),
   };
 }
 
@@ -1715,6 +1745,7 @@ export async function saveChild(organizationId: string, child: ChildProfile) {
         ...location,
         area: resolvedTransportArea(location.address, location.area),
       })),
+      transport_permanent_note: child.transportPermanentNote?.trim() || null,
       notes: child.notes || null,
       deleted_at: null,
     },

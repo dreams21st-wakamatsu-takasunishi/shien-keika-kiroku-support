@@ -40,6 +40,9 @@ import { TransportPanel } from './TransportPanel';
 type WorkView = 'placement' | 'calendar' | 'attendance' | 'transport';
 
 interface TodayWorkPanelProps {
+  initialDate?: string;
+  initialView?: WorkView;
+  initialOpenDispatchPlanner?: boolean;
   staffScheduleItems: StaffScheduleItem[];
   calendarEvents: CalendarEvent[];
   attendanceRecords: AttendanceRecord[];
@@ -70,6 +73,7 @@ interface TodayWorkPanelProps {
   onSaveVehicle: (vehicle: Vehicle) => Promise<void> | void;
   onDeleteVehicle: (vehicleId: string) => Promise<void> | void;
   onSaveTransportRun: (run: TransportRun) => Promise<void> | void;
+  onSaveDailyTransportRequirements: (requirements: DailyTransportRequirement[]) => Promise<void> | void;
   onChangeTransportAssignment: (change: TransportAssignmentChangeInput) => Promise<void> | void;
   onDeleteTransportRun: (runId: string) => Promise<void> | void;
   onSaveTransportRouteSettings: (settings: TransportRouteSettings) => Promise<void> | void;
@@ -80,6 +84,9 @@ interface TodayWorkPanelProps {
 }
 
 export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
+  initialDate,
+  initialView,
+  initialOpenDispatchPlanner = false,
   staffScheduleItems,
   calendarEvents,
   attendanceRecords,
@@ -110,6 +117,7 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
   onSaveVehicle,
   onDeleteVehicle,
   onSaveTransportRun,
+  onSaveDailyTransportRequirements,
   onChangeTransportAssignment,
   onDeleteTransportRun,
   onSaveTransportRouteSettings,
@@ -118,8 +126,8 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
   onDeleteTransportAreaZone,
   onUpdateTransportStatus,
 }) => {
-  const [selectedDate, setSelectedDate] = useState(getLocalDateString);
-  const [view, setView] = useState<WorkView>('placement');
+  const [selectedDate, setSelectedDate] = useState(initialDate || getLocalDateString());
+  const [view, setView] = useState<WorkView>(initialView || 'placement');
   const [focusRunId, setFocusRunId] = useState<string>();
   const dayEvents = useMemo(() => calendarEvents.filter((event) => eventOccursOn(event, selectedDate)), [calendarEvents, selectedDate]);
   const dayAttendance = useMemo(() => attendanceRecords.filter((record) => record.date === selectedDate), [attendanceRecords, selectedDate]);
@@ -221,7 +229,9 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
           activeRecorder={activeRecorder}
           warningsByRunId={warningsByRunId}
           focusRunId={focusRunId}
+          initialDayPlannerOpen={initialOpenDispatchPlanner}
           onSaveRun={onSaveTransportRun}
+          onSaveRequirements={onSaveDailyTransportRequirements}
           onChangeAssignment={onChangeTransportAssignment}
           onDeleteRun={onDeleteTransportRun}
           onSaveVehicle={onSaveVehicle}

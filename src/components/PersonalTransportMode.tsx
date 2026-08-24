@@ -423,7 +423,8 @@ const TransportStopCard: React.FC<{
           <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-black">{stop.childName || stop.locationName || `${index + 1}番目の乗降`}</h3><span className="text-xs font-black text-teal-800">予定 {stop.plannedTime || '—'}</span></div>
           <p className="mt-1 flex items-start gap-1 text-xs text-slate-600"><MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span>{stop.locationName || stop.locationType}{stop.location ? `・${stop.location}` : ''}</span></p>
           {stopMapUrl && <a href={stopMapUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex min-h-9 items-center gap-1 rounded-lg border border-sky-200 bg-sky-50 px-3 text-[11px] font-black text-sky-800"><Route className="h-3.5 w-3.5" />この地点だけ地図を開く<ExternalLink className="h-3 w-3" /></a>}
-          {stop.note && <p className="mt-2 rounded-lg bg-amber-50 p-2 text-[11px] font-bold text-amber-900">注意：{stop.note}</p>}
+          {stop.permanentNote && <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-[11px] font-black text-amber-950">恒常連絡：{stop.permanentNote}</p>}
+          {stop.note && <p className="mt-2 rounded-lg bg-slate-100 p-2 text-[11px] font-bold text-slate-700">当日の連絡：{stop.note}</p>}
         </div>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2">

@@ -184,6 +184,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   const [transportLocations, setTransportLocations] = useState<ChildTransportLocation[]>([]);
   const [expandedTransportLocationId, setExpandedTransportLocationId] = useState<string>();
   const [formError, setFormError] = useState('');
+  const [transportPermanentNote, setTransportPermanentNote] = useState('');
   const [notes, setNotes] = useState('');
   const today = getLocalDateString();
 
@@ -212,6 +213,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setTransportLocations([]);
     setExpandedTransportLocationId(undefined);
     setFormError('');
+    setTransportPermanentNote('');
     setNotes('');
     setIsModalOpen(true);
   };
@@ -233,6 +235,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setTransportLocations(getCanonicalTransportLocations(child));
     setExpandedTransportLocationId(undefined);
     setFormError('');
+    setTransportPermanentNote(child.transportPermanentNote || '');
     setNotes(child.notes || '');
     setIsModalOpen(true);
   };
@@ -313,6 +316,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         pickupArea: defaultPickup?.area || undefined,
         dropoffArea: defaultDropoff?.area || undefined,
         transportLocations: normalizedTransportLocations,
+        transportPermanentNote: transportPermanentNote.trim() || undefined,
         notes: notes.trim(),
       });
     } else {
@@ -338,6 +342,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         pickupArea: defaultPickup?.area || undefined,
         dropoffArea: defaultDropoff?.area || undefined,
         transportLocations: normalizedTransportLocations,
+        transportPermanentNote: transportPermanentNote.trim() || undefined,
         notes: notes.trim(),
       });
     }
@@ -1031,6 +1036,20 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                 onSetDefaultLocation={setDefaultTransportLocation}
                 formError={formError}
               />
+
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+                <label className="block font-bold text-amber-950">
+                  送迎時の恒常連絡・メモ
+                </label>
+                <p className="mt-1 text-[10px] leading-relaxed text-amber-800">毎日の利用・送迎一覧と、送迎担当者の画面へ常に表示します。</p>
+                <textarea
+                  rows={2}
+                  value={transportPermanentNote}
+                  onChange={(event) => setTransportPermanentNote(event.target.value)}
+                  placeholder="例：チャイルドシートを持参／到着前に保護者へ連絡"
+                  className="mt-2 w-full rounded-lg border border-amber-300 bg-white p-2 text-base leading-relaxed"
+                />
+              </div>
 
               <div>
                 <label className="font-bold text-slate-700 block mb-1">

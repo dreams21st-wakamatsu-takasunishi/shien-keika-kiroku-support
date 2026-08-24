@@ -88,6 +88,7 @@ interface DailyTransportPlannerProps {
   attendanceRecords: AttendanceRecord[];
   calendarEvents: CalendarEvent[];
   onSaveRun: (run: TransportRun) => Promise<void> | void;
+  onSaveRequirements: (requirements: DailyTransportRequirement[]) => Promise<void> | void;
   onDeleteRun: (runId: string) => Promise<void> | void;
   onClose: () => void;
 }
@@ -106,6 +107,13 @@ const transportCollisionDetection: CollisionDetection = (args) => {
 const LOCATION_TYPES: TransportLocationType[] = ['自宅', '学校', '学童', '習い事', '親族宅', '事業所', 'その他'];
 const createUuid = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 const ROUTE_COLORS = ['#0284c7', '#7c3aed', '#059669', '#ea580c', '#db2777', '#4f46e5', '#0891b2', '#65a30d'];
+
+function mergeTransportNotes(...notes: Array<string | undefined>) {
+  const parts = notes.flatMap((note) => note?.split('／') || [])
+    .map((note) => note.trim())
+    .filter(Boolean);
+  return Array.from(new Set(parts)).join('／') || undefined;
+}
 
 function createRun(date: string, direction: TransportDirection, sequence: number, vehicle?: Vehicle): TransportRun {
   const now = new Date().toISOString();
@@ -181,7 +189,8 @@ function childStop(
     ),
     stopDurationMinutes: requirement?.stopDurationMinutes,
     order: 1,
-    note: suggestion?.note,
+    permanentNote: child.transportPermanentNote,
+    note: mergeTransportNotes(requirement?.note, suggestion?.note),
   };
 }
 
@@ -192,7 +201,9 @@ function applyMonthlyRequirementToStop(
   date: string,
   requirement?: DailyTransportRequirement,
 ) {
-  if (!requirement || stop.locationName === '今回のみの送迎先') return stop;
+  if (!requirement || stop.locationName === '今回のみの送迎先') {
+    return { ...stop, permanentNote: child.transportPermanentNote, note: mergeTransportNotes(stop.note) };
+  }
   const profileId = direction === '迎え'
     ? requirement.pickupLocationProfileId
     : requirement.dropoffLocationProfileId;
@@ -215,7 +226,8 @@ function applyMonthlyRequirementToStop(
     plannedTime: timeMode === 'fixed' ? targetTime || stop.plannedTime : timeRuleChanged ? undefined : stop.plannedTime,
     area: resolvedTransportArea(address || stop.location, area || option?.area || stop.area),
     stopDurationMinutes: requirement.stopDurationMinutes,
-    note: requirement.note || option?.note || stop.note,
+    permanentNote: child.transportPermanentNote,
+    note: mergeTransportNotes(requirement.note, option?.note, stop.note),
   };
 }
 
@@ -561,6 +573,7 @@ const ChildCardContent: React.FC<{
       <strong className="block truncate text-xs text-slate-950">{child.name}</strong>
       <span className="mt-0.5 block truncate text-[10px] font-black text-slate-700">{direction === '迎え' ? '下校・迎え' : '送り'} {timeText}</span>
       <span className={`mt-0.5 block truncate font-bold text-slate-500 ${compact ? 'text-[8px]' : 'text-[9px]'}`}>{locationName || `${direction}先未登録`}</span>
+      {child.transportPermanentNote && <span className={`mt-1 block truncate rounded-md bg-amber-100 px-1.5 py-0.5 font-black text-amber-900 ${compact ? 'text-[7px]' : 'text-[8px]'}`}>連絡：{child.transportPermanentNote}</span>}
     </div>
   );
 };
@@ -738,6 +751,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
   attendanceRecords,
   calendarEvents,
   onSaveRun,
+  onSaveRequirements,
   onDeleteRun,
   onClose,
 }) => {
@@ -1294,7 +1308,26 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
     setSaving(true);
     setError('');
     try {
-      for (const run of runsToSave) await onSaveRun({ ...run, name: run.name.trim(), driverName: activeRecorders.find((profile) => profile.id === run.driverRecorderProfileId)?.displayName, vehicleName: vehicles.find((vehicle) => vehicle.id === run.vehicleId)?.name, stops: run.stops.map((stop, index) => ({ ...stop, navigationLocation: exactNavigationLocation(stop, transportMapLocations, childrenList), order: index + 1 })), updatedAt: new Date().toISOString() });
+      for (const run of runsToSave) await onSaveRun({ ...run, name: run.name.trim(), driverName: activeRecorders.find((profile) => profile.id === run.driverRecorderProfileId)?.displayName, vehicleName: vehicles.find((vehicle) => vehicle.id === run.vehicleId)?.name, stops: run.stops.map((stop, index) => ({ ...stop, permanentNote: childrenList.find((child) => child.id === stop.childId)?.transportPermanentNote, navigationLocation: exactNavigationLocation(stop, transportMapLocations, childrenList), order: index + 1 })), updatedAt: new Date().toISOString() });
+      const now = new Date().toISOString();
+      const reflectedRequirements = dailyTransportRequirements.flatMap((requirement) => {
+        const pickupRun = runsToSave.find((run) => run.direction === '迎え' && run.stops.some((stop) => stop.childId === requirement.childId));
+        const dropoffRun = runsToSave.find((run) => run.direction === '送り' && run.stops.some((stop) => stop.childId === requirement.childId));
+        const pickupStop = pickupRun?.stops.find((stop) => stop.childId === requirement.childId);
+        const dropoffStop = dropoffRun?.stops.find((stop) => stop.childId === requirement.childId);
+        const pickupPlannedTime = pickupRun?.routeOptimizedAt ? pickupStop?.plannedTime : undefined;
+        const dropoffPlannedTime = dropoffRun?.routeOptimizedAt ? dropoffStop?.plannedTime : undefined;
+        if (pickupPlannedTime === requirement.pickupPlannedTime && dropoffPlannedTime === requirement.dropoffPlannedTime) return [];
+        return [{
+          ...requirement,
+          pickupPlannedTime,
+          dropoffPlannedTime,
+          plannedTimeUpdatedAt: now,
+          revision: requirement.revision + 1,
+          updatedAt: now,
+        }];
+      });
+      if (reflectedRequirements.length > 0) await onSaveRequirements(reflectedRequirements);
       for (const id of deletedIds) await onDeleteRun(id);
       onClose();
     } catch (saveError) {
