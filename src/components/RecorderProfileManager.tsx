@@ -565,6 +565,11 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
 
                 {loginEditingId === recorder.id && !editing && (
                   <div className="mt-3 rounded-xl border border-sky-200 bg-sky-50 p-3">
+                    {message && (
+                      <p role="alert" className="mb-3 rounded-lg border border-slate-200 bg-white p-3 text-xs text-slate-700">
+                        {message}
+                      </p>
+                    )}
                     <div className="flex flex-wrap items-start justify-between gap-2">
                       <div>
                         <p className="text-xs font-bold text-sky-950">{recorder.displayName}さんの職員IDログイン</p>
