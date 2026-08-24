@@ -253,3 +253,131 @@ summary::-webkit-details-marker {
     animation: none;
   }
 }
+
+.transport-print-sheet {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 7mm;
+  }
+
+  body {
+    background: #fff !important;
+  }
+
+  body * {
+    visibility: hidden !important;
+  }
+
+  .transport-print-sheet,
+  .transport-print-sheet * {
+    visibility: visible !important;
+  }
+
+  .transport-print-sheet {
+    position: absolute;
+    inset: 0;
+    display: block !important;
+    width: 100%;
+    color: #000;
+    background: #fff;
+    font-family: "Yu Gothic", "Meiryo", sans-serif;
+  }
+
+  .transport-print-heading {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 2mm;
+    font-size: 10pt;
+  }
+
+  .transport-print-roster {
+    width: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    font-size: 7.5pt;
+  }
+
+  .transport-print-roster th,
+  .transport-print-roster td {
+    height: 7mm;
+    overflow: hidden;
+    border: 1px solid #000;
+    padding: 0.8mm 1mm;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .transport-print-roster th:nth-child(1) { width: 7%; }
+  .transport-print-roster th:nth-child(2) { width: 5%; }
+  .transport-print-roster th:nth-child(3) { width: 14%; }
+  .transport-print-roster th:nth-child(4) { width: 12%; }
+  .transport-print-roster th:nth-child(5) { width: 10%; }
+  .transport-print-roster th:nth-child(6) { width: 12%; }
+  .transport-print-roster th:nth-child(7) { width: 10%; }
+  .transport-print-roster th:nth-child(8) { width: 20%; }
+  .transport-print-roster th:nth-child(9) { width: 10%; }
+
+  .transport-print-roster td:nth-child(1),
+  .transport-print-roster td:nth-child(2),
+  .transport-print-roster td:nth-child(5),
+  .transport-print-roster td:nth-child(7),
+  .transport-print-roster td:nth-child(9) {
+    text-align: center;
+  }
+
+  .transport-print-runs {
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    margin-top: 2mm;
+    border-top: 1px solid #000;
+    border-left: 1px solid #000;
+  }
+
+  .transport-print-run {
+    min-height: 54mm;
+    border-right: 1px solid #000;
+    border-bottom: 1px solid #000;
+  }
+
+  .transport-print-run h3 {
+    min-height: 7mm;
+    margin: 0;
+    border-bottom: 1px solid #000;
+    padding: 1mm;
+    text-align: center;
+    font-size: 8pt;
+  }
+
+  .transport-print-run p {
+    display: grid;
+    grid-template-columns: 45% 55%;
+    min-height: 6mm;
+    margin: 0;
+    border-bottom: 1px solid #000;
+    font-size: 7pt;
+  }
+
+  .transport-print-run p b,
+  .transport-print-run p span {
+    overflow: hidden;
+    padding: 1mm;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .transport-print-run p b {
+    border-right: 1px solid #000;
+    text-align: center;
+  }
+
+  .transport-print-footer {
+    display: flex;
+    justify-content: space-between;
+    padding-top: 2mm;
+    font-size: 8pt;
+  }
+}

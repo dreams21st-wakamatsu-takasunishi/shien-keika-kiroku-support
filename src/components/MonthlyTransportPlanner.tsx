@@ -1,18 +1,18 @@
 import React, { useMemo, useState } from 'react';
 import {
-  AlertTriangle,
   CalendarRange,
   CheckCircle2,
   ChevronLeft,
   ChevronDown,
   ChevronRight,
-  ChevronUp,
   Clock3,
   CopyCheck,
   Home,
   Info,
   LoaderCircle,
   MapPin,
+  Pencil,
+  Printer,
   RotateCcw,
   Save,
   Search,
@@ -29,6 +29,7 @@ import type {
   TransportPickupMode,
   TransportPlanDay,
   TransportRouteSettings,
+  TransportRun,
   TransportTimeChangeHistory,
   TransportTimeMode,
 } from '../types';
@@ -47,6 +48,7 @@ interface MonthlyTransportPlannerProps {
   dailyChildPlans: DailyChildPlan[];
   requirements: DailyTransportRequirement[];
   planDays: TransportPlanDay[];
+  transportRuns: TransportRun[];
   routeSettings: TransportRouteSettings;
   canManage: boolean;
   onSavePlanDay: (day: TransportPlanDay) => Promise<void> | void;
@@ -102,6 +104,32 @@ function transportTimeSummary(requirement: DailyTransportRequirement, direction:
   if (!anchor) return '基準時刻未設定';
   if (mode === 'fixed') return anchor;
   return `${mode === 'arrival_backward' ? '逆算' : '順算'} ${anchor}`;
+}
+
+function compactGrade(grade?: string) {
+  if (!grade) return '—';
+  return grade
+    .replace('小学校', '小')
+    .replace('中学校', '中')
+    .replace('高等学校', '高')
+    .replace('高校', '高')
+    .replace('年生', '');
+}
+
+function rosterTimeLabel(requirement: DailyTransportRequirement | undefined, direction: TransportDirection, transportationRequired: boolean) {
+  if (!requirement) return transportationRequired ? '未設定' : '保護者';
+  const enabled = direction === '迎え' ? requirement.pickupEnabled : requirement.dropoffEnabled;
+  if (!enabled) return '保護者';
+  return timeValue(direction === '迎え' ? requirement.pickupTargetTime : requirement.dropoffTargetTime) || '未設定';
+}
+
+function rosterLocationLabel(requirement: DailyTransportRequirement | undefined, direction: TransportDirection, transportationRequired: boolean) {
+  if (!requirement) return transportationRequired ? '未設定' : '保護者';
+  const enabled = direction === '迎え' ? requirement.pickupEnabled : requirement.dropoffEnabled;
+  if (!enabled) return '保護者';
+  return (direction === '迎え' ? requirement.pickupLocationName : requirement.dropoffLocationName)
+    || (direction === '迎え' ? requirement.pickupAddress : requirement.dropoffAddress)
+    || '未設定';
 }
 
 function scheduledChildrenForDate(
@@ -292,7 +320,8 @@ function TransportRequirementFieldset({
 
   return <fieldset className={`rounded-xl border bg-white p-3 ${tone.border}`}>
     <legend className={`px-1 text-xs font-black ${tone.text}`}>{direction}</legend>
-    <label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={enabled} disabled={!canManage} onChange={(event) => onToggle(event.target.checked)} />{direction}を利用</label>
+    <label className="flex items-center gap-2 text-xs font-bold"><input type="checkbox" checked={enabled} disabled={!canManage} onChange={(event) => onToggle(event.target.checked)} />施設が{direction}を行う</label>
+    {!enabled && <p className="mt-2 rounded-lg bg-sky-50 px-2 py-2 text-[10px] font-black text-sky-800">保護者対応として、一覧の時刻欄へ「保護者」と表示します。</p>}
     {enabled && <div className="mt-2 grid gap-2">
       <label className="text-[10px] font-bold text-slate-600">児童情報に登録した{direction}先
         <select value={selectedLocationId} disabled={!canManage} onChange={(event) => onChangeLocation(event.target.value)} className={`mt-1 min-h-10 w-full rounded-lg border px-2 text-sm font-bold ${tone.select}`}>
@@ -304,7 +333,7 @@ function TransportRequirementFieldset({
       <label className="text-[10px] font-bold text-slate-600">{direction}先の名称<input value={locationName || ''} disabled={!canManage} onChange={(event) => onUpdate(pickup ? { pickupLocationProfileId: undefined, pickupLocationName: event.target.value } : { dropoffLocationProfileId: undefined, dropoffLocationName: event.target.value })} placeholder={pickup ? '例：祖母宅、○○学童' : '例：自宅、祖母宅、○○学童'} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label>
       <label className="text-[10px] font-bold text-slate-600">{direction}先の住所<input value={address || ''} disabled={!canManage} onChange={(event) => { const nextAddress = event.target.value; onUpdate(pickup ? { pickupLocationProfileId: undefined, pickupAddress: nextAddress, pickupArea: inferTransportArea(nextAddress) } : { dropoffLocationProfileId: undefined, dropoffAddress: nextAddress, dropoffArea: inferTransportArea(nextAddress) }); }} placeholder="登録先と異なる場合は直接入力" className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label>
       <label className="text-[10px] font-bold text-slate-600">エリア（自動）<input value={area || ''} disabled={!canManage} onChange={(event) => onUpdate(pickup ? { pickupArea: event.target.value } : { dropoffArea: event.target.value })} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label>
-      <p className="rounded-lg bg-slate-100 px-2 py-1.5 text-[9px] font-bold text-slate-600">時刻は上部の「送迎時刻管理」で変更します。</p>
+      <p className="rounded-lg bg-slate-100 px-2 py-1.5 text-[9px] font-bold text-slate-600">時刻は、この編集画面上部の時刻欄で変更します。</p>
     </div>}
   </fieldset>;
 }
@@ -316,6 +345,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
   dailyChildPlans,
   requirements,
   planDays,
+  transportRuns,
   routeSettings,
   canManage,
   onSavePlanDay,
@@ -333,7 +363,8 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
     .filter((item) => item.date === initialDate && !childrenList.find((child) => child.id === item.childId)?.serviceSuspended)
     .map((item) => ({ ...item })));
   const [dayDraft, setDayDraft] = useState<TransportPlanDay>(() => planDays.find((day) => day.date === initialDate) || defaultPlanDay(initialDate, routeSettings));
-  const [expandedChildId, setExpandedChildId] = useState<string>();
+  const [editingChildId, setEditingChildId] = useState<string>();
+  const [editingOriginal, setEditingOriginal] = useState<DailyTransportRequirement>();
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -445,6 +476,19 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
     const rows = selectedRequirements.length ? selectedRequirements : drafts;
     return calendarChildIds ? rows.filter((item) => calendarChildIds.has(item.childId)) : rows;
   }, [calendarChildIds, drafts, selectedRequirements]);
+  const displayedServiceChildren = useMemo(() => (
+    calendarChildIds
+      ? selectedServiceChildren.filter((child) => calendarChildIds.has(child.id))
+      : selectedServiceChildren
+  ), [calendarChildIds, selectedServiceChildren]);
+  const selectedAdditionalChildIds = useMemo(
+    () => new Set(selectedAdditionalPlans.map((plan) => plan.childId)),
+    [selectedAdditionalPlans],
+  );
+  const selectedRuns = useMemo(() => transportRuns
+    .filter((run) => run.date === selectedDate)
+    .sort((left, right) => left.direction.localeCompare(right.direction, 'ja') || left.startTime.localeCompare(right.startTime)),
+  [selectedDate, transportRuns]);
 
   const savedRequirementFor = (item: DailyTransportRequirement) => requirements.find(
     (candidate) => candidate.childId === item.childId && candidate.date === item.date,
@@ -479,11 +523,47 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
       || timeValue(item.dropoffTargetTime) !== baseline.dropoff;
   };
 
+  const editingChild = editingChildId
+    ? childrenList.find((child) => child.id === editingChildId)
+    : undefined;
+  const editingRequirement = editingChildId
+    ? (selectedRequirements.find((item) => item.childId === editingChildId)
+      || drafts.find((item) => item.childId === editingChildId))
+    : undefined;
+
+  const openRequirementEditor = (child: ChildProfile) => {
+    let requirement = selectedRequirements.find((item) => item.childId === child.id)
+      || drafts.find((item) => item.childId === child.id);
+    setEditingOriginal(requirement ? { ...requirement } : undefined);
+    if (!requirement) {
+      const dailyPlan = dailyChildPlans.find((plan) => plan.childId === child.id && plan.date === selectedDate);
+      requirement = buildRequirement(child, selectedDate, dayDraft.pickupMode, routeSettings, dailyPlan);
+      if (!child.transportationRequired) {
+        requirement = { ...requirement, pickupEnabled: false, dropoffEnabled: false, source: 'manual' };
+      }
+      setDrafts((current) => [requirement!, ...current.filter((item) => item.childId !== child.id)]);
+    }
+    setEditingChildId(child.id);
+    setError('');
+  };
+
+  const closeRequirementEditor = () => {
+    if (editingChildId) {
+      setDrafts((current) => editingOriginal
+        ? current.map((item) => item.childId === editingChildId ? { ...editingOriginal } : item)
+        : current.filter((item) => item.childId !== editingChildId));
+    }
+    setEditingChildId(undefined);
+    setEditingOriginal(undefined);
+    setError('');
+  };
+
   const selectDate = (date: string) => {
     setSelectedDate(date);
     setDrafts(requirements.filter((item) => item.date === date && activeChildIds.has(item.childId)).map((item) => ({ ...item })));
     setDayDraft(planDays.find((day) => day.date === date) || defaultPlanDay(date, routeSettings));
-    setExpandedChildId(undefined);
+    setEditingChildId(undefined);
+    setEditingOriginal(undefined);
     setAdditionalPickerOpen(false);
     setAdditionalSearch('');
     setBulkPickupTime('');
@@ -561,7 +641,8 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
       setDayDraft(selectedPlan
         ? { ...selectedPlan, status: 'draft', confirmedAt: undefined, revision: selectedPlan.revision + 1, updatedAt: new Date().toISOString() }
         : defaultPlanDay(selectedDate, routeSettings));
-      setExpandedChildId(undefined);
+      setEditingChildId(undefined);
+      setEditingOriginal(undefined);
       const previousByKey = new Map<string, DailyTransportRequirement>(
         monthRequirements.map((item) => [`${item.childId}:${item.date}`, item] as const),
       );
@@ -605,7 +686,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
     try {
       const appliedRequirements = await onReplaceChildMonthRequirements(month, child.id, childRequirements);
       setDrafts(appliedRequirements.filter((item) => item.date === selectedDate));
-      setExpandedChildId(undefined);
+      setEditingChildId(undefined);
       setMessage(`${child.name}の${year}年${Number(monthNumber)}月について、基本予定${childRequirements.length}件を反映しました。他の児童の手動変更は保持しています。`);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : '児童別の基本予定を反映できませんでした。');
@@ -642,7 +723,10 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
       setDayDraft(nextDay);
       if (attendancePlan === '欠席') {
         setDrafts((current) => current.filter((item) => item.childId !== childId));
-        if (expandedChildId === childId) setExpandedChildId(undefined);
+        if (editingChildId === childId) {
+          setEditingChildId(undefined);
+          setEditingOriginal(undefined);
+        }
         setMessage(`${child.name}を${selectedDate}の欠席として登録しました。記録候補と送迎編成から除外されます。`);
       } else {
         const restored = buildRequirement(child, selectedDate, dayDraft.pickupMode, routeSettings, nextPlan);
@@ -719,7 +803,10 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
       if (existingPlan) await onDeleteDailyChildPlan(childId, selectedDate);
       if (existingRequirement) await onDeleteRequirement(childId, selectedDate);
       setDrafts((current) => current.filter((item) => item.childId !== childId));
-      if (expandedChildId === childId) setExpandedChildId(undefined);
+      if (editingChildId === childId) {
+        setEditingChildId(undefined);
+        setEditingOriginal(undefined);
+      }
 
       const now = new Date().toISOString();
       const nextDay: TransportPlanDay = {
@@ -753,7 +840,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
       const result = await onDeleteMonthSchedules(month);
       if (selectedDate.startsWith(month)) {
         setDrafts([]);
-        setExpandedChildId(undefined);
+        setEditingChildId(undefined);
         setDayDraft((current) => ({
           ...current,
           status: 'draft',
@@ -833,10 +920,11 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
     }
   };
 
-  const saveTimeRequirement = async (item: DailyTransportRequirement) => {
+  const saveRequirementRow = async (item: DailyTransportRequirement) => {
     if (!canManage) return;
-    if (!timeChangedSinceSave(item)) return setMessage(`${childrenList.find((child) => child.id === item.childId)?.name || '児童'}の時刻に未保存の変更はありません。`);
-    if (!item.timeChangeNote?.trim()) return setError('時刻を変更した理由・連絡内容をメモへ入力してください。');
+    const missing = missingFields(item);
+    if (missing.length > 0) return setError(`未入力があります：${missing.join('、')}`);
+    if (timeChangedSinceSave(item) && !item.timeChangeNote?.trim()) return setError('時刻を変更した理由・連絡内容をメモへ入力してください。');
     const now = new Date().toISOString();
     const next = { ...item, source: 'manual' as const, status: 'draft' as const, revision: item.revision + 1, updatedAt: now };
     const nextDay = { ...dayDraft, status: 'draft' as const, confirmedAt: undefined, revision: dayDraft.revision + 1, updatedAt: now };
@@ -847,9 +935,11 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
       await onSavePlanDay(nextDay);
       setDrafts((current) => current.map((candidate) => candidate.childId === next.childId ? next : candidate));
       setDayDraft(nextDay);
-      setMessage(`${childrenList.find((child) => child.id === item.childId)?.name || '児童'}の送迎時刻と変更メモを保存しました。`);
+      setEditingChildId(undefined);
+      setEditingOriginal(undefined);
+      setMessage(`${childrenList.find((child) => child.id === item.childId)?.name || '児童'}の利用・送迎内容を保存しました。`);
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : '送迎時刻を保存できませんでした。');
+      setError(saveError instanceof Error ? saveError.message : '利用・送迎内容を保存できませんでした。');
     } finally {
       setSaving(false);
     }
@@ -1035,7 +1125,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
             const day = planDays.find((candidate) => candidate.date === date);
             const missing = rows.some((item) => missingFields(item).length > 0);
             const focused = calendarViewMode !== 'all';
-            return <button key={date} type="button" onClick={() => selectDate(date)} className={`${focused ? 'min-h-24' : 'min-h-16'} min-w-0 rounded-lg border p-1 text-left ${selectedDate === date ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-100' : 'border-slate-200 bg-white'}`}><span className="block text-xs font-black">{Number(date.slice(-2))}</span>{focused ? <span className="mt-1 block space-y-0.5">{rows.map((item) => { const timeSummary = transportTimeSummary(item, '迎え'); return <span key={item.childId} className="block truncate text-[8px] font-black text-sky-800" title={`${childrenList.find((child) => child.id === item.childId)?.name || '児童'}：${timeSummary}`}>{childrenList.find((child) => child.id === item.childId)?.name || '児童'}：{timeSummary}</span>; })}{rows.length === 0 && <span className="block text-[8px] font-bold text-slate-300">予定なし</span>}{absentCount > 0 && <span className="block truncate text-[8px] font-black text-rose-600">欠席 {absentCount}名</span>}</span> : <><span className={`mt-1 block truncate text-[9px] font-bold ${missing ? 'text-rose-700' : day?.status && day.status !== 'draft' ? 'text-emerald-700' : serviceCount ? 'text-sky-700' : 'text-slate-300'}`}>{missing ? '要確認' : day?.status && day.status !== 'draft' ? `確定 ${serviceCount}名` : serviceCount ? `${serviceCount}名` : '予定なし'}</span>{additionalCount > 0 && <span className="mt-0.5 block truncate text-[8px] font-black text-teal-700">追加{additionalCount}名</span>}{absentCount > 0 && <span className="mt-0.5 block truncate text-[8px] font-black text-rose-600">欠席{absentCount}名</span>}</>}</button>;
+            return <button key={date} type="button" onClick={() => selectDate(date)} className={`${focused ? 'min-h-24' : 'min-h-16'} min-w-0 rounded-lg border p-1 text-left ${selectedDate === date ? 'border-teal-500 bg-teal-50 ring-2 ring-teal-100' : 'border-slate-200 bg-white'}`}><span className="block text-xs font-black">{Number(date.slice(-2))}</span>{focused ? <span className="mt-1 block space-y-0.5">{rows.map((item) => { const timeSummary = item.pickupEnabled ? transportTimeSummary(item, '迎え') : '保護者'; return <span key={item.childId} className="block truncate text-[8px] font-black text-sky-800" title={`${childrenList.find((child) => child.id === item.childId)?.name || '児童'}：${timeSummary}`}>{childrenList.find((child) => child.id === item.childId)?.name || '児童'}：{timeSummary}</span>; })}{rows.length === 0 && <span className="block text-[8px] font-bold text-slate-300">予定なし</span>}{absentCount > 0 && <span className="block truncate text-[8px] font-black text-rose-600">欠席 {absentCount}名</span>}</span> : <><span className={`mt-1 block truncate text-[9px] font-bold ${missing ? 'text-rose-700' : day?.status && day.status !== 'draft' ? 'text-emerald-700' : serviceCount ? 'text-sky-700' : 'text-slate-300'}`}>{missing ? '要確認' : day?.status && day.status !== 'draft' ? `確定 ${serviceCount}名` : serviceCount ? `${serviceCount}名` : '予定なし'}</span>{additionalCount > 0 && <span className="mt-0.5 block truncate text-[8px] font-black text-teal-700">追加{additionalCount}名</span>}{absentCount > 0 && <span className="mt-0.5 block truncate text-[8px] font-black text-rose-600">欠席{absentCount}名</span>}</>}</button>;
           })}
         </div>
       </section>
@@ -1050,99 +1140,86 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
         </div>
         {canManage && calendarViewMode !== 'all' && displayedSelectedRequirements.length > 1 && <div className="mt-3 flex flex-col gap-2 rounded-xl border border-sky-200 bg-sky-50 p-3 sm:flex-row sm:items-end"><label className="min-w-0 flex-1 text-[10px] font-black text-sky-950">表示中 {displayedSelectedRequirements.length}名の下校・迎え時刻を一括変更<input type="time" value={bulkPickupTime} onChange={(event) => setBulkPickupTime(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-sky-300 bg-white px-3 text-sm" /></label><button type="button" disabled={!bulkPickupTime} onClick={() => { const targetIds = new Set(displayedSelectedRequirements.map((item) => item.childId)); const now = new Date().toISOString(); setDrafts((current) => current.map((item) => targetIds.has(item.childId) ? { ...item, pickupTargetTime: bulkPickupTime, timeChangeNote: undefined, source: 'manual', status: 'draft', revision: item.revision + 1, updatedAt: now } : item)); setMessage(`表示中の${targetIds.size}名へ下校・迎え時刻 ${bulkPickupTime} を反映しました。児童ごとに変更メモを入力して保存してください。`); }} className="min-h-10 shrink-0 rounded-lg bg-sky-700 px-4 text-xs font-black text-white disabled:opacity-40">表示中の児童へ反映</button></div>}
 
-        <section className="mt-3 overflow-hidden rounded-2xl border-2 border-sky-200 bg-sky-50/60" aria-label="送迎時刻管理">
-          <header className="flex flex-col gap-2 border-b border-sky-200 bg-white px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+        <section className="mt-3 overflow-hidden rounded-2xl border-2 border-slate-200 bg-white" aria-label="利用・送迎一覧">
+          <header className="flex flex-col gap-3 border-b border-slate-200 bg-slate-50 px-3 py-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p className="text-[10px] font-black text-sky-700">時刻を間違えないための独立管理</p>
-              <h4 className="flex items-center gap-2 text-base font-black text-slate-950"><Clock3 className="h-5 w-5 text-sky-700" />送迎時刻管理</h4>
-              <p className="mt-0.5 text-[10px] font-bold text-slate-500">下校・迎え時刻と送り開始時刻だけを、送迎先の編集とは分けて確認・保存します。</p>
+              <p className="text-[10px] font-black text-teal-700">利用予定と送迎時刻を一画面で確認</p>
+              <h4 className="flex items-center gap-2 text-base font-black text-slate-950"><CalendarRange className="h-5 w-5 text-teal-700" />利用・送迎一覧</h4>
+              <p className="mt-0.5 text-[10px] font-bold text-slate-500">表示は確認用です。内容を変更する場合は、各児童の「編集」を選択します。</p>
             </div>
-            <span className="rounded-full bg-sky-100 px-3 py-1.5 text-[10px] font-black text-sky-900">{selectedDate}・{displayedSelectedRequirements.length}名</span>
+            <div className="flex flex-wrap gap-2">
+              <span className="inline-flex min-h-10 items-center rounded-xl bg-white px-3 text-[10px] font-black text-slate-700 shadow-sm">{selectedDate}・{displayedServiceChildren.length}名</span>
+              <button type="button" disabled={selectedServiceChildren.length === 0} onClick={() => window.print()} className="flex min-h-10 items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-xs font-black text-slate-700 disabled:opacity-40"><Printer className="h-4 w-4" />日別表を印刷</button>
+              {canManage && <button type="button" onClick={() => setAdditionalPickerOpen(true)} className="flex min-h-10 items-center gap-2 rounded-xl bg-teal-700 px-3 text-xs font-black text-white"><UserPlus className="h-4 w-4" />児童を追加</button>}
+            </div>
           </header>
-          {displayedSelectedRequirements.length === 0 ? (
-            <p className="p-4 text-center text-xs font-bold text-slate-500">この日の送迎予定を作成すると時刻を管理できます。</p>
+
+          {displayedServiceChildren.length === 0 ? (
+            <div className="py-8 text-center"><CalendarRange className="mx-auto h-9 w-9 text-slate-300" /><p className="mt-2 text-sm font-bold text-slate-500">この日の利用予定はありません。</p>{canManage && <button type="button" onClick={() => prepareSelectedDate()} className="mt-3 min-h-10 rounded-xl bg-teal-600 px-4 text-xs font-black text-white">この日の基本予定を作成</button>}</div>
           ) : (
-            <div className="grid gap-2 p-2 lg:grid-cols-2">
-              {[...displayedSelectedRequirements].sort((left, right) => (left.pickupTargetTime || '99:99').localeCompare(right.pickupTargetTime || '99:99')).map((item) => {
-                const child = childrenList.find((candidate) => candidate.id === item.childId);
-                const baseline = baselineTimesFor(item);
-                const pickupDifferent = item.pickupTimeMode === 'fixed' && Boolean(baseline.pickup) && timeValue(item.pickupTargetTime) !== baseline.pickup;
-                const dropoffDifferent = item.dropoffTimeMode === 'departure_forward' && Boolean(baseline.dropoff) && timeValue(item.dropoffTargetTime) !== baseline.dropoff;
-                const changed = timeChangedSinceSave(item);
-                return (
-                  <article key={`time-${item.childId}`} className={`rounded-xl border bg-white p-3 shadow-sm ${pickupDifferent || dropoffDifferent ? 'border-amber-400 ring-2 ring-amber-100' : changed ? 'border-sky-400 ring-2 ring-sky-100' : 'border-slate-200'}`}>
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <strong className="block truncate text-sm font-black text-slate-950">{child?.name || '児童'}</strong>
-                        <span className="mt-0.5 block truncate text-[9px] font-bold text-slate-500">迎え：{item.pickupLocationName || '未設定'}／送り：{item.dropoffLocationName || '未設定'}</span>
+            <>
+              <div className="hidden overflow-x-auto md:block">
+                <div className="min-w-[900px]">
+                  <div className="grid grid-cols-[58px_minmax(120px,1.15fr)_minmax(105px,1fr)_88px_minmax(100px,1fr)_88px_minmax(130px,1.2fr)_64px] gap-px bg-slate-200 text-[10px] font-black text-slate-600">
+                    {['学年', '児童名', '迎え先', '下校／迎え', '送り先', '送り時間', '連絡・メモ', '操作'].map((label) => <span key={label} className="bg-slate-100 px-2 py-2 text-center">{label}</span>)}
+                  </div>
+                  {[...displayedServiceChildren].sort((left, right) => {
+                    const leftRequirement = displayedSelectedRequirements.find((item) => item.childId === left.id);
+                    const rightRequirement = displayedSelectedRequirements.find((item) => item.childId === right.id);
+                    return rosterTimeLabel(leftRequirement, '迎え', Boolean(left.transportationRequired)).localeCompare(rosterTimeLabel(rightRequirement, '迎え', Boolean(right.transportationRequired)))
+                      || compactGrade(left.grade).localeCompare(compactGrade(right.grade), 'ja')
+                      || left.name.localeCompare(right.name, 'ja');
+                  }).map((child) => {
+                    const item = displayedSelectedRequirements.find((candidate) => candidate.childId === child.id);
+                    const baseline = item ? baselineTimesFor(item) : { pickup: '', dropoff: '' };
+                    const pickupDifferent = Boolean(item?.pickupEnabled && item.pickupTimeMode === 'fixed' && baseline.pickup && timeValue(item.pickupTargetTime) !== baseline.pickup);
+                    const dropoffDifferent = Boolean(item?.dropoffEnabled && item.dropoffTimeMode === 'departure_forward' && baseline.dropoff && timeValue(item.dropoffTargetTime) !== baseline.dropoff);
+                    const missing = item ? missingFields(item) : (child.transportationRequired ? ['送迎条件'] : []);
+                    const pickupGuardian = item ? !item.pickupEnabled : !child.transportationRequired;
+                    const dropoffGuardian = item ? !item.dropoffEnabled : !child.transportationRequired;
+                    return (
+                      <div key={child.id} className={`grid min-h-14 grid-cols-[58px_minmax(120px,1.15fr)_minmax(105px,1fr)_88px_minmax(100px,1fr)_88px_minmax(130px,1.2fr)_64px] gap-px border-t border-slate-200 ${missing.length ? 'bg-rose-200' : pickupDifferent || dropoffDifferent ? 'bg-amber-200' : 'bg-slate-200'}`}>
+                        <span className="flex items-center justify-center bg-white px-2 py-2 text-xs font-black text-slate-700">{compactGrade(child.grade)}</span>
+                        <span className="flex min-w-0 items-center gap-1.5 bg-white px-2 py-2 text-xs font-black text-slate-950"><span className="truncate">{child.name}</span>{selectedAdditionalChildIds.has(child.id) && <span className="shrink-0 rounded-full bg-teal-100 px-1.5 py-0.5 text-[8px] text-teal-800">追加</span>}</span>
+                        <span className={`flex min-w-0 items-center bg-white px-2 py-2 text-[11px] font-bold ${pickupGuardian ? 'text-sky-800' : 'text-slate-700'}`}><span className="truncate" title={rosterLocationLabel(item, '迎え', Boolean(child.transportationRequired))}>{rosterLocationLabel(item, '迎え', Boolean(child.transportationRequired))}</span></span>
+                        <span className={`flex flex-col items-center justify-center bg-white px-1 py-2 text-xs font-black ${pickupDifferent ? 'text-amber-800' : pickupGuardian ? 'text-sky-800' : 'text-slate-950'}`}>{rosterTimeLabel(item, '迎え', Boolean(child.transportationRequired))}{item?.pickupEnabled && item.pickupTimeMode !== 'fixed' && <small className="text-[8px] text-slate-400">{item.pickupTimeMode === 'arrival_backward' ? '逆算' : '順算'}</small>}{pickupDifferent && <small className="text-[8px]">基本 {baseline.pickup}</small>}</span>
+                        <span className={`flex min-w-0 items-center bg-white px-2 py-2 text-[11px] font-bold ${dropoffGuardian ? 'text-violet-800' : 'text-slate-700'}`}><span className="truncate" title={rosterLocationLabel(item, '送り', Boolean(child.transportationRequired))}>{rosterLocationLabel(item, '送り', Boolean(child.transportationRequired))}</span></span>
+                        <span className={`flex flex-col items-center justify-center bg-white px-1 py-2 text-xs font-black ${dropoffDifferent ? 'text-amber-800' : dropoffGuardian ? 'text-violet-800' : 'text-slate-950'}`}>{rosterTimeLabel(item, '送り', Boolean(child.transportationRequired))}{item?.dropoffEnabled && item.dropoffTimeMode !== 'fixed' && <small className="text-[8px] text-slate-400">{item.dropoffTimeMode === 'arrival_backward' ? '逆算' : '順算'}</small>}{dropoffDifferent && <small className="text-[8px]">基本 {baseline.dropoff}</small>}</span>
+                        <span className="flex min-w-0 items-center bg-white px-2 py-2 text-[10px] font-bold text-slate-600"><span className="line-clamp-2">{item?.timeChangeNote || item?.note || '—'}</span></span>
+                        <span className="grid place-items-center bg-white p-1"><button type="button" onClick={() => openRequirementEditor(child)} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-300 bg-white text-slate-700" aria-label={`${child.name}の利用・送迎予定を編集`} title="編集"><Pencil className="h-4 w-4" /></button></span>
                       </div>
-                      <button type="button" onClick={() => void openTimeHistory(item.childId)} className="flex min-h-9 shrink-0 items-center gap-1 rounded-lg border border-slate-200 bg-slate-50 px-2 text-[10px] font-black text-slate-700" title="時刻の変更履歴"><Info className="h-4 w-4" />履歴</button>
-                    </div>
+                    );
+                  })}
+                </div>
+              </div>
 
-                    <div className="mt-3 grid grid-cols-2 gap-2">
-                      <div className={`rounded-xl border p-2 ${pickupDifferent ? 'border-amber-300 bg-amber-50' : 'border-sky-100 bg-sky-50'}`}>
-                        <span className="block text-[9px] font-black text-sky-900">{item.pickupTimeMode === 'fixed' ? '下校・迎え時間' : timeAnchorLabel('迎え', item.pickupTimeMode)}</span>
-                        <input type="time" value={item.pickupTargetTime || ''} disabled={!canManage || !item.pickupEnabled} onChange={(event) => updateRequirement(item.childId, { pickupTargetTime: event.target.value || undefined })} className="mt-1 min-h-11 w-full rounded-lg border border-sky-200 bg-white px-2 text-lg font-black text-sky-950 disabled:opacity-50" />
-                        <select value={item.pickupTimeMode} disabled={!canManage || !item.pickupEnabled} onChange={(event) => updateRequirement(item.childId, { pickupTimeMode: event.target.value as TransportTimeMode })} className="mt-1 min-h-8 w-full rounded-md border border-sky-200 bg-white px-1 text-[9px] font-bold">
-                          {TRANSPORT_TIME_MODE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                        </select>
-                        {baseline.pickup && <span className={`mt-1 block text-[9px] font-black ${pickupDifferent ? 'text-amber-800' : 'text-slate-500'}`}>児童情報の基本：{baseline.pickup}{pickupDifferent && '（変更あり）'}</span>}
+              <div className="divide-y divide-slate-200 md:hidden">
+                {[...displayedServiceChildren].sort((left, right) => left.name.localeCompare(right.name, 'ja')).map((child) => {
+                  const item = displayedSelectedRequirements.find((candidate) => candidate.childId === child.id);
+                  const baseline = item ? baselineTimesFor(item) : { pickup: '', dropoff: '' };
+                  const pickupDifferent = Boolean(item?.pickupEnabled && item.pickupTimeMode === 'fixed' && baseline.pickup && timeValue(item.pickupTargetTime) !== baseline.pickup);
+                  const dropoffDifferent = Boolean(item?.dropoffEnabled && item.dropoffTimeMode === 'departure_forward' && baseline.dropoff && timeValue(item.dropoffTargetTime) !== baseline.dropoff);
+                  const missing = item ? missingFields(item) : (child.transportationRequired ? ['送迎条件'] : []);
+                  return (
+                    <div key={child.id} className={`px-3 py-3 ${missing.length ? 'bg-rose-50' : pickupDifferent || dropoffDifferent ? 'bg-amber-50' : 'bg-white'}`}>
+                      <div className="flex items-center gap-2">
+                        <span className="rounded-md bg-slate-100 px-2 py-1 text-[10px] font-black text-slate-600">{compactGrade(child.grade)}</span>
+                        <strong className="min-w-0 flex-1 truncate text-sm text-slate-950">{child.name}</strong>
+                        {selectedAdditionalChildIds.has(child.id) && <span className="rounded-full bg-teal-100 px-2 py-1 text-[8px] font-black text-teal-800">追加利用</span>}
+                        <button type="button" onClick={() => openRequirementEditor(child)} className="flex min-h-10 items-center gap-1 rounded-xl border border-slate-300 bg-white px-3 text-[10px] font-black text-slate-700"><Pencil className="h-3.5 w-3.5" />編集</button>
                       </div>
-
-                      <div className={`rounded-xl border p-2 ${dropoffDifferent ? 'border-amber-300 bg-amber-50' : 'border-violet-100 bg-violet-50'}`}>
-                        <span className="block text-[9px] font-black text-violet-900">{item.dropoffTimeMode === 'departure_forward' ? '送り開始時間' : timeAnchorLabel('送り', item.dropoffTimeMode)}</span>
-                        <input type="time" value={item.dropoffTargetTime || ''} disabled={!canManage || !item.dropoffEnabled} onChange={(event) => updateRequirement(item.childId, { dropoffTargetTime: event.target.value || undefined })} className="mt-1 min-h-11 w-full rounded-lg border border-violet-200 bg-white px-2 text-lg font-black text-violet-950 disabled:opacity-50" />
-                        <select value={item.dropoffTimeMode} disabled={!canManage || !item.dropoffEnabled} onChange={(event) => updateRequirement(item.childId, { dropoffTimeMode: event.target.value as TransportTimeMode })} className="mt-1 min-h-8 w-full rounded-md border border-violet-200 bg-white px-1 text-[9px] font-bold">
-                          {TRANSPORT_TIME_MODE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                        </select>
-                        {baseline.dropoff && <span className={`mt-1 block text-[9px] font-black ${dropoffDifferent ? 'text-amber-800' : 'text-slate-500'}`}>基本の退所：{baseline.dropoff}{dropoffDifferent && '（変更あり）'}</span>}
+                      <div className="mt-2 grid grid-cols-[1fr_82px] gap-x-2 gap-y-1 text-[10px]">
+                        <span className="truncate font-bold text-slate-600"><b className="mr-1 text-sky-800">迎え</b>{rosterLocationLabel(item, '迎え', Boolean(child.transportationRequired))}</span>
+                        <span className={`text-right font-black ${pickupDifferent ? 'text-amber-800' : 'text-slate-900'}`}>{rosterTimeLabel(item, '迎え', Boolean(child.transportationRequired))}</span>
+                        <span className="truncate font-bold text-slate-600"><b className="mr-1 text-violet-800">送り</b>{rosterLocationLabel(item, '送り', Boolean(child.transportationRequired))}</span>
+                        <span className={`text-right font-black ${dropoffDifferent ? 'text-amber-800' : 'text-slate-900'}`}>{rosterTimeLabel(item, '送り', Boolean(child.transportationRequired))}</span>
                       </div>
+                      {(item?.timeChangeNote || item?.note) && <p className="mt-2 truncate rounded-md bg-slate-100 px-2 py-1 text-[9px] font-bold text-slate-600">連絡：{item.timeChangeNote || item.note}</p>}
                     </div>
-
-                    {(pickupDifferent || dropoffDifferent) && <p className="mt-2 rounded-lg bg-amber-100 px-2 py-1.5 text-[10px] font-black text-amber-950">児童情報に登録された基本時刻と異なります。変更理由を確認してください。</p>}
-                    {changed && canManage && (
-                      <label className="mt-2 block text-[10px] font-black text-slate-700">時刻変更メモ（必須）
-                        <input value={item.timeChangeNote || ''} onChange={(event) => updateRequirement(item.childId, { timeChangeNote: event.target.value })} placeholder="例：学校から短縮授業の連絡あり（○○先生）" className="mt-1 min-h-10 w-full rounded-lg border border-amber-300 bg-amber-50 px-3 text-xs" />
-                      </label>
-                    )}
-                    <div className="mt-2 flex items-center justify-between gap-2">
-                      <span className={`text-[9px] font-black ${changed ? 'text-sky-700' : 'text-emerald-700'}`}>{changed ? '未保存の時刻変更あり' : '保存済み'}</span>
-                      {canManage && <button type="button" disabled={saving || !changed} onClick={() => void saveTimeRequirement(item)} className="flex min-h-9 items-center gap-1.5 rounded-lg bg-sky-700 px-3 text-[10px] font-black text-white disabled:bg-slate-300"><Save className="h-3.5 w-3.5" />時刻だけ保存</button>}
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
-        </section>
-
-        <section className="mt-3 rounded-xl border border-teal-200 bg-teal-50 p-3" aria-label="追加利用児童">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-xs font-black text-teal-950">利用予定 {selectedServiceChildren.length}名</p>
-              <p className="mt-0.5 text-[10px] font-bold text-teal-800">定期利用に、当日の追加利用・欠席変更を反映しています。</p>
-            </div>
-            {canManage && (
-              <button type="button" onClick={() => setAdditionalPickerOpen(true)} className="flex min-h-10 shrink-0 items-center justify-center gap-2 rounded-xl bg-teal-700 px-4 text-xs font-black text-white">
-                <UserPlus className="h-4 w-4" />追加利用児童を登録
-              </button>
-            )}
-          </div>
-          {selectedAdditionalPlans.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {selectedAdditionalPlans.map((plan) => {
-                const child = childrenList.find((candidate) => candidate.id === plan.childId);
-                if (!child) return null;
-                return (
-                  <span key={plan.childId} className="flex min-h-8 items-center gap-1 rounded-full border border-teal-300 bg-white pl-3 pr-1 text-[10px] font-black text-teal-900">
-                    {child.name}<span className="text-teal-600">追加利用</span>
-                    {canManage && (
-                      <button type="button" disabled={Boolean(attendanceSavingChildId)} onClick={() => void deleteSelectedDatePlan(child.id)} aria-label={`${child.name}の追加利用を削除`} className="grid h-7 w-7 place-items-center rounded-full text-rose-600 hover:bg-rose-50 disabled:opacity-40"><X className="h-3.5 w-3.5" /></button>
-                    )}
-                  </span>
-                );
-              })}
-            </div>
+                  );
+                })}
+              </div>
+            </>
           )}
         </section>
 
@@ -1185,76 +1262,109 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
           </div>
         </details>
 
-        {displayedSelectedRequirements.length === 0 ? (
-          <div className="py-8 text-center"><CalendarRange className="mx-auto h-9 w-9 text-slate-300" /><p className="mt-2 text-sm font-bold text-slate-500">この日の送迎予定は未作成です。</p>{canManage && <button type="button" onClick={() => prepareSelectedDate()} className="mt-3 min-h-10 rounded-xl bg-teal-600 px-4 text-xs font-black text-white">この日の基本予定を作成</button>}</div>
-        ) : (
-          <div className="mt-3 space-y-2">
-            {[...displayedSelectedRequirements].sort((left, right) => (left.pickupTargetTime || '99:99').localeCompare(right.pickupTargetTime || '99:99') || (left.pickupArea || '').localeCompare(right.pickupArea || '')).map((item) => {
-              const child = childrenList.find((candidate) => candidate.id === item.childId);
-              const pickupLocations = child ? getTransportLocationOptions(child, '迎え', selectedDate) : [];
-              const selectedPickupLocationId = item.pickupLocationProfileId
-                || pickupLocations.find((location) => location.name === item.pickupLocationName && location.address === item.pickupAddress)?.id
-                || 'manual';
-              const dropoffLocations = child ? getTransportLocationOptions(child, '送り', selectedDate) : [];
-              const selectedDropoffLocationId = item.dropoffLocationProfileId
-                || dropoffLocations.find((location) => location.name === item.dropoffLocationName && location.address === item.dropoffAddress)?.id
-                || 'manual';
-              const missing = missingFields(item);
-              const expanded = expandedChildId === item.childId;
-              return <article key={item.childId} className={`overflow-hidden rounded-xl border ${missing.length ? 'border-rose-300' : 'border-slate-200'}`}>
-                <div className="flex min-h-14 items-center">
-                  <button type="button" onClick={() => setExpandedChildId(expanded ? undefined : item.childId)} className="flex min-h-14 min-w-0 flex-1 items-center gap-3 px-3 text-left">
-                    <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full ${missing.length ? 'bg-rose-100 text-rose-700' : 'bg-emerald-100 text-emerald-700'}`}>{missing.length ? <AlertTriangle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}</span>
-                    <span className="min-w-0 flex-1"><strong className="block text-sm text-slate-900">{child?.name || '児童'}</strong><span className="block truncate text-[10px] text-slate-500">迎え {item.pickupEnabled ? `${transportTimeSummary(item, '迎え')}・${item.pickupLocationName || item.pickupAddress || '未設定'}` : 'なし'}／送り {item.dropoffEnabled ? `${transportTimeSummary(item, '送り')}・${item.dropoffLocationName || item.dropoffAddress || '未設定'}` : 'なし'}</span></span>
-                    {missing.length > 0 && <span className="hidden rounded-full bg-rose-100 px-2 py-1 text-[9px] font-black text-rose-700 sm:block">{missing.join('・')}</span>}
-                    {expanded ? <ChevronUp className="h-4 w-4 shrink-0" /> : <ChevronDown className="h-4 w-4 shrink-0" />}
-                  </button>
-                  {canManage && (
-                    <button
-                      type="button"
-                      disabled={Boolean(attendanceSavingChildId)}
-                      onClick={() => void deleteSelectedDatePlan(item.childId)}
-                      className="mr-2 grid h-10 w-10 shrink-0 place-items-center rounded-xl border border-rose-200 bg-rose-50 text-rose-700 hover:bg-rose-100 disabled:opacity-40"
-                      aria-label={`${child?.name || '児童'}の${selectedDate}の予定を削除`}
-                      title="この日の利用・送迎予定を削除"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  )}
-                </div>
-                {expanded && <div className="grid gap-3 border-t border-slate-100 bg-slate-50 p-3 lg:grid-cols-2">
-                  <TransportRequirementFieldset
-                    direction="迎え"
-                    item={item}
-                    selectedLocationId={selectedPickupLocationId}
-                    locations={pickupLocations}
-                    canManage={canManage}
-                    onToggle={(enabled) => updateRequirement(item.childId, { pickupEnabled: enabled })}
-                    onChangeLocation={(locationId) => changePickupLocation(item.childId, locationId)}
-                    onUpdate={(patch) => updateRequirement(item.childId, patch)}
-                  />
-                  <TransportRequirementFieldset
-                    direction="送り"
-                    item={item}
-                    selectedLocationId={selectedDropoffLocationId}
-                    locations={dropoffLocations}
-                    canManage={canManage}
-                    onToggle={(enabled) => updateRequirement(item.childId, { dropoffEnabled: enabled })}
-                    onChangeLocation={(locationId) => changeDropoffLocation(item.childId, locationId)}
-                    onUpdate={(patch) => updateRequirement(item.childId, patch)}
-                  />
-                  <div className="grid gap-2 lg:col-span-2 sm:grid-cols-3"><label className="text-[10px] font-bold text-slate-600">乗降対応時間（分）<input type="number" min="0" max="60" value={item.stopDurationMinutes} disabled={!canManage} onChange={(event) => updateRequirement(item.childId, { stopDurationMinutes: Number(event.target.value) })} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label><label className="flex min-h-12 items-center gap-2 self-end rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold"><input type="checkbox" checked={item.keepSiblingsTogether} disabled={!canManage} onChange={(event) => updateRequirement(item.childId, { keepSiblingsTogether: event.target.checked })} />兄弟を同じ便にする</label><label className="text-[10px] font-bold text-slate-600">補足<input value={item.note || ''} disabled={!canManage} onChange={(event) => updateRequirement(item.childId, { note: event.target.value })} className="mt-1 min-h-9 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label></div>
-                </div>}
-              </article>;
-            })}
-          </div>
-        )}
-
         {canManage && (selectedRequirements.length > 0 || drafts.length > 0) && <div className="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 pt-3"><button type="button" onClick={() => prepareSelectedDate(true)} className="min-h-10 rounded-xl border border-slate-300 px-3 text-xs font-black text-slate-600">基本情報を再反映</button><button type="button" disabled={saving} onClick={() => void saveSelected(false)} className="flex min-h-10 items-center gap-2 rounded-xl border border-teal-300 bg-white px-4 text-xs font-black text-teal-800"><Save className="h-4 w-4" />下書き保存</button><button type="button" disabled={saving} onClick={() => void saveSelected(true)} className="flex min-h-10 items-center gap-2 rounded-xl bg-slate-900 px-4 text-xs font-black text-white">{saving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}送迎条件を確定</button></div>}
         {message && <p className="mt-3 rounded-xl bg-emerald-50 p-3 text-xs font-bold text-emerald-800">{message}</p>}
         {error && <p className="mt-3 rounded-xl bg-rose-50 p-3 text-xs font-bold text-rose-800">{error}</p>}
         {saving && <p className="mt-2 flex items-center gap-2 text-xs font-bold text-slate-500"><Clock3 className="h-4 w-4" />保存しています…</p>}
       </section>
+
+      <section className="transport-print-sheet" aria-hidden="true">
+        <div className="transport-print-heading">
+          <span>日直：</span>
+          <strong>{selectedDate.replaceAll('-', '/')}（{getWeekdayFromDate(selectedDate)}）</strong>
+        </div>
+        <table className="transport-print-roster">
+          <thead>
+            <tr><th>学年</th><th>No.</th><th>氏名</th><th>迎え</th><th>下校／迎え</th><th>送り</th><th>送り時間</th><th>連絡事項・その他</th><th>担当</th></tr>
+          </thead>
+          <tbody>
+            {Array.from({ length: Math.max(15, selectedServiceChildren.length) }, (_, index) => {
+              const child = [...selectedServiceChildren].sort((left, right) => compactGrade(left.grade).localeCompare(compactGrade(right.grade), 'ja') || left.name.localeCompare(right.name, 'ja'))[index];
+              const item = child ? selectedRequirements.find((candidate) => candidate.childId === child.id) : undefined;
+              const dailyPlan = child ? dailyChildPlans.find((plan) => plan.childId === child.id && plan.date === selectedDate) : undefined;
+              return (
+                <tr key={child?.id || `print-empty-${index}`}>
+                  <td>{child ? compactGrade(child.grade) : ''}</td>
+                  <td>{index + 1}</td>
+                  <td>{child?.name || ''}</td>
+                  <td>{child ? rosterLocationLabel(item, '迎え', Boolean(child.transportationRequired)) : ''}</td>
+                  <td>{child ? rosterTimeLabel(item, '迎え', Boolean(child.transportationRequired)) : ''}</td>
+                  <td>{child ? rosterLocationLabel(item, '送り', Boolean(child.transportationRequired)) : ''}</td>
+                  <td>{child ? rosterTimeLabel(item, '送り', Boolean(child.transportationRequired)) : ''}</td>
+                  <td>{item?.timeChangeNote || item?.note || dailyPlan?.note || ''}</td>
+                  <td />
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        <div className="transport-print-runs">
+          {(selectedRuns.length > 0 ? selectedRuns : Array.from({ length: 5 }, (_, index) => ({ id: `blank-${index}` } as TransportRun))).map((run) => (
+            <section key={run.id} className="transport-print-run">
+              <h3>{run.vehicleName || run.name || '（　　　　　　）'}</h3>
+              <p><b>方向</b><span>{run.direction || ''}</span></p>
+              <p><b>ドライバー</b><span>{run.driverName || ''}</span></p>
+              <p><b>出発</b><span>{run.startTime || ''}</span></p>
+              {Array.from({ length: Math.max(5, run.stops?.length || 0) }, (_, index) => <p key={`${run.id}-stop-${index}`}><b>{index + 1}</b><span>{run.stops?.[index]?.childName || run.stops?.[index]?.locationName || ''}</span></p>)}
+            </section>
+          ))}
+        </div>
+        <div className="transport-print-footer"><span>休み職員：</span><span>★活動：</span></div>
+      </section>
+
+      {editingChild && editingRequirement && (() => {
+        const pickupLocations = getTransportLocationOptions(editingChild, '迎え', selectedDate);
+        const selectedPickupLocationId = editingRequirement.pickupLocationProfileId
+          || pickupLocations.find((location) => location.name === editingRequirement.pickupLocationName && location.address === editingRequirement.pickupAddress)?.id
+          || 'manual';
+        const dropoffLocations = getTransportLocationOptions(editingChild, '送り', selectedDate);
+        const selectedDropoffLocationId = editingRequirement.dropoffLocationProfileId
+          || dropoffLocations.find((location) => location.name === editingRequirement.dropoffLocationName && location.address === editingRequirement.dropoffAddress)?.id
+          || 'manual';
+        const baseline = baselineTimesFor(editingRequirement);
+        const pickupDifferent = editingRequirement.pickupEnabled && editingRequirement.pickupTimeMode === 'fixed' && Boolean(baseline.pickup) && timeValue(editingRequirement.pickupTargetTime) !== baseline.pickup;
+        const dropoffDifferent = editingRequirement.dropoffEnabled && editingRequirement.dropoffTimeMode === 'departure_forward' && Boolean(baseline.dropoff) && timeValue(editingRequirement.dropoffTargetTime) !== baseline.dropoff;
+        const changed = timeChangedSinceSave(editingRequirement);
+        return (
+          <div className="fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/55 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label={`${editingChild.name}の利用・送迎予定を編集`}>
+            <div className="max-h-[94dvh] w-full overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:max-w-3xl sm:rounded-2xl">
+              <header className="flex items-center justify-between border-b border-slate-200 p-4">
+                <div><p className="text-[10px] font-black text-teal-700">{selectedDate}・{compactGrade(editingChild.grade)}</p><h3 className="text-lg font-black text-slate-950">{editingChild.name}の利用・送迎を編集</h3></div>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => void openTimeHistory(editingChild.id)} className="flex min-h-10 items-center gap-1 rounded-xl border border-slate-200 bg-slate-50 px-3 text-[10px] font-black text-slate-700"><Info className="h-4 w-4" />履歴</button>
+                  <button type="button" onClick={closeRequirementEditor} aria-label="閉じる" className="grid h-10 w-10 place-items-center rounded-xl bg-slate-100"><X className="h-5 w-5" /></button>
+                </div>
+              </header>
+              <div className="max-h-[calc(94dvh-142px)] overflow-y-auto p-4">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className={`rounded-xl border p-3 ${pickupDifferent ? 'border-amber-300 bg-amber-50' : 'border-sky-200 bg-sky-50'}`}>
+                    <label className="text-[10px] font-black text-sky-950">{editingRequirement.pickupTimeMode === 'fixed' ? '下校・迎え時間' : timeAnchorLabel('迎え', editingRequirement.pickupTimeMode)}<input type="time" value={editingRequirement.pickupTargetTime || ''} disabled={!canManage || !editingRequirement.pickupEnabled} onChange={(event) => updateRequirement(editingRequirement.childId, { pickupTargetTime: event.target.value || undefined })} className="mt-1 min-h-12 w-full rounded-lg border border-sky-300 bg-white px-3 text-xl font-black disabled:opacity-50" /></label>
+                    <select value={editingRequirement.pickupTimeMode} disabled={!canManage || !editingRequirement.pickupEnabled} onChange={(event) => updateRequirement(editingRequirement.childId, { pickupTimeMode: event.target.value as TransportTimeMode })} className="mt-2 min-h-9 w-full rounded-lg border border-sky-200 bg-white px-2 text-[10px] font-bold">{TRANSPORT_TIME_MODE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
+                    {baseline.pickup && <p className={`mt-2 text-[10px] font-black ${pickupDifferent ? 'text-amber-800' : 'text-slate-500'}`}>児童情報の基本：{baseline.pickup}{pickupDifferent && '（変更あり）'}</p>}
+                  </div>
+                  <div className={`rounded-xl border p-3 ${dropoffDifferent ? 'border-amber-300 bg-amber-50' : 'border-violet-200 bg-violet-50'}`}>
+                    <label className="text-[10px] font-black text-violet-950">{editingRequirement.dropoffTimeMode === 'departure_forward' ? '送り開始時間' : timeAnchorLabel('送り', editingRequirement.dropoffTimeMode)}<input type="time" value={editingRequirement.dropoffTargetTime || ''} disabled={!canManage || !editingRequirement.dropoffEnabled} onChange={(event) => updateRequirement(editingRequirement.childId, { dropoffTargetTime: event.target.value || undefined })} className="mt-1 min-h-12 w-full rounded-lg border border-violet-300 bg-white px-3 text-xl font-black disabled:opacity-50" /></label>
+                    <select value={editingRequirement.dropoffTimeMode} disabled={!canManage || !editingRequirement.dropoffEnabled} onChange={(event) => updateRequirement(editingRequirement.childId, { dropoffTimeMode: event.target.value as TransportTimeMode })} className="mt-2 min-h-9 w-full rounded-lg border border-violet-200 bg-white px-2 text-[10px] font-bold">{TRANSPORT_TIME_MODE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select>
+                    {baseline.dropoff && <p className={`mt-2 text-[10px] font-black ${dropoffDifferent ? 'text-amber-800' : 'text-slate-500'}`}>基本の退所：{baseline.dropoff}{dropoffDifferent && '（変更あり）'}</p>}
+                  </div>
+                </div>
+                {(pickupDifferent || dropoffDifferent) && <p className="mt-3 rounded-xl bg-amber-100 px-3 py-2 text-[10px] font-black text-amber-950">児童情報に登録された基本時刻と異なります。変更理由を入力して保存してください。</p>}
+                {changed && canManage && <label className="mt-3 block text-[10px] font-black text-slate-700">時刻変更メモ（必須）<input value={editingRequirement.timeChangeNote || ''} onChange={(event) => updateRequirement(editingRequirement.childId, { timeChangeNote: event.target.value })} placeholder="例：学校から短縮授業の連絡あり（○○先生）" className="mt-1 min-h-11 w-full rounded-xl border border-amber-300 bg-amber-50 px-3 text-sm" /></label>}
+                <div className="mt-3 grid gap-3 lg:grid-cols-2">
+                  <TransportRequirementFieldset direction="迎え" item={editingRequirement} selectedLocationId={selectedPickupLocationId} locations={pickupLocations} canManage={canManage} onToggle={(enabled) => updateRequirement(editingRequirement.childId, { pickupEnabled: enabled })} onChangeLocation={(locationId) => changePickupLocation(editingRequirement.childId, locationId)} onUpdate={(patch) => updateRequirement(editingRequirement.childId, patch)} />
+                  <TransportRequirementFieldset direction="送り" item={editingRequirement} selectedLocationId={selectedDropoffLocationId} locations={dropoffLocations} canManage={canManage} onToggle={(enabled) => updateRequirement(editingRequirement.childId, { dropoffEnabled: enabled })} onChangeLocation={(locationId) => changeDropoffLocation(editingRequirement.childId, locationId)} onUpdate={(patch) => updateRequirement(editingRequirement.childId, patch)} />
+                </div>
+                <div className="mt-3 grid gap-2 sm:grid-cols-3"><label className="text-[10px] font-bold text-slate-600">乗降対応時間（分）<input type="number" min="0" max="60" value={editingRequirement.stopDurationMinutes} disabled={!canManage} onChange={(event) => updateRequirement(editingRequirement.childId, { stopDurationMinutes: Number(event.target.value) })} className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label><label className="flex min-h-12 items-center gap-2 self-end rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold"><input type="checkbox" checked={editingRequirement.keepSiblingsTogether} disabled={!canManage} onChange={(event) => updateRequirement(editingRequirement.childId, { keepSiblingsTogether: event.target.checked })} />兄弟を同じ便にする</label><label className="text-[10px] font-bold text-slate-600">連絡・メモ<input value={editingRequirement.note || ''} disabled={!canManage} onChange={(event) => updateRequirement(editingRequirement.childId, { note: event.target.value })} className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label></div>
+                {error && <p className="mt-3 rounded-xl bg-rose-50 p-3 text-xs font-bold text-rose-800">{error}</p>}
+              </div>
+              <footer className="flex items-center justify-between gap-2 border-t border-slate-200 bg-white p-3">
+                {canManage ? <button type="button" disabled={Boolean(attendanceSavingChildId)} onClick={() => void deleteSelectedDatePlan(editingChild.id)} className="flex min-h-10 items-center gap-2 rounded-xl border border-rose-200 px-3 text-xs font-black text-rose-700"><Trash2 className="h-4 w-4" />予定を削除</button> : <span />}
+                <div className="flex gap-2"><button type="button" onClick={closeRequirementEditor} className="min-h-10 rounded-xl border border-slate-300 px-4 text-xs font-black text-slate-700">キャンセル</button>{canManage && <button type="button" disabled={saving} onClick={() => void saveRequirementRow(editingRequirement)} className="flex min-h-10 items-center gap-2 rounded-xl bg-teal-700 px-4 text-xs font-black text-white disabled:opacity-50">{saving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}変更を保存</button>}</div>
+              </footer>
+            </div>
+          </div>
+        );
+      })()}
 
       {historyChildId && (
         <div className="fixed inset-0 z-[125] flex items-end justify-center bg-slate-950/55 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label="送迎時刻の変更履歴">

@@ -474,6 +474,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             dailyChildPlans={dailyChildPlans}
             requirements={dailyTransportRequirements}
             planDays={transportPlanDays}
+            transportRuns={transportRuns}
             routeSettings={transportRouteSettings}
             canManage={canManageSettings}
             onSavePlanDay={onSaveTransportPlanDay}
