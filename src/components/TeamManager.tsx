@@ -39,7 +39,7 @@ interface AuditRow {
   occurred_at: string;
 }
 
-const roleLabels: Record<UserRole, string> = { staff: '職員', manager: '児発管', admin: '管理者' };
+const roleLabels: Record<UserRole, string> = { staff: '職員', manager: '児発管', classroom_manager: '教室長', admin: '管理者' };
 type TeamSection = 'recorders' | 'devices' | 'members' | 'invite' | 'invitations' | 'audit';
 
 async function functionErrorMessage(error: unknown) {
@@ -210,7 +210,7 @@ export const TeamManager: React.FC<{
           <input required value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="職員氏名" className="min-h-11 border rounded-lg p-2 text-xs" />
           <select value={role} onChange={(event) => setRole(event.target.value as UserRole)} className="min-h-11 border rounded-lg p-2 text-xs">
             <option value="staff">職員</option>
-            {currentUser.role === 'admin' && <><option value="manager">児発管</option><option value="admin">管理者</option></>}
+            {currentUser.role === 'admin' && <><option value="manager">児発管</option><option value="classroom_manager">教室長</option><option value="admin">管理者</option></>}
           </select>
           <button disabled={busy} className="min-h-11 bg-teal-600 disabled:bg-slate-400 text-white text-xs font-bold px-4 py-2 rounded-lg">招待する</button>
         </div>
@@ -233,7 +233,7 @@ export const TeamManager: React.FC<{
                       <input value={editName} onChange={(event) => setEditName(event.target.value)} className="min-h-10 border rounded-lg px-2" aria-label="職員氏名" />
                       <input type="email" value={editEmail} onChange={(event) => setEditEmail(event.target.value)} className="min-h-10 border rounded-lg px-2" aria-label="メールアドレス" />
                       <select value={editRole} onChange={(event) => setEditRole(event.target.value as UserRole)} disabled={member.id === currentUser.id} className="min-h-10 border rounded-lg px-2 disabled:bg-slate-100">
-                        <option value="staff">職員</option><option value="manager">児発管</option><option value="admin">管理者</option>
+                        <option value="staff">職員</option><option value="manager">児発管</option><option value="classroom_manager">教室長</option><option value="admin">管理者</option>
                       </select>
                       <label className="text-[10px] font-bold text-slate-600">記録者名簿との紐づけ
                         <select value={editRecorderProfileId} onChange={(event) => setEditRecorderProfileId(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 bg-white px-2 text-xs">

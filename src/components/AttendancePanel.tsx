@@ -36,8 +36,6 @@ interface AttendancePanelProps {
   qrKioskEnabled: boolean;
   onSaveRecord: (record: AttendanceRecord) => Promise<void> | void;
   onSaveRecords: (records: AttendanceRecord[]) => Promise<void> | void;
-  onSaveShiftTemplate: (template: StaffShiftTemplate) => Promise<void> | void;
-  onDeleteShiftTemplate: (templateId: string) => Promise<void> | void;
   onPunch: (recorder: RecorderProfile, pin: string, action: PunchAction) => Promise<void> | void;
   onRequestCorrection: (
     record: AttendanceRecord,
@@ -73,8 +71,6 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
   qrKioskEnabled,
   onSaveRecord,
   onSaveRecords,
-  onSaveShiftTemplate,
-  onDeleteShiftTemplate,
   onPunch,
   onRequestCorrection,
   onReviewCorrection,
@@ -137,6 +133,7 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
       return setError('終了時刻は開始時刻より後にしてください。');
     }
     const existing = records.find((record) => record.date === selectedDate && record.recorderProfileId === recorder.id);
+    if (isClockedRecord(existing)) return setError('打刻済みの勤務予定は編集できません。打刻修正申請を使用してください。');
     const now = new Date().toISOString();
     await onSaveRecord({
       id: existing?.id || createUuid(),
@@ -161,6 +158,10 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
 
   const openSchedule = (recorder: RecorderProfile, record?: AttendanceRecord) => {
     setError('');
+    if (isClockedRecord(record)) {
+      setError(`${recorder.displayName}さんは打刻済みです。勤務予定は閲覧のみとなり、変更できません。`);
+      return;
+    }
     setScheduleForm({
       recorderProfileId: recorder.id,
       status: record?.status || '勤務予定',
@@ -227,8 +228,6 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
           records={records}
           recorderProfiles={recorderProfiles}
           selectedDate={selectedDate}
-          onSaveTemplate={onSaveShiftTemplate}
-          onDeleteTemplate={onDeleteShiftTemplate}
           onSaveRecords={onSaveRecords}
         />
       )}
@@ -296,7 +295,9 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
               </div>
               <div className="flex gap-2">
                 {record && (activeRecorder?.id === recorder.id || canManage) && <button type="button" onClick={() => openCorrection(record)} className="min-h-10 rounded-lg border border-slate-300 px-3 text-xs font-bold">修正申請</button>}
-                {canManage && <button type="button" onClick={() => openSchedule(recorder, record)} className="min-h-10 rounded-lg bg-slate-900 px-3 text-xs font-bold text-white"><PencilLine className="mr-1 inline h-4 w-4" />勤務予定</button>}
+                {canManage && (isClockedRecord(record)
+                  ? <span className="inline-flex min-h-10 items-center rounded-lg bg-slate-100 px-3 text-xs font-bold text-slate-500">打刻後・閲覧のみ</span>
+                  : <button type="button" onClick={() => openSchedule(recorder, record)} className="min-h-10 rounded-lg bg-slate-900 px-3 text-xs font-bold text-white"><PencilLine className="mr-1 inline h-4 w-4" />勤務予定</button>)}
               </div>
             </div>
           ))}
@@ -374,6 +375,10 @@ function getAvailableActions(record?: AttendanceRecord): PunchAction[] {
   if (record.clockOutAt || record.status === '退勤済み') return [];
   if (record.status === '休憩中') return ['休憩終了', '退勤'];
   return ['休憩開始', '退勤'];
+}
+
+function isClockedRecord(record?: AttendanceRecord) {
+  return Boolean(record?.clockInAt || record?.clockOutAt || (record && ['出勤中', '休憩中', '退勤済み'].includes(record.status)));
 }
 
 function getBreakMinutes(record: AttendanceRecord) {

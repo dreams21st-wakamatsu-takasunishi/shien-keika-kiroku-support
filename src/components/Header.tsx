@@ -45,6 +45,8 @@ interface HeaderProps {
   onChangeRecorder?: () => void;
   onOpenFieldOperations?: () => void;
   onSignOut?: () => void;
+  canOpenSettings?: boolean;
+  canOpenTeam?: boolean;
 }
 
 const navigationItems = [
@@ -57,7 +59,7 @@ const navigationItems = [
 ];
 
 const roleLabel = (role?: UserProfile['role']) =>
-  role === 'admin' ? '管理者' : role === 'manager' ? '児発管' : '職員';
+  role === 'admin' ? '管理者' : role === 'manager' ? '児発管' : role === 'classroom_manager' ? '教室長' : '職員';
 
 export const Header: React.FC<HeaderProps> = ({
   activeTab,
@@ -70,6 +72,8 @@ export const Header: React.FC<HeaderProps> = ({
   onChangeRecorder,
   onOpenFieldOperations,
   onSignOut,
+  canOpenSettings = false,
+  canOpenTeam = false,
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [customizingMenu, setCustomizingMenu] = useState(false);
@@ -87,7 +91,9 @@ export const Header: React.FC<HeaderProps> = ({
   } = useAppUpdate();
   const fieldModeItems = new Set<RecorderMenuItemId>(['home']);
   const roleItems = navigationItems.filter((item) =>
-    (!item.managerOnly || !currentUser || currentUser.role !== 'staff')
+    (item.tab !== 'templates' || canOpenSettings)
+    && (item.tab !== 'team' || canOpenTeam)
+    && (!item.managerOnly || !currentUser || currentUser.role !== 'staff')
     && (!currentUser?.fieldModeOnly || fieldModeItems.has(item.tab))
   );
   const privilegedItemIds = new Set<RecorderMenuItemId>(['templates', 'team']);
@@ -108,6 +114,8 @@ export const Header: React.FC<HeaderProps> = ({
     ? '管理者メニュー'
     : currentUser?.role === 'manager'
       ? '児発管メニュー'
+      : currentUser?.role === 'classroom_manager'
+        ? '教室長メニュー'
       : '管理メニュー';
   const currentItem = navigationItems.find((item) => item.tab === activeTab);
 

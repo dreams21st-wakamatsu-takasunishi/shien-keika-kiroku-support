@@ -542,7 +542,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
     <div className="space-y-4">
       {assignmentNotice && <div className="fixed left-1/2 top-[max(5rem,calc(env(safe-area-inset-top)+4rem))] z-[95] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-bold text-white shadow-2xl" role="status"><CheckCircle2 className="mr-2 inline h-5 w-5 text-teal-300" />{assignmentNotice}</div>}
       <section className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-        <div className="grid grid-cols-3 gap-1">
+        <div className="grid grid-cols-2 gap-1">
           <button
             type="button"
             onClick={() => setView("runs")}
@@ -550,14 +550,6 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
           >
             <BusFront className="mr-2 inline h-5 w-5" />
             送迎便
-          </button>
-          <button
-            type="button"
-            onClick={() => setView("vehicles")}
-            className={`min-h-11 rounded-xl text-sm font-black ${view === "vehicles" ? "bg-slate-900 text-white" : "text-slate-600"}`}
-          >
-            <CarFront className="mr-2 inline h-5 w-5" />
-            車両台帳
           </button>
           <button
             type="button"

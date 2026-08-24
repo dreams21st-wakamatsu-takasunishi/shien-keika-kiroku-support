@@ -23,12 +23,14 @@ import {
   RecorderMenuItemId,
   RecorderMenuPreferences,
   RecorderProfile,
+  OrganizationRolePermission,
   ReviewIssue,
   SchoolProfile,
   RegularDaySchedule,
   SnackType,
   StaffScheduleItem,
   StaffShiftTemplate,
+  StaffShiftRequest,
   SupportPlan,
   SupportRecord,
   Template,
@@ -79,6 +81,8 @@ export interface WorkspaceData {
   dailyChildPlans: DailyChildPlan[];
   attendanceRecords: AttendanceRecord[];
   staffShiftTemplates: StaffShiftTemplate[];
+  staffShiftRequests: StaffShiftRequest[];
+  rolePermissions: OrganizationRolePermission[];
   attendanceCorrectionRequests: AttendanceCorrectionRequest[];
   vehicles: Vehicle[];
   transportRuns: TransportRun[];
@@ -268,6 +272,12 @@ function mapRecorderProfile(row: any): RecorderProfile {
     contractedWeeklyHours: row.contracted_weekly_hours === null || row.contracted_weekly_hours === undefined
       ? undefined
       : Number(row.contracted_weekly_hours),
+    partTimeWeekdayWorkDays: Array.isArray(row.part_time_weekday_work_days) ? row.part_time_weekday_work_days as Weekday[] : [],
+    partTimeWeekdayStartTime: row.part_time_weekday_start_time ? String(row.part_time_weekday_start_time).slice(0, 5) : undefined,
+    partTimeWeekdayEndTime: row.part_time_weekday_end_time ? String(row.part_time_weekday_end_time).slice(0, 5) : undefined,
+    partTimeHolidayWorkDays: Array.isArray(row.part_time_holiday_work_days) ? row.part_time_holiday_work_days as Weekday[] : [],
+    partTimeHolidayStartTime: row.part_time_holiday_start_time ? String(row.part_time_holiday_start_time).slice(0, 5) : undefined,
+    partTimeHolidayEndTime: row.part_time_holiday_end_time ? String(row.part_time_holiday_end_time).slice(0, 5) : undefined,
     individualLoginEnabled: row.individual_login_enabled === true,
     menuPreferences,
     createdAt: row.created_at || undefined,
@@ -287,6 +297,24 @@ function mapStaffShiftTemplate(row: any): StaffShiftTemplate {
       : [],
     note: row.note || undefined,
     active: row.active !== false,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapStaffShiftRequest(row: any, recorderNames?: Map<string, string>): StaffShiftRequest {
+  return {
+    id: row.id,
+    recorderProfileId: row.recorder_profile_id,
+    recorderName: recorderNames?.get(row.recorder_profile_id) || '職員',
+    requestedDate: row.requested_date,
+    requestedStartTime: row.requested_start_time ? String(row.requested_start_time).slice(0, 5) : undefined,
+    requestedEndTime: row.requested_end_time ? String(row.requested_end_time).slice(0, 5) : undefined,
+    note: row.note || undefined,
+    status: row.status,
+    reviewNote: row.review_note || undefined,
+    reviewedByName: row.reviewed_by_name || undefined,
+    reviewedAt: row.reviewed_at || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -723,6 +751,8 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     dailyChildPlansResult,
     attendanceRecordsResult,
     staffShiftTemplatesResult,
+    staffShiftRequestsResult,
+    rolePermissionsResult,
     attendanceCorrectionsResult,
     vehiclesResult,
     transportRunsResult,
@@ -735,7 +765,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     client.from('children').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('name'),
     client.from('schools').select('*').eq('organization_id', organizationId).order('name'),
     client.from('child_regular_day_schedules').select('*').eq('organization_id', organizationId).order('effective_from'),
-    client.from('recorder_profiles').select('id, display_name, active, pin_configured, employee_code, job_title, employment_type, contracted_weekly_hours, individual_login_enabled, menu_preferences, created_at').eq('organization_id', organizationId).eq('active', true).order('display_name'),
+    client.from('recorder_profiles').select('id, display_name, active, pin_configured, employee_code, job_title, employment_type, contracted_weekly_hours, part_time_weekday_work_days, part_time_weekday_start_time, part_time_weekday_end_time, part_time_holiday_work_days, part_time_holiday_start_time, part_time_holiday_end_time, individual_login_enabled, menu_preferences, created_at').eq('organization_id', organizationId).eq('active', true).order('display_name'),
     client.from('record_templates').select('*').eq('organization_id', organizationId).is('archived_at', null).order('created_at'),
     loadSupportRecordsWithRetry(organizationId),
     client.from('handover_items').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }),
@@ -752,6 +782,8 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     client.from('daily_child_plans').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }),
     client.from('attendance_records').select('*').eq('organization_id', organizationId).order('work_date', { ascending: false }),
     client.from('staff_shift_templates').select('*').eq('organization_id', organizationId).eq('active', true).order('name'),
+    client.from('staff_shift_requests').select('*').eq('organization_id', organizationId).order('requested_date', { ascending: false }),
+    client.from('organization_role_permissions').select('role, permissions, updated_at').eq('organization_id', organizationId),
     client.from('attendance_correction_requests').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }),
     client.from('vehicles').select('*').eq('organization_id', organizationId).order('name'),
     client.from('transport_runs').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }).order('start_time'),
@@ -862,6 +894,16 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     staffShiftTemplates: staffShiftTemplatesResult.error
       ? []
       : (staffShiftTemplatesResult.data || []).map(mapStaffShiftTemplate),
+    staffShiftRequests: staffShiftRequestsResult.error
+      ? []
+      : (staffShiftRequestsResult.data || []).map((row) => mapStaffShiftRequest(row, recorderNames)),
+    rolePermissions: rolePermissionsResult.error
+      ? []
+      : (rolePermissionsResult.data || []).map((row) => ({
+          role: row.role,
+          permissions: Array.isArray(row.permissions) ? row.permissions : [],
+          updatedAt: row.updated_at || undefined,
+        })),
     attendanceCorrectionRequests: attendanceCorrectionsResult.error
       ? []
       : (attendanceCorrectionsResult.data || []).map((row) => mapAttendanceCorrection(row, recorderNames)),
@@ -1059,6 +1101,44 @@ export async function deleteStaffShiftTemplate(organizationId: string, templateI
     .eq('organization_id', organizationId)
     .eq('id', templateId);
   if (error) throw error;
+}
+
+export async function saveRolePermission(
+  organizationId: string,
+  setting: OrganizationRolePermission,
+): Promise<OrganizationRolePermission> {
+  const { data, error } = await assertSupabase().from('organization_role_permissions').upsert({
+    organization_id: organizationId,
+    role: setting.role,
+    permissions: setting.permissions,
+  }, { onConflict: 'organization_id,role' }).select('role, permissions, updated_at').single();
+  if (error) throw error;
+  return {
+    role: data.role,
+    permissions: Array.isArray(data.permissions) ? data.permissions : [],
+    updatedAt: data.updated_at || undefined,
+  };
+}
+
+export async function saveStaffShiftRequest(
+  organizationId: string,
+  request: StaffShiftRequest,
+): Promise<StaffShiftRequest> {
+  const { data, error } = await assertSupabase().from('staff_shift_requests').upsert({
+    organization_id: organizationId,
+    id: request.id,
+    recorder_profile_id: request.recorderProfileId,
+    requested_date: request.requestedDate,
+    requested_start_time: request.requestedStartTime || null,
+    requested_end_time: request.requestedEndTime || null,
+    note: request.note?.trim() || null,
+    status: request.status,
+    review_note: request.reviewNote?.trim() || null,
+    reviewed_by_name: request.reviewedByName || null,
+    reviewed_at: request.reviewedAt || null,
+  }, { onConflict: 'organization_id,recorder_profile_id,requested_date' }).select('*').single();
+  if (error) throw error;
+  return mapStaffShiftRequest(data, new Map([[request.recorderProfileId, request.recorderName]]));
 }
 
 export async function punchAttendance(

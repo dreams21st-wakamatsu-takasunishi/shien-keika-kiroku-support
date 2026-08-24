@@ -1096,7 +1096,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
         <div className="mt-3 grid grid-cols-2 gap-2">
           <button type="button" onClick={() => setMonthlySettingsOpen((current) => !current)} aria-expanded={monthlySettingsOpen} className={`flex min-h-12 items-center gap-3 rounded-xl border px-3 text-left transition-colors ${monthlySettingsOpen ? 'border-teal-300 bg-teal-50' : 'border-slate-200 bg-slate-50 hover:bg-slate-100'}`}>
             <CopyCheck className={`h-5 w-5 shrink-0 ${monthlySettingsOpen ? 'text-teal-700' : 'text-slate-500'}`} />
-            <span className="min-w-0 flex-1"><span className="block text-xs font-black text-slate-950">月間予定の設定</span><span className="block truncate text-[9px] font-bold text-slate-500">基本予定の反映・長期休暇・一括削除</span></span>
+            <span className="min-w-0 flex-1"><span className="block text-xs font-black text-slate-950">利用予定・送迎の設定</span><span className="block truncate text-[9px] font-bold text-slate-500">基本予定の反映・長期休暇・一括削除</span></span>
             <ChevronDown className={`h-4 w-4 shrink-0 text-slate-500 transition-transform ${monthlySettingsOpen ? 'rotate-180' : ''}`} />
           </button>
           <button type="button" onClick={() => setCalendarOpen((current) => !current)} aria-expanded={calendarOpen} className={`flex min-h-12 items-center gap-3 rounded-xl border px-3 text-left transition-colors ${calendarOpen ? 'border-violet-300 bg-violet-50' : 'border-slate-200 bg-slate-50 hover:bg-slate-100'}`}>

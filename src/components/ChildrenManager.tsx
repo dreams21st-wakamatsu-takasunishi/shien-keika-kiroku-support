@@ -39,6 +39,7 @@ interface ChildrenManagerProps {
   childrenList: ChildProfile[];
   schools?: SchoolProfile[];
   transportRouteSettings?: TransportRouteSettings;
+  canEdit?: boolean;
   onAddChild: (child: ChildProfile) => void;
   onUpdateChild: (child: ChildProfile) => void;
   onDeleteChild: (childId: string) => void;
@@ -149,6 +150,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   childrenList,
   schools = [],
   transportRouteSettings = DEFAULT_TRANSPORT_ROUTE_SETTINGS,
+  canEdit = false,
   onAddChild,
   onUpdateChild,
   onDeleteChild,
@@ -582,17 +584,17 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         <div>
           <h2 className="text-lg font-bold text-slate-900">児童名簿マスター</h2>
           <p className="text-xs text-slate-500 mt-1">
-            利用児童の情報（学年・支給決定区分・指導上の留意点など）を管理できます
+            {canEdit ? '利用児童の情報（学年・支給決定区分・指導上の留意点など）を管理できます' : '利用児童の情報を閲覧できます。編集は権限がある職員のみ行えます。'}
           </p>
         </div>
 
-        <button
+        {canEdit && <button
           onClick={handleOpenAddModal}
           className="bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold px-4 py-2.5 rounded-lg shadow-xs transition-all flex items-center gap-2"
         >
           <UserPlus className="w-4 h-4" />
           新規児童を登録
-        </button>
+        </button>}
       </div>
 
       {/* Compact search controls. Sorting is handled directly by the roster headers. */}
@@ -818,6 +820,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
               key={child.id}
               child={child}
               today={today}
+              canEdit={canEdit}
               onEdit={handleOpenEditModal}
               onDelete={handleDeleteRequest}
             />
@@ -847,6 +850,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                 key={child.id}
                 child={child}
                 today={today}
+                canEdit={canEdit}
                 onEdit={handleOpenEditModal}
                 onDelete={handleDeleteRequest}
               />
@@ -1151,6 +1155,7 @@ function SortHeaderButton({
 interface ChildDisplayProps {
   child: ChildProfile;
   today: string;
+  canEdit: boolean;
   onEdit: (child: ChildProfile) => void;
   onDelete: (child: ChildProfile) => void;
 }
@@ -1160,7 +1165,7 @@ const getNextRegularDaySchedule = (child: ChildProfile, today: string) =>
     ?.filter((schedule) => schedule.effectiveFrom > today)
     .sort((left, right) => left.effectiveFrom.localeCompare(right.effectiveFrom))[0];
 
-const ChildGridCard: React.FC<ChildDisplayProps> = ({ child, today, onEdit, onDelete }) => {
+const ChildGridCard: React.FC<ChildDisplayProps> = ({ child, today, canEdit, onEdit, onDelete }) => {
   const nextSchedule = getNextRegularDaySchedule(child, today);
   return (
     <article className="flex flex-col justify-between space-y-3 rounded-xl border border-slate-200 bg-white p-5 shadow-xs transition-all hover:border-teal-500/50">
@@ -1207,12 +1212,12 @@ const ChildGridCard: React.FC<ChildDisplayProps> = ({ child, today, onEdit, onDe
         </div>
       </div>
 
-      <ChildActionButtons child={child} onEdit={onEdit} onDelete={onDelete} />
+      {canEdit && <ChildActionButtons child={child} onEdit={onEdit} onDelete={onDelete} />}
     </article>
   );
 };
 
-const ChildListRow: React.FC<ChildDisplayProps> = ({ child, today, onEdit, onDelete }) => {
+const ChildListRow: React.FC<ChildDisplayProps> = ({ child, today, canEdit, onEdit, onDelete }) => {
   const nextSchedule = getNextRegularDaySchedule(child, today);
   const regularDaysLabel = formatRegularDays(getRegularDaysForDate(child, today));
   return (
@@ -1239,7 +1244,7 @@ const ChildListRow: React.FC<ChildDisplayProps> = ({ child, today, onEdit, onDel
             </p>
           )}
         </div>
-        <ChildActionButtons child={child} onEdit={onEdit} onDelete={onDelete} compact iconOnly />
+        {canEdit && <ChildActionButtons child={child} onEdit={onEdit} onDelete={onDelete} compact iconOnly />}
       </div>
 
       <div className="hidden gap-3 px-4 py-4 md:grid md:grid-cols-[minmax(190px,1.4fr)_110px_150px_minmax(150px,1fr)_116px] md:items-center">
@@ -1265,7 +1270,7 @@ const ChildListRow: React.FC<ChildDisplayProps> = ({ child, today, onEdit, onDel
           )}
         </div>
 
-        <ChildActionButtons child={child} onEdit={onEdit} onDelete={onDelete} compact />
+        {canEdit && <ChildActionButtons child={child} onEdit={onEdit} onDelete={onDelete} compact />}
       </div>
     </article>
   );

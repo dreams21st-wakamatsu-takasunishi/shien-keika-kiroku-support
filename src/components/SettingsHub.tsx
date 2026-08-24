@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
-import { ArrowLeft, BrainCircuit, ChevronRight, ListChecks, MapPinned, School, Settings } from 'lucide-react';
-import type { AiWritingSettings, ChildProfile, SchoolProfile, Template, TransportAreaZone, TransportMapLocation, TransportRouteSettings } from '../types';
+import { ArrowLeft, BrainCircuit, CalendarClock, CarFront, ChevronRight, KeyRound, ListChecks, MapPinned, School, Settings } from 'lucide-react';
+import type { AiWritingSettings, ChildProfile, OrganizationRolePermission, RecorderProfile, SchoolProfile, StaffShiftTemplate, Template, TransportAreaZone, TransportMapLocation, TransportRouteSettings, UserProfile, Vehicle } from '../types';
 import { AISettingsEditor } from './AISettingsEditor';
 import { SchoolManager } from './SchoolManager';
 import { TemplateEditor } from './TemplateEditor';
 import { TransportMapPanel } from './TransportMapPanel';
+import { RolePermissionManager } from './RolePermissionManager';
+import { StaffShiftTemplateSettings } from './StaffShiftTemplateSettings';
+import { VehicleLedger } from './VehicleLedger';
 
 interface SettingsHubProps {
   aiWritingSettings: AiWritingSettings;
@@ -15,6 +18,14 @@ interface SettingsHubProps {
   routeSettings: TransportRouteSettings;
   mapLocations: TransportMapLocation[];
   areaZones: TransportAreaZone[];
+  currentUser?: UserProfile | null;
+  recorderProfiles: RecorderProfile[];
+  staffShiftTemplates: StaffShiftTemplate[];
+  rolePermissions: OrganizationRolePermission[];
+  vehicles: Vehicle[];
+  canManageChildren: boolean;
+  canManageRecordSettings: boolean;
+  canManageTransport: boolean;
   onSaveAiWritingSettings: (settings: AiWritingSettings) => void;
   onSaveTemplate: (template: Template) => void;
   onDeleteTemplate: (templateId: string) => void;
@@ -24,9 +35,14 @@ interface SettingsHubProps {
   onSaveAreaZone: (zone: TransportAreaZone) => Promise<void> | void;
   onDeleteAreaZone: (zoneId: string) => Promise<void> | void;
   onSaveRouteSettings: (settings: TransportRouteSettings) => Promise<void> | void;
+  onSaveStaffShiftTemplate: (template: StaffShiftTemplate) => Promise<void> | void;
+  onDeleteStaffShiftTemplate: (templateId: string) => Promise<void> | void;
+  onSaveRolePermission: (permission: OrganizationRolePermission) => Promise<void> | void;
+  onSaveVehicle: (vehicle: Vehicle) => Promise<void> | void;
+  onDeleteVehicle: (vehicleId: string) => Promise<void> | void;
 }
 
-type SettingsPage = 'menu' | 'ai' | 'templates' | 'schools' | 'transportMap';
+type SettingsPage = 'menu' | 'ai' | 'templates' | 'schools' | 'transportMap' | 'rolePermissions' | 'shiftTemplates' | 'vehicles';
 
 export const SettingsHub: React.FC<SettingsHubProps> = ({
   aiWritingSettings,
@@ -37,6 +53,14 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
   routeSettings,
   mapLocations,
   areaZones,
+  currentUser,
+  recorderProfiles,
+  staffShiftTemplates,
+  rolePermissions,
+  vehicles,
+  canManageChildren,
+  canManageRecordSettings,
+  canManageTransport,
   onSaveAiWritingSettings,
   onSaveTemplate,
   onDeleteTemplate,
@@ -46,6 +70,11 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
   onSaveAreaZone,
   onDeleteAreaZone,
   onSaveRouteSettings,
+  onSaveStaffShiftTemplate,
+  onDeleteStaffShiftTemplate,
+  onSaveRolePermission,
+  onSaveVehicle,
+  onDeleteVehicle,
 }) => {
   const [page, setPage] = useState<SettingsPage>('menu');
 
@@ -64,6 +93,9 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
           <TransportPinColorSettings settings={routeSettings} onSave={onSaveRouteSettings} />
           <TransportMapPanel childrenList={childrenList} schools={schools} facilityAddress={facilityAddress} locations={mapLocations} zones={areaZones} pinColors={{ facility: routeSettings.facilityPinColor, residential: routeSettings.residentialPinColor, education: routeSettings.educationPinColor, other: routeSettings.otherPinColor }} canManage onSaveLocation={onSaveMapLocation} onSaveZone={onSaveAreaZone} onDeleteZone={onDeleteAreaZone} />
         </div>}
+        {page === 'rolePermissions' && <RolePermissionManager settings={rolePermissions} onSave={onSaveRolePermission} />}
+        {page === 'shiftTemplates' && <StaffShiftTemplateSettings templates={staffShiftTemplates} onSave={onSaveStaffShiftTemplate} onDelete={onDeleteStaffShiftTemplate} />}
+        {page === 'vehicles' && <VehicleLedger vehicles={vehicles} recorderProfiles={recorderProfiles} onSave={onSaveVehicle} onDelete={onDeleteVehicle} />}
       </div>
     );
   }
@@ -77,7 +109,7 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
           <p className="mt-0.5 text-xs text-slate-300">記録・学校・送迎地点など、事業所で共通利用する情報を管理します。</p>
         </div>
       </section>
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      {(currentUser?.role === 'admin' || canManageChildren || canManageTransport) && <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 bg-sky-50 px-4 py-2.5">
           <p className="text-[10px] font-black uppercase tracking-[0.16em] text-sky-700">事業所・送迎の設定</p>
         </div>
@@ -93,8 +125,14 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
           description="住所から反映した地点へ送迎エリアを登録し、配車画面のピンを色分けします。"
           onClick={() => setPage('transportMap')}
         />
-      </section>
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      </section>}
+      {currentUser?.role === 'admin' && <section className="overflow-hidden rounded-2xl border border-indigo-200 bg-white shadow-sm">
+        <div className="border-b border-indigo-100 bg-indigo-50 px-4 py-2.5"><p className="text-[10px] font-black uppercase tracking-[0.16em] text-indigo-700">管理者設定</p></div>
+        <SettingsCard icon={KeyRound} title="権限割り振り" description="指導員の基本権限を固定し、児発管・教室長へ追加する機能を設定します。" onClick={() => setPage('rolePermissions')} />
+        <SettingsCard icon={CalendarClock} title="勤務テンプレート" description={`${staffShiftTemplates.length}件の勤務パターンを登録。月間シフトから日・月単位で反映します。`} onClick={() => setPage('shiftTemplates')} />
+        <SettingsCard icon={CarFront} title="車両台帳" description={`${vehicles.length}台の車両、総乗車定員、設備、点検期限、使用可否を管理します。`} onClick={() => setPage('vehicles')} />
+      </section>}
+      {(currentUser?.role === 'admin' || canManageRecordSettings) && <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-100 bg-slate-50 px-4 py-2.5">
           <p className="text-[10px] font-black uppercase tracking-[0.16em] text-teal-700">記録作成の設定</p>
         </div>
@@ -110,7 +148,7 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
           description={`${templates.length}件のフォーマット、質問、補足文、選択肢を編集します。`}
           onClick={() => setPage('templates')}
         />
-      </section>
+      </section>}
     </div>
   );
 };

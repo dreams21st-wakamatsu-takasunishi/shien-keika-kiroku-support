@@ -41,19 +41,19 @@ Deno.serve(async (request) => {
     .select('organization_id, role')
     .eq('id', userId)
     .single();
-  if (!caller || !['manager', 'admin'].includes(caller.role)) {
+  if (!caller || !['manager', 'classroom_manager', 'admin'].includes(caller.role)) {
     return jsonResponse({ error: 'Manager permission is required' }, 403);
   }
 
   const body = await request.json().catch(() => null) as {
     email?: string;
     displayName?: string;
-    role?: 'staff' | 'manager' | 'admin';
+    role?: 'staff' | 'manager' | 'classroom_manager' | 'admin';
   } | null;
   const email = body?.email?.trim().toLowerCase() || '';
   const displayName = body?.displayName?.trim().slice(0, 100) || email.split('@')[0];
   const role = body?.role || 'staff';
-  if (!email.includes('@') || !['staff', 'manager', 'admin'].includes(role)) {
+  if (!email.includes('@') || !['staff', 'manager', 'classroom_manager', 'admin'].includes(role)) {
     return jsonResponse({ error: 'Invalid invitation details' }, 400);
   }
   if (caller.role !== 'admin' && role !== 'staff') {

@@ -4,12 +4,14 @@ import {
   AlertTriangle,
   Bell,
   Bot,
+  BusFront,
   CalendarDays,
   CalendarRange,
   CheckCircle2,
   ChevronRight,
   ClipboardPenLine,
   ClipboardList,
+  Clock3,
   LoaderCircle,
   MessageSquareText,
   PlusCircle,
@@ -40,6 +42,7 @@ import type {
   RecorderProfile,
   SchoolProfile,
   StaffScheduleItem,
+  StaffShiftRequest,
   StaffShiftTemplate,
   SupportRecord,
   TransportRun,
@@ -63,6 +66,9 @@ import { MonthlyTransportPlanner } from './MonthlyTransportPlanner';
 import { getLocalDateString, getWeekdayFromDate } from '../utils/weekdays';
 import { getDefaultDepartureTime } from '../utils/transportDeparture';
 import { QuickGuide, type QuickGuideContent } from './QuickGuide';
+import { AttendanceHomePanel } from './AttendanceHomePanel';
+import { CalendarPanel } from './CalendarPanel';
+import { TransportPanel } from './TransportPanel';
 
 interface HomeScreenProps {
   activeWorkspace: HomeWorkspace;
@@ -82,6 +88,7 @@ interface HomeScreenProps {
   dailyChildPlans: DailyChildPlan[];
   attendanceRecords: AttendanceRecord[];
   staffShiftTemplates: StaffShiftTemplate[];
+  staffShiftRequests: StaffShiftRequest[];
   attendanceCorrections: AttendanceCorrectionRequest[];
   vehicles: Vehicle[];
   transportRuns: TransportRun[];
@@ -98,7 +105,11 @@ interface HomeScreenProps {
   organizationId?: string;
   activeRecorder?: RecorderProfile;
   currentUser?: UserProfile | null;
-  canManageSettings: boolean;
+  canReviewRecords: boolean;
+  canManageCommunications: boolean;
+  canManageShifts: boolean;
+  canManageCalendar: boolean;
+  canManageTransport: boolean;
   onNavigate: (tab: ActiveTab) => void;
   onNewRecord: () => void;
   onStartRecord: (childId: string, date: string) => void;
@@ -128,8 +139,8 @@ interface HomeScreenProps {
   onDeleteMonthlyDailySchedules: (month: string, childId?: string) => Promise<MonthlyScheduleDeleteResult>;
   onSaveAttendance: (record: AttendanceRecord) => Promise<void> | void;
   onSaveAttendanceRecords: (records: AttendanceRecord[]) => Promise<void> | void;
-  onSaveStaffShiftTemplate: (template: StaffShiftTemplate) => Promise<void> | void;
-  onDeleteStaffShiftTemplate: (templateId: string) => Promise<void> | void;
+  onSaveStaffShiftRequest: (request: StaffShiftRequest) => Promise<void> | void;
+  onReviewStaffShiftRequest: (request: StaffShiftRequest, approved: boolean, note?: string) => Promise<void> | void;
   onPunchAttendance: (recorder: RecorderProfile, pin: string, action: '出勤' | '退勤' | '休憩開始' | '休憩終了') => Promise<void> | void;
   onRequestAttendanceCorrection: (record: AttendanceRecord, pin: string, clockIn: string | undefined, clockOut: string | undefined, reason: string) => Promise<void> | void;
   onReviewAttendanceCorrection: (request: AttendanceCorrectionRequest, approved: boolean, note?: string) => Promise<void> | void;
@@ -149,25 +160,35 @@ interface HomeScreenProps {
   onUpdateTransportStatus: (run: TransportRun, recorder: RecorderProfile, pin: string, status: TransportRunStatus) => Promise<void> | void;
 }
 
-export type HomeWorkspace = 'menu' | 'dailyChanges' | 'todayWork' | 'monthlySchedule' | 'operations' | 'communication' | 'assistant';
+export type HomeWorkspace = 'menu' | 'dailyChanges' | 'todayWork' | 'attendance' | 'calendar' | 'monthlySchedule' | 'dispatch' | 'operations' | 'communication' | 'assistant';
 type CommunicationView = 'announcements' | 'morning' | 'handover';
 
 const HOME_GUIDE: QuickGuideContent = {
   title: 'ホーム',
   summary: '最初に行いたい業務を1つ選びます。必要な情報だけが次の画面に表示されます。',
-  steps: ['急な欠席や送迎交代は「当日変更」を選びます。', '日常の確認は「本日の業務」、先の予定は「月間予定」を選びます。', '入力や確認が終わったら「機能を選び直す」でこの画面へ戻ります。'],
+  steps: ['急な欠席や送迎交代は「当日変更」を選びます。', '勤務は「出勤予定」、会議等は「業務カレンダー」、利用・送迎は「利用予定／送迎管理」を選びます。', '入力や確認が終わったら「機能を選び直す」でこの画面へ戻ります。'],
 };
 
 function workspaceGuide(workspace: HomeWorkspace): QuickGuideContent {
   const guides: Partial<Record<HomeWorkspace, QuickGuideContent>> = {
     dailyChanges: { title: '当日変更', summary: '急な欠席と送迎担当交代を、通常の設定画面を探さず処理します。', steps: ['変更種類を選びます。', '対象児童または送迎便を選びます。', '影響内容を確認して確定します。'], tips: ['出発済みの便は自動変更せず、運行中の職員へ連絡してください。'] },
-    todayWork: { title: '本日の業務', summary: '今日の職員配置、予定、出勤、送迎を確認します。', steps: ['確認したい日付を選びます。', '職員配置・予定・出勤・送迎のタブを選びます。', '玄関端末では「出勤」から打刻用QRを全画面表示できます。', '変更は元データの画面から保存します。'] },
-    monthlySchedule: { title: '月間予定', summary: '定期利用を基準に、追加利用・欠席・送迎条件を日別に調整します。', steps: ['対象月と表示単位を選びます。', '日付または児童・家庭・学校を選びます。', '変更内容を保存して日次送迎へ反映します。'] },
+    todayWork: { title: '本日の業務', summary: '今日の職員配置と送迎一覧を確認します。', steps: ['確認したい日付を選びます。', '職員配置または当日の送迎を選びます。', '配車変更は「利用予定／送迎管理」から行います。'] },
+    attendance: { title: '出勤予定', summary: '自分の出勤予定、打刻、パート職員のシフト希望を確認します。', steps: ['自分の直近予定を確認します。', 'パート職員は希望日と時間を提出します。', '管理権限がある職員は月間シフトを確定します。'] },
+    calendar: { title: '業務カレンダー', summary: '会議・外出・研修・面談・行事などを確認します。', steps: ['表示期間を選びます。', '予定を選んで詳細を確認します。', '権限がある場合は追加・編集できます。'] },
+    monthlySchedule: { title: '利用予定／送迎管理', summary: '定期利用を基準に、追加利用・欠席・送迎条件を日別に調整します。', steps: ['対象月と表示単位を選びます。', '日付または児童・家庭・学校を選びます。', '条件確定後に配車画面を開きます。'] },
+    dispatch: { title: '配車編集', summary: '利用予定／送迎管理で確定した条件から、車両・職員・乗降順を編集します。', steps: ['迎えまたは送りを選びます。', '児童を車両へ配置します。', '時間計算後に内容を保存します。'] },
     operations: { title: '記録状況', summary: '児童ごとの未入力・入力中・保存済みを確認します。', steps: ['対象日を選びます。', '児童の状態を確認します。', '入力開始・再開・閲覧・引き継ぎを選びます。'] },
     communication: { title: '共有・連絡', summary: 'お知らせ、朝礼、申し送りを1か所で確認します。', steps: ['上部タブから種類を選びます。', '未確認の内容を開きます。', '確認または対応状況を登録します。'] },
     assistant: { title: 'AIアシスタント', summary: 'AIが提案した変更案を確認してから実行します。', steps: ['児童を選び、依頼内容を入力します。', '提案内容と変更日を確認します。', '問題がなければ承認して実行します。'] },
   };
   return guides[workspace] || HOME_GUIDE;
+}
+
+function workspaceTitle(workspace: HomeWorkspace) {
+  const titles: Record<HomeWorkspace, string> = {
+    menu: 'ホーム', dailyChanges: '当日変更', todayWork: '本日の業務', attendance: '出勤予定', calendar: '業務カレンダー', monthlySchedule: '利用予定／送迎管理', dispatch: '配車編集', operations: '記録状況', communication: '共有・連絡', assistant: 'AIアシスタント',
+  };
+  return titles[workspace];
 }
 
 export const HomeScreen: React.FC<HomeScreenProps> = ({
@@ -188,6 +209,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   dailyChildPlans,
   attendanceRecords,
   staffShiftTemplates,
+  staffShiftRequests,
   attendanceCorrections,
   vehicles,
   transportRuns,
@@ -204,7 +226,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   organizationId,
   activeRecorder,
   currentUser,
-  canManageSettings,
+  canReviewRecords,
+  canManageCommunications,
+  canManageShifts,
+  canManageCalendar,
+  canManageTransport,
   onNavigate,
   onNewRecord,
   onStartRecord,
@@ -234,8 +260,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onDeleteMonthlyDailySchedules,
   onSaveAttendance,
   onSaveAttendanceRecords,
-  onSaveStaffShiftTemplate,
-  onDeleteStaffShiftTemplate,
+  onSaveStaffShiftRequest,
+  onReviewStaffShiftRequest,
   onPunchAttendance,
   onRequestAttendanceCorrection,
   onReviewAttendanceCorrection,
@@ -257,8 +283,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [communicationView, setCommunicationView] = useState<CommunicationView>('announcements');
   const [todayWorkLaunch, setTodayWorkLaunch] = useState<{
     date: string;
-    openDispatchPlanner: boolean;
-  }>({ date: getLocalDateString(), openDispatchPlanner: false });
+  }>({ date: getLocalDateString() });
+  const [dispatchDate, setDispatchDate] = useState(getLocalDateString());
 
   useEffect(() => {
     if (announcementFocusToken > 0) setCommunicationView('announcements');
@@ -406,8 +432,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <WorkspaceCard icon={UserX} title="当日変更" description="急な欠席・送迎担当の交代" meta="影響を確認してすぐ反映" tone="amber" onClick={() => setActivePanel('dailyChanges')} />
-              <WorkspaceCard icon={CalendarDays} title="本日の業務" description="職員配置・予定・出勤・送迎" meta={todayWorkCount > 0 ? `${todayWorkCount}件の予定` : '予定を確認'} tone="teal" onClick={() => { setTodayWorkLaunch({ date: getLocalDateString(), openDispatchPlanner: false }); setActivePanel('todayWork'); }} />
-              <WorkspaceCard icon={CalendarRange} title="月間予定" description="利用予定・追加利用・欠席・送迎条件" meta="日ごとの予定を確認・編集" tone="violet" onClick={() => setActivePanel('monthlySchedule')} />
+              <WorkspaceCard icon={CalendarDays} title="本日の業務" description="職員配置・当日の送迎一覧" meta={todayWorkCount > 0 ? `${todayWorkCount}件の予定` : '予定を確認'} tone="teal" onClick={() => { setTodayWorkLaunch({ date: getLocalDateString() }); setActivePanel('todayWork'); }} />
+              <WorkspaceCard icon={Clock3} title="出勤予定" description="自分の予定・打刻・シフト希望" meta={activeRecorder ? `${activeRecorder.displayName}さんの勤務` : '勤務を確認'} tone="sky" onClick={() => setActivePanel('attendance')} />
+              <WorkspaceCard icon={CalendarRange} title="業務カレンダー" description="会議・外出・研修・面談・行事" meta="勤務予定は表示しません" tone="indigo" onClick={() => setActivePanel('calendar')} />
+              <WorkspaceCard icon={BusFront} title="利用予定／送迎管理" description="利用予定・欠席・送迎条件・配車" meta="日ごとの予定を確認・編集" tone="violet" onClick={() => setActivePanel('monthlySchedule')} />
               <WorkspaceCard icon={ClipboardList} title="記録状況" description="利用児童・入力中・保存済み" meta={`本日 ${todayRecords.length}件／入力中 ${drafts.length}件${carriedOverDrafts.length > 0 ? `／持越し ${carriedOverDrafts.length}件` : ''}`} tone="sky" onClick={() => setActivePanel('operations')} />
               <WorkspaceCard icon={MessageSquareText} title="共有・連絡" description="お知らせ・朝礼・申し送り" meta={`${visibleAnnouncements.length + openHandovers}件を確認`} tone="amber" onClick={() => setActivePanel('communication')} />
               <WorkspaceCard icon={Bot} title="AIアシスタント" description="児童情報の変更や記録の整理" meta="実行前に内容を確認" tone="indigo" onClick={() => setActivePanel('assistant')} />
@@ -417,11 +445,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
       ) : (
         <>
           <WorkspaceBackBar
-            title={activePanel === 'dailyChanges' ? '当日変更' : activePanel === 'todayWork' ? '本日の業務' : activePanel === 'monthlySchedule' ? '月間予定' : activePanel === 'operations' ? '記録状況' : activePanel === 'communication' ? '共有・連絡' : 'AIアシスタント'}
+            title={workspaceTitle(activePanel)}
             guide={workspaceGuide(activePanel)}
             onBack={() => setActivePanel('menu')}
           />
-          <div key={activePanel} className="ui-panel-enter" role="region" aria-label={activePanel === 'dailyChanges' ? '当日変更' : activePanel === 'todayWork' ? '本日の業務' : activePanel === 'monthlySchedule' ? '月間予定' : activePanel === 'operations' ? '記録状況' : activePanel === 'communication' ? '共有・連絡' : 'AIアシスタント'}>
+          <div key={activePanel} className="ui-panel-enter" role="region" aria-label={workspaceTitle(activePanel)}>
         {activePanel === 'dailyChanges' && (
           <DailyChangePanel
             date={today}
@@ -440,53 +468,30 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         {activePanel === 'todayWork' && (
           <TodayWorkPanel
             initialDate={todayWorkLaunch.date}
-            initialView={todayWorkLaunch.openDispatchPlanner ? 'transport' : 'placement'}
-            initialOpenDispatchPlanner={todayWorkLaunch.openDispatchPlanner}
+            initialView="placement"
             staffScheduleItems={staffScheduleItems}
             calendarEvents={calendarEvents}
             dailyChildPlans={dailyChildPlans}
             attendanceRecords={attendanceRecords}
-            staffShiftTemplates={staffShiftTemplates}
-            attendanceCorrections={attendanceCorrections}
             vehicles={vehicles}
             transportRuns={transportRuns}
-            transportPlanDays={transportPlanDays}
-            dailyTransportRequirements={dailyTransportRequirements}
             transportRouteSettings={transportRouteSettings}
             transportMapLocations={transportMapLocations}
             transportAreaZones={transportAreaZones}
             recorderProfiles={recorderProfiles}
             childrenList={childrenList}
-            schools={schools}
-            activeRecorder={activeRecorder}
-            canManage={canManageSettings}
-            canApproveAttendanceCorrections={!organizationId || currentUser?.role === 'admin'}
-            canManageShifts={!organizationId || currentUser?.role === 'admin'}
-            attendanceQrEnabled={Boolean(organizationId)}
+            canManage={canManageShifts}
             onSaveStaffSchedule={onSaveStaffSchedule}
             onDeleteStaffSchedule={onDeleteStaffSchedule}
             onSaveCalendarEvent={onSaveCalendarEvent}
-            onDeleteCalendarEvent={onDeleteCalendarEvent}
             onSaveAttendance={onSaveAttendance}
-            onSaveAttendanceRecords={onSaveAttendanceRecords}
-            onSaveStaffShiftTemplate={onSaveStaffShiftTemplate}
-            onDeleteStaffShiftTemplate={onDeleteStaffShiftTemplate}
-            onPunchAttendance={onPunchAttendance}
-            onRequestAttendanceCorrection={onRequestAttendanceCorrection}
-            onReviewAttendanceCorrection={onReviewAttendanceCorrection}
-            onSaveVehicle={onSaveVehicle}
-            onDeleteVehicle={onDeleteVehicle}
             onSaveTransportRun={onSaveTransportRun}
-            onSaveDailyTransportRequirements={onSaveDailyTransportRequirements}
-            onChangeTransportAssignment={onChangeTransportAssignment}
-            onDeleteTransportRun={onDeleteTransportRun}
-            onSaveTransportRouteSettings={onSaveTransportRouteSettings}
-            onSaveTransportMapLocation={onSaveTransportMapLocation}
-            onSaveTransportAreaZone={onSaveTransportAreaZone}
-            onDeleteTransportAreaZone={onDeleteTransportAreaZone}
-            onUpdateTransportStatus={onUpdateTransportStatus}
           />
         )}
+
+        {activePanel === 'attendance' && <AttendanceHomePanel records={attendanceRecords} shiftTemplates={staffShiftTemplates} shiftRequests={staffShiftRequests} corrections={attendanceCorrections} recorderProfiles={recorderProfiles} activeRecorder={activeRecorder} canManageShifts={canManageShifts} canApproveCorrections={!organizationId || currentUser?.role === 'admin'} qrKioskEnabled={Boolean(organizationId)} onSaveRecord={onSaveAttendance} onSaveRecords={onSaveAttendanceRecords} onSaveShiftRequest={onSaveStaffShiftRequest} onReviewShiftRequest={onReviewStaffShiftRequest} onPunch={onPunchAttendance} onRequestCorrection={onRequestAttendanceCorrection} onReviewCorrection={onReviewAttendanceCorrection} />}
+
+        {activePanel === 'calendar' && <CalendarPanel events={calendarEvents} recorderProfiles={recorderProfiles} childrenList={childrenList} selectedDate={todayWorkLaunch.date} onDateChange={(date) => setTodayWorkLaunch({ date })} canEdit={canManageCalendar} onSave={onSaveCalendarEvent} onDelete={onDeleteCalendarEvent} />}
 
         {activePanel === 'monthlySchedule' && (
           <MonthlyTransportPlanner
@@ -498,7 +503,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             planDays={transportPlanDays}
             transportRuns={transportRuns}
             routeSettings={transportRouteSettings}
-            canManage={canManageSettings}
+            canManage={canManageTransport}
             onSavePlanDay={onSaveTransportPlanDay}
             onSaveDailyChildPlan={onSaveDailyChildPlan}
             onDeleteDailyChildPlan={onDeleteDailyChildPlan}
@@ -508,11 +513,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             onReplaceMonthRequirements={onReplaceMonthlyTransportRequirements}
             onReplaceChildMonthRequirements={onReplaceChildMonthlyTransportRequirements}
             onOpenDispatch={(date) => {
-              setTodayWorkLaunch({ date, openDispatchPlanner: true });
-              setActivePanel('todayWork');
+              setDispatchDate(date);
+              setActivePanel('dispatch');
             }}
           />
         )}
+
+        {activePanel === 'dispatch' && <TransportPanel runs={transportRuns} vehicles={vehicles} routeSettings={transportRouteSettings} mapLocations={transportMapLocations} areaZones={transportAreaZones} recorderProfiles={recorderProfiles} childrenList={childrenList} schools={schools} dailyChildPlans={dailyChildPlans} transportPlanDays={transportPlanDays} dailyTransportRequirements={dailyTransportRequirements} staffScheduleItems={staffScheduleItems} attendanceRecords={attendanceRecords} calendarEvents={calendarEvents} selectedDate={dispatchDate} canManage={canManageTransport} activeRecorder={activeRecorder} warningsByRunId={new Map()} initialDayPlannerOpen onSaveRun={onSaveTransportRun} onSaveRequirements={onSaveDailyTransportRequirements} onChangeAssignment={onChangeTransportAssignment} onDeleteRun={onDeleteTransportRun} onSaveVehicle={onSaveVehicle} onDeleteVehicle={onDeleteVehicle} onSaveRouteSettings={onSaveTransportRouteSettings} onSaveMapLocation={onSaveTransportMapLocation} onSaveAreaZone={onSaveTransportAreaZone} onDeleteAreaZone={onDeleteTransportAreaZone} onUpdateStatus={onUpdateTransportStatus} />}
 
         {activePanel === 'operations' && (
           <DailyOperationsPanel
@@ -525,7 +532,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             onTargetDateChange={onRecordStatusDateChange}
             currentUserId={currentUser?.id}
             currentRecorderId={activeRecorder?.id}
-            canManageDrafts={canManageSettings}
+            canManageDrafts={canReviewRecords}
             onStartRecord={onStartRecord}
             onResumeDraft={onResumeDraft}
             onViewDraft={onViewDraft}
@@ -554,7 +561,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   activeRecorder={activeRecorder}
                   currentUser={currentUser}
                   canCreate={!organizationId || Boolean(currentUser)}
-                  canArchive={canManageSettings}
+                  canArchive={canManageCommunications}
                   onOpenRecord={(recordId) => {
                     const record = records.find((candidate) => candidate.id === recordId);
                     if (record) onOpenRecord(record);
@@ -573,7 +580,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   organizationId={organizationId}
                   activeRecorder={activeRecorder}
                   currentUser={currentUser}
-                  canManageTemplates={canManageSettings}
+                  canManageTemplates={canManageCommunications}
                   dailySummary={morningDailySummary}
                   onSave={onSaveMorningMeeting}
                   onSaveTemplate={onSaveMorningMeetingTemplate}
@@ -912,7 +919,7 @@ function DailyChangePanel({
       }
       setMessage(attendancePlan === '欠席'
         ? `${selectedChild.name}さんを欠席登録しました。記録候補と未出発の送迎便へ反映しました。${runningRuns.length ? ` 運行中の${runningRuns.length}便は安全のため変更していません。` : ''}`
-        : `${selectedChild.name}さんを利用予定へ戻しました。必要な送迎便は「本日の業務」から追加してください。`);
+        : `${selectedChild.name}さんを利用予定へ戻しました。必要な送迎便は「利用予定／送迎管理」から追加してください。`);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : '当日予定を変更できませんでした。');
     } finally {

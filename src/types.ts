@@ -2,7 +2,7 @@ export type AttendanceType = string;
 export type ExpressionType = string;
 export type SnackType = string;
 export type ApprovalStatus = '未確認' | '確認済み' | '要修正';
-export type UserRole = 'staff' | 'manager' | 'admin';
+export type UserRole = 'staff' | 'manager' | 'classroom_manager' | 'admin';
 export type FiveDomain =
   | '健康・生活'
   | '運動・感覚'
@@ -342,9 +342,49 @@ export interface RecorderProfile {
   jobTitle?: string;
   employmentType?: 'full_time' | 'part_time';
   contractedWeeklyHours?: number;
+  partTimeWeekdayWorkDays?: Weekday[];
+  partTimeWeekdayStartTime?: string;
+  partTimeWeekdayEndTime?: string;
+  partTimeHolidayWorkDays?: Weekday[];
+  partTimeHolidayStartTime?: string;
+  partTimeHolidayEndTime?: string;
   individualLoginEnabled?: boolean;
   menuPreferences?: RecorderMenuPreferences;
   createdAt?: string;
+}
+
+export type ConfigurableUserRole = 'manager' | 'classroom_manager';
+export type RolePermissionKey =
+  | 'review_records'
+  | 'manage_children'
+  | 'manage_record_settings'
+  | 'manage_shifts'
+  | 'manage_calendar'
+  | 'manage_transport'
+  | 'manage_communications';
+
+export interface OrganizationRolePermission {
+  role: ConfigurableUserRole;
+  permissions: RolePermissionKey[];
+  updatedAt?: string;
+}
+
+export type ShiftRequestStatus = '申請中' | '承認' | '却下';
+
+export interface StaffShiftRequest {
+  id: string;
+  recorderProfileId: string;
+  recorderName: string;
+  requestedDate: string;
+  requestedStartTime?: string;
+  requestedEndTime?: string;
+  note?: string;
+  status: ShiftRequestStatus;
+  reviewNote?: string;
+  reviewedByName?: string;
+  reviewedAt?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export type RecorderMenuItemId = 'home' | 'form' | 'records' | 'children' | 'templates' | 'team';
@@ -389,6 +429,7 @@ export type CalendarEventType =
   | '欠席'
   | '勤務予定'
   | '会議'
+  | '外出'
   | '朝礼'
   | '研修'
   | '保護者面談'

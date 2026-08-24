@@ -21,12 +21,14 @@ import {
   MorningMeetingRecord,
   MorningMeetingTemplate,
   MonthlyScheduleDeleteResult,
+  OrganizationRolePermission,
   RecordDraftSummary,
   RecorderMenuPreferences,
   RecorderProfile,
   ReviewIssue,
   SchoolProfile,
   StaffScheduleItem,
+  StaffShiftRequest,
   StaffShiftTemplate,
   SupportPlan,
   SupportRecord,
@@ -102,6 +104,8 @@ import {
   saveSchool,
   saveRecorderMenuPreferences,
   saveStaffScheduleItem,
+  saveRolePermission,
+  saveStaffShiftRequest,
   saveStaffShiftTemplate,
   saveAiWritingSettings,
   saveAnnouncement,
@@ -239,6 +243,16 @@ export default function App() {
   const [staffShiftTemplates, setStaffShiftTemplates] = useState<StaffShiftTemplate[]>(() => {
     if (remoteMode) return [];
     const saved = localStorage.getItem('support_staff_shift_templates_data');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [staffShiftRequests, setStaffShiftRequests] = useState<StaffShiftRequest[]>(() => {
+    if (remoteMode) return [];
+    const saved = localStorage.getItem('support_staff_shift_requests_data');
+    return saved ? JSON.parse(saved) : [];
+  });
+  const [rolePermissions, setRolePermissions] = useState<OrganizationRolePermission[]>(() => {
+    if (remoteMode) return [];
+    const saved = localStorage.getItem('support_role_permissions_data');
     return saved ? JSON.parse(saved) : [];
   });
   const [attendanceCorrections, setAttendanceCorrections] = useState<AttendanceCorrectionRequest[]>(() => {
@@ -459,6 +473,12 @@ export default function App() {
     if (!remoteMode) localStorage.setItem('support_staff_shift_templates_data', JSON.stringify(staffShiftTemplates));
   }, [staffShiftTemplates, remoteMode]);
   useEffect(() => {
+    if (!remoteMode) localStorage.setItem('support_staff_shift_requests_data', JSON.stringify(staffShiftRequests));
+  }, [staffShiftRequests, remoteMode]);
+  useEffect(() => {
+    if (!remoteMode) localStorage.setItem('support_role_permissions_data', JSON.stringify(rolePermissions));
+  }, [rolePermissions, remoteMode]);
+  useEffect(() => {
     if (!remoteMode) localStorage.setItem('support_attendance_corrections_data', JSON.stringify(attendanceCorrections));
   }, [attendanceCorrections, remoteMode]);
   useEffect(() => {
@@ -516,6 +536,8 @@ export default function App() {
           setDailyChildPlans([]);
           setAttendanceRecords([]);
           setStaffShiftTemplates([]);
+          setStaffShiftRequests([]);
+          setRolePermissions([]);
           setAttendanceCorrections([]);
           setVehicles([]);
           setTransportRuns([]);
@@ -558,6 +580,8 @@ export default function App() {
         setDailyChildPlans(workspace.dailyChildPlans);
         setAttendanceRecords(workspace.attendanceRecords);
         setStaffShiftTemplates(workspace.staffShiftTemplates);
+        setStaffShiftRequests(workspace.staffShiftRequests);
+        setRolePermissions(workspace.rolePermissions);
         setAttendanceCorrections(workspace.attendanceCorrectionRequests);
         setVehicles(workspace.vehicles);
         setTransportRuns(workspace.transportRuns);
@@ -716,6 +740,8 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'calendar_events', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_records', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_shift_templates', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_shift_requests', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'organization_role_permissions', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'recorder_profiles', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_correction_requests', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
@@ -887,9 +913,21 @@ export default function App() {
     );
   }
 
-  const canReview = !remoteMode || auth.profile?.role === 'manager' || auth.profile?.role === 'admin';
-  const canManageSettings = !remoteMode || auth.profile?.role === 'manager' || auth.profile?.role === 'admin';
-  const calendarEventsForCurrentUser = canManageSettings
+  const hasRolePermission = (permission: OrganizationRolePermission['permissions'][number]) => {
+    if (!remoteMode || auth.profile?.role === 'admin') return true;
+    if (auth.profile?.role !== 'manager' && auth.profile?.role !== 'classroom_manager') return false;
+    const configured = rolePermissions.find((setting) => setting.role === auth.profile?.role)?.permissions;
+    if (!configured) return permission === 'manage_shifts' || (auth.profile.role === 'manager' && ['review_records', 'manage_children', 'manage_record_settings', 'manage_calendar', 'manage_transport', 'manage_communications'].includes(permission));
+    return configured.includes(permission);
+  };
+  const canReview = hasRolePermission('review_records');
+  const canManageChildren = hasRolePermission('manage_children');
+  const canManageRecordSettings = hasRolePermission('manage_record_settings');
+  const canManageShifts = hasRolePermission('manage_shifts');
+  const canManageCalendar = hasRolePermission('manage_calendar');
+  const canManageTransport = hasRolePermission('manage_transport');
+  const canManageCommunications = hasRolePermission('manage_communications');
+  const calendarEventsForCurrentUser = canManageCalendar
     ? calendarEvents
     : calendarEvents.filter((event) =>
         event.visibility === '全体'
@@ -1087,7 +1125,7 @@ export default function App() {
   };
 
   const handleSaveTemplate = async (template: Template) => {
-    if (!canManageSettings) return void alert('テンプレートを変更する権限がありません。');
+    if (!canManageRecordSettings) return void alert('テンプレートを変更する権限がありません。');
     try {
       const normalizedTemplate = normalizeTemplateFatigueScale(template);
       if (organizationId) await saveTemplate(organizationId, normalizedTemplate);
@@ -1098,7 +1136,7 @@ export default function App() {
   };
 
   const handleDeleteTemplate = async (templateId: string) => {
-    if (!canManageSettings) return void alert('テンプレートを変更する権限がありません。');
+    if (!canManageRecordSettings) return void alert('テンプレートを変更する権限がありません。');
     try {
       if (organizationId) await archiveTemplate(organizationId, templateId);
       setTemplates((previous) => previous.filter((item) => item.id !== templateId));
@@ -1106,6 +1144,7 @@ export default function App() {
   };
 
   const handleSaveAiWritingSettings = async (settings: AiWritingSettings) => {
+    if (!canManageRecordSettings) throw new Error('AI文章設定を変更する権限がありません。');
     try {
       if (organizationId) await saveAiWritingSettings(organizationId, settings);
       setAiWritingSettings(settings);
@@ -1143,7 +1182,7 @@ export default function App() {
   };
 
   const handleArchiveAnnouncement = async (announcementId: string) => {
-    if (!canManageSettings) return;
+    if (!canManageCommunications) return;
     if (!window.confirm('このお知らせの表示を終了しますか？')) return;
     if (organizationId) await archiveAnnouncement(organizationId, announcementId);
     setAnnouncements((previous) => previous.filter((item) => item.id !== announcementId));
@@ -1166,8 +1205,8 @@ export default function App() {
   };
 
   const handleSaveStaffSchedule = async (item: StaffScheduleItem) => {
-    if (!canManageSettings) {
-      throw new Error('職員配置を変更できるのは児発管または管理者です。');
+    if (!canManageShifts) {
+      throw new Error('職員配置を変更する権限がありません。');
     }
     try {
       if (organizationId) await saveStaffScheduleItem(organizationId, item);
@@ -1184,8 +1223,8 @@ export default function App() {
   };
 
   const handleDeleteStaffSchedule = async (itemId: string) => {
-    if (!canManageSettings) {
-      throw new Error('職員配置を変更できるのは児発管または管理者です。');
+    if (!canManageShifts) {
+      throw new Error('職員配置を変更する権限がありません。');
     }
     try {
       if (organizationId) await deleteStaffScheduleItem(organizationId, itemId);
@@ -1197,7 +1236,7 @@ export default function App() {
   };
 
   const handleSaveCalendarEvent = async (event: CalendarEvent) => {
-    if (!canManageSettings) throw new Error('カレンダーを変更できるのは児発管または管理者です。');
+    if (!canManageCalendar) throw new Error('業務カレンダーを変更する権限がありません。');
     try {
       if (organizationId) await saveCalendarEvent(organizationId, event);
       setCalendarEvents((previous) => [event, ...previous.filter((candidate) => candidate.id !== event.id)]);
@@ -1206,7 +1245,7 @@ export default function App() {
   };
 
   const handleDeleteCalendarEvent = async (eventId: string) => {
-    if (!canManageSettings) throw new Error('カレンダーを変更できるのは児発管または管理者です。');
+    if (!canManageCalendar) throw new Error('業務カレンダーを変更する権限がありません。');
     try {
       if (organizationId) await deleteCalendarEvent(organizationId, eventId);
       setCalendarEvents((previous) => previous.filter((event) => event.id !== eventId));
@@ -1214,6 +1253,7 @@ export default function App() {
   };
 
   const handleSaveDailyChildPlan = async (plan: DailyChildPlan) => {
+    if (!canManageTransport) throw new Error('利用予定を変更する権限がありません。');
     try {
       if (organizationId) await saveDailyChildPlan(organizationId, plan);
       setDailyChildPlans((previous) => [
@@ -1228,6 +1268,7 @@ export default function App() {
   };
 
   const handleDeleteDailyChildPlan = async (childId: string, date: string) => {
+    if (!canManageTransport) throw new Error('利用予定を変更する権限がありません。');
     try {
       if (organizationId) await deleteDailyChildPlan(organizationId, childId, date);
       setDailyChildPlans((previous) => previous.filter((plan) => !(plan.childId === childId && plan.date === date)));
@@ -1239,7 +1280,7 @@ export default function App() {
   };
 
   const handleDeleteDailyTransportRequirement = async (childId: string, date: string) => {
-    if (!canManageSettings) throw new Error('月間送迎予定を変更できるのは児発管または管理者です。');
+    if (!canManageTransport) throw new Error('利用予定・送迎を変更する権限がありません。');
     try {
       if (organizationId) await deleteDailyTransportRequirement(organizationId, childId, date);
       setDailyTransportRequirements((previous) => previous.filter(
@@ -1256,7 +1297,7 @@ export default function App() {
     month: string,
     childId?: string,
   ): Promise<MonthlyScheduleDeleteResult> => {
-    if (!canManageSettings) throw new Error('月間利用予定を削除できるのは児発管または管理者です。');
+    if (!canManageTransport) throw new Error('利用予定・送迎を変更する権限がありません。');
     const matchesScope = (item: { childId: string; date: string }) =>
       item.date.startsWith(month) && (!childId || item.childId === childId);
     const affectedDates = new Set([
@@ -1292,7 +1333,7 @@ export default function App() {
   };
 
   const handleSaveAttendance = async (record: AttendanceRecord) => {
-    if (!canManageSettings) throw new Error('勤務予定を変更できるのは児発管または管理者です。');
+    if (!canManageShifts) throw new Error('勤務予定を変更する権限がありません。');
     try {
       if (organizationId) await saveAttendanceRecord(organizationId, record);
       setAttendanceRecords((previous) => [record, ...previous.filter((candidate) => candidate.id !== record.id)]);
@@ -1300,7 +1341,7 @@ export default function App() {
   };
 
   const handleSaveAttendanceRecords = async (recordsToSave: AttendanceRecord[]) => {
-    if (remoteMode && auth.profile?.role !== 'admin') throw new Error('月間シフトを変更できるのは管理者のみです。');
+    if (!canManageShifts) throw new Error('月間シフトを変更する権限がありません。');
     try {
       const saved = organizationId
         ? await saveAttendanceRecords(organizationId, recordsToSave)
@@ -1338,6 +1379,38 @@ export default function App() {
       persistError(error);
       throw error;
     }
+  };
+
+  const handleSaveRolePermission = async (setting: OrganizationRolePermission) => {
+    if (remoteMode && auth.profile?.role !== 'admin') throw new Error('権限を変更できるのは管理者のみです。');
+    try {
+      const saved = organizationId ? await saveRolePermission(organizationId, setting) : setting;
+      setRolePermissions((previous) => [saved, ...previous.filter((candidate) => candidate.role !== saved.role)]);
+    } catch (error) { persistError(error); }
+  };
+
+  const handleSaveStaffShiftRequest = async (request: StaffShiftRequest) => {
+    if (activeRecorder && request.recorderProfileId !== activeRecorder.id && !canManageShifts) throw new Error('自分のシフト希望のみ提出できます。');
+    try {
+      const saved = organizationId ? await saveStaffShiftRequest(organizationId, request) : request;
+      setStaffShiftRequests((previous) => [saved, ...previous.filter((candidate) => candidate.id !== saved.id && !(candidate.recorderProfileId === saved.recorderProfileId && candidate.requestedDate === saved.requestedDate))]);
+    } catch (error) { persistError(error); throw error; }
+  };
+
+  const handleReviewStaffShiftRequest = async (request: StaffShiftRequest, approved: boolean, note?: string) => {
+    if (!canManageShifts) throw new Error('シフト希望を確認する権限がありません。');
+    const now = new Date().toISOString();
+    const reviewed: StaffShiftRequest = { ...request, status: approved ? '承認' : '却下', reviewNote: note, reviewedByName: auth.profile?.displayName || activeRecorder?.displayName || '管理者', reviewedAt: now, updatedAt: now };
+    try {
+      const savedRequest = organizationId ? await saveStaffShiftRequest(organizationId, reviewed) : reviewed;
+      setStaffShiftRequests((previous) => [savedRequest, ...previous.filter((candidate) => candidate.id !== savedRequest.id)]);
+      if (approved) {
+        const existing = attendanceRecords.find((record) => record.recorderProfileId === request.recorderProfileId && record.date === request.requestedDate);
+        const attendance: AttendanceRecord = { id: existing?.id || crypto.randomUUID(), recorderProfileId: request.recorderProfileId, recorderName: request.recorderName, date: request.requestedDate, scheduledStartTime: request.requestedStartTime, scheduledEndTime: request.requestedEndTime, scheduledBreakMinutes: existing?.scheduledBreakMinutes || 0, status: '勤務予定', clockInAt: existing?.clockInAt, clockOutAt: existing?.clockOutAt, breakPeriods: existing?.breakPeriods || [], note: request.note || existing?.note, deviceId: existing?.deviceId, lastActionByRecorderId: existing?.lastActionByRecorderId, createdAt: existing?.createdAt || now, updatedAt: now };
+        if (organizationId) await saveAttendanceRecord(organizationId, attendance);
+        setAttendanceRecords((previous) => [attendance, ...previous.filter((candidate) => candidate.id !== attendance.id)]);
+      }
+    } catch (error) { persistError(error); throw error; }
   };
 
   const handlePunchAttendance = async (
@@ -1405,7 +1478,7 @@ export default function App() {
   };
 
   const handleSaveVehicle = async (vehicle: Vehicle) => {
-    if (!canManageSettings) throw new Error('車両を変更できるのは児発管または管理者です。');
+    if (remoteMode && auth.profile?.role !== 'admin') throw new Error('車両台帳を変更できるのは管理者のみです。');
     try {
       if (organizationId) await saveVehicle(organizationId, vehicle);
       setVehicles((previous) => [vehicle, ...previous.filter((candidate) => candidate.id !== vehicle.id)]);
@@ -1413,7 +1486,7 @@ export default function App() {
   };
 
   const handleDeleteVehicle = async (vehicleId: string) => {
-    if (!canManageSettings) throw new Error('車両を変更できるのは児発管または管理者です。');
+    if (remoteMode && auth.profile?.role !== 'admin') throw new Error('車両台帳を変更できるのは管理者のみです。');
     try {
       if (organizationId) await deleteVehicle(organizationId, vehicleId);
       setVehicles((previous) => previous.filter((vehicle) => vehicle.id !== vehicleId));
@@ -1421,7 +1494,7 @@ export default function App() {
   };
 
   const handleSaveTransportPlanDay = async (day: TransportPlanDay) => {
-    if (!canManageSettings) throw new Error('月間送迎予定を変更できるのは児発管または管理者です。');
+    if (!canManageTransport) throw new Error('利用予定・送迎を変更する権限がありません。');
     try {
       if (organizationId) await saveTransportPlanDay(organizationId, day);
       setTransportPlanDays((previous) => [
@@ -1435,7 +1508,7 @@ export default function App() {
   };
 
   const handleSaveDailyTransportRequirements = async (requirements: DailyTransportRequirement[]) => {
-    if (!canManageSettings) throw new Error('月間送迎予定を変更できるのは児発管または管理者です。');
+    if (!canManageTransport) throw new Error('利用予定・送迎を変更する権限がありません。');
     try {
       if (organizationId) {
         if (requirements.length === 1) await saveDailyTransportRequirement(organizationId, requirements[0]);
@@ -1453,7 +1526,7 @@ export default function App() {
   };
 
   const handleReplaceMonthlyTransportRequirements = async (month: string, requirements: DailyTransportRequirement[]) => {
-    if (!canManageSettings) throw new Error('月間送迎予定を変更できるのは児発管または管理者です。');
+    if (!canManageTransport) throw new Error('利用予定・送迎を変更する権限がありません。');
     try {
       const appliedRequirements = organizationId
         ? await replaceMonthlyTransportRequirements(organizationId, month, requirements)
@@ -1477,7 +1550,7 @@ export default function App() {
     childId: string,
     requirements: DailyTransportRequirement[],
   ) => {
-    if (!canManageSettings) throw new Error('月間送迎予定を変更できるのは児発管または管理者です。');
+    if (!canManageTransport) throw new Error('利用予定・送迎を変更する権限がありません。');
     try {
       const affectedDates = new Set([
         ...dailyTransportRequirements
@@ -1506,7 +1579,7 @@ export default function App() {
   };
 
   const handleSaveTransportRun = async (run: TransportRun) => {
-    if (!canManageSettings) throw new Error('送迎便を変更できるのは児発管または管理者です。');
+    if (!canManageTransport) throw new Error('送迎便を変更する権限がありません。');
     try {
       if (organizationId) await saveTransportRun(organizationId, run);
       setTransportRuns((previous) => [run, ...previous.filter((candidate) => candidate.id !== run.id)]);
@@ -1537,7 +1610,7 @@ export default function App() {
   };
 
   const handleDeleteTransportRun = async (runId: string) => {
-    if (!canManageSettings) throw new Error('送迎便を変更できるのは児発管または管理者です。');
+    if (!canManageTransport) throw new Error('送迎便を変更する権限がありません。');
     try {
       if (organizationId) await deleteTransportRun(organizationId, runId);
       setTransportRuns((previous) => previous.filter((run) => run.id !== runId));
@@ -1548,7 +1621,7 @@ export default function App() {
   };
 
   const handleSaveTransportRouteSettings = async (settings: TransportRouteSettings) => {
-    if (!canManageSettings) throw new Error('経路設定を変更できるのは児発管または管理者です。');
+    if (!canManageTransport) throw new Error('送迎経路を変更する権限がありません。');
     try {
       if (organizationId) await saveTransportRouteSettings(organizationId, settings);
       setTransportRouteSettings({ ...settings, updatedAt: new Date().toISOString() });
@@ -1559,7 +1632,7 @@ export default function App() {
   };
 
   const handleSaveTransportMapLocation = async (location: TransportMapLocation) => {
-    if (!canManageSettings) throw new Error('地図地点を変更できるのは児発管または管理者です。');
+    if (!canManageTransport) throw new Error('送迎地点を変更する権限がありません。');
     try {
       if (organizationId) await saveTransportMapLocation(organizationId, location);
       setTransportMapLocations((previous) => [location, ...previous.filter((candidate) => candidate.id !== location.id)]);
@@ -1570,7 +1643,7 @@ export default function App() {
   };
 
   const handleSaveTransportAreaZone = async (zone: TransportAreaZone) => {
-    if (!canManageSettings) throw new Error('優先配車範囲を変更できるのは児発管または管理者です。');
+    if (!canManageTransport) throw new Error('送迎エリアを変更する権限がありません。');
     try {
       if (organizationId) await saveTransportAreaZone(organizationId, zone);
       setTransportAreaZones((previous) => [zone, ...previous.filter((candidate) => candidate.id !== zone.id)]
@@ -1582,7 +1655,7 @@ export default function App() {
   };
 
   const handleDeleteTransportAreaZone = async (zoneId: string) => {
-    if (!canManageSettings) throw new Error('優先配車範囲を変更できるのは児発管または管理者です。');
+    if (!canManageTransport) throw new Error('送迎エリアを変更する権限がありません。');
     try {
       if (organizationId) await deleteTransportAreaZone(organizationId, zoneId);
       setTransportAreaZones((previous) => previous.filter((zone) => zone.id !== zoneId));
@@ -1593,7 +1666,7 @@ export default function App() {
   };
 
   const handleSaveSchool = async (school: SchoolProfile) => {
-    if (!canManageSettings) throw new Error('学校台帳を変更できるのは児発管または管理者です。');
+    if (!canManageChildren && !canManageTransport) throw new Error('学校台帳を変更する権限がありません。');
     try {
       if (organizationId) await saveSchool(organizationId, school);
       setSchools((previous) => [school, ...previous.filter((candidate) => candidate.id !== school.id)]
@@ -1615,7 +1688,7 @@ export default function App() {
   };
 
   const handleDeleteSchool = async (schoolId: string) => {
-    if (!canManageSettings) throw new Error('学校台帳を変更できるのは児発管または管理者です。');
+    if (!canManageChildren && !canManageTransport) throw new Error('学校台帳を変更する権限がありません。');
     try {
       if (organizationId) await deleteSchool(organizationId, schoolId);
       setSchools((previous) => previous.filter((school) => school.id !== schoolId));
@@ -1634,6 +1707,7 @@ export default function App() {
   };
 
   const handleAddChild = async (child: ChildProfile) => {
+    if (!canManageChildren) throw new Error('児童情報を変更する権限がありません。');
     try {
       if (organizationId) await saveChild(organizationId, child);
       setChildrenList((previous) => applySiblingSelection(previous, child));
@@ -1641,6 +1715,7 @@ export default function App() {
   };
 
   const handleUpdateChild = async (child: ChildProfile) => {
+    if (!canManageChildren) throw new Error('児童情報を変更する権限がありません。');
     try {
       if (organizationId) await saveChild(organizationId, child);
       setChildrenList((previous) => applySiblingSelection(previous, child));
@@ -1648,6 +1723,7 @@ export default function App() {
   };
 
   const handleDeleteChild = async (childId: string) => {
+    if (!canManageChildren) throw new Error('児童情報を変更する権限がありません。');
     try {
       if (organizationId) await softDeleteChild(organizationId, childId);
       setChildrenList((previous) => previous.filter((item) => item.id !== childId));
@@ -1875,6 +1951,7 @@ export default function App() {
   };
 
   const handleSaveMorningMeetingTemplate = async (template: MorningMeetingTemplate) => {
+    if (!canManageCommunications) throw new Error('朝礼テンプレートを変更する権限がありません。');
     try {
       if (organizationId) await saveMorningMeetingTemplate(organizationId, template);
       setMorningMeetingTemplates((previous) => [
@@ -1888,6 +1965,7 @@ export default function App() {
   };
 
   const handleArchiveMorningMeetingTemplate = async (templateId: string) => {
+    if (!canManageCommunications) throw new Error('朝礼テンプレートを変更する権限がありません。');
     try {
       if (organizationId) await archiveMorningMeetingTemplate(organizationId, templateId);
       setMorningMeetingTemplates((previous) =>
@@ -2032,6 +2110,8 @@ export default function App() {
         onChangeRecorder={auth.profile?.recorderProfileId ? undefined : () => setActiveRecorder(null)}
         onOpenFieldOperations={auth.profile?.recorderProfileId ? () => setFieldOperationsOpen(true) : undefined}
         onSignOut={remoteMode ? auth.signOut : undefined}
+        canOpenSettings={canManageRecordSettings || canManageChildren || canManageTransport || auth.profile?.role === 'admin'}
+        canOpenTeam={!remoteMode || auth.profile?.role === 'admin'}
       />
 
       {activeInAppAnnouncement && appVisible && (
@@ -2113,6 +2193,7 @@ export default function App() {
             dailyChildPlans={dailyChildPlans}
             attendanceRecords={attendanceRecords}
             staffShiftTemplates={staffShiftTemplates}
+            staffShiftRequests={staffShiftRequests}
             attendanceCorrections={attendanceCorrections}
             vehicles={vehicles}
             transportRuns={transportRuns}
@@ -2129,7 +2210,11 @@ export default function App() {
             organizationId={organizationId}
             activeRecorder={activeRecorder || undefined}
             currentUser={auth.profile}
-            canManageSettings={canManageSettings}
+            canReviewRecords={canReview}
+            canManageCommunications={canManageCommunications}
+            canManageShifts={canManageShifts}
+            canManageCalendar={canManageCalendar}
+            canManageTransport={canManageTransport}
             onNavigate={(tab) => {
               if (tab === 'records') setRecordFilterChildId(null);
               setActiveTab(tab);
@@ -2165,8 +2250,8 @@ export default function App() {
             onDeleteMonthlyDailySchedules={handleDeleteMonthlyDailySchedules}
             onSaveAttendance={handleSaveAttendance}
             onSaveAttendanceRecords={handleSaveAttendanceRecords}
-            onSaveStaffShiftTemplate={handleSaveStaffShiftTemplate}
-            onDeleteStaffShiftTemplate={handleDeleteStaffShiftTemplate}
+            onSaveStaffShiftRequest={handleSaveStaffShiftRequest}
+            onReviewStaffShiftRequest={handleReviewStaffShiftRequest}
             onPunchAttendance={handlePunchAttendance}
             onRequestAttendanceCorrection={handleRequestAttendanceCorrection}
             onReviewAttendanceCorrection={handleReviewAttendanceCorrection}
@@ -2254,12 +2339,12 @@ export default function App() {
           />
         )}
         {activeTab === 'children' && (
-          <ChildrenManager childrenList={childrenList} schools={schools} transportRouteSettings={transportRouteSettings} onAddChild={handleAddChild} onUpdateChild={handleUpdateChild} onDeleteChild={handleDeleteChild} />
+          <ChildrenManager childrenList={childrenList} schools={schools} transportRouteSettings={transportRouteSettings} canEdit={canManageChildren} onAddChild={handleAddChild} onUpdateChild={handleUpdateChild} onDeleteChild={handleDeleteChild} />
         )}
         {FEATURE_FLAGS.supportPlansAndFiveDomains && activeTab === 'plans' && (
-          <SupportPlanManager childrenList={childrenList} supportPlans={supportPlans} canEdit={canManageSettings} onSavePlan={handleSavePlan} onClosePlan={handleClosePlan} />
+          <SupportPlanManager childrenList={childrenList} supportPlans={supportPlans} canEdit={canManageRecordSettings} onSavePlan={handleSavePlan} onClosePlan={handleClosePlan} />
         )}
-        {activeTab === 'templates' && canManageSettings && (
+        {activeTab === 'templates' && (canManageRecordSettings || canManageChildren || canManageTransport || auth.profile?.role === 'admin') && (
           <SettingsHub
             aiWritingSettings={aiWritingSettings}
             templates={templates}
@@ -2269,6 +2354,14 @@ export default function App() {
             routeSettings={transportRouteSettings}
             mapLocations={transportMapLocations}
             areaZones={transportAreaZones}
+            currentUser={auth.profile}
+            recorderProfiles={recorderProfiles}
+            staffShiftTemplates={staffShiftTemplates}
+            rolePermissions={rolePermissions}
+            vehicles={vehicles}
+            canManageChildren={canManageChildren}
+            canManageRecordSettings={canManageRecordSettings}
+            canManageTransport={canManageTransport}
             onSaveAiWritingSettings={handleSaveAiWritingSettings}
             onSaveTemplate={handleSaveTemplate}
             onDeleteTemplate={handleDeleteTemplate}
@@ -2278,9 +2371,14 @@ export default function App() {
             onSaveAreaZone={handleSaveTransportAreaZone}
             onDeleteAreaZone={handleDeleteTransportAreaZone}
             onSaveRouteSettings={handleSaveTransportRouteSettings}
+            onSaveStaffShiftTemplate={handleSaveStaffShiftTemplate}
+            onDeleteStaffShiftTemplate={handleDeleteStaffShiftTemplate}
+            onSaveRolePermission={handleSaveRolePermission}
+            onSaveVehicle={handleSaveVehicle}
+            onDeleteVehicle={handleDeleteVehicle}
           />
         )}
-        {activeTab === 'team' && auth.profile && canReview && <TeamManager currentUser={auth.profile} onProfileUpdated={auth.reloadProfile} />}
+        {activeTab === 'team' && auth.profile && (!remoteMode || auth.profile.role === 'admin') && <TeamManager currentUser={auth.profile} onProfileUpdated={auth.reloadProfile} />}
         </div>
       </main>
     </div>

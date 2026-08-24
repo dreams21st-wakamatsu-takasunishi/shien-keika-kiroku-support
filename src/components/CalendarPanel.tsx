@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { CalendarDays, ChevronLeft, ChevronRight, Clock3, MapPin, Plus, Trash2, X } from 'lucide-react';
 import type {
-  AttendanceRecord,
   CalendarEvent,
   CalendarEventType,
   CalendarRecurrence,
@@ -11,15 +10,14 @@ import type {
 } from '../types';
 
 const EVENT_TYPES: CalendarEventType[] = [
-  '通常利用', '追加利用', '欠席', '勤務予定', '会議', '朝礼', '研修',
-  '保護者面談', '学校行事', '事業所行事', '送迎予定', '提出期限', 'その他',
+  '会議', '外出', '朝礼', '研修', '保護者面談', '学校行事', '事業所行事', '提出期限', 'その他',
 ];
+const BUSINESS_EVENT_TYPES = new Set<CalendarEventType>(EVENT_TYPES);
 const COLORS = ['#0f766e', '#2563eb', '#7c3aed', '#ea580c', '#dc2626', '#475569'];
 type CalendarView = 'month' | 'week' | 'day' | 'agenda';
 
 interface CalendarPanelProps {
   events: CalendarEvent[];
-  attendanceRecords: AttendanceRecord[];
   recorderProfiles: RecorderProfile[];
   childrenList: ChildProfile[];
   selectedDate: string;
@@ -31,7 +29,6 @@ interface CalendarPanelProps {
 
 export const CalendarPanel: React.FC<CalendarPanelProps> = ({
   events,
-  attendanceRecords,
   recorderProfiles,
   childrenList,
   selectedDate,
@@ -51,30 +48,12 @@ export const CalendarPanel: React.FC<CalendarPanelProps> = ({
     return () => media.removeEventListener('change', handleChange);
   }, []);
   const visibleDates = useMemo(() => datesForView(view, selectedDate), [view, selectedDate]);
-  const attendanceEvents = useMemo<CalendarEvent[]>(() => attendanceRecords.map((record) => ({
-    id: `attendance:${record.id}`,
-    title: `${record.recorderName}：${record.status}`,
-    eventType: '勤務予定',
-    date: record.date,
-    allDay: !record.scheduledStartTime,
-    startTime: record.scheduledStartTime,
-    endTime: record.scheduledEndTime,
-    recorderProfileIds: [record.recorderProfileId],
-    childIds: [],
-    notificationEnabled: false,
-    visibility: '全体',
-    color: ['欠勤', '有給', '公休', '特別休暇'].includes(record.status) ? '#7c3aed' : '#0f766e',
-    recurrence: 'なし',
-    note: record.note,
-    createdAt: record.createdAt,
-    updatedAt: record.updatedAt,
-  })), [attendanceRecords]);
-  const visibleEvents = useMemo(() => [...events, ...attendanceEvents]
+  const visibleEvents = useMemo(() => events
+    .filter((event) => BUSINESS_EVENT_TYPES.has(event.eventType))
     .filter((event) => eventOccursInRange(event, visibleDates[0], visibleDates.at(-1) || visibleDates[0]))
     .sort((left, right) => `${left.date}${left.startTime || ''}`.localeCompare(`${right.date}${right.startTime || ''}`)),
-  [attendanceEvents, events, visibleDates]);
+  [events, visibleDates]);
   const openEvent = (event: CalendarEvent) => {
-    if (event.id.startsWith('attendance:')) return;
     setEditing(event);
   };
 
@@ -139,7 +118,7 @@ export const CalendarPanel: React.FC<CalendarPanelProps> = ({
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h3 className="flex items-center gap-2 text-base font-black text-slate-900"><CalendarDays className="h-5 w-5 text-teal-700" />業務カレンダー</h3>
-            <p className="mt-1 text-xs text-slate-600">利用予定・勤務・会議・面談・行事を一つの予定として管理します。</p>
+            <p className="mt-1 text-xs text-slate-600">会議・外出・研修・面談・行事など、業務上の予定を確認します。勤務予定は出勤予定画面で管理します。</p>
           </div>
           <div className="flex flex-wrap gap-2">
             {([['month', '月'], ['week', '週'], ['day', '日'], ['agenda', '今日']] as const).map(([value, label]) => (

@@ -12,134 +12,70 @@ import {
   X,
 } from 'lucide-react';
 import type {
-  AttendanceCorrectionRequest,
   AttendanceRecord,
   CalendarEvent,
   ChildProfile,
   DailyChildPlan,
-  DailyTransportRequirement,
   RecorderProfile,
-  SchoolProfile,
   StaffScheduleItem,
-  StaffShiftTemplate,
   TransportRun,
-  TransportAssignmentChangeInput,
   TransportAreaZone,
   TransportMapLocation,
-  TransportPlanDay,
   TransportRouteSettings,
-  TransportRunStatus,
   Vehicle,
 } from '../types';
 import { getLocalDateString, getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
 import { getVehicleChildCapacity, getVehicleStaffSeatCount } from '../utils/vehicleCapacity';
-import { AttendancePanel } from './AttendancePanel';
-import { CalendarPanel } from './CalendarPanel';
 import { StaffSchedulePanel } from './StaffSchedulePanel';
-import { TransportPanel } from './TransportPanel';
+import { TodayTransportOverview } from './TodayTransportOverview';
 
-type WorkView = 'placement' | 'calendar' | 'attendance' | 'transport';
+type WorkView = 'placement' | 'transport';
 
 interface TodayWorkPanelProps {
   initialDate?: string;
   initialView?: WorkView;
-  initialOpenDispatchPlanner?: boolean;
   staffScheduleItems: StaffScheduleItem[];
   calendarEvents: CalendarEvent[];
   attendanceRecords: AttendanceRecord[];
-  staffShiftTemplates: StaffShiftTemplate[];
-  attendanceCorrections: AttendanceCorrectionRequest[];
   vehicles: Vehicle[];
   transportRuns: TransportRun[];
-  transportPlanDays: TransportPlanDay[];
-  dailyTransportRequirements: DailyTransportRequirement[];
   transportRouteSettings: TransportRouteSettings;
   transportMapLocations: TransportMapLocation[];
   transportAreaZones: TransportAreaZone[];
   recorderProfiles: RecorderProfile[];
   childrenList: ChildProfile[];
-  schools: SchoolProfile[];
   dailyChildPlans: DailyChildPlan[];
-  activeRecorder?: RecorderProfile;
   canManage: boolean;
-  canApproveAttendanceCorrections: boolean;
-  canManageShifts: boolean;
-  attendanceQrEnabled: boolean;
   onSaveStaffSchedule: (item: StaffScheduleItem) => Promise<void> | void;
   onDeleteStaffSchedule: (itemId: string) => Promise<void> | void;
   onSaveCalendarEvent: (event: CalendarEvent) => Promise<void> | void;
-  onDeleteCalendarEvent: (eventId: string) => Promise<void> | void;
   onSaveAttendance: (record: AttendanceRecord) => Promise<void> | void;
-  onSaveAttendanceRecords: (records: AttendanceRecord[]) => Promise<void> | void;
-  onSaveStaffShiftTemplate: (template: StaffShiftTemplate) => Promise<void> | void;
-  onDeleteStaffShiftTemplate: (templateId: string) => Promise<void> | void;
-  onPunchAttendance: (recorder: RecorderProfile, pin: string, action: '出勤' | '退勤' | '休憩開始' | '休憩終了') => Promise<void> | void;
-  onRequestAttendanceCorrection: (record: AttendanceRecord, pin: string, clockIn: string | undefined, clockOut: string | undefined, reason: string) => Promise<void> | void;
-  onReviewAttendanceCorrection: (request: AttendanceCorrectionRequest, approved: boolean, note?: string) => Promise<void> | void;
-  onSaveVehicle: (vehicle: Vehicle) => Promise<void> | void;
-  onDeleteVehicle: (vehicleId: string) => Promise<void> | void;
   onSaveTransportRun: (run: TransportRun) => Promise<void> | void;
-  onSaveDailyTransportRequirements: (requirements: DailyTransportRequirement[]) => Promise<void> | void;
-  onChangeTransportAssignment: (change: TransportAssignmentChangeInput) => Promise<void> | void;
-  onDeleteTransportRun: (runId: string) => Promise<void> | void;
-  onSaveTransportRouteSettings: (settings: TransportRouteSettings) => Promise<void> | void;
-  onSaveTransportMapLocation: (location: TransportMapLocation) => Promise<void> | void;
-  onSaveTransportAreaZone: (zone: TransportAreaZone) => Promise<void> | void;
-  onDeleteTransportAreaZone: (zoneId: string) => Promise<void> | void;
-  onUpdateTransportStatus: (run: TransportRun, recorder: RecorderProfile, pin: string, status: TransportRunStatus) => Promise<void> | void;
 }
 
 export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
   initialDate,
   initialView,
-  initialOpenDispatchPlanner = false,
   staffScheduleItems,
   calendarEvents,
   attendanceRecords,
-  staffShiftTemplates,
-  attendanceCorrections,
   vehicles,
   transportRuns,
-  transportPlanDays,
-  dailyTransportRequirements,
   transportRouteSettings,
   transportMapLocations,
   transportAreaZones,
   recorderProfiles,
   childrenList,
-  schools,
   dailyChildPlans,
-  activeRecorder,
   canManage,
-  canApproveAttendanceCorrections,
-  canManageShifts,
-  attendanceQrEnabled,
   onSaveStaffSchedule,
   onDeleteStaffSchedule,
   onSaveCalendarEvent,
-  onDeleteCalendarEvent,
   onSaveAttendance,
-  onSaveAttendanceRecords,
-  onSaveStaffShiftTemplate,
-  onDeleteStaffShiftTemplate,
-  onPunchAttendance,
-  onRequestAttendanceCorrection,
-  onReviewAttendanceCorrection,
-  onSaveVehicle,
-  onDeleteVehicle,
   onSaveTransportRun,
-  onSaveDailyTransportRequirements,
-  onChangeTransportAssignment,
-  onDeleteTransportRun,
-  onSaveTransportRouteSettings,
-  onSaveTransportMapLocation,
-  onSaveTransportAreaZone,
-  onDeleteTransportAreaZone,
-  onUpdateTransportStatus,
 }) => {
   const [selectedDate, setSelectedDate] = useState(initialDate || getLocalDateString());
   const [view, setView] = useState<WorkView>(initialView || 'placement');
-  const [focusRunId, setFocusRunId] = useState<string>();
   const dayEvents = useMemo(() => calendarEvents.filter((event) => eventOccursOn(event, selectedDate)), [calendarEvents, selectedDate]);
   const dayAttendance = useMemo(() => attendanceRecords.filter((record) => record.date === selectedDate), [attendanceRecords, selectedDate]);
   const dayRuns = useMemo(() => transportRuns.filter((run) => run.date === selectedDate), [transportRuns, selectedDate]);
@@ -155,19 +91,14 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
   const absent = dayAttendance.filter((record) => ['欠勤', '有給', '公休', '特別休暇'].includes(record.status));
 
   const openGenerated = (item: StaffScheduleItem) => {
-    if (item.sourceType === 'calendar') setView('calendar');
-    if (item.sourceType === 'attendance') setView('attendance');
-    if (item.sourceType === 'transport') {
-      setFocusRunId(item.sourceId);
-      setView('transport');
-    }
+    if (item.sourceType === 'transport') setView('transport');
   };
 
   return (
     <div className="space-y-4">
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div><p className="text-xs font-black text-teal-700">本日の業務</p><h2 className="mt-1 text-xl font-black text-slate-950">勤務・予定・送迎を一画面で確認</h2><p className="mt-1 text-xs text-slate-500">自動生成された配置は、元の勤務・予定・送迎から編集します。</p></div>
+          <div><p className="text-xs font-black text-teal-700">本日の業務</p><h2 className="mt-1 text-xl font-black text-slate-950">職員配置と当日の送迎を確認</h2><p className="mt-1 text-xs text-slate-500">出勤予定・業務カレンダー・利用予定／送迎管理はホームから開きます。</p></div>
           <label className="flex items-center gap-2 text-sm font-black text-slate-700"><CalendarDays className="h-5 w-5 text-teal-600" /><input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-3" /></label>
         </div>
         <div className="ui-scrollbar mt-3 flex gap-2 overflow-x-auto pb-1 lg:grid lg:grid-cols-5 lg:overflow-visible">
@@ -178,10 +109,8 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
           <SummaryCard icon={AlertTriangle} label="要確認" value={`${new Set(allWarnings).size}件`} tone={allWarnings.length ? 'rose' : 'slate'} />
         </div>
         <nav className="mt-3 border-t border-slate-100 pt-3" aria-label="本日の業務メニュー">
-          <div className="grid grid-cols-4 gap-1">
+          <div className="grid grid-cols-2 gap-1">
             <WorkTab active={view === 'placement'} icon={ChartGantt} label="職員配置" onClick={() => setView('placement')} />
-            <WorkTab active={view === 'calendar'} icon={CalendarDays} label="予定" onClick={() => setView('calendar')} />
-            <WorkTab active={view === 'attendance'} icon={Clock3} label="出勤" onClick={() => setView('attendance')} />
             <WorkTab active={view === 'transport'} icon={BusFront} label="送迎" onClick={() => setView('transport')} />
           </div>
         </nav>
@@ -217,42 +146,8 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
           </section>
         </>
       )}
-      {view === 'calendar' && <CalendarPanel events={calendarEvents} attendanceRecords={attendanceRecords} recorderProfiles={recorderProfiles} childrenList={childrenList} selectedDate={selectedDate} onDateChange={setSelectedDate} canEdit={canManage} onSave={onSaveCalendarEvent} onDelete={onDeleteCalendarEvent} />}
-      {view === 'attendance' && <AttendancePanel records={attendanceRecords} shiftTemplates={staffShiftTemplates} corrections={attendanceCorrections} recorderProfiles={recorderProfiles} selectedDate={selectedDate} activeRecorder={activeRecorder} canManage={canManage} canApproveCorrections={canApproveAttendanceCorrections} canManageShifts={canManageShifts} qrKioskEnabled={attendanceQrEnabled} onSaveRecord={onSaveAttendance} onSaveRecords={onSaveAttendanceRecords} onSaveShiftTemplate={onSaveStaffShiftTemplate} onDeleteShiftTemplate={onDeleteStaffShiftTemplate} onPunch={onPunchAttendance} onRequestCorrection={onRequestAttendanceCorrection} onReviewCorrection={onReviewAttendanceCorrection} />}
       {view === 'transport' && (
-        <TransportPanel
-          runs={transportRuns}
-          vehicles={vehicles}
-          routeSettings={transportRouteSettings}
-          mapLocations={transportMapLocations}
-          areaZones={transportAreaZones}
-          recorderProfiles={recorderProfiles}
-          childrenList={childrenList}
-          schools={schools}
-          dailyChildPlans={dailyChildPlans}
-          transportPlanDays={transportPlanDays}
-          dailyTransportRequirements={dailyTransportRequirements}
-          staffScheduleItems={staffScheduleItems}
-          attendanceRecords={attendanceRecords}
-          calendarEvents={calendarEvents}
-          selectedDate={selectedDate}
-          canManage={canManage}
-          activeRecorder={activeRecorder}
-          warningsByRunId={warningsByRunId}
-          focusRunId={focusRunId}
-          initialDayPlannerOpen={initialOpenDispatchPlanner}
-          onSaveRun={onSaveTransportRun}
-          onSaveRequirements={onSaveDailyTransportRequirements}
-          onChangeAssignment={onChangeTransportAssignment}
-          onDeleteRun={onDeleteTransportRun}
-          onSaveVehicle={onSaveVehicle}
-          onDeleteVehicle={onDeleteVehicle}
-          onSaveRouteSettings={onSaveTransportRouteSettings}
-          onSaveMapLocation={onSaveTransportMapLocation}
-          onSaveAreaZone={onSaveTransportAreaZone}
-          onDeleteAreaZone={onDeleteTransportAreaZone}
-          onUpdateStatus={onUpdateTransportStatus}
-        />
+        <TodayTransportOverview date={selectedDate} runs={transportRuns} locations={transportMapLocations} zones={transportAreaZones} routeSettings={transportRouteSettings} />
       )}
     </div>
   );

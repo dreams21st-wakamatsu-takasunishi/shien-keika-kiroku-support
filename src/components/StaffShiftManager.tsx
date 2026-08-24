@@ -3,10 +3,7 @@ import {
   CalendarRange,
   ChevronLeft,
   ChevronRight,
-  PencilLine,
-  Plus,
   Save,
-  Trash2,
   X,
 } from 'lucide-react';
 import type {
@@ -15,7 +12,6 @@ import type {
   RecorderProfile,
   StaffEmploymentType,
   StaffShiftTemplate,
-  StaffShiftTemplateTarget,
 } from '../types';
 
 interface StaffShiftManagerProps {
@@ -23,20 +19,7 @@ interface StaffShiftManagerProps {
   records: AttendanceRecord[];
   recorderProfiles: RecorderProfile[];
   selectedDate: string;
-  onSaveTemplate: (template: StaffShiftTemplate) => Promise<void> | void;
-  onDeleteTemplate: (templateId: string) => Promise<void> | void;
   onSaveRecords: (records: AttendanceRecord[]) => Promise<void> | void;
-}
-
-interface TemplateForm {
-  id?: string;
-  name: string;
-  targetEmploymentType: StaffShiftTemplateTarget;
-  startTime: string;
-  endTime: string;
-  breakMinutes: number;
-  weekdays: number[];
-  note: string;
 }
 
 interface DayForm {
@@ -52,14 +35,14 @@ interface DayForm {
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 const DAY_STATUSES: AttendanceStatus[] = ['勤務予定', '遅刻', '早退', '欠勤', '有給', '公休', '特別休暇', '研修'];
 const NO_TIME_STATUSES: AttendanceStatus[] = ['欠勤', '有給', '公休', '特別休暇'];
+const PART_TIME_WEEKDAY_DEFAULT = '__part_time_weekday_default__';
+const PART_TIME_HOLIDAY_DEFAULT = '__part_time_holiday_default__';
 
 export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
   templates,
   records,
   recorderProfiles,
   selectedDate,
-  onSaveTemplate,
-  onDeleteTemplate,
   onSaveRecords,
 }) => {
   const activeProfiles = useMemo(
@@ -72,7 +55,6 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
   const [applyDate, setApplyDate] = useState(selectedDate);
   const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([]);
   const [registerDaysOff, setRegisterDaysOff] = useState(true);
-  const [templateForm, setTemplateForm] = useState<TemplateForm | null>(null);
   const [dayForm, setDayForm] = useState<DayForm | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
@@ -103,6 +85,11 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
     [month, records],
   );
   const selectedTemplate = templates.find((template) => template.id === selectedTemplateId);
+  const partTimePattern = selectedTemplateId === PART_TIME_WEEKDAY_DEFAULT
+    ? 'weekday'
+    : selectedTemplateId === PART_TIME_HOLIDAY_DEFAULT
+      ? 'holiday'
+      : undefined;
 
   const fiscalSummary = useMemo(() => {
     const [year, monthNumber] = month.split('-').map(Number);
@@ -125,6 +112,11 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
 
   const chooseTemplate = (templateId: string) => {
     setSelectedTemplateId(templateId);
+    if (templateId === PART_TIME_WEEKDAY_DEFAULT || templateId === PART_TIME_HOLIDAY_DEFAULT) {
+      setSelectedStaffIds(activeProfiles.filter((profile) => profile.employmentType === 'part_time').map((profile) => profile.id));
+      setEmploymentFilter('part_time');
+      return;
+    }
     const template = templates.find((candidate) => candidate.id === templateId);
     if (!template) return;
     const matching = activeProfiles
@@ -135,7 +127,7 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
   };
 
   const applyTemplate = async (mode: 'day' | 'month') => {
-    if (!selectedTemplate) return setMessage('勤務テンプレートを選択してください。');
+    if (!selectedTemplate && !partTimePattern) return setMessage('勤務テンプレートまたはパート個別設定を選択してください。');
     const staff = activeProfiles.filter((profile) => selectedStaffIds.includes(profile.id));
     if (staff.length === 0) return setMessage('反映する職員を選択してください。');
     const targetDates = mode === 'day' ? [applyDate] : dates;
@@ -145,9 +137,31 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
 
     for (const profile of staff) {
       for (const date of targetDates) {
-        const isWorkday = mode === 'day'
-          || selectedTemplate.weekdays.includes(new Date(`${date}T12:00:00`).getDay());
+        const weekday = new Date(`${date}T12:00:00`).getDay();
+        const patternDays = partTimePattern === 'weekday'
+          ? profile.partTimeWeekdayWorkDays
+          : partTimePattern === 'holiday'
+            ? profile.partTimeHolidayWorkDays
+            : undefined;
+        const workdayIndexes = patternDays?.map((day) => WEEKDAYS.indexOf(day)) || [];
+        const isWorkday = partTimePattern
+          ? workdayIndexes.includes(weekday)
+          : mode === 'day' || Boolean(selectedTemplate?.weekdays.includes(weekday));
         if (mode === 'month' && !isWorkday && !registerDaysOff) continue;
+        const startTime = partTimePattern === 'weekday'
+          ? profile.partTimeWeekdayStartTime
+          : partTimePattern === 'holiday'
+            ? profile.partTimeHolidayStartTime
+            : selectedTemplate?.startTime;
+        const endTime = partTimePattern === 'weekday'
+          ? profile.partTimeWeekdayEndTime
+          : partTimePattern === 'holiday'
+            ? profile.partTimeHolidayEndTime
+            : selectedTemplate?.endTime;
+        if (isWorkday && (!startTime || !endTime)) {
+          skipped += 1;
+          continue;
+        }
         const existing = records.find((record) => record.date === date && record.recorderProfileId === profile.id);
         const protectedRecord = existing && (
           existing.clockInAt
@@ -163,14 +177,14 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
           recorderProfileId: profile.id,
           recorderName: profile.displayName,
           date,
-          scheduledStartTime: isWorkday ? selectedTemplate.startTime : undefined,
-          scheduledEndTime: isWorkday ? selectedTemplate.endTime : undefined,
-          scheduledBreakMinutes: isWorkday ? selectedTemplate.breakMinutes : 0,
+          scheduledStartTime: isWorkday ? startTime : undefined,
+          scheduledEndTime: isWorkday ? endTime : undefined,
+          scheduledBreakMinutes: isWorkday ? (selectedTemplate?.breakMinutes || 0) : 0,
           status: isWorkday ? '勤務予定' : '公休',
           clockInAt: existing?.clockInAt,
           clockOutAt: existing?.clockOutAt,
           breakPeriods: existing?.breakPeriods || [],
-          note: selectedTemplate.note || existing?.note,
+          note: selectedTemplate?.note || (partTimePattern ? `パート個別設定（${partTimePattern === 'weekday' ? '平日利用' : '休日利用'}）` : existing?.note),
           deviceId: existing?.deviceId,
           lastActionByRecorderId: existing?.lastActionByRecorderId,
           createdAt: existing?.createdAt || now,
@@ -194,37 +208,12 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
     }
   };
 
-  const saveTemplate = async () => {
-    if (!templateForm?.name.trim()) return setMessage('テンプレート名を入力してください。');
-    if (templateForm.startTime >= templateForm.endTime) return setMessage('終了時刻は開始時刻より後にしてください。');
-    if (templateForm.weekdays.length === 0) return setMessage('勤務曜日を1つ以上選択してください。');
-    const now = new Date().toISOString();
-    setBusy(true);
-    try {
-      await onSaveTemplate({
-        id: templateForm.id || createUuid(),
-        name: templateForm.name.trim(),
-        targetEmploymentType: templateForm.targetEmploymentType,
-        startTime: templateForm.startTime,
-        endTime: templateForm.endTime,
-        breakMinutes: templateForm.breakMinutes,
-        weekdays: [...templateForm.weekdays].sort(),
-        note: templateForm.note.trim() || undefined,
-        active: true,
-        createdAt: now,
-        updatedAt: now,
-      });
-      setTemplateForm(null);
-      setMessage('勤務テンプレートを保存しました。');
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'テンプレートを保存できませんでした。');
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const openDay = (profile: RecorderProfile, date: string) => {
     const record = records.find((candidate) => candidate.recorderProfileId === profile.id && candidate.date === date);
+    if (isClockedRecord(record)) {
+      setMessage(`${profile.displayName}さんの${date}は打刻済みのため閲覧のみです。変更は打刻修正申請を使用してください。`);
+      return;
+    }
     setDayForm({
       recorderProfileId: profile.id,
       date,
@@ -278,11 +267,11 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
       <div className="border-b border-indigo-100 bg-indigo-50/70 p-4">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-[10px] font-black text-indigo-700">管理者メニュー</p>
+            <p className="text-[10px] font-black text-indigo-700">シフト管理</p>
             <h3 className="mt-1 flex items-center gap-2 font-black text-slate-950"><CalendarRange className="h-5 w-5 text-indigo-600" />月間シフト・休日管理</h3>
             <p className="mt-1 text-xs text-slate-600">勤務テンプレートを日・月単位で反映します。保存内容は予定表と職員配置ガントチャートへ自動反映されます。</p>
           </div>
-          <button type="button" onClick={() => setTemplateForm(emptyTemplate())} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 text-sm font-black text-white"><Plus className="h-4 w-4" />勤務テンプレート</button>
+          <p className="rounded-xl bg-white px-3 py-2 text-[11px] font-bold text-indigo-800">テンプレートの追加・編集は「管理者メニュー ＞ 勤務テンプレート」で行います。</p>
         </div>
       </div>
 
@@ -297,6 +286,8 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
           <label className="text-xs font-bold text-slate-700">勤務テンプレート
             <select value={selectedTemplateId} onChange={(event) => chooseTemplate(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm">
               <option value="">選択してください</option>
+              <option value={PART_TIME_WEEKDAY_DEFAULT}>パート個別設定（平日利用）</option>
+              <option value={PART_TIME_HOLIDAY_DEFAULT}>パート個別設定（休日利用）</option>
               {templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}
             </select>
           </label>
@@ -308,8 +299,8 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
               <option value="all">全職員</option><option value="full_time">正職</option><option value="part_time">パート</option>
             </select>
           </label>
-          <button type="button" disabled={busy || !selectedTemplate} onClick={() => void applyTemplate('day')} className="min-h-11 rounded-xl border border-indigo-300 px-4 text-sm font-black text-indigo-800 disabled:opacity-40">1日へ反映</button>
-          <button type="button" disabled={busy || !selectedTemplate} onClick={() => void applyTemplate('month')} className="min-h-11 rounded-xl bg-indigo-600 px-4 text-sm font-black text-white disabled:opacity-40">月全体へ反映</button>
+          <button type="button" disabled={busy || (!selectedTemplate && !partTimePattern)} onClick={() => void applyTemplate('day')} className="min-h-11 rounded-xl border border-indigo-300 px-4 text-sm font-black text-indigo-800 disabled:opacity-40">1日へ反映</button>
+          <button type="button" disabled={busy || (!selectedTemplate && !partTimePattern)} onClick={() => void applyTemplate('month')} className="min-h-11 rounded-xl bg-indigo-600 px-4 text-sm font-black text-white disabled:opacity-40">月全体へ反映</button>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -324,19 +315,7 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
           <label className="ml-auto flex items-center gap-2 text-[11px] font-bold text-slate-600"><input type="checkbox" checked={registerDaysOff} onChange={(event) => setRegisterDaysOff(event.target.checked)} className="accent-indigo-600" />勤務曜日以外を公休として登録</label>
         </div>
 
-        {templates.length > 0 && (
-          <div className="flex flex-wrap gap-2">
-            {templates.map((template) => (
-              <span key={template.id} className="inline-flex items-center gap-1 rounded-lg bg-slate-100 px-2 py-1 text-[11px] text-slate-700">
-                <strong>{template.name}</strong>{template.startTime}〜{template.endTime}／{template.weekdays.map((day) => WEEKDAYS[day]).join('')}
-                <button type="button" aria-label={`${template.name}を編集`} onClick={() => setTemplateForm(toTemplateForm(template))} className="ml-1 rounded p-1 text-indigo-700"><PencilLine className="h-3.5 w-3.5" /></button>
-                <button type="button" aria-label={`${template.name}を削除`} onClick={() => {
-                  if (window.confirm(`${template.name}を削除しますか？すでに反映済みの勤務予定は残ります。`)) void onDeleteTemplate(template.id);
-                }} className="rounded p-1 text-rose-700"><Trash2 className="h-3.5 w-3.5" /></button>
-              </span>
-            ))}
-          </div>
-        )}
+        {templates.length === 0 && <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">共通勤務テンプレートは未登録です。パート個別設定はそのまま利用できます。共通パターンは管理者メニューから追加してください。</p>}
         {message && <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700">{message}</p>}
       </div>
 
@@ -346,55 +325,37 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
         <button type="button" onClick={() => setMonth(moveMonth(month, 1))} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-300"><ChevronRight className="h-5 w-5" /></button>
       </div>
 
-      <div className="ui-scrollbar overflow-x-auto border-t border-slate-100">
-        <table className="min-w-max border-collapse text-center text-[10px]">
-          <thead className="bg-slate-50 text-slate-600">
-            <tr>
-              <th className="sticky left-0 z-20 min-w-40 border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-left">職員／月間予定</th>
-              {dates.map((date) => {
-                const day = new Date(`${date}T12:00:00`).getDay();
-                return <th key={date} className={`min-w-12 border-b border-slate-200 px-1 py-2 ${day === 0 ? 'text-rose-600' : day === 6 ? 'text-sky-600' : ''}`}>{Number(date.slice(8))}<span className="block">{WEEKDAYS[day]}</span></th>;
+      <div className="space-y-4 border-t border-slate-100 bg-slate-50/60 p-3">
+        {chunkDatesByWeek(dates).map((weekDates) => (
+          <section key={weekDates[0]} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+            <h4 className="mb-3 text-xs font-black text-slate-700">{formatWeekRange(weekDates)}</h4>
+            <div className="space-y-3">
+              {visibleProfiles.map((profile) => {
+                const profileRecords = monthRecords.filter((record) => record.recorderProfileId === profile.id);
+                const workDays = profileRecords.filter((record) => !NO_TIME_STATUSES.includes(record.status)).length;
+                const scheduledMinutes = profileRecords.reduce((total, record) => total + getScheduledMinutes(record), 0);
+                return <div key={profile.id} className="rounded-xl border border-slate-100 bg-slate-50/70 p-2">
+                  <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                    <strong className="mr-auto text-xs text-slate-900">{profile.displayName}</strong>
+                    <span className={`rounded-full px-2 py-0.5 text-[9px] font-black ${profile.employmentType === 'part_time' ? 'bg-violet-100 text-violet-800' : 'bg-emerald-100 text-emerald-800'}`}>{profile.employmentType === 'part_time' ? 'パート' : '正職'}</span>
+                    <span className="text-[9px] text-slate-500">月計 {workDays}日・{formatMinutes(scheduledMinutes)}</span>
+                  </div>
+                  <div className="grid grid-cols-7 gap-1">
+                    {weekDates.map((date) => {
+                      const day = new Date(`${date}T12:00:00`).getDay();
+                      const record = profileRecords.find((candidate) => candidate.date === date);
+                      const locked = isClockedRecord(record);
+                      return <button key={date} type="button" onClick={() => openDay(profile, date)} className={`min-h-[3.4rem] min-w-0 rounded-lg px-0.5 text-[10px] font-black ${cellTone(record)} ${locked ? 'ring-1 ring-slate-400' : ''}`} title={locked ? '打刻済み・閲覧のみ' : record ? `${record.status} ${record.scheduledStartTime || ''}〜${record.scheduledEndTime || ''}` : '未登録'}><span className={`block text-[9px] ${day === 0 ? 'text-rose-600' : day === 6 ? 'text-sky-600' : ''}`}>{Number(date.slice(8))}（{WEEKDAYS[day]}）</span><span className="mt-0.5 block truncate">{cellLabel(record)}</span>{locked && <span className="block text-[8px] opacity-70">打刻済</span>}</button>;
+                    })}
+                    {Array.from({ length: 7 - weekDates.length }, (_, index) => <span key={`blank-${index}`} />)}
+                  </div>
+                </div>;
               })}
-            </tr>
-          </thead>
-          <tbody>
-            {visibleProfiles.map((profile) => {
-              const profileRecords = monthRecords.filter((record) => record.recorderProfileId === profile.id);
-              const workDays = profileRecords.filter((record) => !NO_TIME_STATUSES.includes(record.status)).length;
-              const scheduledMinutes = profileRecords.reduce((total, record) => total + getScheduledMinutes(record), 0);
-              return (
-                <tr key={profile.id} className="border-b border-slate-100">
-                  <th className="sticky left-0 z-10 border-r border-slate-200 bg-white px-3 py-2 text-left shadow-[3px_0_8px_-6px_rgba(15,23,42,.5)]">
-                    <span className="block max-w-36 truncate text-xs font-black text-slate-900">{profile.displayName}</span>
-                    <span className={`mt-0.5 inline-flex rounded-full px-1.5 py-0.5 ${profile.employmentType === 'part_time' ? 'bg-violet-100 text-violet-800' : 'bg-emerald-100 text-emerald-800'}`}>{profile.employmentType === 'part_time' ? 'パート' : '正職'}</span>
-                    <span className="ml-1 text-[9px] font-normal text-slate-500">{workDays}日・{formatMinutes(scheduledMinutes)}</span>
-                  </th>
-                  {dates.map((date) => {
-                    const record = profileRecords.find((candidate) => candidate.date === date);
-                    return <td key={date} className="border-r border-slate-100 p-0.5"><button type="button" onClick={() => openDay(profile, date)} className={`min-h-11 w-full rounded-md px-1 font-black ${cellTone(record)}`} title={record ? `${record.status} ${record.scheduledStartTime || ''}〜${record.scheduledEndTime || ''}` : '未登録'}>{cellLabel(record)}</button></td>;
-                  })}
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+            </div>
+          </section>
+        ))}
         {visibleProfiles.length === 0 && <p className="p-6 text-center text-sm text-slate-500">該当する職員がいません。</p>}
       </div>
-
-      {templateForm && (
-        <Modal title={templateForm.id ? '勤務テンプレートを編集' : '勤務テンプレートを追加'} onClose={() => setTemplateForm(null)}>
-          <label className="block text-sm font-bold">テンプレート名<input autoFocus value={templateForm.name} onChange={(event) => setTemplateForm({ ...templateForm, name: event.target.value })} placeholder="例：正職 標準勤務" className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3" /></label>
-          <label className="block text-sm font-bold">対象<select value={templateForm.targetEmploymentType} onChange={(event) => setTemplateForm({ ...templateForm, targetEmploymentType: event.target.value as StaffShiftTemplateTarget })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3"><option value="all">全職員</option><option value="full_time">正職</option><option value="part_time">パート</option></select></label>
-          <div className="grid grid-cols-3 gap-2">
-            <label className="text-sm font-bold">開始<input type="time" value={templateForm.startTime} onChange={(event) => setTemplateForm({ ...templateForm, startTime: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-2" /></label>
-            <label className="text-sm font-bold">終了<input type="time" value={templateForm.endTime} onChange={(event) => setTemplateForm({ ...templateForm, endTime: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-2" /></label>
-            <label className="text-sm font-bold">休憩（分）<input type="number" min="0" max="480" step="5" value={templateForm.breakMinutes} onChange={(event) => setTemplateForm({ ...templateForm, breakMinutes: Number(event.target.value) })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-2" /></label>
-          </div>
-          <div><span className="text-sm font-bold">勤務曜日</span><div className="mt-2 grid grid-cols-7 gap-1">{WEEKDAYS.map((label, day) => <button key={label} type="button" onClick={() => setTemplateForm({ ...templateForm, weekdays: templateForm.weekdays.includes(day) ? templateForm.weekdays.filter((candidate) => candidate !== day) : [...templateForm.weekdays, day] })} className={`min-h-10 rounded-lg text-sm font-black ${templateForm.weekdays.includes(day) ? 'bg-indigo-600 text-white' : 'border border-slate-300 text-slate-600'}`}>{label}</button>)}</div></div>
-          <label className="block text-sm font-bold">備考<textarea value={templateForm.note} onChange={(event) => setTemplateForm({ ...templateForm, note: event.target.value })} className="mt-1 min-h-20 w-full rounded-xl border border-slate-300 p-3" /></label>
-          <button type="button" disabled={busy} onClick={() => void saveTemplate()} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 font-black text-white disabled:opacity-50"><Save className="h-5 w-5" />保存</button>
-        </Modal>
-      )}
 
       {dayForm && (
         <Modal title="1日の勤務予定を編集" onClose={() => setDayForm(null)}>
@@ -420,18 +381,35 @@ const Modal = ({ title, onClose, children }: { title: string; onClose: () => voi
   </div>
 );
 
-function emptyTemplate(): TemplateForm {
-  return { name: '', targetEmploymentType: 'all', startTime: '09:00', endTime: '18:00', breakMinutes: 60, weekdays: [1, 2, 3, 4, 5], note: '' };
-}
-
-function toTemplateForm(template: StaffShiftTemplate): TemplateForm {
-  return { id: template.id, name: template.name, targetEmploymentType: template.targetEmploymentType, startTime: template.startTime, endTime: template.endTime, breakMinutes: template.breakMinutes, weekdays: [...template.weekdays], note: template.note || '' };
-}
-
 function getMonthDates(month: string) {
   const [year, monthNumber] = month.split('-').map(Number);
   const lastDay = new Date(year, monthNumber, 0).getDate();
   return Array.from({ length: lastDay }, (_, index) => `${month}-${String(index + 1).padStart(2, '0')}`);
+}
+
+function chunkDatesByWeek(dates: string[]) {
+  const weeks: string[][] = [];
+  let current: string[] = [];
+  dates.forEach((date) => {
+    const weekday = new Date(`${date}T12:00:00`).getDay();
+    if (current.length && weekday === 0) {
+      weeks.push(current);
+      current = [];
+    }
+    current.push(date);
+  });
+  if (current.length) weeks.push(current);
+  return weeks;
+}
+
+function formatWeekRange(dates: string[]) {
+  const first = Number(dates[0]?.slice(8));
+  const last = Number(dates[dates.length - 1]?.slice(8));
+  return first === last ? `${first}日` : `${first}日〜${last}日`;
+}
+
+function isClockedRecord(record?: AttendanceRecord) {
+  return Boolean(record?.clockInAt || record?.clockOutAt || (record && ['出勤中', '休憩中', '退勤済み'].includes(record.status)));
 }
 
 function moveMonth(month: string, amount: number) {

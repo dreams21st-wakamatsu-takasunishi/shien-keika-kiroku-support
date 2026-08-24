@@ -50,7 +50,7 @@ Deno.serve(async (request) => {
     userId?: string;
     displayName?: string;
     email?: string;
-    role?: 'staff' | 'manager' | 'admin';
+    role?: 'staff' | 'manager' | 'classroom_manager' | 'admin';
     recorderProfileId?: string | null;
   } | null;
   const action = body?.action;
@@ -117,7 +117,7 @@ Deno.serve(async (request) => {
   const recorderProfileId = typeof body?.recorderProfileId === 'string' && body.recorderProfileId
     ? body.recorderProfileId
     : null;
-  if (!displayName || !email.includes('@') || !role || !['staff', 'manager', 'admin'].includes(role)) {
+  if (!displayName || !email.includes('@') || !role || !['staff', 'manager', 'classroom_manager', 'admin'].includes(role)) {
     return jsonResponse({ error: '氏名、メールアドレス、権限を確認してください。' }, 400);
   }
   if (targetUserId === userId && role !== 'admin') {
