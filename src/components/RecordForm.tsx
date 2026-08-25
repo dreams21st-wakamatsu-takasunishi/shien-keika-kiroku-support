@@ -54,7 +54,6 @@ import {
 } from 'lucide-react';
 import {
   AttendanceType,
-  CalendarEvent,
   ChildProfile,
   DailyChildPlan,
   ExpressionType,
@@ -107,7 +106,6 @@ import { generateUnifiedRecordSummary } from '../utils/unifiedRecordSummary';
 interface RecordFormProps {
   templates: Template[];
   childrenList: ChildProfile[];
-  calendarEvents?: CalendarEvent[];
   dailyChildPlans?: DailyChildPlan[];
   recorderProfiles: RecorderProfile[];
   initialRecord?: SupportRecord | null;
@@ -1743,7 +1741,6 @@ function describeDraftSaveError(error: unknown, allowLocalSensitiveStorage = tru
 export const RecordForm: React.FC<RecordFormProps> = ({
   templates,
   childrenList,
-  calendarEvents = [],
   dailyChildPlans = [],
   recorderProfiles,
   initialRecord,
@@ -3881,20 +3878,14 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       case 'children':
         {
           const targetWeekday = getWeekdayFromDate(wizard.date);
-          const dayEvents = calendarEvents.filter((event) => calendarEventOccursOn(event, wizard.date));
           const dayPlans = dailyChildPlans.filter((plan) => plan.date === wizard.date);
-          const overriddenChildIds = new Set(dayPlans.map((plan) => plan.childId));
-          const plannedChildIds = new Set([
-            ...dayEvents.filter((event) => ['追加利用', '通常利用'].includes(event.eventType)).flatMap((event) => event.childIds),
-            ...dayPlans.filter((plan) => plan.attendancePlan !== '欠席').map((plan) => plan.childId),
-          ]);
-          const absentChildIds = new Set([
-            ...dayEvents.filter((event) => event.eventType === '欠席').flatMap((event) => event.childIds).filter((childId) => !overriddenChildIds.has(childId)),
-            ...dayPlans.filter((plan) => plan.attendancePlan === '欠席').map((plan) => plan.childId),
-          ]);
+          const plansByChild = new Map(dayPlans.map((plan) => [plan.childId, plan]));
           const regularChildren = childrenList.filter((child) => {
+            if (child.serviceSuspended) return false;
+            const dayPlan = plansByChild.get(child.id);
+            if (dayPlan) return dayPlan.attendancePlan !== '欠席';
             const regularDays = getRegularDaysForDate(child, wizard.date);
-            return !absentChildIds.has(child.id) && (plannedChildIds.has(child.id) || !regularDays.length || regularDays.includes(targetWeekday));
+            return regularDays.includes(targetWeekday);
           });
           const additionalSelected = childrenList.filter((child) => wizard.selectedChildIds.includes(child.id) && !regularChildren.some((item) => item.id === child.id));
           const displayedChildren = [...regularChildren, ...additionalSelected];
@@ -3908,13 +3899,13 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           <div className="space-y-4">
             <div className="rounded-xl border border-teal-200 bg-teal-50 p-3 text-sm text-teal-900">
               <strong>{wizard.date}（{targetWeekday}）の利用予定児童</strong>
-              <p className="mt-1 text-xs text-teal-700">定期利用に追加利用を加え、カレンダーで欠席登録された児童を除いています。</p>
+              <p className="mt-1 text-xs text-teal-700">「利用予定／送迎管理」の追加利用・欠席を反映しています。</p>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[50vh] overflow-y-auto pr-1">
               {displayedChildren.map((child) => {
                 const selected = wizard.selectedChildIds.includes(child.id);
                 const dayPlan = dayPlans.find((plan) => plan.childId === child.id);
-                const isAdditional = dayPlan?.attendancePlan === '追加利用' || plannedChildIds.has(child.id) || additionalSelected.some((item) => item.id === child.id);
+                const isAdditional = dayPlan?.attendancePlan === '追加利用' || additionalSelected.some((item) => item.id === child.id);
                 const lockOwner = lockedChildren[`${wizard.date}:${child.id}`];
                 const planSummary = dayPlan
                   ? [dayPlan.hasLunch && '昼食', dayPlan.hasSnack && 'おやつ', dayPlan.arrivalTime && `来所 ${dayPlan.arrivalTime}`].filter(Boolean).join('・') || '日別予定あり'
@@ -5064,19 +5055,6 @@ function ABCModeSelector({
       </div>
     </div>
   );
-}
-
-function calendarEventOccursOn(event: CalendarEvent, date: string) {
-  if (event.recurrence === 'なし') return event.endDate
-    ? event.date <= date && event.endDate >= date
-    : event.date === date;
-  if (date < event.date || (event.endDate && date > event.endDate)) return false;
-  if (event.recurrence === '毎日') return true;
-  const start = new Date(`${event.date}T00:00:00`);
-  const target = new Date(`${date}T00:00:00`);
-  return event.recurrence === '毎週'
-    ? start.getDay() === target.getDay()
-    : start.getDate() === target.getDate();
 }
 
 function ReviewAllChildren({

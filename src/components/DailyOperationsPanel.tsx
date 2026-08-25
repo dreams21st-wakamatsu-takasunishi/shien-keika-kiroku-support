@@ -1,16 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CalendarCheck2, CalendarClock, CheckCircle2, Clock3, Eye, FileEdit, Info, PlayCircle, Trash2, UserRoundCheck } from 'lucide-react';
-import type { ChildProfile, DailyChildPlan, RecordDraftSummary, SupportRecord, TransportRouteSettings } from '../types';
+import { BusFront, CalendarCheck2, CalendarClock, CheckCircle2, Clock3, Eye, FileEdit, Info, PlayCircle, Trash2, UserRoundCheck } from 'lucide-react';
+import type { ChildProfile, DailyChildPlan, DailyTransportRequirement, RecordDraftSummary, SupportRecord } from '../types';
 import { getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
 import { ChildInfoDialog } from './ChildInfoDialog';
-import { DailyChildPlanDialog } from './DailyChildPlanDialog';
 
 interface DailyOperationsPanelProps {
   childrenList: ChildProfile[];
   records: SupportRecord[];
   drafts: RecordDraftSummary[];
   dailyChildPlans: DailyChildPlan[];
-  transportRouteSettings: TransportRouteSettings;
+  dailyTransportRequirements: DailyTransportRequirement[];
   currentUserId?: string;
   currentRecorderId?: string;
   canManageDrafts?: boolean;
@@ -22,8 +21,7 @@ interface DailyOperationsPanelProps {
   onTakeOverDrafts: (items: DraftTakeoverSelection[]) => Promise<boolean>;
   onDeleteDraft: (draftKey: string) => void;
   onOpenRecord: (record: SupportRecord) => void;
-  onSaveDailyChildPlan: (plan: DailyChildPlan) => Promise<void> | void;
-  onDeleteDailyChildPlan: (childId: string, date: string) => Promise<void> | void;
+  onOpenDailySchedule: (date: string) => void;
 }
 
 export interface DraftTakeoverSelection {
@@ -38,7 +36,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
   records,
   drafts,
   dailyChildPlans,
-  transportRouteSettings,
+  dailyTransportRequirements,
   currentUserId,
   currentRecorderId,
   canManageDrafts = false,
@@ -50,11 +48,9 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
   onTakeOverDrafts,
   onDeleteDraft,
   onOpenRecord,
-  onSaveDailyChildPlan,
-  onDeleteDailyChildPlan,
+  onOpenDailySchedule,
 }) => {
   const [infoChild, setInfoChild] = useState<ChildProfile | null>(null);
-  const [planChild, setPlanChild] = useState<ChildProfile | null>(null);
   const [takeoverSelectionMode, setTakeoverSelectionMode] = useState(false);
   const [selectedTakeoverKeys, setSelectedTakeoverKeys] = useState<string[]>([]);
   const [takingOver, setTakingOver] = useState(false);
@@ -71,11 +67,13 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
     const plansByChild = new Map<string, DailyChildPlan>(
       dailyChildPlans.filter((plan) => plan.date === targetDate).map((plan) => [plan.childId, plan])
     );
+    const requirementsByChild = new Map<string, DailyTransportRequirement>(
+      dailyTransportRequirements.filter((item) => item.date === targetDate).map((item) => [item.childId, item])
+    );
     return childrenList.filter((child) => {
       const regularDays = getRegularDaysForDate(child, targetDate);
       const plan = plansByChild.get(child.id);
-      return regularDays.length === 0
-        || regularDays.includes(weekday)
+      return regularDays.includes(weekday)
         || Boolean(plan)
         || recordChildren.has(child.id)
         || draftChildren.has(child.id);
@@ -87,16 +85,18 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
         draft.date === targetDate && draft.selectedChildIds.includes(child.id)
       );
       const plan = plansByChild.get(child.id);
+      const requirement = requirementsByChild.get(child.id);
       return {
         child,
         record: childRecords[0],
         draft: childDraft,
         plan,
+        requirement,
         scheduled: plan ? plan.attendancePlan !== '欠席' : getRegularDaysForDate(child, targetDate).includes(weekday),
         scheduleUnset: getRegularDaysForDate(child, targetDate).length === 0,
       };
     }).sort((left, right) => left.child.name.localeCompare(right.child.name, 'ja'));
-  }, [childrenList, dailyChildPlans, drafts, records, targetDate, weekday]);
+  }, [childrenList, dailyChildPlans, dailyTransportRequirements, drafts, records, targetDate, weekday]);
 
   const counts = {
     missing: rows.filter((row) => row.scheduled && !row.record && !row.draft).length,
@@ -261,7 +261,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
         </p>
       ) : (
         <div className="divide-y divide-slate-100">
-          {rows.map(({ child, record, draft, plan, scheduled, scheduleUnset }) => {
+          {rows.map(({ child, record, draft, plan, requirement, scheduled, scheduleUnset }) => {
             const sameAccount = !draft?.userId || !currentUserId || draft.userId === currentUserId;
             const ownedByAnotherRecorder = Boolean(
               draft?.recorderId
@@ -290,15 +290,15 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                   <button type="button" onClick={() => setInfoChild(child)} className="flex min-h-10 items-center gap-1 rounded-lg px-1 text-left text-base font-black text-slate-900 hover:bg-slate-100">
                     {child.name}<Info className="h-4 w-4 text-teal-700" />
                   </button>
-                  {scheduleUnset ? (
+                  {plan?.attendancePlan === '欠席' ? null : plan ? null : scheduled ? (
+                    <span className="rounded-full bg-sky-100 px-2 py-1 text-[10px] font-bold text-sky-800">
+                      定期利用
+                    </span>
+                  ) : scheduleUnset ? (
                     <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold text-slate-700">
-                      曜日未設定
+                      利用予定未登録
                     </span>
-                  ) : !scheduled && plan?.attendancePlan !== '欠席' && (
-                    <span className="rounded-full bg-indigo-100 px-2 py-1 text-[10px] font-bold text-indigo-800">
-                      追加利用
-                    </span>
-                  )}
+                  ) : null}
                   {plan && (
                     <span className={`rounded-full px-2 py-1 text-[10px] font-black ${plan.attendancePlan === '欠席' ? 'bg-rose-100 text-rose-800' : 'bg-teal-100 text-teal-800'}`}>
                       {plan.attendancePlan === '欠席' ? '欠席予定' : plan.attendancePlan}
@@ -326,20 +326,32 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                   {child.grade || '学年未設定'}
                   {record ? `・記録者 ${record.recorderName}` : draft?.recorderName ? `・入力者 ${draft.recorderName}` : ''}
                 </p>
-                {plan && (plan.schoolEndTime || plan.arrivalTime || plan.departureTime || plan.note) && (
-                  <p className="mt-1 line-clamp-2 text-[11px] text-slate-500">
-                    {[plan.schoolEndTime && `迎え ${plan.schoolEndTime}`, plan.arrivalTime && `来所 ${plan.arrivalTime}`, plan.departureTime && `退所 ${plan.departureTime}`, plan.note].filter(Boolean).join('・')}
-                  </p>
+                {(plan || requirement) && (
+                  <div className="mt-2 grid gap-1 text-[11px] text-slate-600 sm:grid-cols-2">
+                    <p className="min-w-0 truncate rounded-lg bg-slate-50 px-2 py-1.5">
+                      <CalendarClock className="mr-1 inline h-3.5 w-3.5 text-teal-700" />
+                      {dailyPlanSummary(plan)}
+                    </p>
+                    <p className="min-w-0 truncate rounded-lg bg-sky-50 px-2 py-1.5" title={transportPlanSummary(requirement, plan)}>
+                      <BusFront className="mr-1 inline h-3.5 w-3.5 text-sky-700" />
+                      {transportPlanSummary(requirement, plan)}
+                    </p>
+                    {(plan?.note || requirement?.note || requirement?.timeChangeNote) && (
+                      <p className="line-clamp-2 rounded-lg bg-amber-50 px-2 py-1.5 text-amber-900 sm:col-span-2">
+                        {[plan?.note, requirement?.timeChangeNote, requirement?.note].filter(Boolean).join('／')}
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
 
               <div className="mt-3 flex flex-wrap gap-2 sm:mt-0 sm:justify-end">
                 <button
                   type="button"
-                  onClick={() => setPlanChild(child)}
+                  onClick={() => onOpenDailySchedule(targetDate)}
                   className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 px-3 text-xs font-black text-teal-900 sm:flex-none"
                 >
-                  <CalendarClock className="h-4 w-4" />当日予定
+                  <CalendarClock className="h-4 w-4" />利用予定を開く
                 </button>
                 {record ? (
                   <button
@@ -448,21 +460,37 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
         </details>
       )}
       <ChildInfoDialog child={infoChild} onClose={() => setInfoChild(null)} />
-      {planChild && (
-        <DailyChildPlanDialog
-          child={planChild}
-          date={targetDate}
-          weekday={weekday}
-          plan={dailyChildPlans.find((plan) => plan.childId === planChild.id && plan.date === targetDate)}
-          routeSettings={transportRouteSettings}
-          onClose={() => setPlanChild(null)}
-          onSave={onSaveDailyChildPlan}
-          onDelete={onDeleteDailyChildPlan}
-        />
-      )}
     </section>
   );
 };
+
+function dailyPlanSummary(plan?: DailyChildPlan) {
+  if (!plan) return '定期利用（個別変更なし）';
+  if (plan.attendancePlan === '欠席') return '欠席';
+  const programs = [
+    plan.hasMorningProgram && '午前',
+    plan.hasLunch && '昼食',
+    plan.hasAfternoonProgram && '午後',
+    plan.hasSnack && 'おやつ',
+  ].filter(Boolean);
+  return `${plan.attendancePlan}・${programs.join('・') || '取組未設定'}`;
+}
+
+function transportPlanSummary(requirement?: DailyTransportRequirement, plan?: DailyChildPlan) {
+  if (!requirement) {
+    const times = [plan?.schoolEndTime && `迎え ${plan.schoolEndTime}`, plan?.departureTime && `退所 ${plan.departureTime}`].filter(Boolean);
+    return times.join('・') || '送迎条件未設定';
+  }
+  const pickupTime = requirement.pickupPlannedTime || requirement.pickupTargetTime || plan?.schoolEndTime;
+  const dropoffTime = requirement.dropoffPlannedTime || requirement.dropoffTargetTime || plan?.departureTime;
+  const pickup = requirement.pickupEnabled
+    ? `迎え ${pickupTime || '未定'} ${requirement.pickupLocationName || '場所未設定'}`
+    : '迎え 保護者';
+  const dropoff = requirement.dropoffEnabled
+    ? `送り ${dropoffTime || '未定'} ${requirement.dropoffLocationName || '場所未設定'}`
+    : '送り 保護者';
+  return `${pickup}・${dropoff}`;
+}
 
 function StatusCount({ label, value, tone }: { label: string; value: number; tone: 'rose' | 'amber' | 'emerald' }) {
   const classes = {

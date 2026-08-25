@@ -86,6 +86,7 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
   const [correctionOut, setCorrectionOut] = useState('');
   const [correctionReason, setCorrectionReason] = useState('');
   const [correctionPin, setCorrectionPin] = useState('');
+  const [showUnscheduledStaff, setShowUnscheduledStaff] = useState(false);
   const dayRecords = useMemo(
     () => activeRecorders.map((recorder) => ({
       recorder,
@@ -106,6 +107,9 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
   const forgottenPunches = selectedDate === new Date().toLocaleDateString('sv-SE')
     ? dayRecords.filter(({ record }) => record?.scheduledStartTime && record.scheduledStartTime < currentTime && !record.clockInAt)
     : [];
+  const scheduledDayRecords = dayRecords.filter(({ record }) => Boolean(record));
+  const visibleDayRecords = showUnscheduledStaff ? dayRecords : scheduledDayRecords;
+  const unscheduledStaffCount = dayRecords.length - scheduledDayRecords.length;
 
   const punch = async (action: PunchAction) => {
     if (!selectedRecorder) return setError('指導員を選択してください。');
@@ -279,28 +283,36 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
       {forgottenPunches.length > 0 && <p className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-black text-rose-800"><AlertTriangle className="h-5 w-5" />打刻忘れの可能性：{forgottenPunches.map(({ recorder }) => recorder.displayName).join('、')}</p>}
 
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex items-center justify-between gap-3 border-b border-slate-200 p-4">
+        <div className="flex flex-col gap-2 border-b border-slate-200 p-3 sm:flex-row sm:items-center sm:justify-between">
           <div><h3 className="font-black text-slate-900">{selectedDate} の勤務状況</h3><p className="mt-1 text-xs text-slate-500">勤務予定・出勤状態・実働時間を一覧で確認できます。</p></div>
-          <span className="rounded-full bg-teal-50 px-3 py-1 text-xs font-bold text-teal-800">出勤中 {dayRecords.filter(({ record }) => record && ['出勤中', '休憩中', '遅刻', '早退'].includes(record.status)).length}名</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="rounded-full bg-teal-50 px-3 py-1 text-xs font-bold text-teal-800">予定 {scheduledDayRecords.length}名／出勤中 {dayRecords.filter(({ record }) => record && ['出勤中', '休憩中', '遅刻', '早退'].includes(record.status)).length}名</span>
+            {unscheduledStaffCount > 0 && <button type="button" onClick={() => setShowUnscheduledStaff((current) => !current)} className="min-h-9 rounded-lg border border-slate-300 bg-white px-3 text-[11px] font-black text-slate-700">{showUnscheduledStaff ? '予定ありのみ' : `未登録も表示（${unscheduledStaffCount}名）`}</button>}
+          </div>
+        </div>
+        <div className="hidden grid-cols-[minmax(120px,1.2fr)_110px_130px_130px_110px_auto] gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2 text-[10px] font-black text-slate-500 lg:grid">
+          <span>職員</span><span>状態</span><span>予定</span><span>出退勤</span><span>休憩／実働</span><span className="text-right">操作</span>
         </div>
         <div className="divide-y divide-slate-100">
-          {dayRecords.map(({ recorder, record }) => (
-            <div key={recorder.id} className="grid gap-2 p-3 sm:grid-cols-[minmax(120px,1fr)_minmax(220px,2fr)_auto] sm:items-center">
-              <div><strong className="text-sm text-slate-900">{recorder.displayName}</strong><StatusBadge status={record?.status} /></div>
-              <div className="grid grid-cols-2 gap-2 text-xs text-slate-600 lg:grid-cols-4">
-                <MiniMetric label="予定" value={record?.scheduledStartTime ? `${record.scheduledStartTime}〜${record.scheduledEndTime || ''}` : '未登録'} />
-                <MiniMetric label="出退勤" value={`${formatTime(record?.clockInAt) || '－'}〜${formatTime(record?.clockOutAt) || '－'}`} />
-                <MiniMetric label="休憩" value={`${record ? getBreakMinutes(record) : 0}分`} />
-                <MiniMetric label="実働" value={`${record ? getWorkingMinutes(record) : 0}分`} />
+          {visibleDayRecords.map(({ recorder, record }) => (
+            <div key={recorder.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 px-3 py-2 lg:grid-cols-[minmax(120px,1.2fr)_110px_130px_130px_110px_auto]">
+              <strong className="truncate text-sm text-slate-900">{recorder.displayName}</strong>
+              <span className="lg:hidden"><StatusBadge status={record?.status} /></span>
+              <span className="hidden lg:block"><StatusBadge status={record?.status} /></span>
+              <div className="col-span-2 grid gap-0.5 text-xs font-bold text-slate-700 lg:contents">
+                <span className="truncate text-[11px] text-slate-600 lg:text-xs">予定 {record?.scheduledStartTime ? `${record.scheduledStartTime}〜${record.scheduledEndTime || '－'}` : '未登録'}</span>
+                <span className="truncate text-[11px] text-slate-600 lg:text-xs">実績 {formatTime(record?.clockInAt) || '－'}〜{formatTime(record?.clockOutAt) || '－'}</span>
+                <span className="text-[10px] text-slate-500 lg:text-xs">休憩 {record ? getBreakMinutes(record) : 0}分／実働 {record ? getWorkingMinutes(record) : 0}分</span>
               </div>
-              <div className="flex gap-2">
-                {record && (activeRecorder?.id === recorder.id || canManage) && <button type="button" onClick={() => openCorrection(record)} className="min-h-10 rounded-lg border border-slate-300 px-3 text-xs font-bold">修正申請</button>}
+              <div className="col-span-2 flex flex-wrap justify-end gap-1.5 lg:col-span-1 lg:flex-nowrap">
+                {record && (activeRecorder?.id === recorder.id || canManage) && <button type="button" onClick={() => openCorrection(record)} className="min-h-9 rounded-lg border border-slate-300 px-2.5 text-[11px] font-bold">修正申請</button>}
                 {canManage && (isClockedRecord(record)
-                  ? <span className="inline-flex min-h-10 items-center rounded-lg bg-slate-100 px-3 text-xs font-bold text-slate-500">打刻後・閲覧のみ</span>
-                  : <button type="button" onClick={() => openSchedule(recorder, record)} className="min-h-10 rounded-lg bg-slate-900 px-3 text-xs font-bold text-white"><PencilLine className="mr-1 inline h-4 w-4" />勤務予定</button>)}
+                  ? <span className="inline-flex min-h-9 items-center rounded-lg bg-slate-100 px-2.5 text-[10px] font-bold text-slate-500">打刻後・閲覧のみ</span>
+                  : <button type="button" onClick={() => openSchedule(recorder, record)} className="min-h-9 rounded-lg bg-slate-900 px-2.5 text-[11px] font-bold text-white"><PencilLine className="mr-1 inline h-3.5 w-3.5" />予定編集</button>)}
               </div>
             </div>
           ))}
+          {visibleDayRecords.length === 0 && <div className="p-5 text-center text-sm text-slate-500">この日の出勤予定は未登録です。{unscheduledStaffCount > 0 && <button type="button" onClick={() => setShowUnscheduledStaff(true)} className="ml-2 font-black text-teal-700 underline">全職員を表示</button>}</div>}
         </div>
       </section>
 
@@ -358,7 +370,6 @@ const StatusBadge = ({ status }: { status?: AttendanceStatus }) => (
   <span className={`ml-2 inline-flex rounded-full px-2 py-0.5 text-[10px] font-bold ${status === '出勤中' || status === '休憩中' ? 'bg-emerald-100 text-emerald-800' : status === '欠勤' ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-700'}`}>{status || '未登録'}</span>
 );
 
-const MiniMetric = ({ label, value }: { label: string; value: string }) => <span><span className="block text-[10px] font-bold text-slate-400">{label}</span>{value}</span>;
 const MiniSummary = ({ label, value }: { label: string; value: string }) => <div className="border-r border-slate-100 p-3 text-center"><span className="block text-[10px] font-bold text-slate-500">{label}</span><strong className="mt-1 block text-base text-slate-950">{value}</strong></div>;
 
 const Modal = ({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) => (

@@ -2276,7 +2276,6 @@ export default function App() {
             key={`${currentRecord?.id || activeDraftKey}-${formSessionId}`}
             templates={templates}
             childrenList={childrenList}
-            calendarEvents={calendarEventsForCurrentUser}
             dailyChildPlans={dailyChildPlans}
             recorderProfiles={recorderProfiles}
             initialRecord={currentRecord}

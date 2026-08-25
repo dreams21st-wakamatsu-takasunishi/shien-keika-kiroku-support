@@ -285,6 +285,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     date: string;
   }>({ date: getLocalDateString() });
   const [dispatchDate, setDispatchDate] = useState(getLocalDateString());
+  const [monthlyScheduleDate, setMonthlyScheduleDate] = useState(getLocalDateString());
+  const [monthlyScheduleReturn, setMonthlyScheduleReturn] = useState<HomeWorkspace>('menu');
 
   useEffect(() => {
     if (announcementFocusToken > 0) setCommunicationView('announcements');
@@ -301,15 +303,17 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     const work = attendanceRecords.filter((record) => record.date === today);
     const runs = transportRuns.filter((run) => run.date === today);
     const events = calendarEvents.filter((event) => homeEventOccursOn(event, today));
+    const servicePlans = dailyChildPlans.filter((plan) => plan.date === today);
     const absentStaff = work.filter((record) => ['欠勤', '有給', '公休', '特別休暇'].includes(record.status)).map((record) => record.recorderName);
-    const absentChildren = events.filter((event) => event.eventType === '欠席').flatMap((event) => event.childIds).map((id) => childrenList.find((child) => child.id === id)?.name).filter(Boolean);
+    const absentChildren = servicePlans.filter((plan) => plan.attendancePlan === '欠席').map((plan) => childrenList.find((child) => child.id === plan.childId)?.name).filter(Boolean);
+    const additionalChildren = servicePlans.filter((plan) => plan.attendancePlan === '追加利用');
     return [
       `出勤予定 ${work.filter((record) => !['欠勤', '有給', '公休', '特別休暇'].includes(record.status)).length}名${absentStaff.length ? `／欠勤・休暇 ${absentStaff.join('、')}` : ''}`,
       `送迎 ${runs.length}便（${runs.map((run) => run.name).join('、') || 'なし'}）`,
-      `追加利用 ${events.filter((event) => event.eventType === '追加利用').flatMap((event) => event.childIds).length}名／欠席 ${absentChildren.length}名${absentChildren.length ? `（${absentChildren.join('、')}）` : ''}`,
+      `追加利用 ${additionalChildren.length}名／欠席 ${absentChildren.length}名${absentChildren.length ? `（${absentChildren.join('、')}）` : ''}`,
       `会議・研修・面談・行事 ${events.filter((event) => ['会議', '研修', '保護者面談', '学校行事', '事業所行事'].includes(event.eventType)).length}件`,
     ];
-  }, [attendanceRecords, calendarEvents, childrenList, today, transportRuns]);
+  }, [attendanceRecords, calendarEvents, childrenList, dailyChildPlans, today, transportRuns]);
   const correctionAnnouncements = useMemo<Announcement[]>(() => records
     .filter((record) => record.approvalStatus === '要修正')
     .map((record) => {
@@ -435,7 +439,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               <WorkspaceCard icon={CalendarDays} title="本日の業務" description="職員配置・当日の送迎一覧" meta={todayWorkCount > 0 ? `${todayWorkCount}件の予定` : '予定を確認'} tone="teal" onClick={() => { setTodayWorkLaunch({ date: getLocalDateString() }); setActivePanel('todayWork'); }} />
               <WorkspaceCard icon={Clock3} title="出勤予定" description="自分の予定・打刻・シフト希望" meta={activeRecorder ? `${activeRecorder.displayName}さんの勤務` : '勤務を確認'} tone="sky" onClick={() => setActivePanel('attendance')} />
               <WorkspaceCard icon={CalendarRange} title="業務カレンダー" description="会議・外出・研修・面談・行事" meta="勤務予定は表示しません" tone="indigo" onClick={() => setActivePanel('calendar')} />
-              <WorkspaceCard icon={BusFront} title="利用予定／送迎管理" description="利用予定・欠席・送迎条件・配車" meta="日ごとの予定を確認・編集" tone="violet" onClick={() => setActivePanel('monthlySchedule')} />
+              <WorkspaceCard icon={BusFront} title="利用予定／送迎管理" description="利用予定・欠席・送迎条件・配車" meta="日ごとの予定を確認・編集" tone="violet" onClick={() => { setMonthlyScheduleDate(today); setMonthlyScheduleReturn('menu'); setActivePanel('monthlySchedule'); }} />
               <WorkspaceCard icon={ClipboardList} title="記録状況" description="利用児童・入力中・保存済み" meta={`本日 ${todayRecords.length}件／入力中 ${drafts.length}件${carriedOverDrafts.length > 0 ? `／持越し ${carriedOverDrafts.length}件` : ''}`} tone="sky" onClick={() => setActivePanel('operations')} />
               <WorkspaceCard icon={MessageSquareText} title="共有・連絡" description="お知らせ・朝礼・申し送り" meta={`${visibleAnnouncements.length + openHandovers}件を確認`} tone="amber" onClick={() => setActivePanel('communication')} />
               <WorkspaceCard icon={Bot} title="AIアシスタント" description="児童情報の変更や記録の整理" meta="実行前に内容を確認" tone="indigo" onClick={() => setActivePanel('assistant')} />
@@ -447,7 +451,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           <WorkspaceBackBar
             title={workspaceTitle(activePanel)}
             guide={workspaceGuide(activePanel)}
-            onBack={() => setActivePanel('menu')}
+            onBack={() => setActivePanel(activePanel === 'monthlySchedule' ? monthlyScheduleReturn : 'menu')}
           />
           <div key={activePanel} className="ui-panel-enter" role="region" aria-label={workspaceTitle(activePanel)}>
         {activePanel === 'dailyChanges' && (
@@ -496,7 +500,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         {activePanel === 'monthlySchedule' && (
           <MonthlyTransportPlanner
             organizationId={organizationId}
-            initialDate={today}
+            initialDate={monthlyScheduleDate}
             childrenList={childrenList}
             dailyChildPlans={dailyChildPlans}
             requirements={dailyTransportRequirements}
@@ -527,7 +531,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             records={records}
             drafts={drafts}
             dailyChildPlans={dailyChildPlans}
-            transportRouteSettings={transportRouteSettings}
+            dailyTransportRequirements={dailyTransportRequirements}
             targetDate={recordStatusDate}
             onTargetDateChange={onRecordStatusDateChange}
             currentUserId={currentUser?.id}
@@ -539,8 +543,11 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             onTakeOverDrafts={onTakeOverDrafts}
             onDeleteDraft={onDeleteDraft}
             onOpenRecord={onOpenRecord}
-            onSaveDailyChildPlan={onSaveDailyChildPlan}
-            onDeleteDailyChildPlan={onDeleteDailyChildPlan}
+            onOpenDailySchedule={(date) => {
+              setMonthlyScheduleDate(date);
+              setMonthlyScheduleReturn('operations');
+              setActivePanel('monthlySchedule');
+            }}
           />
         )}
 

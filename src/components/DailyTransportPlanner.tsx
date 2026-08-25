@@ -877,7 +877,9 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
   const dayPlans = useMemo(() => dailyChildPlans.filter((plan) => plan.date === date), [dailyChildPlans, date]);
   const dayPlansByChild = useMemo(() => new Map(dayPlans.map((plan) => [plan.childId, plan])), [dayPlans]);
   const activeChildIds = useMemo(() => new Set(childrenList.filter((child) => !child.serviceSuspended).map((child) => child.id)), [childrenList]);
-  const requirementByChild = useMemo(() => new Map(dailyTransportRequirements.filter((item) => activeChildIds.has(item.childId)).map((item) => [item.childId, item])), [activeChildIds, dailyTransportRequirements]);
+  const requirementByChild = useMemo(() => new Map(dailyTransportRequirements
+    .filter((item) => item.date === date && activeChildIds.has(item.childId))
+    .map((item) => [item.childId, item])), [activeChildIds, dailyTransportRequirements, date]);
   const scheduledChildren = useMemo(() => childrenList.filter((child) => {
     if (child.serviceSuspended) return false;
     const plan = dayPlansByChild.get(child.id);
