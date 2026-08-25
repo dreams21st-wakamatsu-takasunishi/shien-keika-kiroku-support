@@ -140,6 +140,7 @@ interface HomeScreenProps {
   onSaveAttendance: (record: AttendanceRecord) => Promise<void> | void;
   onSaveAttendanceRecords: (records: AttendanceRecord[]) => Promise<void> | void;
   onSaveStaffShiftRequest: (request: StaffShiftRequest) => Promise<void> | void;
+  onSaveShiftRequestDefaults: (recorderProfileId: string, startTime: string, endTime: string) => Promise<void> | void;
   onReviewStaffShiftRequest: (request: StaffShiftRequest, approved: boolean, note?: string) => Promise<void> | void;
   onPunchAttendance: (recorder: RecorderProfile, pin: string, action: '出勤' | '退勤' | '休憩開始' | '休憩終了') => Promise<void> | void;
   onRequestAttendanceCorrection: (record: AttendanceRecord, pin: string, clockIn: string | undefined, clockOut: string | undefined, reason: string) => Promise<void> | void;
@@ -157,6 +158,7 @@ interface HomeScreenProps {
   onSaveTransportMapLocation: (location: TransportMapLocation) => Promise<void> | void;
   onSaveTransportAreaZone: (zone: TransportAreaZone) => Promise<void> | void;
   onDeleteTransportAreaZone: (zoneId: string) => Promise<void> | void;
+  onSaveSchool: (school: SchoolProfile) => Promise<void> | void;
   onUpdateTransportStatus: (run: TransportRun, recorder: RecorderProfile, pin: string, status: TransportRunStatus) => Promise<void> | void;
 }
 
@@ -261,6 +263,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onSaveAttendance,
   onSaveAttendanceRecords,
   onSaveStaffShiftRequest,
+  onSaveShiftRequestDefaults,
   onReviewStaffShiftRequest,
   onPunchAttendance,
   onRequestAttendanceCorrection,
@@ -278,6 +281,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onSaveTransportMapLocation,
   onSaveTransportAreaZone,
   onDeleteTransportAreaZone,
+  onSaveSchool,
   onUpdateTransportStatus,
 }) => {
   const [communicationView, setCommunicationView] = useState<CommunicationView>('announcements');
@@ -293,6 +297,18 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   }, [announcementFocusToken]);
 
   const today = getLocalDateString();
+  const nextSchoolScheduleMonth = useMemo(() => {
+    const base = new Date(`${today}T12:00:00`);
+    base.setMonth(base.getMonth() + 1, 1);
+    return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}`;
+  }, [today]);
+  const schoolScheduleAlertActive = Number(today.slice(8, 10)) >= 20;
+  const missingSchoolScheduleConfirmations = useMemo(() => {
+    if (!schoolScheduleAlertActive) return [];
+    const usedSchoolIds = new Set(childrenList.filter((child) => !child.serviceSuspended && child.schoolId).map((child) => child.schoolId));
+    return schools.filter((school) => school.active && usedSchoolIds.has(school.id)
+      && !(school.dismissalScheduleConfirmations || []).some((confirmation) => confirmation.targetMonth === nextSchoolScheduleMonth));
+  }, [childrenList, nextSchoolScheduleMonth, schoolScheduleAlertActive, schools]);
   const todayRecords = records.filter((record) => record.date === today);
   const unapproved = records.filter((record) => record.approvalStatus === '未確認');
   const openHandovers = handoverItems.filter((item) => item.status !== '完了').length;
@@ -366,7 +382,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0], [activeRecorder, currentUser, drafts]);
 
   return (
-    <div className="max-w-6xl mx-auto space-y-4">
+    <div className="mx-auto max-w-[1800px] space-y-4">
       {activePanel === 'menu' ? (
         <>
           <section className="rounded-2xl bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 p-4 text-white shadow-lg sm:p-5">
@@ -425,6 +441,18 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 {drafts.length > 0 && <AttentionButton label={`入力中 ${drafts.length}件`} onClick={() => setActivePanel('operations')} />}
                 {unapproved.length > 0 && <AttentionButton label={`未確認記録 ${unapproved.length}件`} onClick={() => onNavigate('records')} />}
                 {openHandovers > 0 && <AttentionButton label={`未完了の申し送り ${openHandovers}件`} onClick={() => { setCommunicationView('handover'); setActivePanel('communication'); }} />}
+              </div>
+            </section>
+          )}
+
+          {missingSchoolScheduleConfirmations.length > 0 && (
+            <section className="rounded-2xl border-2 border-amber-300 bg-amber-50 p-4 shadow-sm" aria-label="下校時刻表の確認アラート">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-amber-200 text-amber-900"><AlertTriangle className="h-5 w-5" /></span>
+                  <div><h3 className="text-sm font-black text-amber-950">{nextSchoolScheduleMonth.replace('-', '年')}月の下校時刻表が未確認です</h3><p className="mt-1 text-xs leading-relaxed text-amber-900">未確認：{missingSchoolScheduleConfirmations.map((school) => school.name).join('、')}。学校から配布された下校時刻・行事を確認後、利用予定／送迎管理で確認済みにしてください。</p></div>
+                </div>
+                <button type="button" onClick={() => { setMonthlyScheduleDate(`${nextSchoolScheduleMonth}-01`); setMonthlyScheduleReturn('menu'); setActivePanel('monthlySchedule'); }} className="min-h-11 shrink-0 rounded-xl bg-amber-900 px-4 text-sm font-black text-white">確認画面を開く</button>
               </div>
             </section>
           )}
@@ -493,7 +521,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           />
         )}
 
-        {activePanel === 'attendance' && <AttendanceHomePanel records={attendanceRecords} shiftTemplates={staffShiftTemplates} shiftRequests={staffShiftRequests} corrections={attendanceCorrections} recorderProfiles={recorderProfiles} activeRecorder={activeRecorder} canManageShifts={canManageShifts} canApproveCorrections={!organizationId || currentUser?.role === 'admin'} qrKioskEnabled={Boolean(organizationId)} onSaveRecord={onSaveAttendance} onSaveRecords={onSaveAttendanceRecords} onSaveShiftRequest={onSaveStaffShiftRequest} onReviewShiftRequest={onReviewStaffShiftRequest} onPunch={onPunchAttendance} onRequestCorrection={onRequestAttendanceCorrection} onReviewCorrection={onReviewAttendanceCorrection} />}
+        {activePanel === 'attendance' && <AttendanceHomePanel records={attendanceRecords} shiftTemplates={staffShiftTemplates} shiftRequests={staffShiftRequests} corrections={attendanceCorrections} recorderProfiles={recorderProfiles} activeRecorder={activeRecorder} canManageShifts={canManageShifts} canApproveCorrections={!organizationId || currentUser?.role === 'admin'} qrKioskEnabled={Boolean(organizationId)} calendarEvents={calendarEvents} childrenList={childrenList} dailyChildPlans={dailyChildPlans} dailyTransportRequirements={dailyTransportRequirements} transportRuns={transportRuns} onSaveRecord={onSaveAttendance} onSaveRecords={onSaveAttendanceRecords} onSaveShiftRequest={onSaveStaffShiftRequest} onSaveShiftRequestDefaults={onSaveShiftRequestDefaults} onReviewShiftRequest={onReviewStaffShiftRequest} onPunch={onPunchAttendance} onRequestCorrection={onRequestAttendanceCorrection} onReviewCorrection={onReviewAttendanceCorrection} />}
 
         {activePanel === 'calendar' && <CalendarPanel events={calendarEvents} recorderProfiles={recorderProfiles} childrenList={childrenList} selectedDate={todayWorkLaunch.date} onDateChange={(date) => setTodayWorkLaunch({ date })} canEdit={canManageCalendar} onSave={onSaveCalendarEvent} onDelete={onDeleteCalendarEvent} />}
 
@@ -517,6 +545,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             onSaveRequirements={onSaveDailyTransportRequirements}
             onReplaceMonthRequirements={onReplaceMonthlyTransportRequirements}
             onReplaceChildMonthRequirements={onReplaceChildMonthlyTransportRequirements}
+            activeRecorder={activeRecorder}
+            onSaveSchool={onSaveSchool}
             onOpenDispatch={(date) => {
               setDispatchDate(date);
               setActivePanel('dispatch');

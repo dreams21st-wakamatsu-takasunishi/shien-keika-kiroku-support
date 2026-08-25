@@ -106,6 +106,7 @@ import {
   saveStaffScheduleItem,
   saveRolePermission,
   saveStaffShiftRequest,
+  saveShiftRequestDefaults,
   saveStaffShiftTemplate,
   saveAiWritingSettings,
   saveAnnouncement,
@@ -1397,6 +1398,19 @@ export default function App() {
     } catch (error) { persistError(error); throw error; }
   };
 
+  const handleSaveShiftRequestDefaults = async (recorderProfileId: string, startTime: string, endTime: string) => {
+    if (activeRecorder?.id !== recorderProfileId && !canManageShifts) throw new Error('自分の希望時間のみ変更できます。');
+    try {
+      if (organizationId) await saveShiftRequestDefaults(recorderProfileId, startTime, endTime);
+      setRecorderProfiles((previous) => previous.map((profile) => profile.id === recorderProfileId
+        ? { ...profile, shiftRequestDefaultStartTime: startTime, shiftRequestDefaultEndTime: endTime }
+        : profile));
+    } catch (error) {
+      persistError(error);
+      throw error;
+    }
+  };
+
   const handleReviewStaffShiftRequest = async (request: StaffShiftRequest, approved: boolean, note?: string) => {
     if (!canManageShifts) throw new Error('シフト希望を確認する権限がありません。');
     const now = new Date().toISOString();
@@ -2136,7 +2150,7 @@ export default function App() {
         </div>
       )}
 
-      <main className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 pt-3 sm:pt-6">
+      <main className="mx-auto max-w-[1800px] px-3 pt-3 sm:px-6 sm:pt-6 lg:px-8">
         {(!online || !remoteMode || pendingSyncs.length > 0) && (
         <div className={`mb-3 rounded-xl border px-3 py-2 text-[11px] sm:mb-4 sm:px-4 sm:text-xs ${
           !online
@@ -2251,6 +2265,7 @@ export default function App() {
             onSaveAttendance={handleSaveAttendance}
             onSaveAttendanceRecords={handleSaveAttendanceRecords}
             onSaveStaffShiftRequest={handleSaveStaffShiftRequest}
+            onSaveShiftRequestDefaults={handleSaveShiftRequestDefaults}
             onReviewStaffShiftRequest={handleReviewStaffShiftRequest}
             onPunchAttendance={handlePunchAttendance}
             onRequestAttendanceCorrection={handleRequestAttendanceCorrection}
@@ -2268,6 +2283,7 @@ export default function App() {
             onSaveTransportMapLocation={handleSaveTransportMapLocation}
             onSaveTransportAreaZone={handleSaveTransportAreaZone}
             onDeleteTransportAreaZone={handleDeleteTransportAreaZone}
+            onSaveSchool={handleSaveSchool}
             onUpdateTransportStatus={handleUpdateTransportStatus}
           />
         )}

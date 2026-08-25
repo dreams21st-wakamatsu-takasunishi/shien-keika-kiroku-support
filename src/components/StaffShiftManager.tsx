@@ -9,15 +9,27 @@ import {
 import type {
   AttendanceRecord,
   AttendanceStatus,
+  CalendarEvent,
+  ChildProfile,
+  DailyChildPlan,
+  DailyTransportRequirement,
   RecorderProfile,
   StaffEmploymentType,
+  StaffShiftRequest,
   StaffShiftTemplate,
+  TransportRun,
 } from '../types';
 
 interface StaffShiftManagerProps {
   templates: StaffShiftTemplate[];
   records: AttendanceRecord[];
   recorderProfiles: RecorderProfile[];
+  shiftRequests?: StaffShiftRequest[];
+  calendarEvents?: CalendarEvent[];
+  childrenList?: ChildProfile[];
+  dailyChildPlans?: DailyChildPlan[];
+  dailyTransportRequirements?: DailyTransportRequirement[];
+  transportRuns?: TransportRun[];
   selectedDate: string;
   onSaveRecords: (records: AttendanceRecord[]) => Promise<void> | void;
 }
@@ -44,6 +56,12 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
   templates,
   records,
   recorderProfiles,
+  shiftRequests = [],
+  calendarEvents = [],
+  childrenList = [],
+  dailyChildPlans = [],
+  dailyTransportRequirements = [],
+  transportRuns = [],
   selectedDate,
   onSaveRecords,
 }) => {
@@ -99,6 +117,20 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
     () => records.filter((record) => record.date === dayDate),
     [dayDate, records],
   );
+  const monthRequests = useMemo(() => shiftRequests.filter((request) => request.requestedDate.startsWith(month) && request.status !== '却下'), [month, shiftRequests]);
+  const dayRequests = useMemo(() => shiftRequests.filter((request) => request.requestedDate === dayDate && request.status !== '却下'), [dayDate, shiftRequests]);
+  const dayEvents = useMemo(() => calendarEvents.filter((event) => event.date <= dayDate && (event.endDate || event.date) >= dayDate && !event.allDay && event.startTime && event.endTime), [calendarEvents, dayDate]);
+  const childTimelineRows = useMemo(() => {
+    const childIds = new Set<string>();
+    dailyChildPlans.filter((plan) => plan.date === dayDate && plan.attendancePlan !== '欠席').forEach((plan) => childIds.add(plan.childId));
+    dailyTransportRequirements.filter((item) => item.date === dayDate).forEach((item) => childIds.add(item.childId));
+    return [...childIds].map((childId) => ({
+      child: childrenList.find((child) => child.id === childId),
+      plan: dailyChildPlans.find((plan) => plan.date === dayDate && plan.childId === childId),
+      requirement: dailyTransportRequirements.find((item) => item.date === dayDate && item.childId === childId),
+    })).filter((row) => row.child).sort((left, right) => (left.child?.name || '').localeCompare(right.child?.name || '', 'ja'));
+  }, [childrenList, dailyChildPlans, dailyTransportRequirements, dayDate]);
+  const dayRuns = useMemo(() => transportRuns.filter((run) => run.date === dayDate), [dayDate, transportRuns]);
   const selectedTemplate = templates.find((template) => template.id === selectedTemplateId);
   const partTimePattern = selectedTemplateId === PART_TIME_WEEKDAY_DEFAULT
     ? 'weekday'
@@ -383,8 +415,9 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
                 <div className="min-w-0 px-2 py-2"><strong className="block truncate text-[11px] text-slate-950">{profile.displayName}</strong><span className="text-[9px] text-slate-500">{profile.employmentType === 'part_time' ? 'パート' : '正職'}・{profileRecords.filter((record) => !NO_TIME_STATUSES.includes(record.status)).length}日</span></div>
                 {dates.map((date) => {
                   const record = profileRecords.find((candidate) => candidate.date === date);
+                  const request = monthRequests.find((candidate) => candidate.recorderProfileId === profile.id && candidate.requestedDate === date);
                   const locked = isClockedRecord(record);
-                  return <button key={date} type="button" onClick={() => openDay(profile, date)} className={`min-h-11 border-l border-slate-200 text-[10px] font-black ${cellTone(record)} ${locked ? 'ring-1 ring-inset ring-slate-500' : ''}`} title={record ? `${record.status} ${record.scheduledStartTime || ''}〜${record.scheduledEndTime || ''}` : '未登録'}>{monthCellLabel(record)}</button>;
+                  return <button key={date} type="button" onClick={() => openDay(profile, date)} className={`relative min-h-11 border-l border-slate-200 text-[10px] font-black ${cellTone(record)} ${locked ? 'ring-1 ring-inset ring-slate-500' : ''} ${request ? 'ring-2 ring-inset ring-violet-400' : ''}`} title={[record ? `${record.status} ${record.scheduledStartTime || ''}〜${record.scheduledEndTime || ''}` : '未登録', request ? `希望 ${request.requestedStartTime || ''}〜${request.requestedEndTime || ''}（${request.status}）` : ''].filter(Boolean).join('／')}>{record ? monthCellLabel(record) : request ? '希' : '－'}{request && record && <span className="absolute bottom-0.5 right-0.5 h-1.5 w-1.5 rounded-full bg-violet-600" />}</button>;
                 })}
                 <div className="flex items-center justify-center border-l border-slate-300 text-xs font-black text-slate-700">{leaveDays}</div>
               </div>;
@@ -393,12 +426,27 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
         </div>}
 
         {viewMode === 'day' && <div className="overflow-x-auto rounded-xl border border-slate-300 bg-white shadow-sm">
-          <div className="min-w-[760px]">
-            <div className="grid border-b border-slate-300 bg-slate-100" style={{ gridTemplateColumns: '150px minmax(600px, 1fr)' }}><div className="px-3 py-2 text-[10px] font-black text-slate-700">職員</div><div className="grid grid-cols-[repeat(15,minmax(0,1fr))]">{Array.from({ length: 15 }, (_, index) => <span key={index} className="border-l border-slate-300 py-2 text-center text-[9px] font-black text-slate-600">{7 + index}</span>)}</div></div>
+          <div className="min-w-[900px]">
+            <div className="grid border-b border-slate-300 bg-slate-100" style={{ gridTemplateColumns: '170px minmax(700px, 1fr)' }}>
+              <div className="px-3 py-2 text-[10px] font-black text-slate-700">職員・運営情報</div>
+              <TimelineHeader />
+            </div>
             {visibleProfiles.map((profile) => {
               const record = dayRecords.find((candidate) => candidate.recorderProfileId === profile.id);
+              const request = dayRequests.find((candidate) => candidate.recorderProfileId === profile.id);
+              const profileEvents = profile.employmentType !== 'part_time' ? dayEvents.filter((event) => event.recorderProfileIds.includes(profile.id)) : [];
               const bar = ganttBarStyle(record);
-              return <button key={profile.id} type="button" onClick={() => openDay(profile, dayDate)} className="grid w-full border-b border-slate-200 text-left last:border-b-0 hover:bg-indigo-50/40" style={{ gridTemplateColumns: '150px minmax(600px, 1fr)' }}><span className="px-3 py-3"><strong className="block truncate text-xs text-slate-950">{profile.displayName}</strong><span className="text-[9px] text-slate-500">{profile.employmentType === 'part_time' ? 'パート' : '正職'}</span></span><span className="relative min-h-14 overflow-hidden bg-[repeating-linear-gradient(to_right,transparent_0,transparent_calc(7.142857%-1px),rgb(226_232_240)_calc(7.142857%-1px),rgb(226_232_240)_7.142857%)]">{bar ? <span className={`absolute top-2 flex h-10 items-center overflow-hidden rounded-lg px-2 text-[10px] font-black shadow-sm ${cellTone(record)}`} style={bar}>{record?.scheduledStartTime}〜{record?.scheduledEndTime}</span> : record ? <span className={`absolute inset-x-2 top-2 flex h-10 items-center justify-center rounded-lg text-[10px] font-black ${cellTone(record)}`}>{cellLabel(record)}</span> : <span className="absolute inset-0 grid place-items-center text-[10px] text-slate-300">未登録</span>}</span></button>;
+              return <div key={profile.id} className="grid border-b border-slate-200 text-left hover:bg-indigo-50/40" style={{ gridTemplateColumns: '170px minmax(700px, 1fr)' }}><button type="button" onClick={() => openDay(profile, dayDate)} className="px-3 py-3 text-left"><strong className="block truncate text-xs text-slate-950">{profile.displayName}</strong><span className="text-[9px] text-slate-500">{profile.employmentType === 'part_time' ? 'パート' : '正職'}{request ? `・希望${request.status}` : ''}</span></button><div className="relative min-h-16 overflow-hidden" style={timelineGridStyle()}>{bar ? <span className={`absolute top-2 flex h-8 items-center overflow-hidden rounded-lg px-2 text-[10px] font-black shadow-sm ${cellTone(record)}`} style={bar}>{record?.scheduledStartTime}〜{record?.scheduledEndTime}</span> : record ? <span className={`absolute inset-x-2 top-2 flex h-8 items-center justify-center rounded-lg text-[10px] font-black ${cellTone(record)}`}>{cellLabel(record)}</span> : <span className="absolute left-2 top-3 text-[10px] text-slate-300">未登録</span>}{request?.requestedStartTime && request.requestedEndTime && <span className="absolute bottom-1.5 h-2 rounded-full bg-violet-500" style={timeRangeBarStyle(request.requestedStartTime, request.requestedEndTime)} title={`シフト希望 ${request.requestedStartTime}〜${request.requestedEndTime}`} />}{profileEvents.map((event) => <span key={event.id} className="absolute bottom-1 h-3 overflow-hidden rounded-sm bg-amber-400 px-1 text-[8px] font-black text-amber-950" style={timeRangeBarStyle(event.startTime!, event.endTime!)} title={`${event.title} ${event.startTime}〜${event.endTime}`}>{event.title}</span>)}</div></div>;
+            })}
+            {dayRuns.length > 0 && <div className="border-y border-sky-200 bg-sky-50 px-3 py-1 text-[9px] font-black text-sky-800">送迎便</div>}
+            {dayRuns.map((run) => <div key={run.id} className="grid border-b border-sky-100 bg-sky-50/30" style={{ gridTemplateColumns: '170px minmax(700px, 1fr)' }}><div className="px-3 py-2"><strong className="block truncate text-[11px] text-slate-900">{run.name}</strong><span className="text-[9px] text-slate-500">{run.direction}・{run.driverName || '担当未定'}</span></div><div className="relative min-h-11" style={timelineGridStyle()}><span className="absolute top-2 flex h-7 items-center overflow-hidden rounded-md bg-sky-500 px-2 text-[9px] font-black text-white" style={timeRangeBarStyle(run.startTime, run.endTime)}>{run.startTime}〜{run.endTime}</span></div></div>)}
+            {childTimelineRows.length > 0 && <div className="border-y border-teal-200 bg-teal-50 px-3 py-1 text-[9px] font-black text-teal-800">児童の下校・送迎・在所見込み</div>}
+            {childTimelineRows.map(({ child, plan, requirement }) => {
+              if (!child) return null;
+              const dismissal = plan?.schoolEndTime || requirement?.pickupTargetTime;
+              const arrival = plan?.arrivalTime || requirement?.pickupPlannedTime || (requirement?.pickupTimeMode !== 'fixed' ? requirement?.pickupTargetTime : undefined);
+              const departure = plan?.departureTime || requirement?.dropoffTargetTime;
+              return <div key={child.id} className="grid border-b border-teal-100" style={{ gridTemplateColumns: '170px minmax(700px, 1fr)' }}><div className="px-3 py-2"><strong className="block truncate text-[11px] text-slate-900">{child.name}</strong><span className="text-[9px] text-slate-500">下校 {dismissal || '未設定'}・退所 {departure || '未設定'}</span></div><div className="relative min-h-11" style={timelineGridStyle()}>{arrival && departure && <span className="absolute top-2 flex h-7 items-center overflow-hidden rounded-md bg-teal-100 px-2 text-[9px] font-black text-teal-900" style={timeRangeBarStyle(arrival, departure)} title={`在所見込み ${arrival}〜${departure}`}>在所 {arrival}〜{departure}</span>}{dismissal && <span className="absolute top-0 h-full w-0.5 bg-indigo-600" style={{ left: timePointPosition(dismissal) }} title={`下校・迎え ${dismissal}`}><span className="absolute left-1 top-0 whitespace-nowrap text-[8px] font-black text-indigo-700">下校 {dismissal}</span></span>}</div></div>;
             })}
           </div>
         </div>}
@@ -481,19 +529,45 @@ function monthCellLabel(record?: AttendanceRecord) {
   return '○';
 }
 
+const TIMELINE_START_MINUTES = 7 * 60;
+const TIMELINE_END_MINUTES = 21 * 60;
+const TIMELINE_TOTAL_MINUTES = TIMELINE_END_MINUTES - TIMELINE_START_MINUTES;
+
+const TimelineHeader = () => <div className="relative h-9" style={timelineGridStyle()}>{Array.from({ length: 15 }, (_, index) => {
+  const position = (index / 14) * 100;
+  return <span key={index} className="absolute top-2 text-[9px] font-black text-slate-600" style={{ left: `${position}%`, transform: index === 0 ? 'none' : index === 14 ? 'translateX(-100%)' : 'translateX(-50%)' }}>{7 + index}</span>;
+})}</div>;
+
+function timelineGridStyle(): React.CSSProperties {
+  return {
+    backgroundImage: 'linear-gradient(to right, rgb(203 213 225) 1px, transparent 1px)',
+    backgroundSize: `${100 / 14}% 100%`,
+    backgroundPosition: '0 0',
+  };
+}
+
+function toTimelineMinutes(value: string) {
+  const [hours, minutes] = value.slice(0, 5).split(':').map(Number);
+  return hours * 60 + minutes;
+}
+
+function timePointPosition(value: string) {
+  const minutes = Math.max(TIMELINE_START_MINUTES, Math.min(TIMELINE_END_MINUTES, toTimelineMinutes(value)));
+  return `${((minutes - TIMELINE_START_MINUTES) / TIMELINE_TOTAL_MINUTES) * 100}%`;
+}
+
+function timeRangeBarStyle(startValue: string, endValue: string): React.CSSProperties {
+  const start = Math.max(TIMELINE_START_MINUTES, Math.min(TIMELINE_END_MINUTES, toTimelineMinutes(startValue)));
+  const end = Math.max(start, Math.min(TIMELINE_END_MINUTES, toTimelineMinutes(endValue)));
+  return {
+    left: `${((start - TIMELINE_START_MINUTES) / TIMELINE_TOTAL_MINUTES) * 100}%`,
+    width: `${Math.max(1.5, ((end - start) / TIMELINE_TOTAL_MINUTES) * 100)}%`,
+  };
+}
+
 function ganttBarStyle(record?: AttendanceRecord): React.CSSProperties | undefined {
   if (!record?.scheduledStartTime || !record.scheduledEndTime || NO_TIME_STATUSES.includes(record.status)) return undefined;
-  const toMinutes = (value: string) => {
-    const [hours, minutes] = value.split(':').map(Number);
-    return hours * 60 + minutes;
-  };
-  const start = Math.max(7 * 60, Math.min(21 * 60, toMinutes(record.scheduledStartTime)));
-  const end = Math.max(start, Math.min(21 * 60, toMinutes(record.scheduledEndTime)));
-  const total = 14 * 60;
-  return {
-    left: `${((start - 7 * 60) / total) * 100}%`,
-    width: `${Math.max(1.5, ((end - start) / total) * 100)}%`,
-  };
+  return timeRangeBarStyle(record.scheduledStartTime, record.scheduledEndTime);
 }
 
 function cellLabel(record?: AttendanceRecord) {

@@ -45,6 +45,7 @@ interface AttendancePanelProps {
     reason: string,
   ) => Promise<void> | void;
   onReviewCorrection: (request: AttendanceCorrectionRequest, approved: boolean, note?: string) => Promise<void> | void;
+  showShiftManager?: boolean;
 }
 
 interface ScheduleForm {
@@ -74,6 +75,7 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
   onPunch,
   onRequestCorrection,
   onReviewCorrection,
+  showShiftManager = true,
 }) => {
   const activeRecorders = useMemo(() => recorderProfiles.filter((profile) => profile.active), [recorderProfiles]);
   const [selectedRecorderId, setSelectedRecorderId] = useState(activeRecorder?.id || activeRecorders[0]?.id || '');
@@ -226,7 +228,7 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
 
   return (
     <div className="space-y-4">
-      {canManageShifts && (
+      {showShiftManager && canManageShifts && (
         <StaffShiftManager
           templates={shiftTemplates}
           records={records}

@@ -1,14 +1,16 @@
-import React, { useMemo, useState } from 'react';
-import { CalendarClock, Check, Clock3, Send, X } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { CalendarClock, Check, ChevronLeft, ChevronRight, Clock3, Save, Send, Settings2, UsersRound, X } from 'lucide-react';
 import type {
-  AttendanceCorrectionRequest,
-  AttendanceRecord,
-  RecorderProfile,
-  StaffShiftRequest,
-  StaffShiftTemplate,
+  AttendanceCorrectionRequest, AttendanceRecord, CalendarEvent, ChildProfile,
+  DailyChildPlan, DailyTransportRequirement, RecorderProfile, StaffShiftRequest,
+  StaffShiftTemplate, TransportRun,
 } from '../types';
 import { getLocalDateString } from '../utils/weekdays';
 import { AttendancePanel } from './AttendancePanel';
+import { StaffShiftManager } from './StaffShiftManager';
+
+type AttendanceTab = 'overview' | 'request' | 'planning' | 'attendance';
+type RequestDraft = { date: string; startTime: string; endTime: string; note: string };
 
 interface AttendanceHomePanelProps {
   records: AttendanceRecord[];
@@ -20,110 +22,145 @@ interface AttendanceHomePanelProps {
   canManageShifts: boolean;
   canApproveCorrections: boolean;
   qrKioskEnabled: boolean;
+  calendarEvents: CalendarEvent[];
+  childrenList: ChildProfile[];
+  dailyChildPlans: DailyChildPlan[];
+  dailyTransportRequirements: DailyTransportRequirement[];
+  transportRuns: TransportRun[];
   onSaveRecord: (record: AttendanceRecord) => Promise<void> | void;
   onSaveRecords: (records: AttendanceRecord[]) => Promise<void> | void;
   onSaveShiftRequest: (request: StaffShiftRequest) => Promise<void> | void;
+  onSaveShiftRequestDefaults: (recorderProfileId: string, startTime: string, endTime: string) => Promise<void> | void;
   onReviewShiftRequest: (request: StaffShiftRequest, approved: boolean, note?: string) => Promise<void> | void;
   onPunch: (recorder: RecorderProfile, pin: string, action: '出勤' | '退勤' | '休憩開始' | '休憩終了') => Promise<void> | void;
   onRequestCorrection: (record: AttendanceRecord, pin: string, clockIn: string | undefined, clockOut: string | undefined, reason: string) => Promise<void> | void;
   onReviewCorrection: (request: AttendanceCorrectionRequest, approved: boolean, note?: string) => Promise<void> | void;
 }
 
+const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
+
 export const AttendanceHomePanel: React.FC<AttendanceHomePanelProps> = ({
-  records,
-  shiftTemplates,
-  shiftRequests,
-  corrections,
-  recorderProfiles,
-  activeRecorder,
-  canManageShifts,
-  canApproveCorrections,
-  qrKioskEnabled,
-  onSaveRecord,
-  onSaveRecords,
-  onSaveShiftRequest,
-  onReviewShiftRequest,
-  onPunch,
-  onRequestCorrection,
-  onReviewCorrection,
+  records, shiftTemplates, shiftRequests, corrections, recorderProfiles, activeRecorder,
+  canManageShifts, canApproveCorrections, qrKioskEnabled, calendarEvents, childrenList,
+  dailyChildPlans, dailyTransportRequirements, transportRuns, onSaveRecord, onSaveRecords,
+  onSaveShiftRequest, onSaveShiftRequestDefaults, onReviewShiftRequest, onPunch,
+  onRequestCorrection, onReviewCorrection,
 }) => {
   const today = getLocalDateString();
+  const [activeTab, setActiveTab] = useState<AttendanceTab>('overview');
   const [selectedDate, setSelectedDate] = useState(today);
-  const [requestDate, setRequestDate] = useState(today);
-  const [requestStart, setRequestStart] = useState(activeRecorder?.partTimeWeekdayStartTime || '09:00');
-  const [requestEnd, setRequestEnd] = useState(activeRecorder?.partTimeWeekdayEndTime || '18:00');
-  const [requestNote, setRequestNote] = useState('');
+  const [requestMonth, setRequestMonth] = useState(today.slice(0, 7));
+  const [requestDrafts, setRequestDrafts] = useState<RequestDraft[]>([]);
+  const [defaultStart, setDefaultStart] = useState(activeRecorder?.shiftRequestDefaultStartTime || activeRecorder?.partTimeWeekdayStartTime || '09:00');
+  const [defaultEnd, setDefaultEnd] = useState(activeRecorder?.shiftRequestDefaultEndTime || activeRecorder?.partTimeWeekdayEndTime || '18:00');
   const [message, setMessage] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setDefaultStart(activeRecorder?.shiftRequestDefaultStartTime || activeRecorder?.partTimeWeekdayStartTime || '09:00');
+    setDefaultEnd(activeRecorder?.shiftRequestDefaultEndTime || activeRecorder?.partTimeWeekdayEndTime || '18:00');
+    setRequestDrafts([]);
+  }, [activeRecorder?.id, activeRecorder?.partTimeWeekdayEndTime, activeRecorder?.partTimeWeekdayStartTime, activeRecorder?.shiftRequestDefaultEndTime, activeRecorder?.shiftRequestDefaultStartTime]);
+
   const ownSchedule = useMemo(() => records
     .filter((record) => record.recorderProfileId === activeRecorder?.id && record.date >= today)
-    .sort((left, right) => left.date.localeCompare(right.date))
-    .slice(0, 14), [activeRecorder?.id, records, today]);
-  const ownRequests = shiftRequests.filter((request) => request.recorderProfileId === activeRecorder?.id).slice(0, 8);
-  const pendingRequests = shiftRequests.filter((request) => request.status === '申請中');
+    .sort((left, right) => left.date.localeCompare(right.date)).slice(0, 14), [activeRecorder?.id, records, today]);
+  const ownRequests = useMemo(() => shiftRequests.filter((request) => request.recorderProfileId === activeRecorder?.id)
+    .sort((left, right) => right.requestedDate.localeCompare(left.requestedDate)).slice(0, 12), [activeRecorder?.id, shiftRequests]);
+  const pendingRequests = useMemo(() => shiftRequests.filter((request) => request.status === '申請中'), [shiftRequests]);
   const isPartTime = activeRecorder?.employmentType === 'part_time';
+  const requestDates = useMemo(() => getMonthDates(requestMonth), [requestMonth]);
+  const firstWeekday = new Date(`${requestMonth}-01T12:00:00`).getDay();
 
-  const submitRequest = async () => {
-    if (!activeRecorder) return setMessage('職員名簿との紐づけを確認してください。');
-    if (!requestDate) return setMessage('希望日を選択してください。');
-    if (requestStart >= requestEnd) return setMessage('終了時刻は開始時刻より後にしてください。');
-    const existingRequest = shiftRequests.find((request) => request.recorderProfileId === activeRecorder.id && request.requestedDate === requestDate);
-    if (existingRequest) return setMessage(`${requestDate}の希望は「${existingRequest.status}」で登録済みです。変更が必要な場合はシフト管理者へ連絡してください。`);
-    const now = new Date().toISOString();
-    try {
-      await onSaveShiftRequest({
-        id: typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `shift-request-${Date.now()}`,
-        recorderProfileId: activeRecorder.id,
-        recorderName: activeRecorder.displayName,
-        requestedDate: requestDate,
-        requestedStartTime: requestStart,
-        requestedEndTime: requestEnd,
-        note: requestNote.trim() || undefined,
-        status: '申請中',
-        createdAt: now,
-        updatedAt: now,
-      });
-      setRequestNote('');
-      setMessage('シフト希望を提出しました。');
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'シフト希望を提出できませんでした。');
-    }
+  const toggleRequestDate = (date: string) => {
+    const existing = shiftRequests.find((request) => request.recorderProfileId === activeRecorder?.id && request.requestedDate === date);
+    if (existing) return setMessage(`${date}は「${existing.status}」で提出済みです。`);
+    setRequestDrafts((previous) => previous.some((draft) => draft.date === date)
+      ? previous.filter((draft) => draft.date !== date)
+      : [...previous, { date, startTime: defaultStart, endTime: defaultEnd, note: '' }].sort((left, right) => left.date.localeCompare(right.date)));
+    setMessage('');
   };
 
+  const updateDraft = (date: string, patch: Partial<RequestDraft>) => setRequestDrafts((previous) => previous.map((draft) => draft.date === date ? { ...draft, ...patch } : draft));
+
+  const saveDefaults = async () => {
+    if (!activeRecorder) return setMessage('職員名簿との紐づけを確認してください。');
+    if (defaultStart >= defaultEnd) return setMessage('希望時間の終了は開始より後にしてください。');
+    setBusy(true);
+    try {
+      await onSaveShiftRequestDefaults(activeRecorder.id, defaultStart, defaultEnd);
+      setRequestDrafts((previous) => previous.map((draft) => ({ ...draft, startTime: defaultStart, endTime: defaultEnd })));
+      setMessage('希望時間の初期値を保存しました。');
+    } catch (error) { setMessage(error instanceof Error ? error.message : '希望時間を保存できませんでした。'); }
+    finally { setBusy(false); }
+  };
+
+  const submitRequests = async () => {
+    if (!activeRecorder) return setMessage('職員名簿との紐づけを確認してください。');
+    if (requestDrafts.length === 0) return setMessage('希望日をカレンダーから選択してください。');
+    const invalid = requestDrafts.find((draft) => !draft.startTime || !draft.endTime || draft.startTime >= draft.endTime);
+    if (invalid) return setMessage(`${invalid.date}の終了時刻は開始時刻より後にしてください。`);
+    setBusy(true);
+    try {
+      for (const [index, draft] of requestDrafts.entries()) {
+        const now = new Date().toISOString();
+        await onSaveShiftRequest({
+          id: globalThis.crypto?.randomUUID?.() || `shift-request-${Date.now()}-${index}`,
+          recorderProfileId: activeRecorder.id, recorderName: activeRecorder.displayName,
+          requestedDate: draft.date, requestedStartTime: draft.startTime, requestedEndTime: draft.endTime,
+          note: draft.note.trim() || undefined, status: '申請中', createdAt: now, updatedAt: now,
+        });
+      }
+      setMessage(`${requestDrafts.length}日分のシフト希望を提出しました。`);
+      setRequestDrafts([]);
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'シフト希望を提出できませんでした。'); }
+    finally { setBusy(false); }
+  };
+
+  const tabs: Array<{ id: AttendanceTab; label: string; icon: React.ComponentType<{ className?: string }>; badge?: number }> = [
+    { id: 'overview', label: '自分の予定', icon: CalendarClock },
+    ...(isPartTime ? [{ id: 'request' as const, label: '希望提出', icon: Send }] : []),
+    ...(canManageShifts ? [{ id: 'planning' as const, label: 'シフト作成', icon: UsersRound, badge: pendingRequests.length }] : []),
+    { id: 'attendance', label: '打刻・実績', icon: Clock3 },
+  ];
+
   return <div className="space-y-4">
-    <section className="rounded-2xl border border-teal-200 bg-white p-4 shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div><p className="text-[10px] font-black text-teal-700">ホーム</p><h2 className="mt-1 flex items-center gap-2 text-lg font-black text-slate-950"><CalendarClock className="h-5 w-5 text-teal-600" />自分の出勤予定</h2><p className="mt-1 text-xs text-slate-500">直近の勤務予定と申請状況を確認します。</p></div>
-        <input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} className="min-h-11 rounded-xl border border-slate-300 px-3 text-sm" />
-      </div>
-      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-        {ownSchedule.map((record) => <button key={record.id} type="button" onClick={() => setSelectedDate(record.date)} className={`rounded-xl border p-3 text-left ${record.date === selectedDate ? 'border-teal-500 bg-teal-50' : 'border-slate-200 bg-slate-50'}`}><span className="block text-xs font-black text-slate-900">{record.date}</span><span className="mt-1 block text-sm font-bold text-slate-700">{record.status}　{record.scheduledStartTime || '－'}〜{record.scheduledEndTime || '－'}</span></button>)}
-        {ownSchedule.length === 0 && <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">今後の出勤予定は未登録です。</p>}
-      </div>
-    </section>
-
-    {isPartTime && <section className="rounded-2xl border border-violet-200 bg-white p-4 shadow-sm">
-      <h3 className="flex items-center gap-2 font-black text-slate-950"><Send className="h-5 w-5 text-violet-600" />シフト希望を提出</h3>
-      <p className="mt-1 text-xs text-slate-500">希望日は管理者・児発管・教室長の確認後に出勤予定へ反映されます。</p>
-      <div className="mt-3 grid gap-2 sm:grid-cols-4">
-        <label className="text-xs font-bold">希望日<input type="date" value={requestDate} onChange={(event) => setRequestDate(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border px-3" /></label>
-        <label className="text-xs font-bold">開始<input type="time" value={requestStart} onChange={(event) => setRequestStart(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border px-3" /></label>
-        <label className="text-xs font-bold">終了<input type="time" value={requestEnd} onChange={(event) => setRequestEnd(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border px-3" /></label>
-        <button type="button" onClick={() => void submitRequest()} className="self-end min-h-11 rounded-xl bg-violet-600 px-4 text-sm font-black text-white">提出</button>
-      </div>
-      <label className="mt-2 block text-xs font-bold">備考<input value={requestNote} onChange={(event) => setRequestNote(event.target.value)} placeholder="時間帯の希望や連絡事項" className="mt-1 min-h-11 w-full rounded-xl border px-3" /></label>
-      {ownRequests.length > 0 && <div className="mt-3 flex flex-wrap gap-2">{ownRequests.map((request) => <span key={request.id} className="rounded-lg bg-slate-100 px-2.5 py-1.5 text-[11px] font-bold text-slate-700">{request.requestedDate} {request.requestedStartTime}〜{request.requestedEndTime}・{request.status}</span>)}</div>}
-    </section>}
-
-    {canManageShifts && pendingRequests.length > 0 && <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-      <h3 className="font-black text-amber-950">シフト希望の確認（{pendingRequests.length}件）</h3>
-      <div className="mt-3 space-y-2">{pendingRequests.map((request) => <div key={request.id} className="flex flex-col gap-2 rounded-xl bg-white p-3 sm:flex-row sm:items-center"><span className="min-w-0 flex-1"><strong className="block text-sm">{request.recorderName}</strong><span className="text-xs text-slate-600">{request.requestedDate} {request.requestedStartTime}〜{request.requestedEndTime}{request.note ? `／${request.note}` : ''}</span></span><div className="flex gap-2"><button type="button" onClick={() => void onReviewShiftRequest(request, true)} className="flex min-h-10 items-center gap-1 rounded-lg bg-teal-600 px-3 text-xs font-black text-white"><Check className="h-4 w-4" />承認</button><button type="button" onClick={() => void onReviewShiftRequest(request, false)} className="flex min-h-10 items-center gap-1 rounded-lg border border-rose-300 px-3 text-xs font-black text-rose-700"><X className="h-4 w-4" />却下</button></div></div>)}</div>
-    </section>}
+    <nav className={`grid gap-1 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm ${tabs.length >= 4 ? 'grid-cols-2 lg:grid-cols-4' : tabs.length === 3 ? 'grid-cols-3' : 'grid-cols-2'}`} aria-label="出勤予定の機能">
+      {tabs.map((tab) => <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} className={`flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 text-xs font-black transition-colors ${activeTab === tab.id ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}><tab.icon className="h-4 w-4" />{tab.label}{Boolean(tab.badge) && <span className="rounded-full bg-amber-300 px-1.5 py-0.5 text-[9px] text-amber-950">{tab.badge}</span>}</button>)}
+    </nav>
 
     {message && <p className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700">{message}</p>}
 
-    <section className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
-      <h3 className="mb-3 flex items-center gap-2 font-black text-slate-900"><Clock3 className="h-5 w-5 text-teal-600" />出退勤・勤務管理</h3>
-      <AttendancePanel records={records} shiftTemplates={shiftTemplates} corrections={corrections} recorderProfiles={recorderProfiles} selectedDate={selectedDate} activeRecorder={activeRecorder} canManage={canManageShifts} canApproveCorrections={canApproveCorrections} canManageShifts={canManageShifts} qrKioskEnabled={qrKioskEnabled} onSaveRecord={onSaveRecord} onSaveRecords={onSaveRecords} onPunch={onPunch} onRequestCorrection={onRequestCorrection} onReviewCorrection={onReviewCorrection} />
-    </section>
+    {activeTab === 'overview' && <section className="rounded-2xl border border-teal-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-[10px] font-black text-teal-700">出勤予定</p><h2 className="mt-1 flex items-center gap-2 text-lg font-black text-slate-950"><CalendarClock className="h-5 w-5 text-teal-600" />自分の予定</h2><p className="mt-1 text-xs text-slate-500">直近の勤務予定とシフト希望の状態を確認します。</p></div><input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} className="min-h-11 rounded-xl border border-slate-300 px-3 text-sm" /></div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">{ownSchedule.map((record) => <button key={record.id} type="button" onClick={() => setSelectedDate(record.date)} className={`rounded-xl border p-3 text-left ${record.date === selectedDate ? 'border-teal-500 bg-teal-50' : 'border-slate-200 bg-slate-50'}`}><span className="block text-xs font-black text-slate-900">{record.date}</span><span className="mt-1 block text-sm font-bold text-slate-700">{record.status}　{record.scheduledStartTime || '－'}〜{record.scheduledEndTime || '－'}</span></button>)}{ownSchedule.length === 0 && <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">今後の出勤予定は未登録です。</p>}</div>
+      {ownRequests.length > 0 && <div className="mt-4 border-t border-slate-100 pt-3"><p className="text-xs font-black text-slate-700">提出した希望</p><div className="mt-2 flex flex-wrap gap-2">{ownRequests.map((request) => <span key={request.id} className="rounded-lg bg-violet-50 px-2.5 py-1.5 text-[11px] font-bold text-violet-800">{request.requestedDate} {request.requestedStartTime}〜{request.requestedEndTime}・{request.status}</span>)}</div></div>}
+    </section>}
+
+    {activeTab === 'request' && isPartTime && <section className="rounded-2xl border border-violet-200 bg-white p-4 shadow-sm">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between"><div><h2 className="flex items-center gap-2 text-lg font-black text-slate-950"><Send className="h-5 w-5 text-violet-600" />複数日のシフト希望を提出</h2><p className="mt-1 text-xs text-slate-500">①カレンダーで日を選択し、②日ごとの時間・メモを確認してまとめて提出します。</p></div><div className="rounded-xl border border-violet-200 bg-violet-50 p-3"><p className="flex items-center gap-1 text-[10px] font-black text-violet-900"><Settings2 className="h-4 w-4" />自分の希望時間の初期値</p><div className="mt-2 flex flex-wrap items-end gap-2"><label className="text-[10px] font-bold">開始<input type="time" value={defaultStart} onChange={(event) => setDefaultStart(event.target.value)} className="mt-1 block min-h-10 rounded-lg border border-violet-200 bg-white px-2" /></label><label className="text-[10px] font-bold">終了<input type="time" value={defaultEnd} onChange={(event) => setDefaultEnd(event.target.value)} className="mt-1 block min-h-10 rounded-lg border border-violet-200 bg-white px-2" /></label><button type="button" disabled={busy} onClick={() => void saveDefaults()} className="flex min-h-10 items-center gap-1 rounded-lg bg-violet-700 px-3 text-[11px] font-black text-white"><Save className="h-4 w-4" />保存</button></div></div></div>
+      <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(420px,0.8fr)_minmax(520px,1.2fr)]">
+        <div className="rounded-xl border border-slate-200 p-3"><div className="flex items-center justify-between"><button type="button" onClick={() => setRequestMonth(moveMonth(requestMonth, -1))} className="grid h-10 w-10 place-items-center rounded-lg border"><ChevronLeft className="h-4 w-4" /></button><strong>{requestMonth.replace('-', '年')}月</strong><button type="button" onClick={() => setRequestMonth(moveMonth(requestMonth, 1))} className="grid h-10 w-10 place-items-center rounded-lg border"><ChevronRight className="h-4 w-4" /></button></div><div className="mt-3 grid grid-cols-7 gap-1 text-center text-[10px] font-black text-slate-400">{WEEKDAYS.map((day) => <span key={day}>{day}</span>)}</div><div className="mt-1 grid grid-cols-7 gap-1">{Array.from({ length: firstWeekday }, (_, index) => <span key={`blank-${index}`} />)}{requestDates.map((date) => { const selected = requestDrafts.some((draft) => draft.date === date); const existing = shiftRequests.find((request) => request.recorderProfileId === activeRecorder?.id && request.requestedDate === date); return <button key={date} type="button" onClick={() => toggleRequestDate(date)} className={`relative min-h-12 rounded-lg border text-xs font-black ${selected ? 'border-violet-600 bg-violet-600 text-white' : existing ? 'border-slate-200 bg-slate-100 text-slate-400' : 'border-slate-200 bg-white text-slate-700 hover:border-violet-300'}`}><span>{Number(date.slice(8))}</span>{existing && <span className="block text-[8px]">{existing.status}</span>}</button>; })}</div></div>
+        <div className="min-w-0"><div className="flex items-center justify-between"><h3 className="text-sm font-black text-slate-950">選択日（{requestDrafts.length}日）</h3><button type="button" onClick={() => setRequestDrafts([])} className="text-[10px] font-black text-slate-500">選択を解除</button></div>{requestDrafts.length === 0 ? <p className="mt-3 rounded-xl bg-slate-50 p-6 text-center text-sm text-slate-500">左のカレンダーから希望日を選択してください。</p> : <div className="mt-2 max-h-[430px] space-y-2 overflow-y-auto pr-1">{requestDrafts.map((draft) => <div key={draft.date} className="grid gap-2 rounded-xl border border-violet-100 bg-violet-50/40 p-3 sm:grid-cols-[120px_110px_110px_minmax(160px,1fr)_40px] sm:items-end"><strong className="pb-2 text-xs">{draft.date}</strong><label className="text-[9px] font-bold">開始<input type="time" value={draft.startTime} onChange={(event) => updateDraft(draft.date, { startTime: event.target.value })} className="mt-1 min-h-10 w-full rounded-lg border bg-white px-2 text-sm" /></label><label className="text-[9px] font-bold">終了<input type="time" value={draft.endTime} onChange={(event) => updateDraft(draft.date, { endTime: event.target.value })} className="mt-1 min-h-10 w-full rounded-lg border bg-white px-2 text-sm" /></label><label className="text-[9px] font-bold">メモ<input value={draft.note} onChange={(event) => updateDraft(draft.date, { note: event.target.value })} placeholder="この日だけの連絡事項" className="mt-1 min-h-10 w-full rounded-lg border bg-white px-2 text-sm" /></label><button type="button" onClick={() => toggleRequestDate(draft.date)} className="grid h-10 w-10 place-items-center rounded-lg border border-rose-200 bg-white text-rose-700"><X className="h-4 w-4" /></button></div>)}</div>}<button type="button" disabled={busy || requestDrafts.length === 0} onClick={() => void submitRequests()} className="mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-violet-700 font-black text-white disabled:opacity-40"><Send className="h-5 w-5" />選択した{requestDrafts.length}日分をまとめて提出</button></div>
+      </div>
+    </section>}
+
+    {activeTab === 'planning' && canManageShifts && <div className="space-y-4">
+      {pendingRequests.length > 0 && <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4"><h3 className="font-black text-amber-950">シフト希望の確認（{pendingRequests.length}件）</h3><div className="mt-3 grid gap-2 xl:grid-cols-2">{pendingRequests.map((request) => <div key={request.id} className="flex flex-col gap-2 rounded-xl bg-white p-3 sm:flex-row sm:items-center"><span className="min-w-0 flex-1"><strong className="block text-sm">{request.recorderName}</strong><span className="text-xs text-slate-600">{request.requestedDate} {request.requestedStartTime}〜{request.requestedEndTime}{request.note ? `／${request.note}` : ''}</span></span><div className="flex gap-2"><button type="button" onClick={() => void onReviewShiftRequest(request, true)} className="flex min-h-10 items-center gap-1 rounded-lg bg-teal-600 px-3 text-xs font-black text-white"><Check className="h-4 w-4" />承認</button><button type="button" onClick={() => void onReviewShiftRequest(request, false)} className="flex min-h-10 items-center gap-1 rounded-lg border border-rose-300 px-3 text-xs font-black text-rose-700"><X className="h-4 w-4" />却下</button></div></div>)}</div></section>}
+      <StaffShiftManager templates={shiftTemplates} records={records} shiftRequests={shiftRequests} recorderProfiles={recorderProfiles} selectedDate={selectedDate} calendarEvents={calendarEvents} childrenList={childrenList} dailyChildPlans={dailyChildPlans} dailyTransportRequirements={dailyTransportRequirements} transportRuns={transportRuns} onSaveRecords={onSaveRecords} />
+    </div>}
+
+    {activeTab === 'attendance' && <section className="rounded-2xl border border-slate-200 bg-slate-50 p-3"><h3 className="mb-3 flex items-center gap-2 font-black text-slate-900"><Clock3 className="h-5 w-5 text-teal-600" />出退勤・勤務実績</h3><AttendancePanel records={records} shiftTemplates={shiftTemplates} corrections={corrections} recorderProfiles={recorderProfiles} selectedDate={selectedDate} activeRecorder={activeRecorder} canManage={canManageShifts} canApproveCorrections={canApproveCorrections} canManageShifts={canManageShifts} qrKioskEnabled={qrKioskEnabled} showShiftManager={false} onSaveRecord={onSaveRecord} onSaveRecords={onSaveRecords} onPunch={onPunch} onRequestCorrection={onRequestCorrection} onReviewCorrection={onReviewCorrection} /></section>}
   </div>;
 };
+
+function getMonthDates(month: string) {
+  const [year, monthNumber] = month.split('-').map(Number);
+  return Array.from({ length: new Date(year, monthNumber, 0).getDate() }, (_, index) => `${month}-${String(index + 1).padStart(2, '0')}`);
+}
+
+function moveMonth(month: string, amount: number) {
+  const [year, monthNumber] = month.split('-').map(Number);
+  const date = new Date(year, monthNumber - 1 + amount, 1);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}

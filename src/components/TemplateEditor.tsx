@@ -573,7 +573,7 @@ export const TemplateEditor: React.FC<TemplateEditorProps> = ({
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="mx-auto max-w-[1600px] space-y-6">
       {feedback && (
         <div role="status" aria-live="polite" className="fixed right-4 top-20 z-50 max-w-sm rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-900 shadow-xl flex items-center gap-2">
           <CheckCircle2 className="h-5 w-5 shrink-0 text-emerald-600" />{feedback}

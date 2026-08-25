@@ -26,6 +26,7 @@ import type {
   DailyChildPlan,
   DailyTransportRequirement,
   MonthlyScheduleDeleteResult,
+  RecorderProfile,
   SchoolProfile,
   TransportDirection,
   TransportPickupMode,
@@ -54,6 +55,7 @@ interface MonthlyTransportPlannerProps {
   transportRuns: TransportRun[];
   routeSettings: TransportRouteSettings;
   canManage: boolean;
+  activeRecorder?: RecorderProfile;
   onSavePlanDay: (day: TransportPlanDay) => Promise<void> | void;
   onSaveDailyChildPlan: (plan: DailyChildPlan) => Promise<void> | void;
   onDeleteDailyChildPlan: (childId: string, date: string) => Promise<void> | void;
@@ -63,6 +65,7 @@ interface MonthlyTransportPlannerProps {
   onReplaceMonthRequirements: (month: string, requirements: DailyTransportRequirement[]) => Promise<DailyTransportRequirement[]>;
   onReplaceChildMonthRequirements: (month: string, childId: string, requirements: DailyTransportRequirement[]) => Promise<DailyTransportRequirement[]>;
   onOpenDispatch: (date: string) => void;
+  onSaveSchool: (school: SchoolProfile) => Promise<void> | void;
 }
 
 const createUuid = () => globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -391,6 +394,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
   transportRuns,
   routeSettings,
   canManage,
+  activeRecorder,
   onSavePlanDay,
   onSaveDailyChildPlan,
   onDeleteDailyChildPlan,
@@ -400,6 +404,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
   onReplaceMonthRequirements,
   onReplaceChildMonthRequirements,
   onOpenDispatch,
+  onSaveSchool,
 }) => {
   const [month, setMonth] = useState(initialDate.slice(0, 7));
   const [selectedDate, setSelectedDate] = useState(initialDate);
@@ -465,6 +470,10 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
     .sort((left, right) => left.name.localeCompare(right.name, 'ja')), [childrenList]);
   const transportChildren = useMemo(() => activeChildren
     .filter((child) => child.transportationRequired), [activeChildren]);
+  const schoolsUsedByChildren = useMemo(() => {
+    const schoolIds = new Set(activeChildren.map((child) => child.schoolId).filter(Boolean));
+    return schools.filter((school) => school.active && schoolIds.has(school.id));
+  }, [activeChildren, schools]);
   const siblingGroupByChild = useMemo(() => buildSiblingGroupByChild(activeChildren), [activeChildren]);
   const householdOptions = useMemo(() => {
     const groups = new Map<string, ChildProfile[]>();
@@ -1136,6 +1145,31 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
 
   const confirmedDays = dates.filter((date) => planDays.find((day) => day.date === date)?.status !== undefined && planDays.find((day) => day.date === date)?.status !== 'draft').length;
   const missingCount = monthRequirements.filter((item) => missingFields(item).length > 0).length;
+  const confirmedSchoolCount = schoolsUsedByChildren.filter((school) => (school.dismissalScheduleConfirmations || []).some((confirmation) => confirmation.targetMonth === month)).length;
+
+  const confirmSchoolDismissalSchedule = async (school: SchoolProfile) => {
+    if (!canManage) return;
+    const existing = (school.dismissalScheduleConfirmations || []).find((confirmation) => confirmation.targetMonth === month);
+    const note = window.prompt(`${school.name}・${month.replace('-', '年')}月の下校時刻表／学校行事について、確認メモを入力してください。`, existing?.note || '') ?? undefined;
+    if (note === undefined) return;
+    const confirmation = {
+      targetMonth: month,
+      confirmedAt: new Date().toISOString(),
+      confirmedByName: activeRecorder?.displayName || '管理職',
+      note: note.trim() || undefined,
+    };
+    setSaving(true);
+    setError('');
+    try {
+      await onSaveSchool({ ...school, dismissalScheduleConfirmations: [
+        confirmation,
+        ...(school.dismissalScheduleConfirmations || []).filter((candidate) => candidate.targetMonth !== month),
+      ] });
+      setMessage(`${school.name}の${month.replace('-', '年')}月分を確認済みにしました。`);
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : '下校時刻表の確認状態を保存できませんでした。');
+    } finally { setSaving(false); }
+  };
 
   return (
     <div className="space-y-4">
@@ -1169,6 +1203,11 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
         </div>
 
         {monthlySettingsOpen && <div className="mt-3 rounded-xl border border-teal-200 bg-teal-50/50 p-3">
+          <section className="mb-3 rounded-xl border border-amber-200 bg-amber-50 p-3" aria-label="学校別の下校時刻表確認">
+            <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-[10px] font-black text-amber-800">学校から配布された下校時刻・行事を確認</p><h4 className="text-sm font-black text-amber-950">{month.replace('-', '年')}月の下校時刻表　{confirmedSchoolCount}/{schoolsUsedByChildren.length}校 確認済み</h4></div><span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${confirmedSchoolCount === schoolsUsedByChildren.length ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-200 text-amber-950'}`}>{confirmedSchoolCount === schoolsUsedByChildren.length ? '全校確認済み' : `${schoolsUsedByChildren.length - confirmedSchoolCount}校 未確認`}</span></div>
+            <div className="mt-2 grid gap-2 lg:grid-cols-2">{schoolsUsedByChildren.map((school) => { const confirmation = (school.dismissalScheduleConfirmations || []).find((item) => item.targetMonth === month); const childCount = activeChildren.filter((child) => child.schoolId === school.id).length; return <div key={school.id} className="flex flex-col gap-2 rounded-lg border border-amber-200 bg-white p-2.5 sm:flex-row sm:items-center"><div className="min-w-0 flex-1"><strong className="block truncate text-xs text-slate-900">{school.name}（{childCount}名）</strong><span className="text-[9px] text-slate-500">{confirmation ? `${confirmation.confirmedByName}・${new Date(confirmation.confirmedAt).toLocaleString('ja-JP')}${confirmation.note ? `／${confirmation.note}` : ''}` : '下校時刻表・学校行事が未確認です'}</span></div>{canManage && <button type="button" disabled={saving} onClick={() => void confirmSchoolDismissalSchedule(school)} className={`min-h-9 shrink-0 rounded-lg px-3 text-[10px] font-black ${confirmation ? 'border border-emerald-300 bg-emerald-50 text-emerald-800' : 'bg-amber-800 text-white'}`}>{confirmation ? '確認内容を更新' : '確認済みにする'}</button>}</div>; })}</div>
+            {schoolsUsedByChildren.length === 0 && <p className="mt-2 rounded-lg bg-white p-3 text-xs text-slate-500">所属校が登録された児童はいません。</p>}
+          </section>
           <div className="mb-3 grid gap-2 rounded-xl border border-teal-200 bg-white p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
             <label className="text-[10px] font-black text-teal-950">基本予定の反映開始日
               <input type="date" min={`${month}-01`} max={dates.at(-1)} value={reflectFrom} onChange={(event) => setReflectFrom(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-teal-300 bg-white px-2 text-sm font-bold" />

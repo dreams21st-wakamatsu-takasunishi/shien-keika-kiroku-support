@@ -225,7 +225,7 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
   const unresolvedIssue = record.reviewIssues?.find((issue) => !issue.resolved && issue.stepId);
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6">
+    <div className="mx-auto max-w-[1600px] space-y-6">
       {/* Action Header Bar */}
       <div className="bg-slate-900 text-white p-4 rounded-xl shadow-md border border-slate-800 flex flex-wrap items-center justify-between gap-3 print:hidden">
         <button

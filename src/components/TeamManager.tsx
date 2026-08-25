@@ -172,7 +172,7 @@ export const TeamManager: React.FC<{
   };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-4">
+    <div className="mx-auto max-w-[1600px] space-y-4">
       <div className="flex items-center justify-between rounded-xl border border-slate-200 bg-white p-4">
         <div>
           <h2 className="text-lg font-bold flex items-center gap-2"><ShieldCheck className="w-5 h-5 text-teal-600" />職員・権限管理</h2>

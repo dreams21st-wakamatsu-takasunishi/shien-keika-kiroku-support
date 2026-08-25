@@ -91,9 +91,17 @@ export interface SchoolProfile {
   area?: string;
   note?: string;
   holidayPeriods?: SchoolHolidayPeriod[];
+  dismissalScheduleConfirmations?: SchoolDismissalScheduleConfirmation[];
   active: boolean;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface SchoolDismissalScheduleConfirmation {
+  targetMonth: string;
+  confirmedAt: string;
+  confirmedByName: string;
+  note?: string;
 }
 
 export interface SchoolHolidayPeriod {
@@ -356,6 +364,8 @@ export interface RecorderProfile {
   partTimeHolidayWorkDays?: Weekday[];
   partTimeHolidayStartTime?: string;
   partTimeHolidayEndTime?: string;
+  shiftRequestDefaultStartTime?: string;
+  shiftRequestDefaultEndTime?: string;
   individualLoginEnabled?: boolean;
   individualLoginRole?: 'staff' | 'manager' | 'classroom_manager';
   menuPreferences?: RecorderMenuPreferences;

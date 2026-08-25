@@ -219,6 +219,14 @@ function mapSchool(row: any): SchoolProfile {
         endDate: String(period.endDate || period.end_date || ''),
       })).filter((period: any) => period.id && period.startDate && period.endDate)
       : [],
+    dismissalScheduleConfirmations: Array.isArray(row.dismissal_schedule_confirmations)
+      ? row.dismissal_schedule_confirmations.map((confirmation: any) => ({
+        targetMonth: String(confirmation.targetMonth || confirmation.target_month || ''),
+        confirmedAt: String(confirmation.confirmedAt || confirmation.confirmed_at || ''),
+        confirmedByName: String(confirmation.confirmedByName || confirmation.confirmed_by_name || ''),
+        note: confirmation.note ? String(confirmation.note) : undefined,
+      })).filter((confirmation: any) => confirmation.targetMonth && confirmation.confirmedAt)
+      : [],
     active: row.active !== false,
     createdAt: row.created_at || undefined,
     updatedAt: row.updated_at || undefined,
@@ -286,6 +294,8 @@ function mapRecorderProfile(row: any): RecorderProfile {
     partTimeHolidayWorkDays: Array.isArray(row.part_time_holiday_work_days) ? row.part_time_holiday_work_days as Weekday[] : [],
     partTimeHolidayStartTime: row.part_time_holiday_start_time ? String(row.part_time_holiday_start_time).slice(0, 5) : undefined,
     partTimeHolidayEndTime: row.part_time_holiday_end_time ? String(row.part_time_holiday_end_time).slice(0, 5) : undefined,
+    shiftRequestDefaultStartTime: row.shift_request_default_start_time ? String(row.shift_request_default_start_time).slice(0, 5) : undefined,
+    shiftRequestDefaultEndTime: row.shift_request_default_end_time ? String(row.shift_request_default_end_time).slice(0, 5) : undefined,
     individualLoginEnabled: row.individual_login_enabled === true,
     individualLoginRole: row.individual_login_role === 'manager' || row.individual_login_role === 'classroom_manager'
       ? row.individual_login_role
@@ -776,7 +786,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     client.from('children').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('name'),
     client.from('schools').select('*').eq('organization_id', organizationId).order('name'),
     client.from('child_regular_day_schedules').select('*').eq('organization_id', organizationId).order('effective_from'),
-    client.from('recorder_profiles').select('id, display_name, active, pin_configured, employee_code, job_title, employment_type, contracted_weekly_hours, part_time_weekday_work_days, part_time_weekday_start_time, part_time_weekday_end_time, part_time_holiday_work_days, part_time_holiday_start_time, part_time_holiday_end_time, individual_login_enabled, individual_login_role, menu_preferences, created_at').eq('organization_id', organizationId).eq('active', true).order('display_name'),
+    client.from('recorder_profiles').select('id, display_name, active, pin_configured, employee_code, job_title, employment_type, contracted_weekly_hours, part_time_weekday_work_days, part_time_weekday_start_time, part_time_weekday_end_time, part_time_holiday_work_days, part_time_holiday_start_time, part_time_holiday_end_time, shift_request_default_start_time, shift_request_default_end_time, individual_login_enabled, individual_login_role, menu_preferences, created_at').eq('organization_id', organizationId).eq('active', true).order('display_name'),
     client.from('record_templates').select('*').eq('organization_id', organizationId).is('archived_at', null).order('created_at'),
     loadSupportRecordsWithRetry(organizationId),
     client.from('handover_items').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }),
@@ -1150,6 +1160,19 @@ export async function saveStaffShiftRequest(
   }, { onConflict: 'organization_id,recorder_profile_id,requested_date' }).select('*').single();
   if (error) throw error;
   return mapStaffShiftRequest(data, new Map([[request.recorderProfileId, request.recorderName]]));
+}
+
+export async function saveShiftRequestDefaults(
+  recorderProfileId: string,
+  startTime: string,
+  endTime: string,
+) {
+  const { error } = await assertSupabase().rpc('update_shift_request_defaults', {
+    p_recorder_profile_id: recorderProfileId,
+    p_start_time: startTime,
+    p_end_time: endTime,
+  });
+  if (error) throw error;
 }
 
 export async function punchAttendance(
@@ -1806,6 +1829,7 @@ export async function saveSchool(organizationId: string, school: SchoolProfile) 
     area: resolvedTransportArea(school.address, school.area) || null,
     note: school.note?.trim() || null,
     holiday_periods: school.holidayPeriods || [],
+    dismissal_schedule_confirmations: school.dismissalScheduleConfirmations || [],
     active: school.active,
   }, { onConflict: 'organization_id,id' });
   if (error) throw error;
