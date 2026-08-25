@@ -40,6 +40,11 @@ export const SchoolManager: React.FC<SchoolManagerProps> = ({ schools, childrenL
     () => [...schools].filter((school) => school.active).sort((left, right) => left.name.localeCompare(right.name, 'ja')),
     [schools],
   );
+  const holidayRegistrationSummary = useMemo(() => {
+    const active = schools.filter((school) => school.active);
+    const registered = active.filter((school) => (school.holidayPeriods || []).length > 0).length;
+    return { registered, unregistered: active.length - registered };
+  }, [schools]);
 
   const save = async () => {
     if (!draft) return;
@@ -172,13 +177,23 @@ export const SchoolManager: React.FC<SchoolManagerProps> = ({ schools, childrenL
 
       <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
         <label className="relative block"><Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="学校名・住所・エリアで検索" className="min-h-11 w-full rounded-xl border border-slate-300 pl-10 pr-3 text-base" /></label>
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-[10px] font-black">
+          <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-emerald-800">長期休暇 登録済み {holidayRegistrationSummary.registered}校</span>
+          <span className={`rounded-full px-2.5 py-1 ${holidayRegistrationSummary.unregistered ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-600'}`}>未登録 {holidayRegistrationSummary.unregistered}校</span>
+        </div>
         <div className="mt-3 grid gap-2 md:grid-cols-2">
           {filtered.map((school) => {
             const count = usageCount(school.id);
             const periods = school.holidayPeriods || [];
-            return <article key={school.id} className={`rounded-xl border p-3 ${school.active ? 'border-slate-200 bg-white' : 'border-dashed border-slate-300 bg-slate-50 opacity-70'}`}>
-              <div className="flex items-start gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-sky-50 text-sky-700"><School className="h-5 w-5" /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-1.5"><strong className="text-sm text-slate-950">{school.name}</strong>{!school.active && <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[9px] font-black text-slate-600">使用停止</span>}<span className="rounded-full bg-teal-50 px-2 py-0.5 text-[9px] font-black text-teal-700">登録児童 {count}名</span></div><p className="mt-1 text-xs leading-relaxed text-slate-600"><MapPin className="mr-1 inline h-3.5 w-3.5" />{school.address}</p>{school.area && <p className="mt-1 text-[10px] font-bold text-sky-700">送迎エリア：{school.area}</p>}</div><div className="flex shrink-0 gap-1"><button type="button" onClick={() => { setDraft({ ...school, holidayPeriods: [...periods] }); setError(''); }} aria-label={`${school.name}を編集`} className="grid h-9 w-9 place-items-center rounded-lg bg-slate-100 text-slate-700"><PencilLine className="h-4 w-4" /></button><button type="button" onClick={() => void remove(school)} aria-label={`${school.name}を削除`} className="grid h-9 w-9 place-items-center rounded-lg bg-rose-50 text-rose-700"><Trash2 className="h-4 w-4" /></button></div></div>
-              <div className="mt-2 rounded-lg bg-sky-50 px-2.5 py-2 text-[10px] font-bold text-sky-900"><CalendarDays className="mr-1 inline h-3.5 w-3.5" />{periods.length ? periods.map((period) => `${period.name} ${period.startDate}〜${period.endDate}`).join('／') : '長期休暇期間は未登録'}</div>
+            const holidayRegistered = periods.length > 0;
+            const cardStyle = !school.active
+              ? 'border-dashed border-slate-300 bg-slate-50 opacity-70'
+              : holidayRegistered
+                ? 'border-emerald-200 bg-emerald-50/20'
+                : 'border-rose-300 bg-rose-50/60 ring-1 ring-rose-100';
+            return <article key={school.id} className={`rounded-xl border p-3 ${cardStyle}`}>
+              <div className="flex items-start gap-3"><span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${school.active && !holidayRegistered ? 'bg-rose-100 text-rose-700' : 'bg-sky-50 text-sky-700'}`}><School className="h-5 w-5" /></span><div className="min-w-0 flex-1"><div className="flex flex-wrap items-center gap-1.5"><strong className="text-sm text-slate-950">{school.name}</strong>{!school.active && <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[9px] font-black text-slate-600">使用停止</span>}{school.active && <span className={`rounded-full px-2 py-0.5 text-[9px] font-black ${holidayRegistered ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-600 text-white'}`}>{holidayRegistered ? '長期休暇 登録済み' : '長期休暇 未登録'}</span>}<span className="rounded-full bg-teal-50 px-2 py-0.5 text-[9px] font-black text-teal-700">登録児童 {count}名</span></div><p className="mt-1 text-xs leading-relaxed text-slate-600"><MapPin className="mr-1 inline h-3.5 w-3.5" />{school.address}</p>{school.area && <p className="mt-1 text-[10px] font-bold text-sky-700">送迎エリア：{school.area}</p>}</div><div className="flex shrink-0 gap-1"><button type="button" onClick={() => { setDraft({ ...school, holidayPeriods: [...periods] }); setError(''); }} aria-label={`${school.name}を編集`} className={`grid h-9 w-9 place-items-center rounded-lg ${school.active && !holidayRegistered ? 'bg-rose-100 text-rose-800' : 'bg-slate-100 text-slate-700'}`}><PencilLine className="h-4 w-4" /></button><button type="button" onClick={() => void remove(school)} aria-label={`${school.name}を削除`} className="grid h-9 w-9 place-items-center rounded-lg bg-rose-50 text-rose-700"><Trash2 className="h-4 w-4" /></button></div></div>
+              <div className={`mt-2 rounded-lg px-2.5 py-2 text-[10px] font-bold ${holidayRegistered ? 'bg-emerald-50 text-emerald-900' : 'bg-rose-100 text-rose-900'}`}><CalendarDays className="mr-1 inline h-3.5 w-3.5" />{holidayRegistered ? periods.map((period) => `${period.name} ${period.startDate}〜${period.endDate}`).join('／') : '長期休暇期間が未登録です。編集から期間を登録してください。'}</div>
             </article>;
           })}
           {filtered.length === 0 && <p className="col-span-full rounded-xl bg-slate-50 p-6 text-center text-sm text-slate-500">学校はまだ登録されていません。</p>}

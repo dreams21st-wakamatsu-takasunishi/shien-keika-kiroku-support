@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CalendarClock, Check, ChevronLeft, ChevronRight, Clock3, Save, Send, Settings2, UsersRound, X } from 'lucide-react';
+import { CalendarClock, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Save, Send, Settings2, UsersRound, X } from 'lucide-react';
 import type {
   AttendanceCorrectionRequest, AttendanceRecord, CalendarEvent, ChildProfile,
   DailyChildPlan, DailyTransportRequirement, RecorderProfile, StaffShiftRequest,
@@ -51,6 +51,7 @@ export const AttendanceHomePanel: React.FC<AttendanceHomePanelProps> = ({
   const [selectedDate, setSelectedDate] = useState(today);
   const [requestMonth, setRequestMonth] = useState(today.slice(0, 7));
   const [requestDrafts, setRequestDrafts] = useState<RequestDraft[]>([]);
+  const [pendingRequestsOpen, setPendingRequestsOpen] = useState(false);
   const [defaultStart, setDefaultStart] = useState(activeRecorder?.shiftRequestDefaultStartTime || activeRecorder?.partTimeWeekdayStartTime || '09:00');
   const [defaultEnd, setDefaultEnd] = useState(activeRecorder?.shiftRequestDefaultEndTime || activeRecorder?.partTimeWeekdayEndTime || '18:00');
   const [message, setMessage] = useState('');
@@ -67,7 +68,10 @@ export const AttendanceHomePanel: React.FC<AttendanceHomePanelProps> = ({
     .sort((left, right) => left.date.localeCompare(right.date)).slice(0, 14), [activeRecorder?.id, records, today]);
   const ownRequests = useMemo(() => shiftRequests.filter((request) => request.recorderProfileId === activeRecorder?.id)
     .sort((left, right) => right.requestedDate.localeCompare(left.requestedDate)).slice(0, 12), [activeRecorder?.id, shiftRequests]);
-  const pendingRequests = useMemo(() => shiftRequests.filter((request) => request.status === '申請中'), [shiftRequests]);
+  const pendingRequests = useMemo(() => shiftRequests
+    .filter((request) => request.status === '申請中')
+    .sort((left, right) => left.requestedDate.localeCompare(right.requestedDate) || left.recorderName.localeCompare(right.recorderName, 'ja')), [shiftRequests]);
+  const pendingRequestStaffCount = useMemo(() => new Set(pendingRequests.map((request) => request.recorderProfileId)).size, [pendingRequests]);
   const isPartTime = activeRecorder?.employmentType === 'part_time';
   const requestDates = useMemo(() => getMonthDates(requestMonth), [requestMonth]);
   const firstWeekday = new Date(`${requestMonth}-01T12:00:00`).getDay();
@@ -146,7 +150,13 @@ export const AttendanceHomePanel: React.FC<AttendanceHomePanelProps> = ({
     </section>}
 
     {activeTab === 'planning' && canManageShifts && <div className="space-y-4">
-      {pendingRequests.length > 0 && <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4"><h3 className="font-black text-amber-950">シフト希望の確認（{pendingRequests.length}件）</h3><div className="mt-3 grid gap-2 xl:grid-cols-2">{pendingRequests.map((request) => <div key={request.id} className="flex flex-col gap-2 rounded-xl bg-white p-3 sm:flex-row sm:items-center"><span className="min-w-0 flex-1"><strong className="block text-sm">{request.recorderName}</strong><span className="text-xs text-slate-600">{request.requestedDate} {request.requestedStartTime}〜{request.requestedEndTime}{request.note ? `／${request.note}` : ''}</span></span><div className="flex gap-2"><button type="button" onClick={() => void onReviewShiftRequest(request, true)} className="flex min-h-10 items-center gap-1 rounded-lg bg-teal-600 px-3 text-xs font-black text-white"><Check className="h-4 w-4" />承認</button><button type="button" onClick={() => void onReviewShiftRequest(request, false)} className="flex min-h-10 items-center gap-1 rounded-lg border border-rose-300 px-3 text-xs font-black text-rose-700"><X className="h-4 w-4" />却下</button></div></div>)}</div></section>}
+      {pendingRequests.length > 0 && <section className="overflow-hidden rounded-2xl border border-amber-200 bg-amber-50">
+        <button type="button" aria-expanded={pendingRequestsOpen} onClick={() => setPendingRequestsOpen((open) => !open)} className="flex min-h-14 w-full items-center justify-between gap-3 px-4 py-2.5 text-left">
+          <span className="min-w-0"><strong className="block text-sm text-amber-950">シフト希望　{pendingRequests.length}件</strong><span className="mt-0.5 block text-[10px] font-bold text-amber-800">{pendingRequestStaffCount}名分・月間表と日別ガントにも紫色で表示</span></span>
+          <span className="flex shrink-0 items-center gap-1 rounded-lg bg-white px-3 py-2 text-[10px] font-black text-amber-900 shadow-sm">{pendingRequestsOpen ? '一覧を閉じる' : '希望を確認'}<ChevronDown className={`h-4 w-4 transition-transform ${pendingRequestsOpen ? 'rotate-180' : ''}`} /></span>
+        </button>
+        {pendingRequestsOpen && <div className="max-h-[360px] overflow-y-auto border-t border-amber-200 p-2 sm:p-3"><div className="grid gap-1.5 xl:grid-cols-2 2xl:grid-cols-3">{pendingRequests.map((request) => <div key={request.id} className="flex min-w-0 items-center gap-2 rounded-lg bg-white p-2"><span className="min-w-0 flex-1"><strong className="block truncate text-xs">{request.recorderName}</strong><span className="block truncate text-[10px] text-slate-600">{request.requestedDate}　{request.requestedStartTime}〜{request.requestedEndTime}{request.note ? `／${request.note}` : ''}</span></span><div className="flex shrink-0 gap-1"><button type="button" onClick={() => void onReviewShiftRequest(request, true)} aria-label={`${request.recorderName}さんの${request.requestedDate}を承認`} className="grid h-8 w-8 place-items-center rounded-lg bg-teal-600 text-white"><Check className="h-4 w-4" /></button><button type="button" onClick={() => void onReviewShiftRequest(request, false)} aria-label={`${request.recorderName}さんの${request.requestedDate}を却下`} className="grid h-8 w-8 place-items-center rounded-lg border border-rose-300 text-rose-700"><X className="h-4 w-4" /></button></div></div>)}</div></div>}
+      </section>}
       <StaffShiftManager templates={shiftTemplates} records={records} shiftRequests={shiftRequests} recorderProfiles={recorderProfiles} selectedDate={selectedDate} calendarEvents={calendarEvents} childrenList={childrenList} dailyChildPlans={dailyChildPlans} dailyTransportRequirements={dailyTransportRequirements} transportRuns={transportRuns} onSaveRecords={onSaveRecords} />
     </div>}
 

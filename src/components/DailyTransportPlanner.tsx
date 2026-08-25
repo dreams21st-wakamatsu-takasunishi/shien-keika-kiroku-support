@@ -1481,12 +1481,14 @@ function getDraftPlanningWarnings({
     if (vehicle && run.stops.length > getVehicleChildCapacity(vehicle, run)) warnings.push(`${run.name}：総定員${vehicle.capacity}名から運転者1名・添乗${getVehicleStaffSeatCount(run) - 1}名を除いた児童枠${getVehicleChildCapacity(vehicle, run)}名を超えています。`);
     if (vehicle?.vehicleKind === 'private') warnings.push(`${run.name}：職員の自家用車を使用します。使用許可・保険を確認してください。`);
     if (run.stops.some((stop) => !stop.location.trim())) warnings.push(`${run.name}：送迎先が未入力の児童がいます。`);
-    if (run.driverRecorderProfileId && dayAttendance.length > 0 && !workingIds.has(run.driverRecorderProfileId)) warnings.push(`${run.name}：運転者が出勤予定として確認できません。`);
     const assigned = new Set([run.driverRecorderProfileId, ...run.assistantRecorderProfileIds].filter((id): id is string => Boolean(id)));
     staffScheduleItems.filter((item) => item.date === date && assigned.has(item.recorderProfileId) && rangesOverlap(run.startTime, run.endTime, item.startTime, item.endTime)).forEach((item) => warnings.push(`${run.name}：${item.recorderName}さんの「${item.title}」と重複しています。`));
     calendarEvents.filter((event) => event.date === date && !event.allDay && event.startTime && event.endTime && event.recorderProfileIds.some((id) => assigned.has(id)) && rangesOverlap(run.startTime, run.endTime, event.startTime, event.endTime)).forEach((event) => warnings.push(`${run.name}：予定「${event.title}」と重複しています。`));
     const awayIds = new Set(dayRuns.filter((candidate) => rangesOverlap(run.startTime, run.endTime, candidate.startTime, candidate.endTime)).flatMap((candidate) => [candidate.driverRecorderProfileId, ...candidate.assistantRecorderProfileIds].filter((id): id is string => Boolean(id))));
-    if (Math.max(0, availableCount - awayIds.size) < minimumFacilityStaff) warnings.push(`${run.startTime}～${run.endTime}：施設内職員が${Math.max(0, availableCount - awayIds.size)}名となり、最低${minimumFacilityStaff}名を下回ります。`);
+    const knownAwayCount = dayAttendance.length > 0
+      ? [...awayIds].filter((id) => workingIds.has(id)).length
+      : awayIds.size;
+    if (Math.max(0, availableCount - knownAwayCount) < minimumFacilityStaff) warnings.push(`${run.startTime}～${run.endTime}：勤務予定で確認できる施設内職員が${Math.max(0, availableCount - knownAwayCount)}名となり、最低${minimumFacilityStaff}名を下回ります。`);
   });
 
   dayRuns.forEach((run, index) => dayRuns.slice(index + 1).forEach((other) => {

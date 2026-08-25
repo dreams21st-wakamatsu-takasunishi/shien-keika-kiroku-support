@@ -81,6 +81,7 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
   const [dayForm, setDayForm] = useState<DayForm | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [childTimelineExpanded, setChildTimelineExpanded] = useState(false);
 
   useEffect(() => {
     setMonth(selectedDate.slice(0, 7));
@@ -402,8 +403,8 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
 
       <div className="border-t border-slate-100 bg-slate-50/60 p-3">
         {viewMode === 'month' && <div className="overflow-x-auto rounded-xl border border-slate-300 bg-white shadow-sm">
-          <div style={{ minWidth: `${180 + dates.length * 30}px` }}>
-            <div className="grid border-b border-slate-300 bg-slate-100" style={{ gridTemplateColumns: `minmax(130px, 1fr) repeat(${dates.length}, 30px) 54px` }}>
+          <div style={{ minWidth: `${112 + dates.length * 30 + 54}px` }}>
+            <div className="grid border-b border-slate-300 bg-slate-100" style={{ gridTemplateColumns: `112px repeat(${dates.length}, minmax(30px, 1fr)) 54px` }}>
               <div className="flex items-center px-2 text-[10px] font-black text-slate-700">職員名</div>
               {dates.map((date) => { const weekday = new Date(`${date}T12:00:00`).getDay(); return <div key={date} className={`border-l border-slate-300 py-1 text-center text-[9px] font-black ${weekday === 0 ? 'bg-rose-50 text-rose-700' : weekday === 6 ? 'bg-sky-50 text-sky-700' : 'text-slate-700'}`}><span className="block">{Number(date.slice(8))}</span><span>{WEEKDAYS[weekday]}</span></div>; })}
               <div className="border-l border-slate-300 py-1 text-center text-[9px] font-black text-slate-700">休暇<br />計</div>
@@ -411,7 +412,7 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
             {visibleProfiles.map((profile) => {
               const profileRecords = monthRecords.filter((record) => record.recorderProfileId === profile.id);
               const leaveDays = profileRecords.filter((record) => NO_TIME_STATUSES.includes(record.status)).length;
-              return <div key={profile.id} className="grid border-b border-slate-200 last:border-b-0" style={{ gridTemplateColumns: `minmax(130px, 1fr) repeat(${dates.length}, 30px) 54px` }}>
+              return <div key={profile.id} className="grid border-b border-slate-200 last:border-b-0" style={{ gridTemplateColumns: `112px repeat(${dates.length}, minmax(30px, 1fr)) 54px` }}>
                 <div className="min-w-0 px-2 py-2"><strong className="block truncate text-[11px] text-slate-950">{profile.displayName}</strong><span className="text-[9px] text-slate-500">{profile.employmentType === 'part_time' ? 'パート' : '正職'}・{profileRecords.filter((record) => !NO_TIME_STATUSES.includes(record.status)).length}日</span></div>
                 {dates.map((date) => {
                   const record = profileRecords.find((candidate) => candidate.date === date);
@@ -426,8 +427,8 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
         </div>}
 
         {viewMode === 'day' && <div className="overflow-x-auto rounded-xl border border-slate-300 bg-white shadow-sm">
-          <div className="min-w-[900px]">
-            <div className="grid border-b border-slate-300 bg-slate-100" style={{ gridTemplateColumns: '170px minmax(700px, 1fr)' }}>
+          <div className="min-w-[850px]">
+            <div className="grid border-b border-slate-300 bg-slate-100" style={{ gridTemplateColumns: '120px minmax(700px, 1fr)' }}>
               <div className="px-3 py-2 text-[10px] font-black text-slate-700">職員・運営情報</div>
               <TimelineHeader />
             </div>
@@ -436,17 +437,17 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
               const request = dayRequests.find((candidate) => candidate.recorderProfileId === profile.id);
               const profileEvents = profile.employmentType !== 'part_time' ? dayEvents.filter((event) => event.recorderProfileIds.includes(profile.id)) : [];
               const bar = ganttBarStyle(record);
-              return <div key={profile.id} className="grid border-b border-slate-200 text-left hover:bg-indigo-50/40" style={{ gridTemplateColumns: '170px minmax(700px, 1fr)' }}><button type="button" onClick={() => openDay(profile, dayDate)} className="px-3 py-3 text-left"><strong className="block truncate text-xs text-slate-950">{profile.displayName}</strong><span className="text-[9px] text-slate-500">{profile.employmentType === 'part_time' ? 'パート' : '正職'}{request ? `・希望${request.status}` : ''}</span></button><div className="relative min-h-16 overflow-hidden" style={timelineGridStyle()}>{bar ? <span className={`absolute top-2 flex h-8 items-center overflow-hidden rounded-lg px-2 text-[10px] font-black shadow-sm ${cellTone(record)}`} style={bar}>{record?.scheduledStartTime}〜{record?.scheduledEndTime}</span> : record ? <span className={`absolute inset-x-2 top-2 flex h-8 items-center justify-center rounded-lg text-[10px] font-black ${cellTone(record)}`}>{cellLabel(record)}</span> : <span className="absolute left-2 top-3 text-[10px] text-slate-300">未登録</span>}{request?.requestedStartTime && request.requestedEndTime && <span className="absolute bottom-1.5 h-2 rounded-full bg-violet-500" style={timeRangeBarStyle(request.requestedStartTime, request.requestedEndTime)} title={`シフト希望 ${request.requestedStartTime}〜${request.requestedEndTime}`} />}{profileEvents.map((event) => <span key={event.id} className="absolute bottom-1 h-3 overflow-hidden rounded-sm bg-amber-400 px-1 text-[8px] font-black text-amber-950" style={timeRangeBarStyle(event.startTime!, event.endTime!)} title={`${event.title} ${event.startTime}〜${event.endTime}`}>{event.title}</span>)}</div></div>;
+               return <div key={profile.id} className="grid border-b border-slate-200 text-left hover:bg-indigo-50/40" style={{ gridTemplateColumns: '120px minmax(700px, 1fr)' }}><button type="button" onClick={() => openDay(profile, dayDate)} className="min-w-0 px-2 py-2 text-left"><strong className="block truncate text-[11px] text-slate-950">{profile.displayName}</strong><span className="block truncate text-[8px] text-slate-500">{profile.employmentType === 'part_time' ? 'パート' : '正職'}{request ? `・希望${request.status}` : ''}</span></button><div className="relative min-h-12 overflow-hidden" style={timelineGridStyle()}>{bar ? <span className={`absolute top-1.5 flex h-7 items-center overflow-hidden rounded-lg px-2 text-[9px] font-black shadow-sm ${cellTone(record)}`} style={bar}>{record?.scheduledStartTime}〜{record?.scheduledEndTime}</span> : record ? <span className={`absolute inset-x-2 top-1.5 flex h-7 items-center justify-center rounded-lg text-[9px] font-black ${cellTone(record)}`}>{cellLabel(record)}</span> : <span className="absolute left-2 top-2.5 text-[9px] text-slate-300">未登録</span>}{request?.requestedStartTime && request.requestedEndTime && <span className="absolute bottom-1 h-1.5 rounded-full bg-violet-500" style={timeRangeBarStyle(request.requestedStartTime, request.requestedEndTime)} title={`シフト希望 ${request.requestedStartTime}〜${request.requestedEndTime}`} />}{profileEvents.map((event) => <span key={event.id} className="absolute bottom-0.5 h-2.5 overflow-hidden rounded-sm bg-amber-400 px-1 text-[7px] font-black text-amber-950" style={timeRangeBarStyle(event.startTime!, event.endTime!)} title={`${event.title} ${event.startTime}〜${event.endTime}`}>{event.title}</span>)}</div></div>;
             })}
             {dayRuns.length > 0 && <div className="border-y border-sky-200 bg-sky-50 px-3 py-1 text-[9px] font-black text-sky-800">送迎便</div>}
-            {dayRuns.map((run) => <div key={run.id} className="grid border-b border-sky-100 bg-sky-50/30" style={{ gridTemplateColumns: '170px minmax(700px, 1fr)' }}><div className="px-3 py-2"><strong className="block truncate text-[11px] text-slate-900">{run.name}</strong><span className="text-[9px] text-slate-500">{run.direction}・{run.driverName || '担当未定'}</span></div><div className="relative min-h-11" style={timelineGridStyle()}><span className="absolute top-2 flex h-7 items-center overflow-hidden rounded-md bg-sky-500 px-2 text-[9px] font-black text-white" style={timeRangeBarStyle(run.startTime, run.endTime)}>{run.startTime}〜{run.endTime}</span></div></div>)}
-            {childTimelineRows.length > 0 && <div className="border-y border-teal-200 bg-teal-50 px-3 py-1 text-[9px] font-black text-teal-800">児童の下校・送迎・在所見込み</div>}
-            {childTimelineRows.map(({ child, plan, requirement }) => {
+            {dayRuns.map((run) => <div key={run.id} className="grid border-b border-sky-100 bg-sky-50/30" style={{ gridTemplateColumns: '120px minmax(700px, 1fr)' }}><div className="min-w-0 px-2 py-1.5"><strong className="block truncate text-[10px] text-slate-900">{run.name}</strong><span className="block truncate text-[8px] text-slate-500">{run.direction}・{run.driverName || '担当未定'}</span></div><div className="relative min-h-9" style={timelineGridStyle()}><span className="absolute top-1.5 flex h-6 items-center overflow-hidden rounded-md bg-sky-500 px-2 text-[8px] font-black text-white" style={timeRangeBarStyle(run.startTime, run.endTime)}>{run.startTime}〜{run.endTime}</span></div></div>)}
+            {childTimelineRows.length > 0 && <button type="button" aria-expanded={childTimelineExpanded} onClick={() => setChildTimelineExpanded((expanded) => !expanded)} className="flex min-h-9 w-full items-center justify-between border-y border-teal-200 bg-teal-50 px-3 text-[9px] font-black text-teal-800"><span>児童の下校・送迎・在所見込み　{childTimelineRows.length}名</span><span className="rounded-md bg-white px-2 py-1">{childTimelineExpanded ? '詳細を閉じる' : '児童別に表示'}</span></button>}
+            {childTimelineExpanded && childTimelineRows.map(({ child, plan, requirement }) => {
               if (!child) return null;
               const dismissal = plan?.schoolEndTime || requirement?.pickupTargetTime;
               const arrival = plan?.arrivalTime || requirement?.pickupPlannedTime || (requirement?.pickupTimeMode !== 'fixed' ? requirement?.pickupTargetTime : undefined);
               const departure = plan?.departureTime || requirement?.dropoffTargetTime;
-              return <div key={child.id} className="grid border-b border-teal-100" style={{ gridTemplateColumns: '170px minmax(700px, 1fr)' }}><div className="px-3 py-2"><strong className="block truncate text-[11px] text-slate-900">{child.name}</strong><span className="text-[9px] text-slate-500">下校 {dismissal || '未設定'}・退所 {departure || '未設定'}</span></div><div className="relative min-h-11" style={timelineGridStyle()}>{arrival && departure && <span className="absolute top-2 flex h-7 items-center overflow-hidden rounded-md bg-teal-100 px-2 text-[9px] font-black text-teal-900" style={timeRangeBarStyle(arrival, departure)} title={`在所見込み ${arrival}〜${departure}`}>在所 {arrival}〜{departure}</span>}{dismissal && <span className="absolute top-0 h-full w-0.5 bg-indigo-600" style={{ left: timePointPosition(dismissal) }} title={`下校・迎え ${dismissal}`}><span className="absolute left-1 top-0 whitespace-nowrap text-[8px] font-black text-indigo-700">下校 {dismissal}</span></span>}</div></div>;
+              return <div key={child.id} className="grid border-b border-teal-100" style={{ gridTemplateColumns: '120px minmax(700px, 1fr)' }}><div className="min-w-0 px-2 py-1"><strong className="block truncate text-[10px] text-slate-900">{child.name}</strong><span className="block truncate text-[7px] text-slate-500">下校 {dismissal || '未設定'}・退所 {departure || '未設定'}</span></div><div className="relative min-h-8" style={timelineGridStyle()}>{arrival && departure && <span className="absolute top-1 flex h-6 items-center overflow-hidden rounded-md bg-teal-100 px-2 text-[8px] font-black text-teal-900" style={timeRangeBarStyle(arrival, departure)} title={`在所見込み ${arrival}〜${departure}`}>在所 {arrival}〜{departure}</span>}{dismissal && <span className="absolute top-0 h-full w-0.5 bg-indigo-600" style={{ left: timePointPosition(dismissal) }} title={`下校・迎え ${dismissal}`}><span className="absolute left-1 top-0 whitespace-nowrap text-[7px] font-black text-indigo-700">下校 {dismissal}</span></span>}</div></div>;
             })}
           </div>
         </div>}

@@ -80,7 +80,7 @@ function assignmentAvailabilityLabel(
     && rangesOverlap(run.startTime, run.endTime, currentRun.startTime, currentRun.endTime)
     && (run.driverRecorderProfileId === recorder.id || run.assistantRecorderProfileIds.includes(recorder.id)));
   if (overlap) return `${recorder.displayName}（${overlap.name}と重複）`;
-  if (!work) return `${recorder.displayName}（出勤未確認）`;
+  if (!work) return `${recorder.displayName}（勤務予定未登録・割当可）`;
   if (work.status === '休憩中') return `${recorder.displayName}（休憩中）`;
   return `${recorder.displayName}（対応可能）`;
 }
