@@ -23,6 +23,9 @@ function blankHolidayPeriod(): SchoolHolidayPeriod {
 export const SchoolManager: React.FC<SchoolManagerProps> = ({ schools, childrenList, onSave, onDelete }) => {
   const [search, setSearch] = useState('');
   const [draft, setDraft] = useState<SchoolProfile>();
+  const [bulkHolidayOpen, setBulkHolidayOpen] = useState(false);
+  const [selectedSchoolIds, setSelectedSchoolIds] = useState<string[]>([]);
+  const [bulkHoliday, setBulkHoliday] = useState<SchoolHolidayPeriod>(() => blankHolidayPeriod());
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -33,6 +36,10 @@ export const SchoolManager: React.FC<SchoolManagerProps> = ({ schools, childrenL
       .sort((left, right) => Number(right.active) - Number(left.active) || left.name.localeCompare(right.name, 'ja'));
   }, [schools, search]);
   const usageCount = (schoolId: string) => childrenList.filter((child) => child.schoolId === schoolId).length;
+  const activeSchools = useMemo(
+    () => [...schools].filter((school) => school.active).sort((left, right) => left.name.localeCompare(right.name, 'ja')),
+    [schools],
+  );
 
   const save = async () => {
     if (!draft) return;
@@ -72,6 +79,45 @@ export const SchoolManager: React.FC<SchoolManagerProps> = ({ schools, childrenL
     });
   };
 
+  const applyBulkHoliday = async () => {
+    const selectedSchools = activeSchools.filter((school) => selectedSchoolIds.includes(school.id));
+    if (!selectedSchools.length) return setError('長期休みを登録する学校を選択してください。');
+    if (!bulkHoliday.startDate || !bulkHoliday.endDate) return setError('長期休みの開始日と終了日を入力してください。');
+    if (bulkHoliday.startDate > bulkHoliday.endDate) return setError('長期休みの終了日は開始日以降にしてください。');
+    const sharedPeriod: SchoolHolidayPeriod = {
+      ...bulkHoliday,
+      id: createId(),
+      name: bulkHoliday.name.trim() || '長期休暇',
+    };
+    setSaving(true);
+    setError('');
+    try {
+      let changedCount = 0;
+      for (const school of selectedSchools) {
+        const periods = school.holidayPeriods || [];
+        const alreadyRegistered = periods.some((period) => period.name === sharedPeriod.name
+          && period.startDate === sharedPeriod.startDate
+          && period.endDate === sharedPeriod.endDate);
+        if (alreadyRegistered) continue;
+        await onSave({
+          ...school,
+          holidayPeriods: [...periods, sharedPeriod].sort((left, right) => left.startDate.localeCompare(right.startDate)),
+          updatedAt: new Date().toISOString(),
+        });
+        changedCount += 1;
+      }
+      setMessage(changedCount
+        ? `${sharedPeriod.name}（${sharedPeriod.startDate}〜${sharedPeriod.endDate}）を${changedCount}校へ登録しました。`
+        : '選択した学校には同じ長期休みがすでに登録されています。');
+      setSelectedSchoolIds([]);
+      setBulkHoliday(blankHolidayPeriod());
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : '長期休みを一括登録できませんでした。');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const remove = async (school: SchoolProfile) => {
     if (!window.confirm(`${school.name}を学校台帳から削除しますか？`)) return;
     setError('');
@@ -94,6 +140,35 @@ export const SchoolManager: React.FC<SchoolManagerProps> = ({ schools, childrenL
 
       {message && <p role="status" className="rounded-xl bg-emerald-50 p-3 text-sm font-bold text-emerald-800"><CheckCircle2 className="mr-2 inline h-4 w-4" />{message}</p>}
       {error && <p role="alert" className="rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-800">{error}</p>}
+
+      <section className="overflow-hidden rounded-2xl border border-sky-200 bg-white shadow-sm">
+        <button
+          type="button"
+          aria-expanded={bulkHolidayOpen}
+          onClick={() => { setBulkHolidayOpen((open) => !open); setError(''); }}
+          className="flex min-h-16 w-full items-center justify-between gap-3 px-4 py-3 text-left transition hover:bg-sky-50"
+        >
+          <span className="flex min-w-0 items-center gap-3"><span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-sky-100 text-sky-700"><CalendarDays className="h-5 w-5" /></span><span><strong className="block text-sm text-slate-950">複数校へ長期休みを一括登録</strong><span className="mt-0.5 block text-[10px] leading-relaxed text-slate-500">対象校を複数選び、共通の夏休み・冬休みなどを一度に登録します。</span></span></span>
+          <span className="shrink-0 rounded-full bg-sky-50 px-2.5 py-1 text-[10px] font-black text-sky-700">{selectedSchoolIds.length ? `${selectedSchoolIds.length}校選択中` : bulkHolidayOpen ? '閉じる' : '開く'}</span>
+        </button>
+        {bulkHolidayOpen && <div className="space-y-3 border-t border-sky-100 bg-sky-50/40 p-3 sm:p-4">
+          <div>
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-black text-sky-950">1. 対象校を選択</p><div className="flex gap-1.5"><button type="button" onClick={() => setSelectedSchoolIds(activeSchools.map((school) => school.id))} className="min-h-8 rounded-lg bg-white px-2.5 text-[10px] font-black text-sky-700 shadow-sm">全校選択</button><button type="button" onClick={() => setSelectedSchoolIds([])} className="min-h-8 rounded-lg bg-white px-2.5 text-[10px] font-black text-slate-600 shadow-sm">解除</button></div></div>
+            <div className="grid max-h-52 gap-2 overflow-y-auto rounded-xl border border-sky-100 bg-white p-2 sm:grid-cols-2 lg:grid-cols-3">
+              {activeSchools.map((school) => {
+                const selected = selectedSchoolIds.includes(school.id);
+                return <button key={school.id} type="button" aria-pressed={selected} onClick={() => setSelectedSchoolIds((current) => selected ? current.filter((id) => id !== school.id) : [...current, school.id])} className={`flex min-h-11 items-center justify-between gap-2 rounded-lg border px-3 text-left text-xs font-bold transition ${selected ? 'border-sky-500 bg-sky-50 text-sky-950 ring-1 ring-sky-300' : 'border-slate-200 bg-white text-slate-700 hover:border-sky-300'}`}><span className="truncate">{school.name}</span><span className={`grid h-5 w-5 shrink-0 place-items-center rounded-full text-[11px] font-black ${selected ? 'bg-sky-600 text-white' : 'bg-slate-100 text-slate-400'}`}>{selected ? '✓' : ''}</span></button>;
+              })}
+              {!activeSchools.length && <p className="col-span-full p-3 text-center text-xs text-slate-500">利用中の学校がありません。</p>}
+            </div>
+          </div>
+          <div>
+            <p className="mb-2 text-xs font-black text-sky-950">2. 共通期間を入力</p>
+            <div className="grid gap-2 rounded-xl border border-sky-100 bg-white p-3 sm:grid-cols-3"><label className="text-[10px] font-bold text-slate-600">名称<input value={bulkHoliday.name} onChange={(event) => setBulkHoliday({ ...bulkHoliday, name: event.target.value })} placeholder="夏休み" className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label><label className="text-[10px] font-bold text-slate-600">開始日<input type="date" value={bulkHoliday.startDate} onChange={(event) => setBulkHoliday({ ...bulkHoliday, startDate: event.target.value })} className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label><label className="text-[10px] font-bold text-slate-600">終了日<input type="date" value={bulkHoliday.endDate} onChange={(event) => setBulkHoliday({ ...bulkHoliday, endDate: event.target.value })} className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-2 text-sm" /></label></div>
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><p className="text-[10px] leading-relaxed text-slate-500">終了日までは利用予定へ反映し、終了日の翌日から画面・DBの両方で自動整理されます。</p><button type="button" disabled={saving || selectedSchoolIds.length === 0} onClick={() => void applyBulkHoliday()} className="min-h-11 shrink-0 rounded-xl bg-sky-700 px-5 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-40">{saving ? '登録中…' : `${selectedSchoolIds.length}校へ登録`}</button></div>
+        </div>}
+      </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
         <label className="relative block"><Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="学校名・住所・エリアで検索" className="min-h-11 w-full rounded-xl border border-slate-300 pl-10 pr-3 text-base" /></label>

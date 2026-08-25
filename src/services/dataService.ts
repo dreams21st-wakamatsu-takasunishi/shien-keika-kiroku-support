@@ -57,6 +57,7 @@ import { normalizeTemplateFatigueScale } from '../utils/templateNormalizer';
 import { upgradeStandardWeekdayTemplate } from '../data/weekdayTemplate';
 import { upgradeStandardHolidayTemplate } from '../data/holidayTemplate';
 import { calculateSchoolGrade } from '../utils/schoolGrade';
+import { currentSchoolHolidayPeriods } from '../utils/schoolHoliday';
 import { getLocalDateString } from '../utils/weekdays';
 import { getAccessDeviceLabel, getAccessDevicePlatform, getAccessDeviceToken } from '../utils/accessDevice';
 import { resolvedTransportArea } from '../utils/transportArea';
@@ -211,14 +212,14 @@ function mapSchool(row: any): SchoolProfile {
     address: row.address,
     area: row.area || undefined,
     note: row.note || undefined,
-    holidayPeriods: Array.isArray(row.holiday_periods)
+    holidayPeriods: currentSchoolHolidayPeriods(Array.isArray(row.holiday_periods)
       ? row.holiday_periods.map((period: any) => ({
         id: String(period.id || ''),
         name: String(period.name || '長期休暇'),
         startDate: String(period.startDate || period.start_date || ''),
         endDate: String(period.endDate || period.end_date || ''),
       })).filter((period: any) => period.id && period.startDate && period.endDate)
-      : [],
+      : []),
     dismissalScheduleConfirmations: Array.isArray(row.dismissal_schedule_confirmations)
       ? row.dismissal_schedule_confirmations.map((confirmation: any) => ({
         targetMonth: String(confirmation.targetMonth || confirmation.target_month || ''),
@@ -1828,7 +1829,7 @@ export async function saveSchool(organizationId: string, school: SchoolProfile) 
     address: school.address.trim(),
     area: resolvedTransportArea(school.address, school.area) || null,
     note: school.note?.trim() || null,
-    holiday_periods: school.holidayPeriods || [],
+    holiday_periods: currentSchoolHolidayPeriods(school.holidayPeriods),
     dismissal_schedule_confirmations: school.dismissalScheduleConfirmations || [],
     active: school.active,
   }, { onConflict: 'organization_id,id' });
