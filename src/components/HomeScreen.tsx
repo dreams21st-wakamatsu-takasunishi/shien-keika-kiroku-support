@@ -502,6 +502,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             organizationId={organizationId}
             initialDate={monthlyScheduleDate}
             childrenList={childrenList}
+            schools={schools}
             dailyChildPlans={dailyChildPlans}
             requirements={dailyTransportRequirements}
             planDays={transportPlanDays}

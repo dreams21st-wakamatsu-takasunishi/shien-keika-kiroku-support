@@ -26,6 +26,7 @@ import type {
   DailyChildPlan,
   DailyTransportRequirement,
   MonthlyScheduleDeleteResult,
+  SchoolProfile,
   TransportDirection,
   TransportPickupMode,
   TransportPlanDay,
@@ -46,6 +47,7 @@ interface MonthlyTransportPlannerProps {
   organizationId?: string;
   initialDate: string;
   childrenList: ChildProfile[];
+  schools: SchoolProfile[];
   dailyChildPlans: DailyChildPlan[];
   requirements: DailyTransportRequirement[];
   planDays: TransportPlanDay[];
@@ -171,6 +173,29 @@ function serviceChildrenForDate(
   });
 }
 
+function schoolForChild(child: ChildProfile, schools: SchoolProfile[]) {
+  if (child.schoolId) {
+    const byId = schools.find((school) => school.id === child.schoolId);
+    if (byId) return byId;
+  }
+  const schoolName = child.schoolName?.trim().normalize('NFKC');
+  return schoolName
+    ? schools.find((school) => school.name.trim().normalize('NFKC') === schoolName)
+    : undefined;
+}
+
+function isHolidayServiceDate(child: ChildProfile, date: string, schools: SchoolProfile[]) {
+  const weekday = getWeekdayFromDate(date);
+  if (weekday === '土' || weekday === '日') return true;
+  return Boolean(schoolForChild(child, schools)?.holidayPeriods?.some(
+    (period) => period.startDate <= date && date <= period.endDate,
+  ));
+}
+
+function baselinePickupMode(child: ChildProfile, date: string, schools: SchoolProfile[]): TransportPickupMode {
+  return isHolidayServiceDate(child, date, schools) ? 'home' : 'school';
+}
+
 function preferredLocation(
   child: ChildProfile,
   direction: TransportDirection,
@@ -247,10 +272,10 @@ function defaultDailyChildPlan(
   child: ChildProfile,
   date: string,
   settings: TransportRouteSettings,
+  schools: SchoolProfile[],
 ): DailyChildPlan {
   const now = new Date().toISOString();
-  const weekday = getWeekdayFromDate(date);
-  const holidayLike = weekday === '土' || weekday === '日';
+  const holidayLike = isHolidayServiceDate(child, date, schools);
   const schedule = getTransportScheduleForDate(child, date);
   return {
     id: createUuid(),
@@ -359,6 +384,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
   organizationId,
   initialDate,
   childrenList,
+  schools,
   dailyChildPlans,
   requirements,
   planDays,
@@ -404,6 +430,8 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
   const [historyError, setHistoryError] = useState('');
   const [holidayFrom, setHolidayFrom] = useState(`${month}-01`);
   const [holidayTo, setHolidayTo] = useState(monthDates(month).at(-1) || `${month}-01`);
+  const [reflectFrom, setReflectFrom] = useState(`${month}-01`);
+  const [reflectTo, setReflectTo] = useState(monthDates(month).at(-1) || `${month}-01`);
   const dates = useMemo(() => monthDates(month), [month]);
   const activeChildIds = useMemo(() => new Set(childrenList.filter((child) => !child.serviceSuspended).map((child) => child.id)), [childrenList]);
   const absentPlanKeys = useMemo(() => new Set(dailyChildPlans
@@ -594,8 +622,11 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
   const changeMonth = (value: string) => {
     setMonth(value);
     const first = `${value}-01`;
+    const last = monthDates(value).at(-1) || first;
     setHolidayFrom(first);
-    setHolidayTo(monthDates(value).at(-1) || first);
+    setHolidayTo(last);
+    setReflectFrom(first);
+    setReflectTo(last);
     setBulkDeleteOpen(false);
     selectDate(first);
   };
@@ -605,8 +636,12 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
     const nextMonth = value.slice(0, 7);
     if (nextMonth !== month) {
       setMonth(nextMonth);
-      setHolidayFrom(`${nextMonth}-01`);
-      setHolidayTo(monthDates(nextMonth).at(-1) || `${nextMonth}-01`);
+      const first = `${nextMonth}-01`;
+      const last = monthDates(nextMonth).at(-1) || first;
+      setHolidayFrom(first);
+      setHolidayTo(last);
+      setReflectFrom(first);
+      setReflectTo(last);
       setBulkDeleteOpen(false);
     }
     selectDate(value);
@@ -621,7 +656,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
 
   const createForDate = (
     date: string,
-    pickupMode: TransportPickupMode,
+    pickupMode?: TransportPickupMode,
     overwrite = false,
   ): DailyTransportRequirement[] => {
     const existing = requirements.filter((item) => item.date === date);
@@ -630,31 +665,31 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
     );
     return scheduledChildrenForDate(childrenList, dailyChildPlans, date).map((child) => {
       if (!overwrite && existingByChild.has(child.id)) return existingByChild.get(child.id)!;
+      const resolvedPickupMode = pickupMode || baselinePickupMode(child, date, schools);
       return buildRequirement(
         child,
         date,
-        pickupMode,
+        resolvedPickupMode,
         routeSettings,
-        dailyChildPlans.find((plan) => plan.childId === child.id && plan.date === date),
+        undefined,
       );
     });
   };
 
   const reflectMonth = async () => {
     if (!canManage) return;
-    const created = dates.flatMap((date) => {
-      const day = planDays.find((candidate) => candidate.date === date);
-      return createForDate(date, day?.pickupMode || 'school');
-    });
+    const targetDates = dates.filter((date) => date >= reflectFrom && date <= reflectTo);
+    if (!targetDates.length) return setError('基本予定を反映する期間を、表示中の月内で選択してください。');
+    const created = targetDates.flatMap((date) => createForDate(date));
     const existingKeys = new Set(requirements.map((item) => `${item.childId}:${item.date}`));
     const additions = created.filter((item) => !existingKeys.has(`${item.childId}:${item.date}`));
-    if (additions.length === 0) return setMessage('この月の基本予定はすでに反映されています。');
+    if (additions.length === 0) return setMessage('選択期間の基本予定はすでに反映されています。');
     setSaving(true);
     setError('');
     try {
       await onSaveRequirements(additions);
       if (additions.some((item) => item.date === selectedDate)) setDrafts([...requirements.filter((item) => item.date === selectedDate), ...additions.filter((item) => item.date === selectedDate)]);
-      setMessage(`${additions.length}件の基本予定を追加しました。手動変更済みの予定は上書きしていません。`);
+      setMessage(`${reflectFrom}〜${reflectTo}へ${additions.length}件の基本予定を追加しました。手動変更済みの予定は上書きしていません。`);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : '基本予定を反映できませんでした。');
     } finally {
@@ -664,17 +699,29 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
 
   const reapplyMonth = async () => {
     if (!canManage) return;
+    const targetDates = dates.filter((date) => date >= reflectFrom && date <= reflectTo);
+    if (!targetDates.length) return setError('基本予定を再反映する期間を、表示中の月内で選択してください。');
     const [year, monthNumber] = month.split('-');
-    if (!window.confirm(`${year}年${Number(monthNumber)}月の基本情報をすべて再反映しますか？\n\n児童情報の定期曜日・送迎先・住所・エリア・基準時刻で作り直します。月間予定で手動修正した内容と確定状態はリセットされます。作成済みの配車便と過去の運行履歴は変更しません。`)) return;
-    const nextRequirements = dates.flatMap((date) => {
-      const planDay = planDays.find((candidate) => candidate.date === date);
-      return createForDate(date, planDay?.pickupMode || 'school', true);
-    });
+    if (!window.confirm(`${reflectFrom}〜${reflectTo}の基本情報を再反映しますか？\n\n児童情報・所属校の長期休暇期間・送迎先・基準時刻で作り直します。選択期間で手動修正した内容はリセットされます。期間外の予定、作成済み配車便、過去の運行履歴は変更しません。`)) return;
+    const nextRequirements = targetDates.flatMap((date) => createForDate(date, undefined, true));
     setSaving(true);
     setError('');
     setMessage('');
     try {
-      const appliedRequirements = await onReplaceMonthRequirements(month, nextRequirements);
+      const fullMonth = targetDates.length === dates.length;
+      let appliedRequirements: DailyTransportRequirement[];
+      if (fullMonth) {
+        appliedRequirements = await onReplaceMonthRequirements(month, nextRequirements);
+      } else {
+        const nextKeys = new Set(nextRequirements.map((item) => `${item.childId}:${item.date}`));
+        const stale = monthRequirements.filter((item) => targetDates.includes(item.date) && !nextKeys.has(`${item.childId}:${item.date}`));
+        await Promise.all(stale.map((item) => onDeleteRequirement(item.childId, item.date)));
+        if (nextRequirements.length) await onSaveRequirements(nextRequirements);
+        appliedRequirements = [
+          ...monthRequirements.filter((item) => !targetDates.includes(item.date)),
+          ...nextRequirements,
+        ];
+      }
       setDrafts(appliedRequirements.filter((item) => item.date === selectedDate));
       const selectedPlan = planDays.find((day) => day.date === selectedDate);
       setDayDraft(selectedPlan
@@ -682,21 +729,23 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
         : defaultPlanDay(selectedDate, routeSettings));
       setEditingChildId(undefined);
       setEditingOriginal(undefined);
+      const previousTargetRequirements = monthRequirements.filter((item) => targetDates.includes(item.date));
+      const appliedTargetRequirements = appliedRequirements.filter((item) => targetDates.includes(item.date));
       const previousByKey = new Map<string, DailyTransportRequirement>(
-        monthRequirements.map((item) => [`${item.childId}:${item.date}`, item] as const),
+        previousTargetRequirements.map((item) => [`${item.childId}:${item.date}`, item] as const),
       );
-      const appliedKeys = new Set(appliedRequirements.map((item) => `${item.childId}:${item.date}`));
-      const createdCount = appliedRequirements.filter((item) => !previousByKey.has(`${item.childId}:${item.date}`)).length;
-      const updatedCount = appliedRequirements.filter((item) => {
+      const appliedKeys = new Set(appliedTargetRequirements.map((item) => `${item.childId}:${item.date}`));
+      const createdCount = appliedTargetRequirements.filter((item) => !previousByKey.has(`${item.childId}:${item.date}`)).length;
+      const updatedCount = appliedTargetRequirements.filter((item) => {
         const previous = previousByKey.get(`${item.childId}:${item.date}`);
         return previous && comparableRequirement(previous) !== comparableRequirement(item);
       }).length;
-      const unchangedCount = appliedRequirements.length - createdCount - updatedCount;
-      const removedCount = monthRequirements.filter((item) => !appliedKeys.has(`${item.childId}:${item.date}`)).length;
+      const unchangedCount = appliedTargetRequirements.length - createdCount - updatedCount;
+      const removedCount = previousTargetRequirements.filter((item) => !appliedKeys.has(`${item.childId}:${item.date}`)).length;
       const resultSummary = updatedCount === 0 && createdCount === 0 && removedCount === 0
         ? `全${unchangedCount}件がすでに最新の基本情報でした。`
         : `新規${createdCount}件・更新${updatedCount}件・変更なし${unchangedCount}件・対象外削除${removedCount}件です。`;
-      setMessage(`${year}年${Number(monthNumber)}月をDBから再取得し、${appliedRequirements.length}件の反映を確認しました。${resultSummary}各日の内容を確認してから確定してください。`);
+      setMessage(`${year}年${Number(monthNumber)}月のうち${reflectFrom}〜${reflectTo}へ基本予定を反映しました。${resultSummary}各日の内容を確認してから確定してください。`);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : '月全体の基本情報を再反映できませんでした。');
     } finally {
@@ -708,25 +757,38 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
     if (!canManage || !monthChildId) return setError('基本予定を反映する児童を選択してください。');
     const child = childrenList.find((candidate) => candidate.id === monthChildId);
     if (!child) return setError('選択した児童が見つかりません。');
-    const [year, monthNumber] = month.split('-');
-    if (!window.confirm(`${child.name}の${year}年${Number(monthNumber)}月の基本予定を反映しますか？\n\nこの児童について、月間予定で手動修正した内容は児童情報の定期曜日・送迎先・基準時刻で作り直されます。他の児童の予定は変更しません。`)) return;
-    const childRequirements = dates.flatMap((date) => {
+    const targetDates = dates.filter((date) => date >= reflectFrom && date <= reflectTo);
+    if (!targetDates.length) return setError('基本予定を反映する期間を、表示中の月内で選択してください。');
+    if (!window.confirm(`${child.name}の${reflectFrom}〜${reflectTo}へ基本予定を反映しますか？\n\n選択期間だけを児童情報・所属校の長期休暇期間・送迎先・基準時刻で作り直します。他の児童と期間外の予定は変更しません。`)) return;
+    const childRequirements = targetDates.flatMap((date) => {
       const plan = dailyChildPlans.find((candidate) => candidate.childId === child.id && candidate.date === date);
       const scheduled = plan
         ? plan.attendancePlan !== '欠席'
         : getRegularDaysForDate(child, date).includes(getWeekdayFromDate(date));
       if (!scheduled) return [];
-      const planDay = planDays.find((candidate) => candidate.date === date);
-      return [buildRequirement(child, date, planDay?.pickupMode || 'school', routeSettings, plan)];
+      return [buildRequirement(child, date, baselinePickupMode(child, date, schools), routeSettings)];
     });
     setSaving(true);
     setError('');
     setMessage('');
     try {
-      const appliedRequirements = await onReplaceChildMonthRequirements(month, child.id, childRequirements);
+      const fullMonth = targetDates.length === dates.length;
+      let appliedRequirements: DailyTransportRequirement[];
+      if (fullMonth) {
+        appliedRequirements = await onReplaceChildMonthRequirements(month, child.id, childRequirements);
+      } else {
+        const nextKeys = new Set(childRequirements.map((item) => `${item.childId}:${item.date}`));
+        const stale = monthRequirements.filter((item) => item.childId === child.id && targetDates.includes(item.date) && !nextKeys.has(`${item.childId}:${item.date}`));
+        await Promise.all(stale.map((item) => onDeleteRequirement(item.childId, item.date)));
+        if (childRequirements.length) await onSaveRequirements(childRequirements);
+        appliedRequirements = [
+          ...monthRequirements.filter((item) => item.childId !== child.id || !targetDates.includes(item.date)),
+          ...childRequirements,
+        ];
+      }
       setDrafts(appliedRequirements.filter((item) => item.date === selectedDate));
       setEditingChildId(undefined);
-      setMessage(`${child.name}の${year}年${Number(monthNumber)}月について、基本予定${childRequirements.length}件を反映しました。他の児童の手動変更は保持しています。`);
+      setMessage(`${child.name}の${reflectFrom}〜${reflectTo}へ基本予定${childRequirements.length}件を反映しました。他の児童と期間外の手動変更は保持しています。`);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : '児童別の基本予定を反映できませんでした。');
     } finally {
@@ -741,7 +803,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
     const existingPlan = dailyChildPlans.find((plan) => plan.childId === childId && plan.date === selectedDate);
     const now = new Date().toISOString();
     const nextPlan: DailyChildPlan = {
-      ...defaultDailyChildPlan(child, selectedDate, routeSettings),
+      ...defaultDailyChildPlan(child, selectedDate, routeSettings, schools),
       ...existingPlan,
       attendancePlan,
       updatedAt: now,
@@ -788,7 +850,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
     const existingRequirement = requirements.find((item) => item.childId === childId && item.date === selectedDate);
     const now = new Date().toISOString();
     const nextPlan: DailyChildPlan = {
-      ...defaultDailyChildPlan(child, selectedDate, routeSettings),
+      ...defaultDailyChildPlan(child, selectedDate, routeSettings, schools),
       ...existingPlan,
       attendancePlan: '追加利用',
       updatedAt: now,
@@ -1107,12 +1169,21 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
         </div>
 
         {monthlySettingsOpen && <div className="mt-3 rounded-xl border border-teal-200 bg-teal-50/50 p-3">
+          <div className="mb-3 grid gap-2 rounded-xl border border-teal-200 bg-white p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
+            <label className="text-[10px] font-black text-teal-950">基本予定の反映開始日
+              <input type="date" min={`${month}-01`} max={dates.at(-1)} value={reflectFrom} onChange={(event) => setReflectFrom(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-teal-300 bg-white px-2 text-sm font-bold" />
+            </label>
+            <label className="text-[10px] font-black text-teal-950">基本予定の反映終了日
+              <input type="date" min={`${month}-01`} max={dates.at(-1)} value={reflectTo} onChange={(event) => setReflectTo(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-teal-300 bg-white px-2 text-sm font-bold" />
+            </label>
+            <p className="rounded-lg bg-teal-50 px-3 py-2 text-[10px] font-bold leading-relaxed text-teal-900">所属校の長期休暇期間は、その学校の児童だけ休日利用として自動判定します。</p>
+          </div>
           <div className="flex flex-wrap gap-2">
             <button type="button" onClick={() => changeMonth(previousMonthValue(month))} className="flex min-h-11 items-center gap-1 rounded-xl border border-slate-300 bg-white px-3 text-xs font-black text-slate-700"><ChevronLeft className="h-4 w-4" />前月</button>
             <input type="month" value={month} onChange={(event) => changeMonth(event.target.value)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm font-bold" />
             <button type="button" onClick={() => changeMonth(nextMonthValue(month))} className="flex min-h-11 items-center gap-1 rounded-xl border border-slate-300 bg-white px-3 text-xs font-black text-slate-700">翌月<ChevronRight className="h-4 w-4" /></button>
-            {canManage && <button type="button" disabled={saving} onClick={() => void reflectMonth()} className="flex min-h-11 items-center gap-2 rounded-xl bg-teal-600 px-4 text-xs font-black text-white disabled:opacity-50"><CopyCheck className="h-4 w-4" />基本予定を反映</button>}
-            {canManage && <button type="button" disabled={saving} onClick={() => void reapplyMonth()} className="flex min-h-11 items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 text-xs font-black text-amber-900 disabled:opacity-50"><RotateCcw className="h-4 w-4" />月全体を再反映</button>}
+            {canManage && <button type="button" disabled={saving} onClick={() => void reflectMonth()} className="flex min-h-11 items-center gap-2 rounded-xl bg-teal-600 px-4 text-xs font-black text-white disabled:opacity-50"><CopyCheck className="h-4 w-4" />選択期間へ基本予定を追加</button>}
+            {canManage && <button type="button" disabled={saving} onClick={() => void reapplyMonth()} className="flex min-h-11 items-center gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 text-xs font-black text-amber-900 disabled:opacity-50"><RotateCcw className="h-4 w-4" />選択期間を再反映</button>}
             {canManage && <button type="button" onClick={() => setHolidayRangeOpen((current) => !current)} className="flex min-h-11 items-center gap-2 rounded-xl border border-sky-300 bg-sky-50 px-4 text-xs font-black text-sky-800"><Home className="h-4 w-4" />長期休暇期間</button>}
             {canManage && <button type="button" onClick={() => setBulkDeleteOpen((current) => !current)} className="flex min-h-11 items-center gap-2 rounded-xl border border-rose-300 bg-rose-50 px-4 text-xs font-black text-rose-800"><Trash2 className="h-4 w-4" />予定を一括削除</button>}
           </div>
@@ -1123,7 +1194,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
           </div>
           {canManage && (
             <div className="mt-3 grid gap-2 rounded-xl border border-teal-200 bg-white p-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-              <label className="text-[10px] font-black text-teal-950">児童ごとに基本予定を反映
+              <label className="text-[10px] font-black text-teal-950">児童ごとに選択期間へ基本予定を反映
                 <select value={monthChildId} onChange={(event) => setMonthChildId(event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-teal-300 bg-white px-3 text-sm font-bold">
                   <option value="">児童を選択</option>
                   {transportChildren.map((child) => <option key={child.id} value={child.id}>{child.name}</option>)}

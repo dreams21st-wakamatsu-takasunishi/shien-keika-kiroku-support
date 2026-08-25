@@ -90,9 +90,17 @@ export interface SchoolProfile {
   address: string;
   area?: string;
   note?: string;
+  holidayPeriods?: SchoolHolidayPeriod[];
   active: boolean;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface SchoolHolidayPeriod {
+  id: string;
+  name: string;
+  startDate: string;
+  endDate: string;
 }
 
 export interface TransportGeocodeRequestLocation {

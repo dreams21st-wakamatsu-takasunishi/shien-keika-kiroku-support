@@ -211,6 +211,14 @@ function mapSchool(row: any): SchoolProfile {
     address: row.address,
     area: row.area || undefined,
     note: row.note || undefined,
+    holidayPeriods: Array.isArray(row.holiday_periods)
+      ? row.holiday_periods.map((period: any) => ({
+        id: String(period.id || ''),
+        name: String(period.name || '長期休暇'),
+        startDate: String(period.startDate || period.start_date || ''),
+        endDate: String(period.endDate || period.end_date || ''),
+      })).filter((period: any) => period.id && period.startDate && period.endDate)
+      : [],
     active: row.active !== false,
     createdAt: row.created_at || undefined,
     updatedAt: row.updated_at || undefined,
@@ -1797,6 +1805,7 @@ export async function saveSchool(organizationId: string, school: SchoolProfile) 
     address: school.address.trim(),
     area: resolvedTransportArea(school.address, school.area) || null,
     note: school.note?.trim() || null,
+    holiday_periods: school.holidayPeriods || [],
     active: school.active,
   }, { onConflict: 'organization_id,id' });
   if (error) throw error;

@@ -32,6 +32,8 @@ interface DayForm {
   note: string;
 }
 
+type ShiftViewMode = 'year' | 'month' | 'day';
+
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 const DAY_STATUSES: AttendanceStatus[] = ['勤務予定', '遅刻', '早退', '欠勤', '有給', '公休', '特別休暇', '研修'];
 const NO_TIME_STATUSES: AttendanceStatus[] = ['欠勤', '有給', '公休', '特別休暇'];
@@ -50,6 +52,9 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
     [recorderProfiles],
   );
   const [month, setMonth] = useState(selectedDate.slice(0, 7));
+  const [year, setYear] = useState(Number(selectedDate.slice(0, 4)));
+  const [dayDate, setDayDate] = useState(selectedDate);
+  const [viewMode, setViewMode] = useState<ShiftViewMode>('month');
   const [employmentFilter, setEmploymentFilter] = useState<'all' | StaffEmploymentType>('all');
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [applyDate, setApplyDate] = useState(selectedDate);
@@ -61,6 +66,8 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
 
   useEffect(() => {
     setMonth(selectedDate.slice(0, 7));
+    setYear(Number(selectedDate.slice(0, 4)));
+    setDayDate(selectedDate);
     setApplyDate(selectedDate);
   }, [selectedDate]);
 
@@ -83,6 +90,14 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
   const monthRecords = useMemo(
     () => records.filter((record) => record.date.startsWith(month)),
     [month, records],
+  );
+  const yearRecords = useMemo(
+    () => records.filter((record) => record.date.startsWith(`${year}-`)),
+    [records, year],
+  );
+  const dayRecords = useMemo(
+    () => records.filter((record) => record.date === dayDate),
+    [dayDate, records],
   );
   const selectedTemplate = templates.find((template) => template.id === selectedTemplateId);
   const partTimePattern = selectedTemplateId === PART_TIME_WEEKDAY_DEFAULT
@@ -262,6 +277,29 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
     }
   };
 
+  const navigateView = (amount: number) => {
+    if (viewMode === 'year') {
+      setYear((current) => current + amount);
+      return;
+    }
+    if (viewMode === 'month') {
+      const next = moveMonth(month, amount);
+      setMonth(next);
+      setYear(Number(next.slice(0, 4)));
+      return;
+    }
+    const next = moveDate(dayDate, amount);
+    setDayDate(next);
+    setMonth(next.slice(0, 7));
+    setYear(Number(next.slice(0, 4)));
+  };
+
+  const periodLabel = viewMode === 'year'
+    ? `${year}年`
+    : viewMode === 'month'
+      ? `${month.replace('-', '年')}月`
+      : formatJapaneseDate(dayDate);
+
   return (
     <section className="overflow-hidden rounded-2xl border border-indigo-200 bg-white shadow-sm">
       <div className="border-b border-indigo-100 bg-indigo-50/70 p-4">
@@ -319,41 +357,64 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
         {message && <p className="rounded-xl bg-slate-50 px-3 py-2 text-xs font-bold text-slate-700">{message}</p>}
       </div>
 
-      <div className="flex items-center justify-between gap-3 p-3">
-        <button type="button" onClick={() => setMonth(moveMonth(month, -1))} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-300"><ChevronLeft className="h-5 w-5" /></button>
-        <div className="text-center"><strong className="block text-base text-slate-950">{month.replace('-', '年')}月</strong><span className="text-[10px] text-slate-500">日付を選ぶと個別編集できます</span></div>
-        <button type="button" onClick={() => setMonth(moveMonth(month, 1))} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-300"><ChevronRight className="h-5 w-5" /></button>
+      <div className="border-b border-slate-200 bg-white p-3">
+        <div className="mx-auto grid max-w-md grid-cols-3 rounded-xl bg-slate-100 p-1">
+          {([['year', '年別'], ['month', '月別'], ['day', '日別']] as Array<[ShiftViewMode, string]>).map(([mode, label]) => <button key={mode} type="button" onClick={() => setViewMode(mode)} className={`min-h-10 rounded-lg text-xs font-black transition-colors ${viewMode === mode ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-600'}`}>{label}</button>)}
+        </div>
+        <div className="mt-3 flex items-center justify-between gap-3">
+          <button type="button" onClick={() => navigateView(-1)} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-300" aria-label="前へ"><ChevronLeft className="h-5 w-5" /></button>
+          <div className="text-center"><strong className="block text-base text-slate-950">{periodLabel}</strong><span className="text-[10px] text-slate-500">{viewMode === 'year' ? '月を選ぶと月別表示へ移動します' : viewMode === 'month' ? '○は勤務、休・有・特・欠は休暇区分です' : '7時から21時までの配置を表示します'}</span></div>
+          <button type="button" onClick={() => navigateView(1)} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-300" aria-label="次へ"><ChevronRight className="h-5 w-5" /></button>
+        </div>
       </div>
 
-      <div className="space-y-4 border-t border-slate-100 bg-slate-50/60 p-3">
-        {chunkDatesByWeek(dates).map((weekDates) => (
-          <section key={weekDates[0]} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
-            <h4 className="mb-3 text-xs font-black text-slate-700">{formatWeekRange(weekDates)}</h4>
-            <div className="space-y-3">
-              {visibleProfiles.map((profile) => {
-                const profileRecords = monthRecords.filter((record) => record.recorderProfileId === profile.id);
-                const workDays = profileRecords.filter((record) => !NO_TIME_STATUSES.includes(record.status)).length;
-                const scheduledMinutes = profileRecords.reduce((total, record) => total + getScheduledMinutes(record), 0);
-                return <div key={profile.id} className="rounded-xl border border-slate-100 bg-slate-50/70 p-2">
-                  <div className="mb-2 flex flex-wrap items-center gap-1.5">
-                    <strong className="mr-auto text-xs text-slate-900">{profile.displayName}</strong>
-                    <span className={`rounded-full px-2 py-0.5 text-[9px] font-black ${profile.employmentType === 'part_time' ? 'bg-violet-100 text-violet-800' : 'bg-emerald-100 text-emerald-800'}`}>{profile.employmentType === 'part_time' ? 'パート' : '正職'}</span>
-                    <span className="text-[9px] text-slate-500">月計 {workDays}日・{formatMinutes(scheduledMinutes)}</span>
-                  </div>
-                  <div className="grid grid-cols-7 gap-1">
-                    {weekDates.map((date) => {
-                      const day = new Date(`${date}T12:00:00`).getDay();
-                      const record = profileRecords.find((candidate) => candidate.date === date);
-                      const locked = isClockedRecord(record);
-                      return <button key={date} type="button" onClick={() => openDay(profile, date)} className={`min-h-[3.4rem] min-w-0 rounded-lg px-0.5 text-[10px] font-black ${cellTone(record)} ${locked ? 'ring-1 ring-slate-400' : ''}`} title={locked ? '打刻済み・閲覧のみ' : record ? `${record.status} ${record.scheduledStartTime || ''}〜${record.scheduledEndTime || ''}` : '未登録'}><span className={`block text-[9px] ${day === 0 ? 'text-rose-600' : day === 6 ? 'text-sky-600' : ''}`}>{Number(date.slice(8))}（{WEEKDAYS[day]}）</span><span className="mt-0.5 block truncate">{cellLabel(record)}</span>{locked && <span className="block text-[8px] opacity-70">打刻済</span>}</button>;
-                    })}
-                    {Array.from({ length: 7 - weekDates.length }, (_, index) => <span key={`blank-${index}`} />)}
-                  </div>
-                </div>;
-              })}
+      <div className="border-t border-slate-100 bg-slate-50/60 p-3">
+        {viewMode === 'month' && <div className="overflow-x-auto rounded-xl border border-slate-300 bg-white shadow-sm">
+          <div style={{ minWidth: `${180 + dates.length * 30}px` }}>
+            <div className="grid border-b border-slate-300 bg-slate-100" style={{ gridTemplateColumns: `minmax(130px, 1fr) repeat(${dates.length}, 30px) 54px` }}>
+              <div className="flex items-center px-2 text-[10px] font-black text-slate-700">職員名</div>
+              {dates.map((date) => { const weekday = new Date(`${date}T12:00:00`).getDay(); return <div key={date} className={`border-l border-slate-300 py-1 text-center text-[9px] font-black ${weekday === 0 ? 'bg-rose-50 text-rose-700' : weekday === 6 ? 'bg-sky-50 text-sky-700' : 'text-slate-700'}`}><span className="block">{Number(date.slice(8))}</span><span>{WEEKDAYS[weekday]}</span></div>; })}
+              <div className="border-l border-slate-300 py-1 text-center text-[9px] font-black text-slate-700">休暇<br />計</div>
             </div>
-          </section>
-        ))}
+            {visibleProfiles.map((profile) => {
+              const profileRecords = monthRecords.filter((record) => record.recorderProfileId === profile.id);
+              const leaveDays = profileRecords.filter((record) => NO_TIME_STATUSES.includes(record.status)).length;
+              return <div key={profile.id} className="grid border-b border-slate-200 last:border-b-0" style={{ gridTemplateColumns: `minmax(130px, 1fr) repeat(${dates.length}, 30px) 54px` }}>
+                <div className="min-w-0 px-2 py-2"><strong className="block truncate text-[11px] text-slate-950">{profile.displayName}</strong><span className="text-[9px] text-slate-500">{profile.employmentType === 'part_time' ? 'パート' : '正職'}・{profileRecords.filter((record) => !NO_TIME_STATUSES.includes(record.status)).length}日</span></div>
+                {dates.map((date) => {
+                  const record = profileRecords.find((candidate) => candidate.date === date);
+                  const locked = isClockedRecord(record);
+                  return <button key={date} type="button" onClick={() => openDay(profile, date)} className={`min-h-11 border-l border-slate-200 text-[10px] font-black ${cellTone(record)} ${locked ? 'ring-1 ring-inset ring-slate-500' : ''}`} title={record ? `${record.status} ${record.scheduledStartTime || ''}〜${record.scheduledEndTime || ''}` : '未登録'}>{monthCellLabel(record)}</button>;
+                })}
+                <div className="flex items-center justify-center border-l border-slate-300 text-xs font-black text-slate-700">{leaveDays}</div>
+              </div>;
+            })}
+          </div>
+        </div>}
+
+        {viewMode === 'day' && <div className="overflow-x-auto rounded-xl border border-slate-300 bg-white shadow-sm">
+          <div className="min-w-[760px]">
+            <div className="grid border-b border-slate-300 bg-slate-100" style={{ gridTemplateColumns: '150px minmax(600px, 1fr)' }}><div className="px-3 py-2 text-[10px] font-black text-slate-700">職員</div><div className="grid grid-cols-[repeat(15,minmax(0,1fr))]">{Array.from({ length: 15 }, (_, index) => <span key={index} className="border-l border-slate-300 py-2 text-center text-[9px] font-black text-slate-600">{7 + index}</span>)}</div></div>
+            {visibleProfiles.map((profile) => {
+              const record = dayRecords.find((candidate) => candidate.recorderProfileId === profile.id);
+              const bar = ganttBarStyle(record);
+              return <button key={profile.id} type="button" onClick={() => openDay(profile, dayDate)} className="grid w-full border-b border-slate-200 text-left last:border-b-0 hover:bg-indigo-50/40" style={{ gridTemplateColumns: '150px minmax(600px, 1fr)' }}><span className="px-3 py-3"><strong className="block truncate text-xs text-slate-950">{profile.displayName}</strong><span className="text-[9px] text-slate-500">{profile.employmentType === 'part_time' ? 'パート' : '正職'}</span></span><span className="relative min-h-14 overflow-hidden bg-[repeating-linear-gradient(to_right,transparent_0,transparent_calc(7.142857%-1px),rgb(226_232_240)_calc(7.142857%-1px),rgb(226_232_240)_7.142857%)]">{bar ? <span className={`absolute top-2 flex h-10 items-center overflow-hidden rounded-lg px-2 text-[10px] font-black shadow-sm ${cellTone(record)}`} style={bar}>{record?.scheduledStartTime}〜{record?.scheduledEndTime}</span> : record ? <span className={`absolute inset-x-2 top-2 flex h-10 items-center justify-center rounded-lg text-[10px] font-black ${cellTone(record)}`}>{cellLabel(record)}</span> : <span className="absolute inset-0 grid place-items-center text-[10px] text-slate-300">未登録</span>}</span></button>;
+            })}
+          </div>
+        </div>}
+
+        {viewMode === 'year' && <div className="overflow-x-auto rounded-xl border border-slate-300 bg-white shadow-sm">
+          <div className="min-w-[860px]">
+            <div className="grid border-b border-slate-300 bg-slate-100" style={{ gridTemplateColumns: '150px repeat(12, minmax(56px, 1fr))' }}><div className="px-3 py-2 text-[10px] font-black text-slate-700">職員名</div>{Array.from({ length: 12 }, (_, index) => <button key={index} type="button" onClick={() => { setMonth(`${year}-${String(index + 1).padStart(2, '0')}`); setViewMode('month'); }} className="border-l border-slate-300 py-2 text-[10px] font-black text-indigo-800 hover:bg-indigo-50">{index + 1}月</button>)}</div>
+            {visibleProfiles.map((profile) => <div key={profile.id} className="grid border-b border-slate-200 last:border-b-0" style={{ gridTemplateColumns: '150px repeat(12, minmax(56px, 1fr))' }}><div className="min-w-0 px-3 py-2"><strong className="block truncate text-[11px] text-slate-950">{profile.displayName}</strong><span className="text-[9px] text-slate-500">{profile.employmentType === 'part_time' ? 'パート' : '正職'}</span></div>{Array.from({ length: 12 }, (_, index) => {
+              const prefix = `${year}-${String(index + 1).padStart(2, '0')}`;
+              const target = yearRecords.filter((record) => record.recorderProfileId === profile.id && record.date.startsWith(prefix));
+              const workDays = target.filter((record) => !NO_TIME_STATUSES.includes(record.status)).length;
+              const leaveDays = target.filter((record) => NO_TIME_STATUSES.includes(record.status)).length;
+              return <button key={prefix} type="button" onClick={() => { setMonth(prefix); setViewMode('month'); }} className="border-l border-slate-200 px-1 py-2 text-center hover:bg-indigo-50"><strong className="block text-xs text-slate-900">{workDays}日</strong><span className={`text-[9px] font-bold ${leaveDays ? 'text-rose-700' : 'text-slate-400'}`}>休 {leaveDays}</span></button>;
+            })}</div>)}
+          </div>
+        </div>}
         {visibleProfiles.length === 0 && <p className="p-6 text-center text-sm text-slate-500">該当する職員がいません。</p>}
       </div>
 
@@ -387,27 +448,6 @@ function getMonthDates(month: string) {
   return Array.from({ length: lastDay }, (_, index) => `${month}-${String(index + 1).padStart(2, '0')}`);
 }
 
-function chunkDatesByWeek(dates: string[]) {
-  const weeks: string[][] = [];
-  let current: string[] = [];
-  dates.forEach((date) => {
-    const weekday = new Date(`${date}T12:00:00`).getDay();
-    if (current.length && weekday === 0) {
-      weeks.push(current);
-      current = [];
-    }
-    current.push(date);
-  });
-  if (current.length) weeks.push(current);
-  return weeks;
-}
-
-function formatWeekRange(dates: string[]) {
-  const first = Number(dates[0]?.slice(8));
-  const last = Number(dates[dates.length - 1]?.slice(8));
-  return first === last ? `${first}日` : `${first}日〜${last}日`;
-}
-
 function isClockedRecord(record?: AttendanceRecord) {
   return Boolean(record?.clockInAt || record?.clockOutAt || (record && ['出勤中', '休憩中', '退勤済み'].includes(record.status)));
 }
@@ -418,17 +458,42 @@ function moveMonth(month: string, amount: number) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
 }
 
-function getScheduledMinutes(record: AttendanceRecord) {
-  if (!record.scheduledStartTime || !record.scheduledEndTime || NO_TIME_STATUSES.includes(record.status)) return 0;
-  const [startHour, startMinute] = record.scheduledStartTime.split(':').map(Number);
-  const [endHour, endMinute] = record.scheduledEndTime.split(':').map(Number);
-  return Math.max(0, endHour * 60 + endMinute - startHour * 60 - startMinute - (record.scheduledBreakMinutes || 0));
+function moveDate(date: string, amount: number) {
+  const next = new Date(`${date}T12:00:00`);
+  next.setDate(next.getDate() + amount);
+  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`;
 }
 
-function formatMinutes(minutes: number) {
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  return rest ? `${hours}h${rest}m` : `${hours}h`;
+function formatJapaneseDate(date: string) {
+  const value = new Date(`${date}T12:00:00`);
+  return `${value.getFullYear()}年${value.getMonth() + 1}月${value.getDate()}日（${WEEKDAYS[value.getDay()]}）`;
+}
+
+function monthCellLabel(record?: AttendanceRecord) {
+  if (!record) return '－';
+  if (record.status === '公休') return '休';
+  if (record.status === '有給') return '有';
+  if (record.status === '特別休暇') return '特';
+  if (record.status === '欠勤') return '欠';
+  if (record.status === '研修') return '研';
+  if (record.status === '遅刻') return '遅';
+  if (record.status === '早退') return '早';
+  return '○';
+}
+
+function ganttBarStyle(record?: AttendanceRecord): React.CSSProperties | undefined {
+  if (!record?.scheduledStartTime || !record.scheduledEndTime || NO_TIME_STATUSES.includes(record.status)) return undefined;
+  const toMinutes = (value: string) => {
+    const [hours, minutes] = value.split(':').map(Number);
+    return hours * 60 + minutes;
+  };
+  const start = Math.max(7 * 60, Math.min(21 * 60, toMinutes(record.scheduledStartTime)));
+  const end = Math.max(start, Math.min(21 * 60, toMinutes(record.scheduledEndTime)));
+  const total = 14 * 60;
+  return {
+    left: `${((start - 7 * 60) / total) * 100}%`,
+    width: `${Math.max(1.5, ((end - start) / total) * 100)}%`,
+  };
 }
 
 function cellLabel(record?: AttendanceRecord) {
