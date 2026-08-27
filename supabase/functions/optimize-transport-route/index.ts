@@ -51,6 +51,20 @@ function normalizeText(value: unknown, maxLength: number) {
   return typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
 }
 
+function googleWaypoint(value: string) {
+  const coordinate = value.match(/^\s*(-?\d{1,3}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)\s*$/);
+  if (coordinate) {
+    const latitude = Number(coordinate[1]);
+    const longitude = Number(coordinate[2]);
+    if (Number.isFinite(latitude) && Number.isFinite(longitude)
+      && latitude >= -90 && latitude <= 90
+      && longitude >= -180 && longitude <= 180) {
+      return { location: { latLng: { latitude, longitude } } };
+    }
+  }
+  return { address: value };
+}
+
 async function requestGoogleRoutes(apiKey: string, body: Record<string, unknown>) {
   let lastResponse: Response | null = null;
   let lastNetworkError: unknown = null;
@@ -180,9 +194,9 @@ Deno.serve(async (request) => {
   }
   const useTraffic = Boolean(effectiveDeparture);
   const googleBody: Record<string, unknown> = {
-    origin: { address: origin },
-    destination: { address: destination },
-    intermediates: stops.map((stop) => ({ address: stop.location })),
+    origin: googleWaypoint(origin),
+    destination: googleWaypoint(destination),
+    intermediates: stops.map((stop) => googleWaypoint(stop.location)),
     travelMode: 'DRIVE',
     optimizeWaypointOrder: !preserveOrder,
     languageCode: 'ja',

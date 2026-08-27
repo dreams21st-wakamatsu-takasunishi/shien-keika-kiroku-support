@@ -67,7 +67,6 @@ import { TodayWorkPanel } from './TodayWorkPanel';
 import { MonthlyTransportPlanner } from './MonthlyTransportPlanner';
 import { getLocalDateString, getWeekdayFromDate } from '../utils/weekdays';
 import { getDefaultDepartureTime } from '../utils/transportDeparture';
-import { QuickGuide, type QuickGuideContent } from './QuickGuide';
 import { AttendanceHomePanel } from './AttendanceHomePanel';
 import { CalendarPanel } from './CalendarPanel';
 import { TransportPanel } from './TransportPanel';
@@ -166,27 +165,6 @@ interface HomeScreenProps {
 
 export type HomeWorkspace = 'menu' | 'dailyChanges' | 'todayWork' | 'attendance' | 'calendar' | 'monthlySchedule' | 'dispatch' | 'operations' | 'communication' | 'assistant';
 type CommunicationView = 'announcements' | 'morning' | 'handover';
-
-const HOME_GUIDE: QuickGuideContent = {
-  title: 'ホーム',
-  summary: '最初に行いたい業務を1つ選びます。必要な情報だけが次の画面に表示されます。',
-  steps: ['急な欠席や送迎交代は「当日変更」を選びます。', '勤務は「出勤予定」、会議等は「業務カレンダー」、利用・送迎は「利用予定／送迎管理」を選びます。', '入力や確認が終わったら「機能を選び直す」でこの画面へ戻ります。'],
-};
-
-function workspaceGuide(workspace: HomeWorkspace): QuickGuideContent {
-  const guides: Partial<Record<HomeWorkspace, QuickGuideContent>> = {
-    dailyChanges: { title: '当日変更', summary: '急な欠席と送迎担当交代を、通常の設定画面を探さず処理します。', steps: ['変更種類を選びます。', '対象児童または送迎便を選びます。', '影響内容を確認して確定します。'], tips: ['出発済みの便は自動変更せず、運行中の職員へ連絡してください。'] },
-    todayWork: { title: '本日の業務', summary: '今日の職員配置と送迎一覧を確認します。', steps: ['確認したい日付を選びます。', '職員配置または当日の送迎を選びます。', '配車変更は「利用予定／送迎管理」から行います。'] },
-    attendance: { title: '出勤予定', summary: '自分の出勤予定、打刻、パート職員のシフト希望を確認します。', steps: ['自分の直近予定を確認します。', 'パート職員は希望日と時間を提出します。', '管理権限がある職員は月間シフトを確定します。'] },
-    calendar: { title: '業務カレンダー', summary: '会議・外出・研修・面談・行事などを確認します。', steps: ['表示期間を選びます。', '予定を選んで詳細を確認します。', '権限がある場合は追加・編集できます。'] },
-    monthlySchedule: { title: '利用予定／送迎管理', summary: '定期利用を基準に、追加利用・欠席・送迎条件を日別に調整します。', steps: ['対象月と表示単位を選びます。', '日付または児童・家庭・学校を選びます。', '条件確定後に配車画面を開きます。'] },
-    dispatch: { title: '配車編集', summary: '利用予定／送迎管理で確定した条件から、車両・職員・乗降順を編集します。', steps: ['迎えまたは送りを選びます。', '児童を車両へ配置します。', '時間計算後に内容を保存します。'] },
-    operations: { title: '記録状況', summary: '児童ごとの未入力・入力中・保存済みを確認します。', steps: ['対象日を選びます。', '児童の状態を確認します。', '入力開始・再開・閲覧・引き継ぎを選びます。'] },
-    communication: { title: '共有・連絡', summary: 'お知らせ、朝礼、申し送りを1か所で確認します。', steps: ['上部タブから種類を選びます。', '未確認の内容を開きます。', '確認または対応状況を登録します。'] },
-    assistant: { title: 'AIアシスタント', summary: 'AIが提案した変更案を確認してから実行します。', steps: ['児童を選び、依頼内容を入力します。', '提案内容と変更日を確認します。', '問題がなければ承認して実行します。'] },
-  };
-  return guides[workspace] || HOME_GUIDE;
-}
 
 function workspaceTitle(workspace: HomeWorkspace) {
   const titles: Record<HomeWorkspace, string> = {
@@ -409,7 +387,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 <button type="button" onClick={() => { setTodayWorkLaunch({ date: today, view: 'transport' }); setActivePanel('todayWork'); }} className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 text-sm font-bold text-white hover:bg-white/15">
                   <BusFront className="h-5 w-5" />当日送迎を確認
                 </button>
-                <QuickGuide content={HOME_GUIDE} compact />
               </div>
             </div>
           </section>
@@ -489,7 +466,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         <>
           <WorkspaceBackBar
             title={workspaceTitle(activePanel)}
-            guide={workspaceGuide(activePanel)}
             onBack={() => setActivePanel(activePanel === 'monthlySchedule' ? monthlyScheduleReturn : 'menu')}
           />
           <div key={activePanel} className="ui-panel-enter" role="region" aria-label={workspaceTitle(activePanel)}>
@@ -1058,7 +1034,7 @@ function DailyChangePanel({
   );
 }
 
-function WorkspaceBackBar({ title, guide, onBack }: { title: string; guide: QuickGuideContent; onBack: () => void }) {
+function WorkspaceBackBar({ title, onBack }: { title: string; onBack: () => void }) {
   return (
     <div className="flex min-h-14 items-center gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
       <button type="button" onClick={onBack} className="flex min-h-10 items-center gap-2 rounded-xl px-3 text-xs font-black text-teal-800 hover:bg-teal-50">
@@ -1066,7 +1042,6 @@ function WorkspaceBackBar({ title, guide, onBack }: { title: string; guide: Quic
       </button>
       <span className="h-6 w-px bg-slate-200" />
       <strong className="min-w-0 truncate text-sm text-slate-900">{title}</strong>
-      <span className="ml-auto"><QuickGuide content={guide} compact /></span>
     </div>
   );
 }

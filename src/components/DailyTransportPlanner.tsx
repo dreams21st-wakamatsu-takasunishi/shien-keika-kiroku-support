@@ -800,15 +800,26 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         assistantRecorderProfileIds: [...run.assistantRecorderProfileIds],
       };
     });
-    const defaultVehicle = [...vehicles]
+    const availableVehicles = [...vehicles]
       .filter((vehicle) => vehicle.available)
-      .sort((left, right) => (left.assignmentPriority || 100) - (right.assignmentPriority || 100) || left.name.localeCompare(right.name, 'ja'))[0];
-    const withPickup = synchronizedRuns.some((run) => run.direction === '迎え')
-      ? synchronizedRuns
-      : [...synchronizedRuns, createRun(date, '迎え', 1, defaultVehicle)];
-    return withPickup.some((run) => run.direction === '送り')
-      ? withPickup
-      : [...withPickup, createRun(date, '送り', 1, defaultVehicle)];
+      .sort((left, right) => (left.assignmentPriority || 100) - (right.assignmentPriority || 100) || left.name.localeCompare(right.name, 'ja'));
+    if (availableVehicles.length === 0) {
+      const withPickup = synchronizedRuns.some((run) => run.direction === '迎え')
+        ? synchronizedRuns
+        : [...synchronizedRuns, createRun(date, '迎え', 1)];
+      return withPickup.some((run) => run.direction === '送り')
+        ? withPickup
+        : [...withPickup, createRun(date, '送り', 1)];
+    }
+    return (['迎え', '送り'] as TransportDirection[]).reduce((currentRuns, direction) => {
+      const nextRuns = [...currentRuns];
+      availableVehicles.forEach((vehicle) => {
+        if (!nextRuns.some((run) => run.direction === direction && run.vehicleId === vehicle.id)) {
+          nextRuns.push(createRun(date, direction, 1, vehicle));
+        }
+      });
+      return nextRuns;
+    }, synchronizedRuns);
   });
   const [deletedIds, setDeletedIds] = useState<string[]>([]);
   const [additionalChildIds, setAdditionalChildIds] = useState<string[]>([]);
@@ -864,6 +875,26 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
       return { ...run, routeOptimizedAt: undefined, stops: synchronizedStops };
     }));
   }, [childrenList, dailyTransportRequirements, date, siblingGroupByChild, transportAreaZones, transportMapLocations]);
+  useEffect(() => {
+    const availableVehicles = [...vehicles]
+      .filter((vehicle) => vehicle.available)
+      .sort((left, right) => (left.assignmentPriority || 100) - (right.assignmentPriority || 100) || left.name.localeCompare(right.name, 'ja'));
+    if (availableVehicles.length === 0) return;
+    setDrafts((current) => {
+      let changed = false;
+      const next = (['迎え', '送り'] as TransportDirection[]).reduce((nextRuns, direction) => {
+        const updated = [...nextRuns];
+        availableVehicles.forEach((vehicle) => {
+          if (!updated.some((run) => run.direction === direction && run.vehicleId === vehicle.id)) {
+            updated.push(createRun(date, direction, 1, vehicle));
+            changed = true;
+          }
+        });
+        return updated;
+      }, current);
+      return changed ? next : current;
+    });
+  }, [date, vehicles]);
   useEffect(() => {
     if (date < getLocalDateString()) return;
     const suspendedIds = new Set(childrenList.filter((child) => child.serviceSuspended).map((child) => child.id));
