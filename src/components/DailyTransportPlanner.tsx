@@ -610,10 +610,16 @@ const DraggedChildPreview: React.FC<{
   direction: TransportDirection;
   requirement?: DailyTransportRequirement;
   sharedLocation?: SharedLocationVisual;
-}> = ({ child, date, direction, requirement, sharedLocation }) => (
-  <article className="pointer-events-none min-w-0 rotate-[0.4deg] rounded-xl border-2 border-teal-400 bg-white p-2.5 shadow-[0_18px_45px_rgba(15,23,42,0.24)]">
-    <ChildCardContent child={child} date={date} direction={direction} requirement={requirement} sharedLocation={sharedLocation} compact />
-  </article>
+  groupCount?: number;
+}> = ({ child, date, direction, requirement, sharedLocation, groupCount = 1 }) => (
+  <div className="pointer-events-none relative min-w-0 pb-2 pr-2">
+    {groupCount > 2 && <span className="absolute inset-0 translate-x-2 translate-y-2 rounded-xl border-2 border-teal-200 bg-teal-50 shadow-lg" />}
+    {groupCount > 1 && <span className="absolute inset-0 translate-x-1 translate-y-1 rounded-xl border-2 border-teal-300 bg-white shadow-lg" />}
+    <article className="relative min-w-0 rotate-[0.4deg] rounded-xl border-2 border-teal-500 bg-white p-2.5 shadow-[0_18px_45px_rgba(15,23,42,0.24)]">
+      {groupCount > 1 && <span className="absolute -right-2 -top-2 z-10 rounded-full bg-teal-700 px-2 py-1 text-[10px] font-black text-white shadow-md">{groupCount}名まとめて移動</span>}
+      <ChildCardContent child={child} date={date} direction={direction} requirement={requirement} sharedLocation={sharedLocation} compact />
+    </article>
+  </div>
 );
 
 const TransportRunLane: React.FC<{
@@ -765,7 +771,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
       dailyTransportRequirements.map((requirement) => [requirement.childId, requirement] as const),
     );
     const excludeSuspended = date >= getLocalDateString();
-    return runs.map((run) => {
+    const synchronizedRuns = runs.map((run) => {
       const synchronizedStops = run.stops
         .filter((stop) => {
           if (!stop.childId) return true;
@@ -794,6 +800,15 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         assistantRecorderProfileIds: [...run.assistantRecorderProfileIds],
       };
     });
+    const defaultVehicle = [...vehicles]
+      .filter((vehicle) => vehicle.available)
+      .sort((left, right) => (left.assignmentPriority || 100) - (right.assignmentPriority || 100) || left.name.localeCompare(right.name, 'ja'))[0];
+    const withPickup = synchronizedRuns.some((run) => run.direction === '迎え')
+      ? synchronizedRuns
+      : [...synchronizedRuns, createRun(date, '迎え', 1, defaultVehicle)];
+    return withPickup.some((run) => run.direction === '送り')
+      ? withPickup
+      : [...withPickup, createRun(date, '送り', 1, defaultVehicle)];
   });
   const [deletedIds, setDeletedIds] = useState<string[]>([]);
   const [additionalChildIds, setAdditionalChildIds] = useState<string[]>([]);
@@ -1431,6 +1446,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
                 direction={activeDirection}
                 requirement={requirementByChild.get(activeDragChild.id)}
                 sharedLocation={sharedLocationByChild.get(activeDragChild.id)}
+                groupCount={groupDragEnabled ? sharedLocationByChild.get(activeDragChild.id)?.count : 1}
               />
             ) : null}
           </DragOverlay>,
@@ -1542,17 +1558,27 @@ const DraftTransportGantt: React.FC<{
     const [hour, minute] = time.split(':').map(Number);
     return Math.max(0, Math.min(100, (((hour * 60 + minute) - startMinute) / width) * 100));
   };
-  const timePoints = requirements.map((requirement) => ({
+  const timePoints = requirements
+    .filter((requirement) => requirement.date === date && (direction === '迎え' ? requirement.pickupEnabled : requirement.dropoffEnabled))
+    .map((requirement) => ({
     id: requirement.childId,
     name: children.find((child) => child.id === requirement.childId)?.name || '児童',
     time: direction === '迎え'
       ? requirement.pickupPlannedTime || requirement.pickupTargetTime
       : requirement.dropoffPlannedTime || requirement.dropoffTargetTime,
-  })).filter((item): item is { id: string; name: string; time: string } => Boolean(item.time));
+    })).filter((item): item is { id: string; name: string; time: string } => Boolean(item.time));
+  const timePointGroups = Array.from(timePoints.reduce((groups, point) => {
+    const current = groups.get(point.time) || [];
+    current.push(point);
+    groups.set(point.time, current);
+    return groups;
+  }, new Map<string, typeof timePoints>()).entries())
+    .map(([time, points]) => ({ time, points }))
+    .sort((left, right) => left.time.localeCompare(right.time));
   return (
     <section className={`${embedded ? 'min-h-full' : 'mx-auto mt-3 max-w-[1600px]'} rounded-2xl border border-slate-300 bg-white p-3 shadow-sm`}>
       <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-[9px] font-black text-teal-700">保存前の配車を即時反映</p><h3 className="text-sm font-black text-slate-950">職員配置ガント・{date} {direction}</h3></div><span className="rounded-full bg-slate-100 px-2 py-1 text-[9px] font-black text-slate-600">施設内最低 {minimumFacilityStaff}名</span></div>
-      {timePoints.length > 0 && <div className="mt-3 overflow-x-auto"><div className="grid min-w-[680px] grid-cols-[7rem_1fr] items-center gap-2"><span className="text-[10px] font-black text-sky-800">児童の{direction}時刻</span><div className="relative h-10 rounded-lg bg-sky-50 bg-[linear-gradient(to_right,#bae6fd_1px,transparent_1px)] bg-[size:16.666%_100%]">{timePoints.map((point) => <span key={point.id} title={`${point.name} ${point.time}`} className="absolute top-1 h-8 w-2 -translate-x-1/2 rounded-full bg-sky-600 ring-2 ring-white" style={{ left: `${position(point.time)}%` }}><span className="absolute left-1 top-0 whitespace-nowrap pl-2 text-[8px] font-black text-sky-950">{point.name} {point.time}</span></span>)}</div></div></div>}
+      {timePointGroups.length > 0 && <div className="mt-3 rounded-xl border border-sky-100 bg-sky-50/60 p-2"><div className="grid min-w-0 grid-cols-[7rem_1fr] items-center gap-2"><span className="text-[10px] font-black text-sky-800">児童の{direction}時刻</span><div className="relative h-7 rounded-lg bg-white bg-[linear-gradient(to_right,#bae6fd_1px,transparent_1px)] bg-[size:16.666%_100%]">{timePointGroups.map((group) => <span key={group.time} title={`${group.time} ${group.points.map((point) => point.name).join('・')}`} className="absolute top-1/2 h-4 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-sky-600 ring-2 ring-white" style={{ left: `${position(group.time)}%` }} />)}</div></div><div className="mt-2 flex max-h-20 flex-wrap gap-1 overflow-y-auto pl-0 sm:pl-[7.5rem]">{timePointGroups.map((group) => <span key={group.time} className="rounded-lg border border-sky-200 bg-white px-2 py-1 text-[9px] font-bold text-sky-950"><strong>{group.time}</strong> {group.points.map((point) => point.name).join('・')}</span>)}</div></div>}
       <div className="mt-3 overflow-x-auto"><div className="min-w-[680px]"><div className="ml-28 grid grid-cols-7 text-[9px] font-bold text-slate-400">{[8,10,12,14,16,18,20].map((hour) => <span key={hour}>{hour}:00</span>)}</div><div className="mt-1 max-h-[42dvh] space-y-1 overflow-y-auto pr-1">{rows.map((recorder) => {
         const attendance = attendanceRecords.find((item) => item.date === date && item.recorderProfileId === recorder.id);
         const leave = calendarEvents.find((event) => event.eventType === '職員休み' && event.date <= date && (event.endDate || event.date) >= date && event.recorderProfileIds.includes(recorder.id));

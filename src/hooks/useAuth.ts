@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Session } from '@supabase/supabase-js';
 import { isSupabaseConfigured, supabase } from '../lib/supabase';
 import { UserProfile } from '../types';
@@ -106,6 +106,11 @@ export function useAuth() {
   const [initialized, setInitialized] = useState(!isSupabaseConfigured);
   const [profileReloadKey, setProfileReloadKey] = useState(0);
   const [lastInteractiveAuthAt, setLastInteractiveAuthAt] = useState(0);
+  const profileRef = useRef<UserProfile | null>(null);
+
+  useEffect(() => {
+    profileRef.current = profile;
+  }, [profile]);
 
   useEffect(() => {
     if (!supabase) {
@@ -159,7 +164,11 @@ export function useAuth() {
     }
 
     let active = true;
-    setLoading(true);
+    // Token refreshes and visibility checks can replace the Session object.
+    // Keep the current screen mounted while a usable profile already exists so
+    // form inputs and unsaved edits are not destroyed by a full-screen loader.
+    const blockingInitialLoad = profileRef.current === null;
+    if (blockingInitialLoad) setLoading(true);
     void fetchProfile(session)
       .then((nextProfile) => {
         if (!active) return;
@@ -172,7 +181,7 @@ export function useAuth() {
         setError(profileError instanceof Error ? profileError.message : '利用者プロフィールを取得できませんでした。');
       })
       .finally(() => {
-        if (active) setLoading(false);
+        if (active && blockingInitialLoad) setLoading(false);
       });
 
     return () => {

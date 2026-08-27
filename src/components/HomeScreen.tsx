@@ -19,6 +19,7 @@ import {
   RotateCcw,
   ShieldCheck,
   Sparkles,
+  UsersRound,
   UserX,
 } from 'lucide-react';
 import type {
@@ -476,6 +477,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               <WorkspaceCard icon={Clock3} title="出勤予定" description="自分の予定・打刻・シフト希望" meta={activeRecorder ? `${activeRecorder.displayName}さんの勤務` : '勤務を確認'} tone="sky" onClick={() => setActivePanel('attendance')} />
               <WorkspaceCard icon={CalendarRange} title="業務カレンダー" description="会議・外出・研修・面談・行事" meta="勤務予定は表示しません" tone="indigo" onClick={() => setActivePanel('calendar')} />
               <WorkspaceCard icon={BusFront} title="利用予定／送迎管理" description="利用予定・欠席・送迎条件・配車" meta="日ごとの予定を確認・編集" tone="violet" onClick={() => { setMonthlyScheduleDate(today); setMonthlyScheduleReturn('menu'); setActivePanel('monthlySchedule'); }} />
+              <WorkspaceCard icon={UsersRound} title="児童名簿" description="児童情報・学校・利用曜日・送迎先" meta={`${childrenList.filter((child) => !child.serviceSuspended).length}名を確認`} tone="teal" onClick={() => onNavigate('children')} />
               <WorkspaceCard icon={ClipboardList} title="記録状況" description="利用児童・入力中・保存済み" meta={`本日 ${todayRecords.length}件／入力中 ${drafts.length}件${carriedOverDrafts.length > 0 ? `／持越し ${carriedOverDrafts.length}件` : ''}`} tone="sky" onClick={() => setActivePanel('operations')} />
               <WorkspaceCard icon={History} title="記録一覧・確認" description="保存済み記録の確認・修正・出力" meta={unapproved.length > 0 ? `未確認 ${unapproved.length}件` : '記録を確認'} tone="teal" onClick={() => onNavigate('records')} />
               <WorkspaceCard icon={MessageSquareText} title="共有・連絡" description="お知らせ・朝礼・申し送り" meta={`${visibleAnnouncements.length + openHandovers}件を確認`} tone="amber" onClick={() => setActivePanel('communication')} />
