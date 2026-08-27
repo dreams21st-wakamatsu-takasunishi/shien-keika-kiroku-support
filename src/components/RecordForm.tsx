@@ -130,7 +130,7 @@ interface RecordFormProps {
     options?: { keepFormOpen?: boolean },
   ) => Promise<void> | void;
   onDraftChanged?: () => void;
-  onCreateHandover?: (content: string) => Promise<void> | void;
+  onCreateHandover?: (content: string, childId?: string) => Promise<void> | void;
   handoverItems?: HandoverItem[];
 }
 
@@ -2252,20 +2252,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const buildStepsForTemplate = (template?: Template, childDraft = activeChildDraft): WizardStep[] => {
     const activeTemplate = template;
     const questions = getWizardQuestions(activeTemplate);
-    const next: WizardStep[] = isUnifiedTemplate(activeTemplate)
-      ? [
-          { id: 'date', kind: 'date', displayNumber: 1, ...questions.date },
-          { id: 'children', kind: 'children', displayNumber: 2, ...questions.children },
-        ]
-      : [
-          { id: 'template', kind: 'template', displayNumber: 1, ...questions.template },
-          { id: 'date', kind: 'date', displayNumber: 2, ...questions.date },
-          { id: 'children', kind: 'children', displayNumber: 3, ...questions.children },
-        ];
-
-    if (!activeRecorder && !userDisplayName) {
-      next.push({ id: 'recorder', kind: 'recorder', ...questions.recorder });
-    }
+    const next: WizardStep[] = [
+      { id: 'date', kind: 'date', displayNumber: 1, ...questions.date },
+      { id: 'children', kind: 'children', displayNumber: 2, ...questions.children },
+    ];
 
     if (isUnifiedTemplate(activeTemplate)) {
       next.push(
@@ -4975,6 +4965,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         userId={userId}
         recorderId={activeRecorder?.id}
         allowLocalSensitiveStorage={allowLocalSensitiveStorage}
+        children={childrenList}
         onCreateHandover={onCreateHandover}
       />
       <ChildInfoDialog child={infoChild} onClose={() => setInfoChild(null)} />

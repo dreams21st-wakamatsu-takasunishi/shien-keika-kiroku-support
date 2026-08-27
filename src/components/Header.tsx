@@ -3,6 +3,9 @@ import {
   ArrowDown,
   ArrowUp,
   BusFront,
+  CalendarDays,
+  CalendarRange,
+  ClipboardList,
   Eye,
   EyeOff,
   FileText,
@@ -22,7 +25,9 @@ import {
   RotateCcw,
   Save,
   SlidersHorizontal,
-  UserRoundCog,
+  MessageSquareText,
+  Sparkles,
+  TriangleAlert,
 } from 'lucide-react';
 import type {
   RecorderMenuItemId,
@@ -32,7 +37,17 @@ import type {
 } from '../types';
 import { APP_BUILD_TIME, APP_VERSION, useAppUpdate } from '../hooks/useAppUpdate';
 
-export type ActiveTab = RecorderMenuItemId | 'plans';
+export type ActiveTab = 'home' | 'form' | 'records' | 'children' | 'templates' | 'team' | 'plans';
+type HomeWorkspaceItem = 'dailyChanges' | 'todayWork' | 'attendance' | 'calendar' | 'monthlySchedule' | 'operations' | 'communication' | 'assistant';
+interface NavigationItem {
+  id: RecorderMenuItemId;
+  tab?: ActiveTab;
+  workspace?: HomeWorkspaceItem;
+  label: string;
+  description: string;
+  icon: React.ComponentType<{ className?: string }>;
+  managerOnly?: boolean;
+}
 
 interface HeaderProps {
   activeTab: ActiveTab;
@@ -42,20 +57,28 @@ interface HeaderProps {
   currentUser?: UserProfile | null;
   activeRecorder?: RecorderProfile | null;
   onSaveMenuPreferences?: (preferences: RecorderMenuPreferences) => Promise<void>;
-  onChangeRecorder?: () => void;
+  onOpenHomeWorkspace?: (workspace: HomeWorkspaceItem) => void;
   onOpenFieldOperations?: () => void;
   onSignOut?: () => void;
   canOpenSettings?: boolean;
   canOpenTeam?: boolean;
 }
 
-const navigationItems = [
-  { tab: 'home' as const, label: 'ホーム', description: '今日の状況と各機能', icon: House },
-  { tab: 'form' as const, label: '記録作成', description: '支援経過記録を入力', icon: PlusCircle },
-  { tab: 'records' as const, label: '記録一覧・確認', description: '記録の確認・修正・出力', icon: History },
-  { tab: 'children' as const, label: '児童名簿', description: '児童情報と送迎先', icon: Users },
-  { tab: 'templates' as const, label: '設定', description: '記録・学校・送迎の共通設定', icon: Settings, managerOnly: true },
-  { tab: 'team' as const, label: '職員', description: '職員・権限・記録者', icon: ShieldCheck, managerOnly: true },
+const navigationItems: NavigationItem[] = [
+  { id: 'home' as const, tab: 'home' as const, label: 'ホーム', description: '今日の状況と各機能', icon: House },
+  { id: 'dailyChanges' as const, workspace: 'dailyChanges' as const, label: '当日変更', description: '欠席・追加利用・送迎変更', icon: TriangleAlert },
+  { id: 'todayWork' as const, workspace: 'todayWork' as const, label: '本日の業務', description: '職員配置と当日の送迎', icon: ClipboardList },
+  { id: 'attendance' as const, workspace: 'attendance' as const, label: '出勤予定', description: '自分の勤務予定と打刻', icon: CalendarRange },
+  { id: 'calendar' as const, workspace: 'calendar' as const, label: '業務カレンダー', description: '会議・外出・行事', icon: CalendarDays },
+  { id: 'monthlySchedule' as const, workspace: 'monthlySchedule' as const, label: '利用予定／送迎管理', description: '月間の利用・送迎条件', icon: BusFront },
+  { id: 'operations' as const, workspace: 'operations' as const, label: '記録状況', description: '当日の入力状況を確認', icon: Eye },
+  { id: 'communication' as const, workspace: 'communication' as const, label: '朝礼・申し送り', description: '職員間の情報共有', icon: MessageSquareText },
+  { id: 'assistant' as const, workspace: 'assistant' as const, label: 'AIアシスタント', description: '業務変更案を作成', icon: Sparkles },
+  { id: 'form' as const, tab: 'form' as const, label: '記録作成', description: '支援経過記録を入力', icon: PlusCircle },
+  { id: 'records' as const, tab: 'records' as const, label: '記録一覧・確認', description: '記録の確認・修正・出力', icon: History },
+  { id: 'children' as const, tab: 'children' as const, label: '児童名簿', description: '児童情報と送迎先', icon: Users },
+  { id: 'templates' as const, tab: 'templates' as const, label: '設定', description: '記録・学校・送迎の共通設定', icon: Settings, managerOnly: true },
+  { id: 'team' as const, tab: 'team' as const, label: '職員', description: '職員・権限・記録者', icon: ShieldCheck, managerOnly: true },
 ];
 
 const roleLabel = (role?: UserProfile['role']) =>
@@ -69,7 +92,7 @@ export const Header: React.FC<HeaderProps> = ({
   currentUser,
   activeRecorder,
   onSaveMenuPreferences,
-  onChangeRecorder,
+  onOpenHomeWorkspace,
   onOpenFieldOperations,
   onSignOut,
   canOpenSettings = false,
@@ -91,13 +114,13 @@ export const Header: React.FC<HeaderProps> = ({
   } = useAppUpdate();
   const fieldModeItems = new Set<RecorderMenuItemId>(['home']);
   const roleItems = navigationItems.filter((item) =>
-    (item.tab !== 'templates' || canOpenSettings)
-    && (item.tab !== 'team' || canOpenTeam)
+    (item.id !== 'templates' || canOpenSettings)
+    && (item.id !== 'team' || canOpenTeam)
     && (!item.managerOnly || !currentUser || currentUser.role !== 'staff')
-    && (!currentUser?.fieldModeOnly || fieldModeItems.has(item.tab))
+    && (!currentUser?.fieldModeOnly || fieldModeItems.has(item.id))
   );
   const privilegedItemIds = new Set<RecorderMenuItemId>(['templates', 'team']);
-  const roleItemIds = roleItems.filter((item) => !privilegedItemIds.has(item.tab)).map((item) => item.tab);
+  const roleItemIds = roleItems.filter((item) => !privilegedItemIds.has(item.id)).map((item) => item.id);
   const configuredOrder = activeRecorder?.menuPreferences?.order || [];
   const orderedIds = [
     ...configuredOrder.filter((item) => roleItemIds.includes(item)),
@@ -106,10 +129,10 @@ export const Header: React.FC<HeaderProps> = ({
   const hiddenItems = new Set(activeRecorder?.menuPreferences?.hidden || []);
   const visibleItems = orderedIds
     .filter((item) => item === 'home' || !hiddenItems.has(item))
-    .map((item) => roleItems.find((candidate) => candidate.tab === item))
+    .map((item) => roleItems.find((candidate) => candidate.id === item))
     .filter((item): item is (typeof navigationItems)[number] => Boolean(item));
   const mainVisibleItems = visibleItems;
-  const privilegedItems = roleItems.filter((item) => privilegedItemIds.has(item.tab));
+  const privilegedItems = roleItems.filter((item) => privilegedItemIds.has(item.id));
   const privilegedMenuLabel = currentUser?.role === 'admin'
     ? '管理者メニュー'
     : currentUser?.role === 'manager'
@@ -138,6 +161,17 @@ export const Header: React.FC<HeaderProps> = ({
     setMenuOpen(false);
     setCustomizingMenu(false);
     setPrivilegedMenuOpen(false);
+  };
+
+  const openItem = (item: (typeof navigationItems)[number]) => {
+    if ('workspace' in item && item.workspace) {
+      onOpenHomeWorkspace?.(item.workspace);
+      setMenuOpen(false);
+      setCustomizingMenu(false);
+      setPrivilegedMenuOpen(false);
+      return;
+    }
+    if ('tab' in item && item.tab) openTab(item.tab);
   };
 
   const openMenuCustomizer = () => {
@@ -171,7 +205,7 @@ export const Header: React.FC<HeaderProps> = ({
     setMenuMessage('');
     try {
       await onSaveMenuPreferences({ order: draftOrder, hidden: draftHidden });
-      setMenuMessage('この記録者のメニューを保存しました。');
+      setMenuMessage('自分のメニューを保存しました。');
       setCustomizingMenu(false);
     } catch (error) {
       setMenuMessage(error instanceof Error ? error.message : 'メニュー設定を保存できませんでした。');
@@ -216,15 +250,14 @@ export const Header: React.FC<HeaderProps> = ({
 
           <button
             type="button"
-            onClick={activeRecorder && onChangeRecorder ? onChangeRecorder : undefined}
-            className={`min-w-0 rounded-xl border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-right ${activeRecorder && onChangeRecorder ? 'cursor-pointer hover:border-teal-500' : 'cursor-default'}`}
-            aria-label={activeRecorder && onChangeRecorder ? '記録者を切り替える' : 'ログイン中の職員'}
+            className="min-w-0 cursor-default rounded-xl border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-right"
+            aria-label="ログイン中の職員"
           >
             <span className="block max-w-28 truncate text-[11px] font-black text-white sm:max-w-48 sm:text-xs">
               {activeRecorder?.displayName || currentUser?.displayName || 'ローカル職員'}
             </span>
             <span className="block text-[9px] font-bold text-slate-400">
-              {activeRecorder ? '記録者・タップで切替' : currentUser ? `${roleLabel(currentUser.role)}でログイン中` : 'ローカル試用'}
+              {currentUser ? `${roleLabel(currentUser.role)}でログイン中` : 'ローカル試用'}
             </span>
           </button>
         </div>
@@ -257,24 +290,15 @@ export const Header: React.FC<HeaderProps> = ({
                 <button type="button" onClick={() => { setMenuOpen(false); setCustomizingMenu(false); setPrivilegedMenuOpen(false); }} aria-label="閉じる" className="grid h-11 w-11 place-items-center rounded-xl bg-white/10"><X className="h-5 w-5" /></button>
               </div>
               <div className="mt-4 rounded-2xl border border-white/10 bg-white/10 p-3">
-                <p className="text-[10px] font-bold text-slate-300">現在の操作担当</p>
-                <p className="mt-0.5 text-base font-black">{activeRecorder?.displayName || currentUser?.displayName || 'ローカル職員'}</p>
+                <p className="text-[10px] font-bold text-slate-300">ログイン中の職員</p>
+                <p className="mt-0.5 text-base font-black">{currentUser?.displayName || activeRecorder?.displayName || 'ローカル職員'}</p>
                 <p className="mt-1 text-[10px] text-slate-300">
-                  {activeRecorder && currentUser
-                    ? `ログイン：${currentUser.displayName}（${roleLabel(currentUser.role)}）`
-                    : currentUser
-                      ? `${roleLabel(currentUser.role)}でログイン中`
-                      : 'このブラウザー内だけで試用中'}
+                  {currentUser ? `${roleLabel(currentUser.role)}でログイン中` : 'このブラウザー内だけで試用中'}
                 </p>
                 {currentUser?.fieldModeOnly && (
                   <p className="mt-2 rounded-lg bg-amber-300/15 px-2 py-1.5 text-[10px] font-bold text-amber-100">
                     個人端末用の送迎モードで表示しています
                   </p>
-                )}
-                {activeRecorder && onChangeRecorder && (
-                  <button type="button" onClick={() => { onChangeRecorder(); setMenuOpen(false); setCustomizingMenu(false); }} className="mt-2 flex min-h-9 items-center gap-1 rounded-lg bg-white px-3 text-xs font-black text-teal-800">
-                    <UserRoundCog className="h-4 w-4" />記録者を切り替える
-                  </button>
                 )}
               </div>
             </header>
@@ -285,12 +309,12 @@ export const Header: React.FC<HeaderProps> = ({
                   <div className="rounded-2xl border border-teal-200 bg-teal-50 p-3">
                     <p className="text-sm font-black text-teal-950">メニューをカスタマイズ</p>
                     <p className="mt-1 text-[11px] leading-relaxed text-teal-800">
-                      表示する画面と並び順を設定します。この内容は{activeRecorder?.displayName || '現在の記録者'}さん専用です。
+                      ホームと同じ機能を、表示・非表示と並び順まで自分用に設定できます。
                     </p>
                   </div>
                   <div className="space-y-2">
                     {draftOrder.map((itemId, index) => {
-                      const item = roleItems.find((candidate) => candidate.tab === itemId);
+      const item = roleItems.find((candidate) => candidate.id === itemId);
                       if (!item) return null;
                       const Icon = item.icon;
                       const hidden = draftHidden.includes(itemId);
@@ -324,7 +348,7 @@ export const Header: React.FC<HeaderProps> = ({
                 <div className="space-y-2">
                   {activeRecorder && onSaveMenuPreferences && (
                     <button type="button" onClick={openMenuCustomizer} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-teal-200 bg-teal-50 text-xs font-black text-teal-800">
-                      <SlidersHorizontal className="h-4 w-4" />この記録者のメニューを編集
+                      <SlidersHorizontal className="h-4 w-4" />自分のメニューを編集
                     </button>
                   )}
                   {menuMessage && <p role="status" className="rounded-xl bg-emerald-50 px-3 py-2 text-[11px] font-bold text-emerald-800">{menuMessage}</p>}
@@ -338,15 +362,15 @@ export const Header: React.FC<HeaderProps> = ({
                   <div className="space-y-1">
                     {mainVisibleItems.map((item) => {
                       const Icon = item.icon;
-                      const selected = activeTab === item.tab;
+                      const selected = Boolean(item.tab && activeTab === item.tab);
                       return (
-                        <button key={item.tab} type="button" onClick={() => openTab(item.tab)} aria-current={selected ? 'page' : undefined} className={`flex min-h-16 w-full items-center gap-3 rounded-2xl px-3 text-left transition-colors ${selected ? 'bg-teal-50 text-teal-950 ring-1 ring-teal-200' : 'text-slate-800 hover:bg-slate-50'}`}>
+                        <button key={item.id} type="button" onClick={() => openItem(item)} aria-current={selected ? 'page' : undefined} className={`flex min-h-16 w-full items-center gap-3 rounded-2xl px-3 text-left transition-colors ${selected ? 'bg-teal-50 text-teal-950 ring-1 ring-teal-200' : 'text-slate-800 hover:bg-slate-50'}`}>
                           <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${selected ? 'bg-teal-600 text-white' : 'bg-slate-100 text-slate-600'}`}><Icon className="h-5 w-5" /></span>
                           <span className="min-w-0 flex-1">
                             <strong className="block text-sm">{item.label}</strong>
                             <span className="mt-0.5 block text-[10px] text-slate-500">{item.description}</span>
                           </span>
-                          {item.tab === 'records' && unapprovedCount > 0 && <span className="rounded-full bg-amber-400 px-2 py-1 text-[10px] font-black text-slate-950">{unapprovedCount}</span>}
+                          {item.id === 'records' && unapprovedCount > 0 && <span className="rounded-full bg-amber-400 px-2 py-1 text-[10px] font-black text-slate-950">{unapprovedCount}</span>}
                           <ChevronRight className="h-4 w-4 text-slate-300" />
                         </button>
                       );

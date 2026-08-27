@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   Clock3,
-  Coffee,
   Download,
   LogIn,
   LogOut,
@@ -21,7 +20,7 @@ import type {
 import { AttendanceQrKiosk } from './AttendanceQr';
 import { StaffShiftManager } from './StaffShiftManager';
 
-type PunchAction = '出勤' | '退勤' | '休憩開始' | '休憩終了';
+type PunchAction = '出勤' | '退勤';
 
 interface AttendancePanelProps {
   records: AttendanceRecord[];
@@ -57,7 +56,7 @@ interface ScheduleForm {
   note: string;
 }
 
-const DAY_STATUSES: AttendanceStatus[] = ['勤務予定', '遅刻', '早退', '欠勤', '有給', '公休', '特別休暇', '研修'];
+const DAY_STATUSES: AttendanceStatus[] = ['勤務予定', '遅刻', '早退', '欠勤', '研修'];
 
 export const AttendancePanel: React.FC<AttendancePanelProps> = ({
   records,
@@ -104,7 +103,6 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
   const monthlyRecords = records.filter((record) => record.date.startsWith(monthPrefix));
   const pendingCorrections = corrections.filter((request) => request.status === '申請中');
   const monthlyWorkingMinutes = monthlyRecords.reduce((total, record) => total + getWorkingMinutes(record), 0);
-  const monthlyBreakMinutes = monthlyRecords.reduce((total, record) => total + getBreakMinutes(record), 0);
   const currentTime = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false });
   const forgottenPunches = selectedDate === new Date().toLocaleDateString('sv-SE')
     ? dayRecords.filter(({ record }) => record?.scheduledStartTime && record.scheduledStartTime < currentTime && !record.clockInAt)
@@ -240,8 +238,8 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <h3 className="flex items-center gap-2 font-black text-slate-900"><Clock3 className="h-5 w-5 text-teal-600" />出勤・休憩打刻</h3>
-            <p className="mt-1 text-xs text-slate-500">共通アカウントでは、本人の名前と個人PINで打刻者を確認します。</p>
+            <h3 className="flex items-center gap-2 font-black text-slate-900"><Clock3 className="h-5 w-5 text-teal-600" />出退勤を打刻</h3>
+            <p className="mt-1 text-xs text-slate-500">本人の職員アカウントと個人PINで打刻します。休憩開始・終了の個別打刻は使用しません。</p>
           </div>
           <div className="flex flex-wrap gap-2">
             <AttendanceQrKiosk enabled={qrKioskEnabled} canRegister={canManage} />
@@ -266,20 +264,19 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
           </p>
         )}
         {error && <p className="mt-3 flex items-center gap-2 rounded-xl bg-rose-50 px-3 py-2 text-sm font-bold text-rose-700"><AlertTriangle className="h-4 w-4" />{error}</p>}
-        <div className="mt-3 grid grid-cols-2 gap-2 lg:grid-cols-4">
+        <div className="mt-3 grid grid-cols-2 gap-2">
           {availableActions.map((action) => (
-            <button key={action} type="button" disabled={Boolean(busyAction)} onClick={() => punch(action)} className={`flex min-h-14 items-center justify-center gap-2 rounded-xl px-3 text-base font-black disabled:opacity-50 ${action === '退勤' ? 'bg-slate-900 text-white' : action.includes('休憩') ? 'bg-amber-100 text-amber-900' : 'bg-teal-600 text-white'}`}>
-              {action === '出勤' ? <LogIn className="h-5 w-5" /> : action === '退勤' ? <LogOut className="h-5 w-5" /> : <Coffee className="h-5 w-5" />}{busyAction === action ? '処理中…' : action}
+            <button key={action} type="button" disabled={Boolean(busyAction)} onClick={() => punch(action)} className={`flex min-h-14 items-center justify-center gap-2 rounded-xl px-3 text-base font-black disabled:opacity-50 ${action === '退勤' ? 'bg-slate-900 text-white' : 'bg-teal-600 text-white'}`}>
+              {action === '出勤' ? <LogIn className="h-5 w-5" /> : <LogOut className="h-5 w-5" />}{busyAction === action ? '処理中…' : action}
             </button>
           ))}
           {availableActions.length === 0 && <p className="col-span-full rounded-xl bg-emerald-50 p-3 text-center text-sm font-bold text-emerald-800">本日の打刻は完了しています。</p>}
         </div>
       </section>
 
-      <section className="grid grid-cols-3 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <section className="grid grid-cols-2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <MiniSummary label={`${monthPrefix} 勤務日数`} value={`${new Set(monthlyRecords.filter((record) => record.clockInAt).map((record) => `${record.recorderProfileId}:${record.date}`)).size}人日`} />
         <MiniSummary label="実働合計" value={formatMinutes(monthlyWorkingMinutes)} />
-        <MiniSummary label="休憩合計" value={formatMinutes(monthlyBreakMinutes)} />
       </section>
 
       {forgottenPunches.length > 0 && <p className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-black text-rose-800"><AlertTriangle className="h-5 w-5" />打刻忘れの可能性：{forgottenPunches.map(({ recorder }) => recorder.displayName).join('、')}</p>}
@@ -386,8 +383,7 @@ const Modal = ({ title, onClose, children }: { title: string; onClose: () => voi
 function getAvailableActions(record?: AttendanceRecord): PunchAction[] {
   if (!record?.clockInAt || ['勤務予定', '遅刻', '早退'].includes(record.status) && !record.clockInAt) return ['出勤'];
   if (record.clockOutAt || record.status === '退勤済み') return [];
-  if (record.status === '休憩中') return ['休憩終了', '退勤'];
-  return ['休憩開始', '退勤'];
+  return ['退勤'];
 }
 
 function isClockedRecord(record?: AttendanceRecord) {

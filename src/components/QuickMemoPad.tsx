@@ -10,7 +10,8 @@ interface QuickMemoPadProps {
   userId?: string;
   recorderId?: string;
   allowLocalSensitiveStorage?: boolean;
-  onCreateHandover?: (content: string) => Promise<void> | void;
+  children?: Array<{ id: string; name: string }>;
+  onCreateHandover?: (content: string, childId?: string) => Promise<void> | void;
 }
 
 interface QuickMemoPayload {
@@ -86,6 +87,7 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
   userId,
   recorderId,
   allowLocalSensitiveStorage = true,
+  children = [],
   onCreateHandover,
 }) => {
   const draftKey = `quick-memo-${recorderId || 'account'}`;
@@ -98,6 +100,7 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
   const [ready, setReady] = useState(!organizationId || !userId);
   const [status, setStatus] = useState<SaveStatus>(initialLocal ? 'restored' : null);
   const [forwarding, setForwarding] = useState(false);
+  const [handoverChildId, setHandoverChildId] = useState('');
   const [position, setPosition] = useState<MemoPosition | null>(() => readMemoPosition(positionStorageKey));
   const [dragging, setDragging] = useState(false);
   const skipNextSave = useRef(false);
@@ -348,11 +351,13 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
 
   const createHandover = async () => {
     if (!content.trim() || !onCreateHandover) return;
-    if (!window.confirm('このメモを「申し送り」として登録しますか？登録後、メモ欄は空になります。')) return;
+    const targetName = children.find((child) => child.id === handoverChildId)?.name || '事業所全体';
+    if (!window.confirm(`${targetName}への「申し送り」として登録しますか？登録後、メモ欄は空になります。`)) return;
     setForwarding(true);
     try {
-      await onCreateHandover(content.trim());
+      await onCreateHandover(content.trim(), handoverChildId || undefined);
       setContent('');
+      setHandoverChildId('');
     } finally {
       setForwarding(false);
     }
@@ -424,15 +429,24 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
           </div>
           <div className="mt-3 grid gap-2 sm:grid-cols-2">
             {onCreateHandover && (
-              <button
-                type="button"
-                onClick={() => void createHandover()}
-                disabled={!content.trim() || forwarding}
-                tabIndex={open ? 0 : -1}
-                className="flex min-h-11 items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3 text-xs font-bold text-white disabled:opacity-40"
-              >
-                <Send className="h-4 w-4" />{forwarding ? '登録中...' : '申し送りに登録'}
-              </button>
+              <div className="space-y-2 sm:col-span-2">
+                <label className="block text-[11px] font-black text-amber-950">
+                  申し送りの対象
+                  <select value={handoverChildId} onChange={(event) => setHandoverChildId(event.target.value)} tabIndex={open ? 0 : -1} className="mt-1 min-h-11 w-full rounded-lg border border-amber-300 bg-white px-3 text-sm text-slate-900">
+                    <option value="">事業所全体（全児童の記録画面に表示）</option>
+                    {children.map((child) => <option key={child.id} value={child.id}>{child.name}</option>)}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => void createHandover()}
+                  disabled={!content.trim() || forwarding}
+                  tabIndex={open ? 0 : -1}
+                  className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3 text-xs font-bold text-white disabled:opacity-40"
+                >
+                  <Send className="h-4 w-4" />{forwarding ? '登録中...' : '申し送りに登録'}
+                </button>
+              </div>
             )}
             <button
               type="button"

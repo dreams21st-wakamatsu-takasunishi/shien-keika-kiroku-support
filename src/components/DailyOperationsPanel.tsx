@@ -21,7 +21,6 @@ interface DailyOperationsPanelProps {
   onTakeOverDrafts: (items: DraftTakeoverSelection[]) => Promise<boolean>;
   onDeleteDraft: (draftKey: string) => void;
   onOpenRecord: (record: SupportRecord) => void;
-  onOpenDailySchedule: (date: string) => void;
 }
 
 export interface DraftTakeoverSelection {
@@ -48,7 +47,6 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
   onTakeOverDrafts,
   onDeleteDraft,
   onOpenRecord,
-  onOpenDailySchedule,
 }) => {
   const [infoChild, setInfoChild] = useState<ChildProfile | null>(null);
   const [takeoverSelectionMode, setTakeoverSelectionMode] = useState(false);
@@ -238,15 +236,6 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                   >
                     キャンセル
                   </button>
-                  <button
-                    type="button"
-                    disabled={selectedTakeovers.length === 0 || takingOver}
-                    onClick={() => void handleTakeOverSelected()}
-                    className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-amber-600 px-4 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <UserRoundCheck className="h-4 w-4" />
-                    {takingOver ? '引き継ぎ中…' : `選択した児童を引き継ぐ（${selectedTakeovers.length}名）`}
-                  </button>
                 </div>
               </div>
             )}
@@ -346,13 +335,6 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
               </div>
 
               <div className="mt-3 flex flex-wrap gap-2 sm:mt-0 sm:justify-end">
-                <button
-                  type="button"
-                  onClick={() => onOpenDailySchedule(targetDate)}
-                  className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-xl border border-teal-200 bg-teal-50 px-3 text-xs font-black text-teal-900 sm:flex-none"
-                >
-                  <CalendarClock className="h-4 w-4" />利用予定を開く
-                </button>
                 {record ? (
                   <button
                     type="button"
@@ -458,6 +440,17 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
             })}
           </div>
         </details>
+      )}
+      {takeoverSelectionMode && (
+        <button
+          type="button"
+          disabled={selectedTakeovers.length === 0 || takingOver}
+          onClick={() => void handleTakeOverSelected()}
+          className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-[90] flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-amber-600 px-5 text-sm font-black text-white shadow-2xl ring-4 ring-white/80 disabled:cursor-not-allowed disabled:bg-slate-400 sm:right-8"
+        >
+          <UserRoundCheck className="h-5 w-5" />
+          {takingOver ? '引き継ぎ中…' : `引き継ぎ確定（${selectedTakeovers.length}名）`}
+        </button>
       )}
       <ChildInfoDialog child={infoChild} onClose={() => setInfoChild(null)} />
     </section>

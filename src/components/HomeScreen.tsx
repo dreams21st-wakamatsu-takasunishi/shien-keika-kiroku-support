@@ -12,6 +12,7 @@ import {
   ClipboardPenLine,
   ClipboardList,
   Clock3,
+  History,
   LoaderCircle,
   MessageSquareText,
   PlusCircle,
@@ -287,7 +288,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [communicationView, setCommunicationView] = useState<CommunicationView>('announcements');
   const [todayWorkLaunch, setTodayWorkLaunch] = useState<{
     date: string;
-  }>({ date: getLocalDateString() });
+    view: 'placement' | 'transport';
+  }>({ date: getLocalDateString(), view: 'placement' });
   const [dispatchDate, setDispatchDate] = useState(getLocalDateString());
   const [monthlyScheduleDate, setMonthlyScheduleDate] = useState(getLocalDateString());
   const [monthlyScheduleReturn, setMonthlyScheduleReturn] = useState<HomeWorkspace>('menu');
@@ -302,7 +304,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     base.setMonth(base.getMonth() + 1, 1);
     return `${base.getFullYear()}-${String(base.getMonth() + 1).padStart(2, '0')}`;
   }, [today]);
-  const schoolScheduleAlertActive = Number(today.slice(8, 10)) >= 20;
+  const schoolScheduleAlertActive = useMemo(() => {
+    const current = new Date(`${today}T12:00:00`);
+    const lastDay = new Date(current.getFullYear(), current.getMonth() + 1, 0);
+    const alertStart = new Date(lastDay);
+    alertStart.setDate(lastDay.getDate() - 6);
+    return current >= alertStart;
+  }, [today]);
   const missingSchoolScheduleConfirmations = useMemo(() => {
     if (!schoolScheduleAlertActive) return [];
     const usedSchoolIds = new Set(childrenList.filter((child) => !child.serviceSuspended && child.schoolId).map((child) => child.schoolId));
@@ -390,15 +398,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               <div className="min-w-0">
                 <p className="text-[10px] font-black uppercase tracking-[0.16em] text-teal-300">{today.replaceAll('-', '/')}・ホーム</p>
                 <h2 className="mt-1 text-lg font-black sm:text-xl">今日の業務を選択</h2>
-                <p className="mt-1 text-[10px] font-bold text-slate-300">操作担当は画面右上でいつでも確認・切替できます。</p>
+                <p className="mt-1 text-[10px] font-bold text-slate-300">ログイン中の職員は画面右上でいつでも確認できます。</p>
               </div>
               <div className="grid shrink-0 grid-cols-2 gap-2 sm:flex">
                 <button type="button" onClick={() => resumableDraft ? onResumeDraft(resumableDraft.draftKey) : onNewRecord()} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-teal-400 px-4 text-sm font-black text-slate-950 shadow-md hover:bg-teal-300">
                   {resumableDraft ? <RotateCcw className="h-5 w-5" /> : <PlusCircle className="h-5 w-5" />}
                   {resumableDraft ? '記録を再開' : '記録を始める'}
                 </button>
-                <button type="button" onClick={() => onNavigate('records')} className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 text-sm font-bold text-white hover:bg-white/15">
-                  <ClipboardList className="h-5 w-5" />記録一覧
+                <button type="button" onClick={() => { setTodayWorkLaunch({ date: today, view: 'transport' }); setActivePanel('todayWork'); }} className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 text-sm font-bold text-white hover:bg-white/15">
+                  <BusFront className="h-5 w-5" />当日送迎を確認
                 </button>
                 <QuickGuide content={HOME_GUIDE} compact />
               </div>
@@ -464,11 +472,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
               <WorkspaceCard icon={UserX} title="当日変更" description="急な欠席・送迎担当の交代" meta="影響を確認してすぐ反映" tone="amber" onClick={() => setActivePanel('dailyChanges')} />
-              <WorkspaceCard icon={CalendarDays} title="本日の業務" description="職員配置・当日の送迎一覧" meta={todayWorkCount > 0 ? `${todayWorkCount}件の予定` : '予定を確認'} tone="teal" onClick={() => { setTodayWorkLaunch({ date: getLocalDateString() }); setActivePanel('todayWork'); }} />
+              <WorkspaceCard icon={CalendarDays} title="本日の業務" description="職員配置・当日の送迎一覧" meta={todayWorkCount > 0 ? `${todayWorkCount}件の予定` : '予定を確認'} tone="teal" onClick={() => { setTodayWorkLaunch({ date: getLocalDateString(), view: 'placement' }); setActivePanel('todayWork'); }} />
               <WorkspaceCard icon={Clock3} title="出勤予定" description="自分の予定・打刻・シフト希望" meta={activeRecorder ? `${activeRecorder.displayName}さんの勤務` : '勤務を確認'} tone="sky" onClick={() => setActivePanel('attendance')} />
               <WorkspaceCard icon={CalendarRange} title="業務カレンダー" description="会議・外出・研修・面談・行事" meta="勤務予定は表示しません" tone="indigo" onClick={() => setActivePanel('calendar')} />
               <WorkspaceCard icon={BusFront} title="利用予定／送迎管理" description="利用予定・欠席・送迎条件・配車" meta="日ごとの予定を確認・編集" tone="violet" onClick={() => { setMonthlyScheduleDate(today); setMonthlyScheduleReturn('menu'); setActivePanel('monthlySchedule'); }} />
               <WorkspaceCard icon={ClipboardList} title="記録状況" description="利用児童・入力中・保存済み" meta={`本日 ${todayRecords.length}件／入力中 ${drafts.length}件${carriedOverDrafts.length > 0 ? `／持越し ${carriedOverDrafts.length}件` : ''}`} tone="sky" onClick={() => setActivePanel('operations')} />
+              <WorkspaceCard icon={History} title="記録一覧・確認" description="保存済み記録の確認・修正・出力" meta={unapproved.length > 0 ? `未確認 ${unapproved.length}件` : '記録を確認'} tone="teal" onClick={() => onNavigate('records')} />
               <WorkspaceCard icon={MessageSquareText} title="共有・連絡" description="お知らせ・朝礼・申し送り" meta={`${visibleAnnouncements.length + openHandovers}件を確認`} tone="amber" onClick={() => setActivePanel('communication')} />
               <WorkspaceCard icon={Bot} title="AIアシスタント" description="児童情報の変更や記録の整理" meta="実行前に内容を確認" tone="indigo" onClick={() => setActivePanel('assistant')} />
             </div>
@@ -500,7 +509,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         {activePanel === 'todayWork' && (
           <TodayWorkPanel
             initialDate={todayWorkLaunch.date}
-            initialView="placement"
+            initialView={todayWorkLaunch.view}
             staffScheduleItems={staffScheduleItems}
             calendarEvents={calendarEvents}
             dailyChildPlans={dailyChildPlans}
@@ -523,7 +532,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
         {activePanel === 'attendance' && <AttendanceHomePanel records={attendanceRecords} shiftTemplates={staffShiftTemplates} shiftRequests={staffShiftRequests} corrections={attendanceCorrections} recorderProfiles={recorderProfiles} activeRecorder={activeRecorder} canManageShifts={canManageShifts} canApproveCorrections={!organizationId || currentUser?.role === 'admin'} qrKioskEnabled={Boolean(organizationId)} calendarEvents={calendarEvents} childrenList={childrenList} dailyChildPlans={dailyChildPlans} dailyTransportRequirements={dailyTransportRequirements} transportRuns={transportRuns} onSaveRecord={onSaveAttendance} onSaveRecords={onSaveAttendanceRecords} onSaveShiftRequest={onSaveStaffShiftRequest} onSaveShiftRequestDefaults={onSaveShiftRequestDefaults} onReviewShiftRequest={onReviewStaffShiftRequest} onPunch={onPunchAttendance} onRequestCorrection={onRequestAttendanceCorrection} onReviewCorrection={onReviewAttendanceCorrection} />}
 
-        {activePanel === 'calendar' && <CalendarPanel events={calendarEvents} recorderProfiles={recorderProfiles} childrenList={childrenList} selectedDate={todayWorkLaunch.date} onDateChange={(date) => setTodayWorkLaunch({ date })} canEdit={canManageCalendar} onSave={onSaveCalendarEvent} onDelete={onDeleteCalendarEvent} />}
+        {activePanel === 'calendar' && <CalendarPanel events={calendarEvents} recorderProfiles={recorderProfiles} childrenList={childrenList} selectedDate={todayWorkLaunch.date} onDateChange={(date) => setTodayWorkLaunch((current) => ({ ...current, date }))} canEdit={canManageCalendar} onSave={onSaveCalendarEvent} onDelete={onDeleteCalendarEvent} />}
 
         {activePanel === 'monthlySchedule' && (
           <MonthlyTransportPlanner
@@ -574,11 +583,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             onTakeOverDrafts={onTakeOverDrafts}
             onDeleteDraft={onDeleteDraft}
             onOpenRecord={onOpenRecord}
-            onOpenDailySchedule={(date) => {
-              setMonthlyScheduleDate(date);
-              setMonthlyScheduleReturn('operations');
-              setActivePanel('monthlySchedule');
-            }}
           />
         )}
 

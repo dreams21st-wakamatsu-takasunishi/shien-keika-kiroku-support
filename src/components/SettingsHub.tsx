@@ -90,6 +90,7 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
         {page === 'templates' && <TemplateEditor templates={templates} onSaveTemplate={onSaveTemplate} onDeleteTemplate={onDeleteTemplate} />}
         {page === 'schools' && <SchoolManager schools={schools} childrenList={childrenList} onSave={onSaveSchool} onDelete={onDeleteSchool} />}
         {page === 'transportMap' && <div className="space-y-4">
+          <TransportOperationSettings settings={routeSettings} onSave={onSaveRouteSettings} />
           <TransportPinColorSettings settings={routeSettings} onSave={onSaveRouteSettings} />
           <TransportMapPanel childrenList={childrenList} schools={schools} facilityAddress={facilityAddress} locations={mapLocations} zones={areaZones} pinColors={{ facility: routeSettings.facilityPinColor, residential: routeSettings.residentialPinColor, education: routeSettings.educationPinColor, other: routeSettings.otherPinColor }} canManage onSaveLocation={onSaveMapLocation} onSaveZone={onSaveAreaZone} onDeleteZone={onDeleteAreaZone} />
         </div>}
@@ -122,7 +123,7 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
         <SettingsCard
           icon={MapPinned}
           title="送迎地点・エリア"
-          description="住所から反映した地点へ送迎エリアを登録し、配車画面のピンを色分けします。"
+          description="基本退所時刻・送迎地点・エリア・ピン色をまとめて設定します。"
           onClick={() => setPage('transportMap')}
         />
       </section>}
@@ -199,6 +200,30 @@ function TransportPinColorSettings({ settings, onSave }: { settings: TransportRo
       <button type="button" disabled={saving} onClick={() => void save()} className="min-h-10 rounded-xl bg-teal-700 px-4 text-xs font-black text-white disabled:opacity-60">{saving ? '保存中…' : '色を保存'}</button>
     </div>
     <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">{colorFields.map(([key, label]) => <label key={key} className="flex min-h-12 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs font-bold text-slate-700">{label}<input type="color" value={draft[key]} onChange={(event) => setDraft((current) => ({ ...current, [key]: event.target.value }))} className="h-9 w-14 rounded-lg border border-slate-300 bg-white p-1" /></label>)}</div>
+    {message && <p className={`mt-3 rounded-lg px-3 py-2 text-xs font-bold ${message.includes('保存しました') ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'}`}>{message}</p>}
+  </section>;
+}
+
+function TransportOperationSettings({ settings, onSave }: { settings: TransportRouteSettings; onSave: (settings: TransportRouteSettings) => Promise<void> | void }) {
+  const [draft, setDraft] = useState(settings);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState('');
+  const save = async () => {
+    setSaving(true); setMessage('');
+    try { await onSave(draft); setMessage('送迎の基本設定を保存しました。'); }
+    catch (error) { setMessage(error instanceof Error ? error.message : '送迎の基本設定を保存できませんでした。'); }
+    finally { setSaving(false); }
+  };
+  return <section className="rounded-2xl border border-violet-200 bg-white p-4 shadow-sm">
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><h3 className="font-black text-slate-950">送迎の基本時刻・計算設定</h3><p className="mt-1 text-xs text-slate-500">基本退所予定時刻は「設定 ＞ 送迎地点・エリア」のこの欄で変更します。当日だけの早退・延長は利用予定で変更します。</p></div><button type="button" disabled={saving} onClick={() => void save()} className="min-h-10 rounded-xl bg-violet-700 px-4 text-xs font-black text-white disabled:opacity-50">{saving ? '保存中…' : '基本設定を保存'}</button></div>
+    <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <label className="text-xs font-bold text-violet-950">平日・小学部の退所<input type="time" value={draft.weekdayElementaryDepartureTime} onChange={(event) => setDraft({ ...draft, weekdayElementaryDepartureTime: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-violet-200 px-3" /></label>
+      <label className="text-xs font-bold text-violet-950">平日・キャリアズの退所<input type="time" value={draft.weekdayCareersDepartureTime} onChange={(event) => setDraft({ ...draft, weekdayCareersDepartureTime: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-violet-200 px-3" /></label>
+      <label className="text-xs font-bold text-violet-950">休日・共通の退所<input type="time" value={draft.holidayDepartureTime} onChange={(event) => setDraft({ ...draft, holidayDepartureTime: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-violet-200 px-3" /></label>
+      <label className="text-xs font-bold">同じ送迎先の強調時間差（分）<input type="number" min="0" max="120" value={draft.sameLocationTimeWindowMinutes} onChange={(event) => setDraft({ ...draft, sameLocationTimeWindowMinutes: Number(event.target.value) })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3" /></label>
+      <label className="text-xs font-bold">1地点の停車時間（分）<input type="number" min="0" max="30" value={draft.stopDurationMinutes} onChange={(event) => setDraft({ ...draft, stopDurationMinutes: Number(event.target.value) })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3" /></label>
+      <label className="text-xs font-bold">休日の開所時刻<input type="time" value={draft.holidayOpeningTime} onChange={(event) => setDraft({ ...draft, holidayOpeningTime: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3" /></label>
+    </div>
     {message && <p className={`mt-3 rounded-lg px-3 py-2 text-xs font-bold ${message.includes('保存しました') ? 'bg-emerald-50 text-emerald-800' : 'bg-rose-50 text-rose-800'}`}>{message}</p>}
   </section>;
 }

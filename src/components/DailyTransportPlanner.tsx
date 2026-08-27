@@ -802,6 +802,9 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
   const [expandedStopId, setExpandedStopId] = useState<string>();
   const [activeDirection, setActiveDirection] = useState<TransportDirection>('迎え');
   const [sortPanelOpen, setSortPanelOpen] = useState(false);
+  const [mapOpen, setMapOpen] = useState(false);
+  const [ganttOpen, setGanttOpen] = useState(false);
+  const [groupDragEnabled, setGroupDragEnabled] = useState(true);
   const [sortRules, setSortRules] = useState<ChildSortRule[]>([
     { field: 'time', direction: 'asc' },
     { field: 'area', direction: 'asc' },
@@ -1136,7 +1139,15 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
     if (!over) return;
     const data = active.data.current as DragChildData | undefined;
     const targetRunId = over.data.current?.runId as string | undefined;
-    if (data?.childId && targetRunId) assignChild(data.childId, targetRunId);
+    if (data?.childId && targetRunId) {
+      const draggedVisual = sharedLocationByChild.get(data.childId);
+      const childIds = groupDragEnabled && draggedVisual?.count && draggedVisual.count > 1
+        ? directionChildren
+            .filter((child) => sharedLocationByChild.get(child.id)?.key === draggedVisual.key)
+            .map((child) => child.id)
+        : [data.childId];
+      childIds.forEach((childId) => assignChild(childId, targetRunId));
+    }
   };
 
 
@@ -1365,8 +1376,8 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
     </section>
   );
 
-  return (
-    <div className="app-safe-block ui-fade-in fixed inset-0 z-[100] flex flex-col bg-slate-100" role="dialog" aria-modal="true" aria-label={`${date}の全送迎を編集`}>
+  return createPortal((
+    <div className="app-safe-block ui-fade-in fixed inset-0 z-[100] flex min-h-[100dvh] flex-col bg-slate-100" role="dialog" aria-modal="true" aria-label={`${date}の全送迎を編集`}>
       <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-3 py-2.5 shadow-sm sm:px-5">
         <div className="min-w-0"><p className="text-[10px] font-black uppercase tracking-[0.15em] text-teal-700">一日配車ボード・{weekday}曜日</p><h2 className="truncate text-base font-black text-slate-950 sm:text-xl">{date} の全送迎を組む</h2></div>
         <button type="button" onClick={onClose} aria-label="閉じる" className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-100"><X className="h-5 w-5" /></button>
@@ -1376,6 +1387,9 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
           {(['迎え', '送り'] as TransportDirection[]).map((direction) => <button key={direction} type="button" onClick={() => setActiveDirection(direction)} className={`min-h-9 rounded-lg text-xs font-black ${activeDirection === direction ? direction === '迎え' ? 'bg-sky-600 text-white shadow-sm' : 'bg-violet-600 text-white shadow-sm' : 'text-slate-500'}`}>{direction}配車</button>)}
         </div>
         <button type="button" onClick={() => setChildPickerOpen(true)} className="flex min-h-10 items-center gap-1 rounded-xl border border-teal-300 bg-teal-50 px-3 text-xs font-black text-teal-800"><UserPlus className="h-4 w-4" />児童を追加</button>
+        <button type="button" onClick={() => setMapOpen((current) => !current)} className={`min-h-10 rounded-xl border px-3 text-xs font-black ${mapOpen ? 'border-sky-600 bg-sky-600 text-white' : 'border-sky-300 bg-white text-sky-800'}`}>{mapOpen ? 'ミニマップを収納' : 'ミニマップを表示'}</button>
+        <button type="button" onClick={() => setGanttOpen((current) => !current)} className={`min-h-10 rounded-xl border px-3 text-xs font-black ${ganttOpen ? 'border-violet-600 bg-violet-600 text-white' : 'border-violet-300 bg-white text-violet-800'}`}>{ganttOpen ? '配置確認を収納' : '職員・時間を確認'}</button>
+        <label className="flex min-h-10 items-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 text-[10px] font-black text-emerald-900"><input type="checkbox" checked={groupDragEnabled} onChange={(event) => setGroupDragEnabled(event.target.checked)} className="h-4 w-4 accent-emerald-600" />同じ場所・近い時刻をまとめて移動</label>
         <p className="min-w-0 flex-1 text-[10px] font-bold leading-relaxed text-slate-500">{routingNotice || 'ミニマップで送迎先を確認し、児童カードを車両の便へドラッグします。配置後、各便の「時間計算」を押してください。'}</p>
       </div>
       <DndContext
@@ -1386,7 +1400,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         onDragEnd={handleDragEnd}
       >
         <div className="ui-scrollbar flex-1 overflow-y-auto p-2 sm:p-3 lg:overflow-auto">
-          <div className="mx-auto grid max-w-[1800px] items-start gap-2 lg:h-full lg:min-h-0 lg:grid-cols-[220px_minmax(0,1fr)_minmax(300px,0.72fr)] lg:grid-rows-[minmax(18rem,3fr)_minmax(11rem,2fr)] lg:items-stretch">
+          <div className={`mx-auto grid max-w-[1900px] items-start gap-2 lg:min-h-0 lg:items-stretch ${ganttOpen ? 'lg:h-full lg:grid-rows-[minmax(24rem,3fr)_minmax(18rem,2fr)]' : 'lg:h-full lg:grid-rows-1'} ${mapOpen ? 'lg:grid-cols-[220px_minmax(0,1fr)_minmax(320px,0.72fr)]' : 'lg:grid-cols-[220px_minmax(0,1fr)]'}`}>
             <aside className="min-w-0 rounded-2xl border border-emerald-300 bg-emerald-50/70 p-2 lg:col-start-1 lg:row-span-2 lg:flex lg:h-full lg:min-h-0 lg:flex-col">
               <div className="mb-2 flex shrink-0 items-center justify-between gap-1 px-1"><div><p className="text-[9px] font-black text-emerald-700">{weekday}曜日・{activeDirection}</p><h3 className="text-sm font-black text-slate-950">未配車児童</h3></div><div className="flex items-center gap-1"><button type="button" onClick={() => setSortPanelOpen((current) => !current)} aria-expanded={sortPanelOpen} className={`grid h-8 w-8 place-items-center rounded-lg border ${sortPanelOpen ? 'border-emerald-700 bg-emerald-700 text-white' : 'border-emerald-200 bg-white text-emerald-800'}`} aria-label="児童リストの並べ替え"><SlidersHorizontal className="h-3.5 w-3.5" /></button><span className="rounded-full bg-white px-2 py-1 text-[9px] font-black text-emerald-800">{unassignedDirectionChildren.length}名</span></div></div>
               {sortPanelOpen && <div className="mb-2 shrink-0 space-y-1.5 rounded-xl border border-emerald-200 bg-white p-2"><div className="flex items-center justify-between"><div><p className="text-[9px] font-black text-slate-700">上から優先して並べ替え</p><p className="text-[8px] font-bold text-slate-400">つまみをドラッグして優先順を変更</p></div><button type="button" onClick={() => setSortRules([{ field: 'time', direction: 'asc' }, { field: 'area', direction: 'asc' }, { field: 'grade', direction: 'asc' }])} className="text-[8px] font-black text-emerald-700">初期値へ戻す</button></div><DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={({ active, over }) => { if (!over || active.id === over.id) return; setSortRules((current) => { const oldIndex = current.findIndex((rule) => rule.field === active.id); const newIndex = current.findIndex((rule) => rule.field === over.id); return oldIndex < 0 || newIndex < 0 ? current : arrayMove(current, oldIndex, newIndex); }); }}><SortableContext items={sortRules.map((rule) => rule.field)} strategy={verticalListSortingStrategy}><div className="space-y-1">{sortRules.map((rule, index) => <SortableSortRuleRow key={rule.field} rule={rule} index={index} rules={sortRules} onChange={(nextRule) => setSortRules((current) => current.map((item, itemIndex) => itemIndex === index ? nextRule : item))} />)}</div></SortableContext></DndContext></div>}
@@ -1396,12 +1410,12 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
               </div>
             </aside>
             <div className="min-w-0 lg:col-start-2 lg:row-start-1 lg:h-full lg:min-h-0">{renderDirection(activeDirection)}</div>
-            <div className="min-w-0 lg:col-start-3 lg:row-start-1 lg:h-full lg:min-h-0">
+            {mapOpen && <div className="ui-panel-enter min-w-0 lg:col-start-3 lg:row-start-1 lg:h-full lg:min-h-0">
               <DailyTransportMiniMap direction={activeDirection} points={miniMapPoints} facilityPoint={facilityMapPoint} expectedCount={directionChildren.length} activeChildId={activeDragData?.childId} routes={visibleCalculatedRoutes} selectedRouteRunId={selectedRouteRunId} fillHeight onSelectRoute={setSelectedRouteRunId} />
-            </div>
-            <div className="min-w-0 lg:col-span-2 lg:col-start-2 lg:row-start-2 lg:h-full lg:min-h-0 lg:overflow-y-auto">
-              <DraftTransportGantt date={date} direction={activeDirection} drafts={drafts} recorders={activeRecorders} warnings={planningWarnings} minimumFacilityStaff={routeSettings.minimumFacilityStaff} embedded />
-            </div>
+            </div>}
+            {ganttOpen && <div className={`ui-panel-enter min-w-0 lg:col-start-2 lg:row-start-2 lg:h-full lg:min-h-0 lg:overflow-y-auto ${mapOpen ? 'lg:col-span-2' : ''}`}>
+              <DraftTransportGantt date={date} direction={activeDirection} drafts={drafts} recorders={activeRecorders} requirements={dailyTransportRequirements} children={childrenList} attendanceRecords={attendanceRecords} staffScheduleItems={staffScheduleItems} calendarEvents={calendarEvents} warnings={planningWarnings} minimumFacilityStaff={routeSettings.minimumFacilityStaff} embedded />
+            </div>}
           </div>
         </div>
         {createPortal(
@@ -1437,7 +1451,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         </div>
       )}
     </div>
-  );
+  ), document.body);
 };
 
 
@@ -1469,10 +1483,13 @@ function getDraftPlanningWarnings({
   const warnings: string[] = [];
   const dayRuns = drafts.filter((run) => run.direction === direction && run.stops.length > 0);
   const dayAttendance = attendanceRecords.filter((record) => record.date === date);
+  const leaveIds = new Set(calendarEvents
+    .filter((event) => event.eventType === '職員休み' && event.date <= date && (event.endDate || event.date) >= date)
+    .flatMap((event) => event.recorderProfileIds));
   const workingIds = new Set(dayAttendance
-    .filter((record) => ['勤務予定', '出勤中', '休憩中', '遅刻', '早退'].includes(record.status))
+    .filter((record) => !leaveIds.has(record.recorderProfileId) && ['勤務予定', '出勤中', '休憩中', '遅刻', '早退'].includes(record.status))
     .map((record) => record.recorderProfileId));
-  const availableCount = dayAttendance.length > 0 ? workingIds.size : activeRecorders.length;
+  const availableCount = dayAttendance.length > 0 ? workingIds.size : activeRecorders.filter((recorder) => !leaveIds.has(recorder.id)).length;
 
   dayRuns.forEach((run) => {
     const vehicle = vehicles.find((candidate) => candidate.id === run.vehicleId);
@@ -1482,6 +1499,7 @@ function getDraftPlanningWarnings({
     if (vehicle?.vehicleKind === 'private') warnings.push(`${run.name}：職員の自家用車を使用します。使用許可・保険を確認してください。`);
     if (run.stops.some((stop) => !stop.location.trim())) warnings.push(`${run.name}：送迎先が未入力の児童がいます。`);
     const assigned = new Set([run.driverRecorderProfileId, ...run.assistantRecorderProfileIds].filter((id): id is string => Boolean(id)));
+    [...assigned].filter((id) => leaveIds.has(id)).forEach((id) => warnings.push(`${run.name}：${activeRecorders.find((recorder) => recorder.id === id)?.displayName || '担当職員'}さんは業務カレンダーで休みに登録されています。`));
     staffScheduleItems.filter((item) => item.date === date && assigned.has(item.recorderProfileId) && rangesOverlap(run.startTime, run.endTime, item.startTime, item.endTime)).forEach((item) => warnings.push(`${run.name}：${item.recorderName}さんの「${item.title}」と重複しています。`));
     calendarEvents.filter((event) => event.date === date && !event.allDay && event.startTime && event.endTime && event.recorderProfileIds.some((id) => assigned.has(id)) && rangesOverlap(run.startTime, run.endTime, event.startTime, event.endTime)).forEach((event) => warnings.push(`${run.name}：予定「${event.title}」と重複しています。`));
     const awayIds = new Set(dayRuns.filter((candidate) => rangesOverlap(run.startTime, run.endTime, candidate.startTime, candidate.endTime)).flatMap((candidate) => [candidate.driverRecorderProfileId, ...candidate.assistantRecorderProfileIds].filter((id): id is string => Boolean(id))));
@@ -1505,13 +1523,18 @@ const DraftTransportGantt: React.FC<{
   direction: TransportDirection;
   drafts: TransportRun[];
   recorders: RecorderProfile[];
+  requirements: DailyTransportRequirement[];
+  children: ChildProfile[];
+  attendanceRecords: AttendanceRecord[];
+  staffScheduleItems: StaffScheduleItem[];
+  calendarEvents: CalendarEvent[];
   warnings: string[];
   minimumFacilityStaff: number;
   embedded?: boolean;
-}> = ({ date, direction, drafts, recorders, warnings, minimumFacilityStaff, embedded = false }) => {
+}> = ({ date, direction, drafts, recorders, requirements, children, attendanceRecords, staffScheduleItems, calendarEvents, warnings, minimumFacilityStaff, embedded = false }) => {
   const runs = drafts.filter((run) => run.direction === direction && run.stops.length > 0);
   const assignedIds = new Set(runs.flatMap((run) => [run.driverRecorderProfileId, ...run.assistantRecorderProfileIds].filter((id): id is string => Boolean(id))));
-  const rows = recorders.filter((recorder) => assignedIds.has(recorder.id));
+  const rows = recorders.filter((recorder) => recorder.active).sort((left, right) => Number(assignedIds.has(right.id)) - Number(assignedIds.has(left.id)) || left.displayName.localeCompare(right.displayName, 'ja'));
   const startMinute = 8 * 60;
   const endMinute = 20 * 60;
   const width = endMinute - startMinute;
@@ -1519,10 +1542,25 @@ const DraftTransportGantt: React.FC<{
     const [hour, minute] = time.split(':').map(Number);
     return Math.max(0, Math.min(100, (((hour * 60 + minute) - startMinute) / width) * 100));
   };
+  const timePoints = requirements.map((requirement) => ({
+    id: requirement.childId,
+    name: children.find((child) => child.id === requirement.childId)?.name || '児童',
+    time: direction === '迎え'
+      ? requirement.pickupPlannedTime || requirement.pickupTargetTime
+      : requirement.dropoffPlannedTime || requirement.dropoffTargetTime,
+  })).filter((item): item is { id: string; name: string; time: string } => Boolean(item.time));
   return (
     <section className={`${embedded ? 'min-h-full' : 'mx-auto mt-3 max-w-[1600px]'} rounded-2xl border border-slate-300 bg-white p-3 shadow-sm`}>
       <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-[9px] font-black text-teal-700">保存前の配車を即時反映</p><h3 className="text-sm font-black text-slate-950">職員配置ガント・{date} {direction}</h3></div><span className="rounded-full bg-slate-100 px-2 py-1 text-[9px] font-black text-slate-600">施設内最低 {minimumFacilityStaff}名</span></div>
-      {runs.length === 0 ? <p className="mt-3 rounded-xl bg-slate-50 p-4 text-center text-xs text-slate-400">児童を配車すると、ここに職員の対応時間が表示されます。</p> : <div className="mt-3 overflow-x-auto"><div className="min-w-[680px]"><div className="ml-28 grid grid-cols-7 text-[9px] font-bold text-slate-400">{[8,10,12,14,16,18,20].map((hour) => <span key={hour}>{hour}:00</span>)}</div><div className="mt-1 space-y-1">{rows.length === 0 && <div className="rounded-lg bg-amber-50 p-2 text-xs font-bold text-amber-800">運転者・添乗者が未設定です。</div>}{rows.map((recorder) => <div key={recorder.id} className="grid grid-cols-[7rem_1fr] items-center gap-2"><span className="truncate text-[10px] font-black text-slate-700">{recorder.displayName}</span><div className="relative h-8 overflow-hidden rounded-lg bg-[linear-gradient(to_right,#e2e8f0_1px,transparent_1px)] bg-[size:16.666%_100%] bg-slate-50">{runs.filter((run) => run.driverRecorderProfileId === recorder.id || run.assistantRecorderProfileIds.includes(recorder.id)).map((run) => <div key={run.id} title={`${run.name} ${run.startTime}～${run.endTime}`} className={`absolute top-1 h-6 overflow-hidden rounded-md px-2 text-[9px] font-black leading-6 text-white ${direction === '迎え' ? 'bg-sky-600' : 'bg-violet-600'}`} style={{ left: `${position(run.startTime)}%`, width: `${Math.max(2, position(run.endTime) - position(run.startTime))}%` }}>{run.name}</div>)}</div></div>)}</div></div></div>}
+      {timePoints.length > 0 && <div className="mt-3 overflow-x-auto"><div className="grid min-w-[680px] grid-cols-[7rem_1fr] items-center gap-2"><span className="text-[10px] font-black text-sky-800">児童の{direction}時刻</span><div className="relative h-10 rounded-lg bg-sky-50 bg-[linear-gradient(to_right,#bae6fd_1px,transparent_1px)] bg-[size:16.666%_100%]">{timePoints.map((point) => <span key={point.id} title={`${point.name} ${point.time}`} className="absolute top-1 h-8 w-2 -translate-x-1/2 rounded-full bg-sky-600 ring-2 ring-white" style={{ left: `${position(point.time)}%` }}><span className="absolute left-1 top-0 whitespace-nowrap pl-2 text-[8px] font-black text-sky-950">{point.name} {point.time}</span></span>)}</div></div></div>}
+      <div className="mt-3 overflow-x-auto"><div className="min-w-[680px]"><div className="ml-28 grid grid-cols-7 text-[9px] font-bold text-slate-400">{[8,10,12,14,16,18,20].map((hour) => <span key={hour}>{hour}:00</span>)}</div><div className="mt-1 max-h-[42dvh] space-y-1 overflow-y-auto pr-1">{rows.map((recorder) => {
+        const attendance = attendanceRecords.find((item) => item.date === date && item.recorderProfileId === recorder.id);
+        const leave = calendarEvents.find((event) => event.eventType === '職員休み' && event.date <= date && (event.endDate || event.date) >= date && event.recorderProfileIds.includes(recorder.id));
+        const workItems = staffScheduleItems.filter((item) => item.date === date && item.recorderProfileId === recorder.id);
+        const events = calendarEvents.filter((event) => event.eventType !== '職員休み' && event.date <= date && (event.endDate || event.date) >= date && !event.allDay && event.startTime && event.endTime && event.recorderProfileIds.includes(recorder.id));
+        const assigned = runs.filter((run) => run.driverRecorderProfileId === recorder.id || run.assistantRecorderProfileIds.includes(recorder.id));
+        return <div key={recorder.id} className="grid grid-cols-[7rem_1fr] items-center gap-2"><span className={`truncate text-[10px] font-black ${leave ? 'text-rose-700' : attendance?.scheduledStartTime ? 'text-slate-800' : 'text-slate-400'}`}>{recorder.displayName}{leave ? '（休み）' : !attendance?.scheduledStartTime ? '（未定）' : ''}</span><div className="relative h-9 overflow-hidden rounded-lg bg-[linear-gradient(to_right,#e2e8f0_1px,transparent_1px)] bg-[size:16.666%_100%] bg-slate-50">{leave ? <span className="absolute inset-1 flex items-center justify-center rounded-md bg-rose-100 text-[9px] font-black text-rose-800 ring-1 ring-rose-200">休み：{leave.title}</span> : <>{attendance?.scheduledStartTime && attendance.scheduledEndTime && <span className="absolute top-1 h-7 rounded-md bg-emerald-100 ring-1 ring-emerald-200" style={{ left: `${position(attendance.scheduledStartTime)}%`, width: `${Math.max(2, position(attendance.scheduledEndTime) - position(attendance.scheduledStartTime))}%` }} title={`出勤予定 ${attendance.scheduledStartTime}〜${attendance.scheduledEndTime}`} />}{[...workItems.map((item) => ({ id: item.id, title: item.title, start: item.startTime, end: item.endTime })), ...events.map((event) => ({ id: event.id, title: event.title, start: event.startTime!, end: event.endTime! }))].map((item) => <span key={item.id} className="absolute bottom-0.5 h-2.5 rounded-sm bg-amber-400" style={{ left: `${position(item.start)}%`, width: `${Math.max(1, position(item.end) - position(item.start))}%` }} title={`${item.title} ${item.start}〜${item.end}`} />)}{assigned.map((run) => <div key={run.id} title={`${run.name} ${run.startTime}～${run.endTime}`} className={`absolute top-1 h-6 overflow-hidden rounded-md px-2 text-[9px] font-black leading-6 text-white ${direction === '迎え' ? 'bg-sky-600' : 'bg-violet-600'}`} style={{ left: `${position(run.startTime)}%`, width: `${Math.max(2, position(run.endTime) - position(run.startTime))}%` }}>{run.name}</div>)}</>}</div></div>;
+      })}</div></div></div>
       {warnings.length > 0 && <details className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3" open={!embedded}><summary className="cursor-pointer text-xs font-black text-amber-950"><AlertTriangle className="mr-1 inline h-4 w-4" />要確認 {warnings.length}件</summary><ul className="mt-2 space-y-1 text-[10px] font-bold text-amber-900">{warnings.map((warning) => <li key={warning}>・{warning}</li>)}</ul></details>}
     </section>
   );

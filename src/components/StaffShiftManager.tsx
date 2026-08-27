@@ -32,6 +32,7 @@ interface StaffShiftManagerProps {
   transportRuns?: TransportRun[];
   selectedDate: string;
   onSaveRecords: (records: AttendanceRecord[]) => Promise<void> | void;
+  onReviewShiftRequest?: (request: StaffShiftRequest, approved: boolean, note?: string) => Promise<void> | void;
 }
 
 interface DayForm {
@@ -44,11 +45,11 @@ interface DayForm {
   note: string;
 }
 
-type ShiftViewMode = 'year' | 'month' | 'day';
+type ShiftViewMode = 'week' | 'month' | 'day';
 
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
-const DAY_STATUSES: AttendanceStatus[] = ['勤務予定', '遅刻', '早退', '欠勤', '有給', '公休', '特別休暇', '研修'];
-const NO_TIME_STATUSES: AttendanceStatus[] = ['欠勤', '有給', '公休', '特別休暇'];
+const DAY_STATUSES: AttendanceStatus[] = ['勤務予定', '遅刻', '早退', '欠勤', '研修'];
+const NO_TIME_STATUSES: AttendanceStatus[] = ['欠勤'];
 const PART_TIME_WEEKDAY_DEFAULT = '__part_time_weekday_default__';
 const PART_TIME_HOLIDAY_DEFAULT = '__part_time_holiday_default__';
 
@@ -64,29 +65,30 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
   transportRuns = [],
   selectedDate,
   onSaveRecords,
+  onReviewShiftRequest,
 }) => {
   const activeProfiles = useMemo(
     () => recorderProfiles.filter((profile) => profile.active),
     [recorderProfiles],
   );
   const [month, setMonth] = useState(selectedDate.slice(0, 7));
-  const [year, setYear] = useState(Number(selectedDate.slice(0, 4)));
   const [dayDate, setDayDate] = useState(selectedDate);
+  const [weekStart, setWeekStart] = useState(getWeekStart(selectedDate));
   const [viewMode, setViewMode] = useState<ShiftViewMode>('month');
   const [employmentFilter, setEmploymentFilter] = useState<'all' | StaffEmploymentType>('all');
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [applyDate, setApplyDate] = useState(selectedDate);
   const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([]);
-  const [registerDaysOff, setRegisterDaysOff] = useState(true);
   const [dayForm, setDayForm] = useState<DayForm | null>(null);
+  const [reviewRequest, setReviewRequest] = useState<StaffShiftRequest | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [childTimelineExpanded, setChildTimelineExpanded] = useState(false);
 
   useEffect(() => {
     setMonth(selectedDate.slice(0, 7));
-    setYear(Number(selectedDate.slice(0, 4)));
     setDayDate(selectedDate);
+    setWeekStart(getWeekStart(selectedDate));
     setApplyDate(selectedDate);
   }, [selectedDate]);
 
@@ -101,6 +103,7 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
   }, [activeProfiles, selectedTemplateId, templates]);
 
   const dates = useMemo(() => getMonthDates(month), [month]);
+  const weekDates = useMemo(() => Array.from({ length: 7 }, (_, index) => moveDate(weekStart, index)), [weekStart]);
   const visibleProfiles = useMemo(
     () => activeProfiles.filter((profile) => employmentFilter === 'all'
       || (profile.employmentType || 'full_time') === employmentFilter),
@@ -110,16 +113,12 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
     () => records.filter((record) => record.date.startsWith(month)),
     [month, records],
   );
-  const yearRecords = useMemo(
-    () => records.filter((record) => record.date.startsWith(`${year}-`)),
-    [records, year],
-  );
   const dayRecords = useMemo(
     () => records.filter((record) => record.date === dayDate),
     [dayDate, records],
   );
-  const monthRequests = useMemo(() => shiftRequests.filter((request) => request.requestedDate.startsWith(month) && request.status !== '却下'), [month, shiftRequests]);
-  const dayRequests = useMemo(() => shiftRequests.filter((request) => request.requestedDate === dayDate && request.status !== '却下'), [dayDate, shiftRequests]);
+  const monthRequests = useMemo(() => shiftRequests.filter((request) => request.requestedDate.startsWith(month)), [month, shiftRequests]);
+  const dayRequests = useMemo(() => shiftRequests.filter((request) => request.requestedDate === dayDate), [dayDate, shiftRequests]);
   const dayEvents = useMemo(() => calendarEvents.filter((event) => event.date <= dayDate && (event.endDate || event.date) >= dayDate && !event.allDay && event.startTime && event.endTime), [calendarEvents, dayDate]);
   const childTimelineRows = useMemo(() => {
     const childIds = new Set<string>();
@@ -139,18 +138,6 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
       ? 'holiday'
       : undefined;
 
-  const fiscalSummary = useMemo(() => {
-    const [year, monthNumber] = month.split('-').map(Number);
-    const fiscalStart = `${monthNumber >= 4 ? year : year - 1}-04-01`;
-    const fiscalEnd = `${monthNumber >= 4 ? year + 1 : year}-03-31`;
-    const target = records.filter((record) => record.date >= fiscalStart && record.date <= fiscalEnd);
-    return {
-      label: `${fiscalStart.slice(0, 4)}年度`,
-      publicHolidays: target.filter((record) => record.status === '公休').length,
-      paidLeave: target.filter((record) => record.status === '有給').length,
-      specialLeave: target.filter((record) => record.status === '特別休暇').length,
-    };
-  }, [month, records]);
 
   const toggleStaff = (profileId: string) => {
     setSelectedStaffIds((previous) => previous.includes(profileId)
@@ -195,7 +182,7 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
         const isWorkday = partTimePattern
           ? workdayIndexes.includes(weekday)
           : mode === 'day' || Boolean(selectedTemplate?.weekdays.includes(weekday));
-        if (mode === 'month' && !isWorkday && !registerDaysOff) continue;
+        if (!isWorkday) continue;
         const startTime = partTimePattern === 'weekday'
           ? profile.partTimeWeekdayStartTime
           : partTimePattern === 'holiday'
@@ -214,7 +201,7 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
         const protectedRecord = existing && (
           existing.clockInAt
           || existing.clockOutAt
-          || ['出勤中', '休憩中', '退勤済み', '有給', '特別休暇', '欠勤', '研修'].includes(existing.status)
+          || ['出勤中', '休憩中', '退勤済み', '欠勤', '研修'].includes(existing.status)
         );
         if (mode === 'month' && protectedRecord) {
           skipped += 1;
@@ -225,10 +212,10 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
           recorderProfileId: profile.id,
           recorderName: profile.displayName,
           date,
-          scheduledStartTime: isWorkday ? startTime : undefined,
-          scheduledEndTime: isWorkday ? endTime : undefined,
-          scheduledBreakMinutes: isWorkday ? (selectedTemplate?.breakMinutes || 0) : 0,
-          status: isWorkday ? '勤務予定' : '公休',
+          scheduledStartTime: startTime,
+          scheduledEndTime: endTime,
+          scheduledBreakMinutes: selectedTemplate?.breakMinutes || 0,
+          status: '勤務予定',
           clockInAt: existing?.clockInAt,
           clockOutAt: existing?.clockOutAt,
           breakPeriods: existing?.breakPeriods || [],
@@ -241,14 +228,14 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
       }
     }
 
-    if (updates.length === 0) return setMessage('反映できる予定がありません。確定済みの打刻・休暇は月間反映で保護されます。');
+    if (updates.length === 0) return setMessage('反映できる予定がありません。確定済みの打刻・欠勤は月間反映で保護されます。');
     const label = mode === 'day' ? applyDate : month;
     if (!window.confirm(`${label}へ${updates.length}件の勤務予定を反映しますか？`)) return;
     setBusy(true);
     setMessage('');
     try {
       await onSaveRecords(updates);
-      setMessage(`${updates.length}件を反映しました。${skipped ? ` 確定済み・休暇 ${skipped}件は変更していません。` : ''}`);
+      setMessage(`${updates.length}件を反映しました。${skipped ? ` 確定済み・欠勤 ${skipped}件は変更していません。` : ''}`);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '勤務予定を反映できませんでした。');
     } finally {
@@ -311,24 +298,24 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
   };
 
   const navigateView = (amount: number) => {
-    if (viewMode === 'year') {
-      setYear((current) => current + amount);
+    if (viewMode === 'week') {
+      const next = moveDate(weekStart, amount * 7);
+      setWeekStart(next);
+      setMonth(next.slice(0, 7));
       return;
     }
     if (viewMode === 'month') {
       const next = moveMonth(month, amount);
       setMonth(next);
-      setYear(Number(next.slice(0, 4)));
       return;
     }
     const next = moveDate(dayDate, amount);
     setDayDate(next);
     setMonth(next.slice(0, 7));
-    setYear(Number(next.slice(0, 4)));
   };
 
-  const periodLabel = viewMode === 'year'
-    ? `${year}年`
+  const periodLabel = viewMode === 'week'
+    ? `${formatJapaneseDate(weekDates[0]).replace(/（.）$/, '')}〜${formatJapaneseDate(weekDates[6]).replace(/^\d+年/, '').replace(/（.）$/, '')}`
     : viewMode === 'month'
       ? `${month.replace('-', '年')}月`
       : formatJapaneseDate(dayDate);
@@ -339,17 +326,11 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <p className="text-[10px] font-black text-indigo-700">シフト管理</p>
-            <h3 className="mt-1 flex items-center gap-2 font-black text-slate-950"><CalendarRange className="h-5 w-5 text-indigo-600" />月間シフト・休日管理</h3>
+            <h3 className="mt-1 flex items-center gap-2 font-black text-slate-950"><CalendarRange className="h-5 w-5 text-indigo-600" />勤務シフト作成</h3>
             <p className="mt-1 text-xs text-slate-600">勤務テンプレートを日・月単位で反映します。保存内容は予定表と職員配置ガントチャートへ自動反映されます。</p>
           </div>
           <p className="rounded-xl bg-white px-3 py-2 text-[11px] font-bold text-indigo-800">テンプレートの追加・編集は「管理者メニュー ＞ 勤務テンプレート」で行います。</p>
         </div>
-      </div>
-
-      <div className="grid grid-cols-3 border-b border-slate-100 bg-white">
-        <Summary label={`${fiscalSummary.label} 公休`} value={`${fiscalSummary.publicHolidays}人日`} />
-        <Summary label={`${fiscalSummary.label} 有給`} value={`${fiscalSummary.paidLeave}人日`} />
-        <Summary label={`${fiscalSummary.label} 特別休暇`} value={`${fiscalSummary.specialLeave}人日`} />
       </div>
 
       <div className="space-y-3 border-b border-slate-200 p-4">
@@ -383,7 +364,6 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
               <input type="checkbox" checked={selectedStaffIds.includes(profile.id)} onChange={() => toggleStaff(profile.id)} className="accent-indigo-600" />{profile.displayName}
             </label>
           ))}
-          <label className="ml-auto flex items-center gap-2 text-[11px] font-bold text-slate-600"><input type="checkbox" checked={registerDaysOff} onChange={(event) => setRegisterDaysOff(event.target.checked)} className="accent-indigo-600" />勤務曜日以外を公休として登録</label>
         </div>
 
         {templates.length === 0 && <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900">共通勤務テンプレートは未登録です。パート個別設定はそのまま利用できます。共通パターンは管理者メニューから追加してください。</p>}
@@ -392,11 +372,11 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
 
       <div className="border-b border-slate-200 bg-white p-3">
         <div className="mx-auto grid max-w-md grid-cols-3 rounded-xl bg-slate-100 p-1">
-          {([['year', '年別'], ['month', '月別'], ['day', '日別']] as Array<[ShiftViewMode, string]>).map(([mode, label]) => <button key={mode} type="button" onClick={() => setViewMode(mode)} className={`min-h-10 rounded-lg text-xs font-black transition-colors ${viewMode === mode ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-600'}`}>{label}</button>)}
+          {([['month', '月別'], ['week', '週別'], ['day', '日別']] as Array<[ShiftViewMode, string]>).map(([mode, label]) => <button key={mode} type="button" onClick={() => setViewMode(mode)} className={`min-h-10 rounded-lg text-xs font-black transition-colors ${viewMode === mode ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-600'}`}>{label}</button>)}
         </div>
         <div className="mt-3 flex items-center justify-between gap-3">
           <button type="button" onClick={() => navigateView(-1)} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-300" aria-label="前へ"><ChevronLeft className="h-5 w-5" /></button>
-          <div className="text-center"><strong className="block text-base text-slate-950">{periodLabel}</strong><span className="text-[10px] text-slate-500">{viewMode === 'year' ? '月を選ぶと月別表示へ移動します' : viewMode === 'month' ? '○は勤務、休・有・特・欠は休暇区分です' : '7時から21時までの配置を表示します'}</span></div>
+          <div className="text-center"><strong className="block text-base text-slate-950">{periodLabel}</strong><span className="text-[10px] text-slate-500">{viewMode === 'week' ? '希望時間と勤務予定を1週間で確認します' : viewMode === 'month' ? '勤務予定と希望状態を月全体で確認します' : '7時から21時までの配置を表示します'}</span></div>
           <button type="button" onClick={() => navigateView(1)} className="grid h-10 w-10 place-items-center rounded-xl border border-slate-300" aria-label="次へ"><ChevronRight className="h-5 w-5" /></button>
         </div>
       </div>
@@ -407,18 +387,23 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
             <div className="grid border-b border-slate-300 bg-slate-100" style={{ gridTemplateColumns: `112px repeat(${dates.length}, minmax(30px, 1fr)) 54px` }}>
               <div className="flex items-center px-2 text-[10px] font-black text-slate-700">職員名</div>
               {dates.map((date) => { const weekday = new Date(`${date}T12:00:00`).getDay(); return <div key={date} className={`border-l border-slate-300 py-1 text-center text-[9px] font-black ${weekday === 0 ? 'bg-rose-50 text-rose-700' : weekday === 6 ? 'bg-sky-50 text-sky-700' : 'text-slate-700'}`}><span className="block">{Number(date.slice(8))}</span><span>{WEEKDAYS[weekday]}</span></div>; })}
-              <div className="border-l border-slate-300 py-1 text-center text-[9px] font-black text-slate-700">休暇<br />計</div>
+              <div className="border-l border-slate-300 py-1 text-center text-[9px] font-black text-slate-700">欠勤<br />計</div>
             </div>
             {visibleProfiles.map((profile) => {
               const profileRecords = monthRecords.filter((record) => record.recorderProfileId === profile.id);
-              const leaveDays = profileRecords.filter((record) => NO_TIME_STATUSES.includes(record.status)).length;
+              const calendarLeaveDates = dates.filter((date) => Boolean(findStaffLeave(calendarEvents, profile.id, date)));
+              const leaveDays = new Set([
+                ...profileRecords.filter((record) => record.status === '欠勤').map((record) => record.date),
+                ...calendarLeaveDates,
+              ]).size;
               return <div key={profile.id} className="grid border-b border-slate-200 last:border-b-0" style={{ gridTemplateColumns: `112px repeat(${dates.length}, minmax(30px, 1fr)) 54px` }}>
                 <div className="min-w-0 px-2 py-2"><strong className="block truncate text-[11px] text-slate-950">{profile.displayName}</strong><span className="text-[9px] text-slate-500">{profile.employmentType === 'part_time' ? 'パート' : '正職'}・{profileRecords.filter((record) => !NO_TIME_STATUSES.includes(record.status)).length}日</span></div>
                 {dates.map((date) => {
                   const record = profileRecords.find((candidate) => candidate.date === date);
                   const request = monthRequests.find((candidate) => candidate.recorderProfileId === profile.id && candidate.requestedDate === date);
+                  const leave = findStaffLeave(calendarEvents, profile.id, date);
                   const locked = isClockedRecord(record);
-                  return <button key={date} type="button" onClick={() => openDay(profile, date)} className={`relative min-h-11 border-l border-slate-200 text-[10px] font-black ${cellTone(record)} ${locked ? 'ring-1 ring-inset ring-slate-500' : ''} ${request ? 'ring-2 ring-inset ring-violet-400' : ''}`} title={[record ? `${record.status} ${record.scheduledStartTime || ''}〜${record.scheduledEndTime || ''}` : '未登録', request ? `希望 ${request.requestedStartTime || ''}〜${request.requestedEndTime || ''}（${request.status}）` : ''].filter(Boolean).join('／')}>{record ? monthCellLabel(record) : request ? '希' : '－'}{request && record && <span className="absolute bottom-0.5 right-0.5 h-1.5 w-1.5 rounded-full bg-violet-600" />}</button>;
+                  return <button key={date} type="button" onClick={() => { if (leave) return; request ? setReviewRequest(request) : openDay(profile, date); }} className={`relative min-h-11 border-l border-slate-200 text-[10px] font-black ${leave ? 'bg-rose-100 text-rose-800' : cellTone(record)} ${locked ? 'ring-1 ring-inset ring-slate-500' : ''} ${request && !leave ? requestRingTone(request.status) : ''}`} title={leave ? `${leave.title}（業務カレンダーで変更）` : [record ? `${record.status} ${record.scheduledStartTime || ''}〜${record.scheduledEndTime || ''}` : '未登録', request ? `希望 ${request.requestedStartTime || ''}〜${request.requestedEndTime || ''}（${request.status}）` : ''].filter(Boolean).join('／')}>{leave ? '休' : record ? monthCellLabel(record) : request ? requestStatusLabel(request.status) : '－'}{request && record && !leave && <span className={`absolute bottom-0.5 right-0.5 h-1.5 w-1.5 rounded-full ${requestDotTone(request.status)}`} />}</button>;
                 })}
                 <div className="flex items-center justify-center border-l border-slate-300 text-xs font-black text-slate-700">{leaveDays}</div>
               </div>;
@@ -436,8 +421,9 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
               const record = dayRecords.find((candidate) => candidate.recorderProfileId === profile.id);
               const request = dayRequests.find((candidate) => candidate.recorderProfileId === profile.id);
               const profileEvents = profile.employmentType !== 'part_time' ? dayEvents.filter((event) => event.recorderProfileIds.includes(profile.id)) : [];
+              const leave = findStaffLeave(calendarEvents, profile.id, dayDate);
               const bar = ganttBarStyle(record);
-               return <div key={profile.id} className="grid border-b border-slate-200 text-left hover:bg-indigo-50/40" style={{ gridTemplateColumns: '120px minmax(700px, 1fr)' }}><button type="button" onClick={() => openDay(profile, dayDate)} className="min-w-0 px-2 py-2 text-left"><strong className="block truncate text-[11px] text-slate-950">{profile.displayName}</strong><span className="block truncate text-[8px] text-slate-500">{profile.employmentType === 'part_time' ? 'パート' : '正職'}{request ? `・希望${request.status}` : ''}</span></button><div className="relative min-h-12 overflow-hidden" style={timelineGridStyle()}>{bar ? <span className={`absolute top-1.5 flex h-7 items-center overflow-hidden rounded-lg px-2 text-[9px] font-black shadow-sm ${cellTone(record)}`} style={bar}>{record?.scheduledStartTime}〜{record?.scheduledEndTime}</span> : record ? <span className={`absolute inset-x-2 top-1.5 flex h-7 items-center justify-center rounded-lg text-[9px] font-black ${cellTone(record)}`}>{cellLabel(record)}</span> : <span className="absolute left-2 top-2.5 text-[9px] text-slate-300">未登録</span>}{request?.requestedStartTime && request.requestedEndTime && <span className="absolute bottom-1 h-1.5 rounded-full bg-violet-500" style={timeRangeBarStyle(request.requestedStartTime, request.requestedEndTime)} title={`シフト希望 ${request.requestedStartTime}〜${request.requestedEndTime}`} />}{profileEvents.map((event) => <span key={event.id} className="absolute bottom-0.5 h-2.5 overflow-hidden rounded-sm bg-amber-400 px-1 text-[7px] font-black text-amber-950" style={timeRangeBarStyle(event.startTime!, event.endTime!)} title={`${event.title} ${event.startTime}〜${event.endTime}`}>{event.title}</span>)}</div></div>;
+               return <div key={profile.id} className="grid border-b border-slate-200 text-left hover:bg-indigo-50/40" style={{ gridTemplateColumns: '120px minmax(700px, 1fr)' }}><button type="button" onClick={() => openDay(profile, dayDate)} className="min-w-0 px-2 py-2 text-left"><strong className="block truncate text-[11px] text-slate-950">{profile.displayName}</strong><span className="block truncate text-[8px] text-slate-500">{profile.employmentType === 'part_time' ? 'パート' : '正職'}{leave ? '・休み' : request ? `・希望${request.status}` : ''}</span></button><div className="relative min-h-12 overflow-hidden" style={timelineGridStyle()}>{leave ? <span className="absolute inset-x-1 top-1.5 flex h-8 items-center justify-center rounded-lg bg-rose-100 text-[9px] font-black text-rose-800 ring-1 ring-rose-200">休み：{leave.title}</span> : bar ? <span className={`absolute top-1.5 flex h-7 items-center overflow-hidden rounded-lg px-2 text-[9px] font-black shadow-sm ${cellTone(record)}`} style={bar}>{record?.scheduledStartTime}〜{record?.scheduledEndTime}</span> : record ? <span className={`absolute inset-x-2 top-1.5 flex h-7 items-center justify-center rounded-lg text-[9px] font-black ${cellTone(record)}`}>{cellLabel(record)}</span> : <span className="absolute left-2 top-2.5 text-[9px] text-slate-300">未登録</span>}{!leave && request?.requestedStartTime && request.requestedEndTime && <span className="absolute bottom-1 h-1.5 rounded-full bg-violet-500" style={timeRangeBarStyle(request.requestedStartTime, request.requestedEndTime)} title={`シフト希望 ${request.requestedStartTime}〜${request.requestedEndTime}`} />}{!leave && profileEvents.map((event) => <span key={event.id} className="absolute bottom-0.5 h-2.5 overflow-hidden rounded-sm bg-amber-400 px-1 text-[7px] font-black text-amber-950" style={timeRangeBarStyle(event.startTime!, event.endTime!)} title={`${event.title} ${event.startTime}〜${event.endTime}`}>{event.title}</span>)}</div></div>;
             })}
             {dayRuns.length > 0 && <div className="border-y border-sky-200 bg-sky-50 px-3 py-1 text-[9px] font-black text-sky-800">送迎便</div>}
             {dayRuns.map((run) => <div key={run.id} className="grid border-b border-sky-100 bg-sky-50/30" style={{ gridTemplateColumns: '120px minmax(700px, 1fr)' }}><div className="min-w-0 px-2 py-1.5"><strong className="block truncate text-[10px] text-slate-900">{run.name}</strong><span className="block truncate text-[8px] text-slate-500">{run.direction}・{run.driverName || '担当未定'}</span></div><div className="relative min-h-9" style={timelineGridStyle()}><span className="absolute top-1.5 flex h-6 items-center overflow-hidden rounded-md bg-sky-500 px-2 text-[8px] font-black text-white" style={timeRangeBarStyle(run.startTime, run.endTime)}>{run.startTime}〜{run.endTime}</span></div></div>)}
@@ -452,16 +438,10 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
           </div>
         </div>}
 
-        {viewMode === 'year' && <div className="overflow-x-auto rounded-xl border border-slate-300 bg-white shadow-sm">
-          <div className="min-w-[860px]">
-            <div className="grid border-b border-slate-300 bg-slate-100" style={{ gridTemplateColumns: '150px repeat(12, minmax(56px, 1fr))' }}><div className="px-3 py-2 text-[10px] font-black text-slate-700">職員名</div>{Array.from({ length: 12 }, (_, index) => <button key={index} type="button" onClick={() => { setMonth(`${year}-${String(index + 1).padStart(2, '0')}`); setViewMode('month'); }} className="border-l border-slate-300 py-2 text-[10px] font-black text-indigo-800 hover:bg-indigo-50">{index + 1}月</button>)}</div>
-            {visibleProfiles.map((profile) => <div key={profile.id} className="grid border-b border-slate-200 last:border-b-0" style={{ gridTemplateColumns: '150px repeat(12, minmax(56px, 1fr))' }}><div className="min-w-0 px-3 py-2"><strong className="block truncate text-[11px] text-slate-950">{profile.displayName}</strong><span className="text-[9px] text-slate-500">{profile.employmentType === 'part_time' ? 'パート' : '正職'}</span></div>{Array.from({ length: 12 }, (_, index) => {
-              const prefix = `${year}-${String(index + 1).padStart(2, '0')}`;
-              const target = yearRecords.filter((record) => record.recorderProfileId === profile.id && record.date.startsWith(prefix));
-              const workDays = target.filter((record) => !NO_TIME_STATUSES.includes(record.status)).length;
-              const leaveDays = target.filter((record) => NO_TIME_STATUSES.includes(record.status)).length;
-              return <button key={prefix} type="button" onClick={() => { setMonth(prefix); setViewMode('month'); }} className="border-l border-slate-200 px-1 py-2 text-center hover:bg-indigo-50"><strong className="block text-xs text-slate-900">{workDays}日</strong><span className={`text-[9px] font-bold ${leaveDays ? 'text-rose-700' : 'text-slate-400'}`}>休 {leaveDays}</span></button>;
-            })}</div>)}
+        {viewMode === 'week' && <div className="overflow-x-auto rounded-xl border border-slate-300 bg-white shadow-sm">
+          <div className="min-w-[760px]">
+            <div className="grid border-b border-slate-300 bg-slate-100" style={{ gridTemplateColumns: '120px repeat(7, minmax(88px, 1fr))' }}><div className="px-2 py-2 text-[10px] font-black text-slate-700">職員名</div>{weekDates.map((date) => { const weekday = new Date(`${date}T12:00:00`).getDay(); return <button key={date} type="button" onClick={() => { setDayDate(date); setViewMode('day'); }} className={`border-l border-slate-300 py-2 text-[10px] font-black ${weekday === 0 ? 'bg-rose-50 text-rose-700' : weekday === 6 ? 'bg-sky-50 text-sky-700' : 'text-slate-700'}`}>{Number(date.slice(5, 7))}/{Number(date.slice(8))}（{WEEKDAYS[weekday]}）</button>; })}</div>
+            {visibleProfiles.map((profile) => <div key={profile.id} className="grid border-b border-slate-200 last:border-b-0" style={{ gridTemplateColumns: '120px repeat(7, minmax(88px, 1fr))' }}><div className="min-w-0 px-2 py-2"><strong className="block truncate text-[11px] text-slate-950">{profile.displayName}</strong><span className="text-[8px] text-slate-500">{profile.employmentType === 'part_time' ? 'パート' : '正職'}</span></div>{weekDates.map((date) => { const record = records.find((item) => item.recorderProfileId === profile.id && item.date === date); const request = shiftRequests.find((item) => item.recorderProfileId === profile.id && item.requestedDate === date); const leave = findStaffLeave(calendarEvents, profile.id, date); return <button key={date} type="button" onClick={() => { if (leave) return; request ? setReviewRequest(request) : openDay(profile, date); }} className={`min-h-14 border-l border-slate-200 px-1 text-[9px] font-black ${leave ? 'bg-rose-100 text-rose-800' : cellTone(record)} ${request && !leave ? requestRingTone(request.status) : ''}`} title={leave ? `${leave.title}（業務カレンダーで変更）` : request ? `希望 ${request.requestedStartTime || '－'}〜${request.requestedEndTime || '－'}（${request.status}）` : undefined}><span className="block">{leave ? '休み' : record?.scheduledStartTime ? `${record.scheduledStartTime}〜${record.scheduledEndTime || '－'}` : record ? cellLabel(record) : '－'}</span>{request && !leave && <span className={`mt-1 block rounded px-1 py-0.5 ${requestBadgeTone(request.status)}`}>{requestStatusLabel(request.status)} {request.requestedStartTime || ''}〜{request.requestedEndTime || ''}</span>}</button>; })}</div>)}
           </div>
         </div>}
         {visibleProfiles.length === 0 && <p className="p-6 text-center text-sm text-slate-500">該当する職員がいません。</p>}
@@ -476,11 +456,16 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
           <button type="button" disabled={busy} onClick={() => void saveDay()} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 font-black text-white disabled:opacity-50"><Save className="h-5 w-5" />保存</button>
         </Modal>
       )}
+      {reviewRequest && (
+        <Modal title="シフト希望を確認" onClose={() => setReviewRequest(null)}>
+          <div className={`rounded-xl border p-3 ${requestPanelTone(reviewRequest.status)}`}><strong className="block text-sm">{reviewRequest.recorderName}／{reviewRequest.requestedDate}</strong><span className="mt-1 block text-sm font-black">希望 {reviewRequest.requestedStartTime || '－'}〜{reviewRequest.requestedEndTime || '－'}・{reviewRequest.status}</span>{reviewRequest.note && <p className="mt-2 text-xs">メモ：{reviewRequest.note}</p>}</div>
+          {reviewRequest.status === '申請中' && onReviewShiftRequest && <div className="grid grid-cols-2 gap-2"><button type="button" onClick={async () => { await onReviewShiftRequest(reviewRequest, true); setReviewRequest(null); }} className="min-h-12 rounded-xl bg-teal-600 font-black text-white">承認</button><button type="button" onClick={async () => { await onReviewShiftRequest(reviewRequest, false); setReviewRequest(null); }} className="min-h-12 rounded-xl border border-rose-300 font-black text-rose-700">却下</button></div>}
+          <button type="button" onClick={() => { const profile = activeProfiles.find((item) => item.id === reviewRequest.recorderProfileId); const date = reviewRequest.requestedDate; setReviewRequest(null); if (profile) openDay(profile, date); }} className="min-h-11 w-full rounded-xl border border-slate-300 font-black text-slate-700">この日の勤務予定を編集</button>
+        </Modal>
+      )}
     </section>
   );
 };
-
-const Summary = ({ label, value }: { label: string; value: string }) => <div className="border-r border-slate-100 p-3 text-center"><span className="block text-[9px] font-bold text-slate-500 sm:text-[10px]">{label}</span><strong className="mt-1 block text-sm text-slate-950 sm:text-base">{value}</strong></div>;
 
 const Modal = ({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) => (
   <div className="fixed inset-0 z-[90] flex items-end justify-center bg-slate-950/55 sm:items-center sm:p-4" role="dialog" aria-modal="true">
@@ -490,6 +475,13 @@ const Modal = ({ title, onClose, children }: { title: string; onClose: () => voi
     </div>
   </div>
 );
+
+function findStaffLeave(events: CalendarEvent[], recorderProfileId: string, date: string) {
+  return events.find((event) => event.eventType === '職員休み'
+    && event.recorderProfileIds.includes(recorderProfileId)
+    && event.date <= date
+    && (event.endDate || event.date) >= date);
+}
 
 function getMonthDates(month: string) {
   const [year, monthNumber] = month.split('-').map(Number);
@@ -511,6 +503,35 @@ function moveDate(date: string, amount: number) {
   const next = new Date(`${date}T12:00:00`);
   next.setDate(next.getDate() + amount);
   return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`;
+}
+
+function getWeekStart(date: string) {
+  const value = new Date(`${date}T12:00:00`);
+  const offset = value.getDay() === 0 ? -6 : 1 - value.getDay();
+  value.setDate(value.getDate() + offset);
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+}
+
+function requestStatusLabel(status: StaffShiftRequest['status']) {
+  return status === '承認' ? '承認済' : status;
+}
+
+function requestRingTone(status: StaffShiftRequest['status']) {
+  if (status === '承認') return 'ring-2 ring-inset ring-emerald-500';
+  if (status === '却下') return 'ring-2 ring-inset ring-rose-400';
+  return 'ring-2 ring-inset ring-violet-500';
+}
+
+function requestDotTone(status: StaffShiftRequest['status']) {
+  return status === '承認' ? 'bg-emerald-600' : status === '却下' ? 'bg-rose-600' : 'bg-violet-600';
+}
+
+function requestBadgeTone(status: StaffShiftRequest['status']) {
+  return status === '承認' ? 'bg-emerald-100 text-emerald-900' : status === '却下' ? 'bg-rose-100 text-rose-900' : 'bg-violet-100 text-violet-900';
+}
+
+function requestPanelTone(status: StaffShiftRequest['status']) {
+  return status === '承認' ? 'border-emerald-200 bg-emerald-50 text-emerald-950' : status === '却下' ? 'border-rose-200 bg-rose-50 text-rose-950' : 'border-violet-200 bg-violet-50 text-violet-950';
 }
 
 function formatJapaneseDate(date: string) {

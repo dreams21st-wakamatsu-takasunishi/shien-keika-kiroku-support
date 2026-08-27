@@ -19,6 +19,7 @@ interface RecordListProps {
 }
 
 interface StoredRecordListState {
+  savedOn: string;
   searchTerm: string;
   statusFilter: string;
   templateFilter: string;
@@ -31,18 +32,28 @@ interface StoredRecordListState {
   pdfChildId: string;
   pdfMonth: string;
   scrollY: number;
+  sortRules: RecordSortRule[];
 }
+
+type RecordSortField = 'date' | 'child' | 'attendance' | 'summary' | 'recorder' | 'status';
+interface RecordSortRule { field: RecordSortField; direction: 'asc' | 'desc' }
 
 const RECORD_LIST_STATE_KEY = 'support-record-list-view-v1';
 
 function readStoredState(today: string): StoredRecordListState {
   const fallback: StoredRecordListState = {
+    savedOn: today,
     searchTerm: '', statusFilter: 'all', templateFilter: 'all', dateMode: 'day',
     selectedDate: today, dateFrom: today, dateTo: today, filtersOpen: false,
     monthlyPdfOpen: false, pdfChildId: '', pdfMonth: today.slice(0, 7), scrollY: 0,
+    sortRules: [{ field: 'date', direction: 'desc' }],
   };
   try {
     const saved = JSON.parse(sessionStorage.getItem(RECORD_LIST_STATE_KEY) || '{}') as Partial<StoredRecordListState>;
+    if (saved.savedOn !== today) {
+      sessionStorage.removeItem(RECORD_LIST_STATE_KEY);
+      return fallback;
+    }
     return { ...fallback, ...saved };
   } catch {
     return fallback;
@@ -75,6 +86,8 @@ export const RecordList: React.FC<RecordListProps> = ({
   const [pdfMonth, setPdfMonth] = useState(initialState.current.pdfMonth);
   const [exportingPdf, setExportingPdf] = useState(false);
   const [pdfError, setPdfError] = useState('');
+  const [copyMessage, setCopyMessage] = useState('');
+  const [sortRules, setSortRules] = useState<RecordSortRule[]>(initialState.current.sortRules);
 
   const childOptions = useMemo(() => Array.from(new Map<string, string>(
     records.map((record) => [record.childId, record.childName] as const),
@@ -97,12 +110,13 @@ export const RecordList: React.FC<RecordListProps> = ({
 
   useEffect(() => {
     const state: StoredRecordListState = {
+      savedOn: today,
       searchTerm, statusFilter, templateFilter, dateMode, selectedDate, dateFrom, dateTo,
-      filtersOpen, monthlyPdfOpen, pdfChildId, pdfMonth, scrollY: initialState.current.scrollY,
+      filtersOpen, monthlyPdfOpen, pdfChildId, pdfMonth, scrollY: initialState.current.scrollY, sortRules,
     };
     initialState.current = state;
     sessionStorage.setItem(RECORD_LIST_STATE_KEY, JSON.stringify(state));
-  }, [dateFrom, dateMode, dateTo, filtersOpen, monthlyPdfOpen, pdfChildId, pdfMonth, searchTerm, selectedDate, statusFilter, templateFilter]);
+  }, [dateFrom, dateMode, dateTo, filtersOpen, monthlyPdfOpen, pdfChildId, pdfMonth, searchTerm, selectedDate, sortRules, statusFilter, templateFilter, today]);
 
   useEffect(() => {
     const targetScroll = initialState.current.scrollY;
@@ -153,6 +167,48 @@ export const RecordList: React.FC<RecordListProps> = ({
 
     return matchesSearch && matchesStatus && matchesTemplate && matchesDate;
   });
+  const summaryText = (record: SupportRecord) => record.sectionAnswers?.study?.detailText
+    || record.sectionAnswers?.life?.detailText
+    || record.synthesizedSummary
+    || '';
+  const sortValue = (record: SupportRecord, field: RecordSortField) => {
+    if (field === 'date') return record.date;
+    if (field === 'child') return record.childName;
+    if (field === 'attendance') return `${record.attendance} ${record.expressions?.join('、') || ''}`;
+    if (field === 'summary') return summaryText(record);
+    if (field === 'recorder') return record.recorderName;
+    return record.approvalStatus;
+  };
+  const displayedRecords = useMemo(() => [...filteredRecords].sort((left, right) => {
+    for (const rule of sortRules) {
+      const result = sortValue(left, rule.field).localeCompare(sortValue(right, rule.field), 'ja', { numeric: true });
+      if (result !== 0) return rule.direction === 'asc' ? result : -result;
+    }
+    return left.id.localeCompare(right.id);
+  }), [filteredRecords, sortRules]);
+  const toggleSort = (field: RecordSortField) => setSortRules((current) => {
+    const existing = current.find((rule) => rule.field === field);
+    if (!existing) return [...current, { field, direction: 'asc' }];
+    return current.map((rule) => rule.field === field
+      ? { ...rule, direction: rule.direction === 'asc' ? 'desc' : 'asc' }
+      : rule);
+  });
+  const sortLabel = (field: RecordSortField, direction: 'asc' | 'desc') => {
+    if (field === 'date') return direction === 'asc' ? '古い日→新しい日' : '新しい日→古い日';
+    if (field === 'child' || field === 'recorder') return direction === 'asc' ? 'あ→ん' : 'ん→あ';
+    if (field === 'status') return direction === 'asc' ? '未確認から' : '確認済みから';
+    return direction === 'asc' ? '文字順（先頭から）' : '文字順（末尾から）';
+  };
+  const copyDisplayedRecords = async () => {
+    const text = displayedRecords.map((record) => [
+      `${record.date}　${record.childName}`,
+      `記録者：${record.recorderName}`,
+      `出欠：${record.attendance}`,
+      summaryText(record) || record.synthesizedSummary || '記録内容あり',
+    ].join('\n')).join('\n\n----------------\n\n');
+    await navigator.clipboard.writeText(text);
+    setCopyMessage(`${displayedRecords.length}件をコピーしました。`);
+  };
 
   const unapprovedCount = records.filter((r) => r.approvalStatus === '未確認').length;
   const activeFilterCount = [
@@ -192,6 +248,14 @@ export const RecordList: React.FC<RecordListProps> = ({
         <div className="grid w-full grid-cols-2 gap-2 md:flex md:w-auto">
           <button
             type="button"
+            disabled={displayedRecords.length === 0}
+            onClick={() => void copyDisplayedRecords()}
+            className="flex min-h-11 items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-4 text-xs font-black text-indigo-800 disabled:opacity-40"
+          >
+            <Copy className="h-4 w-4" />期間分を一括コピー
+          </button>
+          <button
+            type="button"
             disabled={filteredRecords.length === 0}
             onClick={() => downloadRecordsCsv(filteredRecords)}
             className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-xs font-bold text-slate-700 disabled:opacity-40 md:flex-none"
@@ -214,6 +278,19 @@ export const RecordList: React.FC<RecordListProps> = ({
           </button>
         </div>
       </div>
+      {copyMessage && <p role="status" className="rounded-xl bg-emerald-50 px-3 py-2 text-xs font-bold text-emerald-800">{copyMessage}</p>}
+
+      <section className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm" aria-label="並べ替え優先順">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[10px] font-black text-slate-500">並べ替え優先順</span>
+          {sortRules.map((rule, index) => (
+            <span key={rule.field} className="inline-flex min-h-8 items-center rounded-lg bg-slate-100 px-2 text-[10px] font-black text-slate-700">
+              {index + 1}. {sortLabel(rule.field, rule.direction)}
+            </span>
+          ))}
+          {sortRules.length > 1 && <button type="button" onClick={() => setSortRules([{ field: 'date', direction: 'desc' }])} className="min-h-8 rounded-lg px-2 text-[10px] font-black text-rose-700">優先順をリセット</button>}
+        </div>
+      </section>
 
       {monthlyPdfOpen && (
         <section className="ui-panel-enter rounded-2xl border border-teal-200 bg-white p-4 shadow-sm" aria-label="児童1か月分のPDF出力">
@@ -335,7 +412,7 @@ export const RecordList: React.FC<RecordListProps> = ({
       ) : (
         <div className="bg-white rounded-xl shadow-xs border border-slate-200 overflow-hidden">
           <div className="divide-y divide-slate-100 lg:hidden">
-            {filteredRecords.map((record) => {
+            {displayedRecords.map((record) => {
               const life = record.sectionAnswers?.life;
               const study = record.sectionAnswers?.study;
               const summary = study?.detailText || life?.detailText || record.synthesizedSummary || '記録内容あり';
@@ -380,17 +457,17 @@ export const RecordList: React.FC<RecordListProps> = ({
             <table className="w-full text-left text-xs border-collapse">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold">
-                  <th className="p-3 w-28">日付</th>
-                  <th className="p-3 w-32">児童名</th>
-                  <th className="p-3 w-24">出欠・表情</th>
-                  <th className="p-3">学習・生活要約</th>
-                  <th className="p-3 w-28">記録者</th>
-                  <th className="p-3 w-28 text-center">児発管確認</th>
+                  <SortableHeader field="date" label="日付" className="w-28" rules={sortRules} onClick={toggleSort} directionLabel={sortLabel} />
+                  <SortableHeader field="child" label="児童名" className="w-32" rules={sortRules} onClick={toggleSort} directionLabel={sortLabel} />
+                  <SortableHeader field="attendance" label="出欠・表情" className="w-24" rules={sortRules} onClick={toggleSort} directionLabel={sortLabel} />
+                  <SortableHeader field="summary" label="学習・生活要約" rules={sortRules} onClick={toggleSort} directionLabel={sortLabel} />
+                  <SortableHeader field="recorder" label="記録者" className="w-28" rules={sortRules} onClick={toggleSort} directionLabel={sortLabel} />
+                  <SortableHeader field="status" label="児発管確認" className="w-28 text-center" rules={sortRules} onClick={toggleSort} directionLabel={sortLabel} />
                   <th className="p-3 w-40 text-right">操作</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {filteredRecords.map((r) => {
+                {displayedRecords.map((r) => {
                   const life = r.sectionAnswers?.['life'];
                   const study = r.sectionAnswers?.['study'];
 
@@ -504,3 +581,23 @@ export const RecordList: React.FC<RecordListProps> = ({
     </div>
   );
 };
+
+function SortableHeader({ field, label, className = '', rules, onClick, directionLabel }: {
+  field: RecordSortField;
+  label: string;
+  className?: string;
+  rules: RecordSortRule[];
+  onClick: (field: RecordSortField) => void;
+  directionLabel: (field: RecordSortField, direction: 'asc' | 'desc') => string;
+}) {
+  const index = rules.findIndex((rule) => rule.field === field);
+  const rule = rules[index];
+  return (
+    <th className={`p-1.5 ${className}`}>
+      <button type="button" onClick={() => onClick(field)} className="min-h-10 w-full rounded-lg px-1.5 text-left hover:bg-teal-50 hover:text-teal-900" title="選択順が並べ替えの優先順になります">
+        <span className="block">{label}{index >= 0 ? ` ${index + 1}` : ''}</span>
+        <span className="block text-[8px] font-black text-teal-700">{rule ? directionLabel(field, rule.direction) : '選択して並べ替え'}</span>
+      </button>
+    </th>
+  );
+}

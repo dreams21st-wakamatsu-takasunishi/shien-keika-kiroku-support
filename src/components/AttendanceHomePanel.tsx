@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { CalendarClock, Check, ChevronDown, ChevronLeft, ChevronRight, Clock3, Save, Send, Settings2, UsersRound, X } from 'lucide-react';
+import { CalendarClock, ChevronLeft, ChevronRight, Clock3, Save, Send, Settings2, UsersRound, X } from 'lucide-react';
 import type {
   AttendanceCorrectionRequest, AttendanceRecord, CalendarEvent, ChildProfile,
   DailyChildPlan, DailyTransportRequirement, RecorderProfile, StaffShiftRequest,
@@ -32,7 +32,7 @@ interface AttendanceHomePanelProps {
   onSaveShiftRequest: (request: StaffShiftRequest) => Promise<void> | void;
   onSaveShiftRequestDefaults: (recorderProfileId: string, startTime: string, endTime: string) => Promise<void> | void;
   onReviewShiftRequest: (request: StaffShiftRequest, approved: boolean, note?: string) => Promise<void> | void;
-  onPunch: (recorder: RecorderProfile, pin: string, action: '出勤' | '退勤' | '休憩開始' | '休憩終了') => Promise<void> | void;
+  onPunch: (recorder: RecorderProfile, pin: string, action: '出勤' | '退勤') => Promise<void> | void;
   onRequestCorrection: (record: AttendanceRecord, pin: string, clockIn: string | undefined, clockOut: string | undefined, reason: string) => Promise<void> | void;
   onReviewCorrection: (request: AttendanceCorrectionRequest, approved: boolean, note?: string) => Promise<void> | void;
 }
@@ -51,7 +51,6 @@ export const AttendanceHomePanel: React.FC<AttendanceHomePanelProps> = ({
   const [selectedDate, setSelectedDate] = useState(today);
   const [requestMonth, setRequestMonth] = useState(today.slice(0, 7));
   const [requestDrafts, setRequestDrafts] = useState<RequestDraft[]>([]);
-  const [pendingRequestsOpen, setPendingRequestsOpen] = useState(false);
   const [defaultStart, setDefaultStart] = useState(activeRecorder?.shiftRequestDefaultStartTime || activeRecorder?.partTimeWeekdayStartTime || '09:00');
   const [defaultEnd, setDefaultEnd] = useState(activeRecorder?.shiftRequestDefaultEndTime || activeRecorder?.partTimeWeekdayEndTime || '18:00');
   const [message, setMessage] = useState('');
@@ -64,14 +63,15 @@ export const AttendanceHomePanel: React.FC<AttendanceHomePanelProps> = ({
   }, [activeRecorder?.id, activeRecorder?.partTimeWeekdayEndTime, activeRecorder?.partTimeWeekdayStartTime, activeRecorder?.shiftRequestDefaultEndTime, activeRecorder?.shiftRequestDefaultStartTime]);
 
   const ownSchedule = useMemo(() => records
-    .filter((record) => record.recorderProfileId === activeRecorder?.id && record.date >= today)
-    .sort((left, right) => left.date.localeCompare(right.date)).slice(0, 14), [activeRecorder?.id, records, today]);
-  const ownRequests = useMemo(() => shiftRequests.filter((request) => request.recorderProfileId === activeRecorder?.id)
-    .sort((left, right) => right.requestedDate.localeCompare(left.requestedDate)).slice(0, 12), [activeRecorder?.id, shiftRequests]);
+    .filter((record) => record.recorderProfileId === activeRecorder?.id && record.date.startsWith(requestMonth)), [activeRecorder?.id, records, requestMonth]);
+  const ownRequests = useMemo(() => shiftRequests.filter((request) => request.recorderProfileId === activeRecorder?.id && request.requestedDate.startsWith(requestMonth)), [activeRecorder?.id, requestMonth, shiftRequests]);
+  const ownLeaveEvents = useMemo(() => calendarEvents.filter((event) => event.eventType === '職員休み'
+    && Boolean(activeRecorder?.id && event.recorderProfileIds.includes(activeRecorder.id))
+    && event.date <= `${requestMonth}-31`
+    && (event.endDate || event.date) >= `${requestMonth}-01`), [activeRecorder?.id, calendarEvents, requestMonth]);
   const pendingRequests = useMemo(() => shiftRequests
     .filter((request) => request.status === '申請中')
     .sort((left, right) => left.requestedDate.localeCompare(right.requestedDate) || left.recorderName.localeCompare(right.recorderName, 'ja')), [shiftRequests]);
-  const pendingRequestStaffCount = useMemo(() => new Set(pendingRequests.map((request) => request.recorderProfileId)).size, [pendingRequests]);
   const isPartTime = activeRecorder?.employmentType === 'part_time';
   const requestDates = useMemo(() => getMonthDates(requestMonth), [requestMonth]);
   const firstWeekday = new Date(`${requestMonth}-01T12:00:00`).getDay();
@@ -136,9 +136,10 @@ export const AttendanceHomePanel: React.FC<AttendanceHomePanelProps> = ({
     {message && <p className="rounded-xl bg-slate-100 px-3 py-2 text-xs font-bold text-slate-700">{message}</p>}
 
     {activeTab === 'overview' && <section className="rounded-2xl border border-teal-200 bg-white p-4 shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-[10px] font-black text-teal-700">出勤予定</p><h2 className="mt-1 flex items-center gap-2 text-lg font-black text-slate-950"><CalendarClock className="h-5 w-5 text-teal-600" />自分の予定</h2><p className="mt-1 text-xs text-slate-500">直近の勤務予定とシフト希望の状態を確認します。</p></div><input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} className="min-h-11 rounded-xl border border-slate-300 px-3 text-sm" /></div>
-      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">{ownSchedule.map((record) => <button key={record.id} type="button" onClick={() => setSelectedDate(record.date)} className={`rounded-xl border p-3 text-left ${record.date === selectedDate ? 'border-teal-500 bg-teal-50' : 'border-slate-200 bg-slate-50'}`}><span className="block text-xs font-black text-slate-900">{record.date}</span><span className="mt-1 block text-sm font-bold text-slate-700">{record.status}　{record.scheduledStartTime || '－'}〜{record.scheduledEndTime || '－'}</span></button>)}{ownSchedule.length === 0 && <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-500">今後の出勤予定は未登録です。</p>}</div>
-      {ownRequests.length > 0 && <div className="mt-4 border-t border-slate-100 pt-3"><p className="text-xs font-black text-slate-700">提出した希望</p><div className="mt-2 flex flex-wrap gap-2">{ownRequests.map((request) => <span key={request.id} className="rounded-lg bg-violet-50 px-2.5 py-1.5 text-[11px] font-bold text-violet-800">{request.requestedDate} {request.requestedStartTime}〜{request.requestedEndTime}・{request.status}</span>)}</div></div>}
+      <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-[10px] font-black text-teal-700">出勤予定</p><h2 className="mt-1 flex items-center gap-2 text-lg font-black text-slate-950"><CalendarClock className="h-5 w-5 text-teal-600" />自分の予定</h2><p className="mt-1 text-xs text-slate-500">勤務予定と提出したシフト希望を、同じ月間カレンダーで確認します。</p></div><div className="flex items-center gap-2"><button type="button" onClick={() => setRequestMonth(moveMonth(requestMonth, -1))} className="grid h-9 w-9 place-items-center rounded-lg border"><ChevronLeft className="h-4 w-4" /></button><strong className="min-w-24 text-center text-sm">{requestMonth.replace('-', '年')}月</strong><button type="button" onClick={() => setRequestMonth(moveMonth(requestMonth, 1))} className="grid h-9 w-9 place-items-center rounded-lg border"><ChevronRight className="h-4 w-4" /></button></div></div>
+      <div className="mt-4 grid grid-cols-7 gap-1 text-center text-[10px] font-black text-slate-400">{WEEKDAYS.map((day) => <span key={day}>{day}</span>)}</div>
+      <div className="mt-1 grid grid-cols-7 gap-1">{Array.from({ length: firstWeekday }, (_, index) => <span key={`own-blank-${index}`} />)}{requestDates.map((date) => { const record = ownSchedule.find((item) => item.date === date); const request = ownRequests.find((item) => item.requestedDate === date); const leave = ownLeaveEvents.find((event) => event.date <= date && (event.endDate || event.date) >= date); return <button key={date} type="button" onClick={() => setSelectedDate(date)} className={`min-h-16 rounded-lg border p-1 text-left ${date === selectedDate ? 'ring-2 ring-teal-500' : ''} ${leave ? 'border-rose-300 bg-rose-50 text-rose-950' : record ? 'border-emerald-200 bg-emerald-50' : request ? shiftRequestTone(request.status) : 'border-slate-100 bg-white'}`}><span className="block text-[10px] font-black">{Number(date.slice(8))}</span>{leave ? <span className="mt-0.5 block text-[9px] font-black">休み<br /><span className="text-[8px]">{leave.title}</span></span> : record ? <span className="mt-0.5 block text-[9px] font-black text-emerald-900">{record.scheduledStartTime || '－'}〜{record.scheduledEndTime || '－'}</span> : null}{request && <span className="mt-0.5 block text-[8px] font-black">希望 {request.requestedStartTime || '－'}〜{request.requestedEndTime || '－'}<br />{request.status}</span>}</button>; })}</div>
+      <div className="mt-3 flex flex-wrap gap-2 text-[9px] font-black"><span className="rounded-full bg-violet-100 px-2 py-1 text-violet-800">申請中</span><span className="rounded-full bg-emerald-100 px-2 py-1 text-emerald-800">承認済み／勤務予定</span><span className="rounded-full bg-rose-100 px-2 py-1 text-rose-800">休み／却下</span></div>
     </section>}
 
     {activeTab === 'request' && isPartTime && <section className="rounded-2xl border border-violet-200 bg-white p-4 shadow-sm">
@@ -150,14 +151,7 @@ export const AttendanceHomePanel: React.FC<AttendanceHomePanelProps> = ({
     </section>}
 
     {activeTab === 'planning' && canManageShifts && <div className="space-y-4">
-      {pendingRequests.length > 0 && <section className="overflow-hidden rounded-2xl border border-amber-200 bg-amber-50">
-        <button type="button" aria-expanded={pendingRequestsOpen} onClick={() => setPendingRequestsOpen((open) => !open)} className="flex min-h-14 w-full items-center justify-between gap-3 px-4 py-2.5 text-left">
-          <span className="min-w-0"><strong className="block text-sm text-amber-950">シフト希望　{pendingRequests.length}件</strong><span className="mt-0.5 block text-[10px] font-bold text-amber-800">{pendingRequestStaffCount}名分・月間表と日別ガントにも紫色で表示</span></span>
-          <span className="flex shrink-0 items-center gap-1 rounded-lg bg-white px-3 py-2 text-[10px] font-black text-amber-900 shadow-sm">{pendingRequestsOpen ? '一覧を閉じる' : '希望を確認'}<ChevronDown className={`h-4 w-4 transition-transform ${pendingRequestsOpen ? 'rotate-180' : ''}`} /></span>
-        </button>
-        {pendingRequestsOpen && <div className="max-h-[360px] overflow-y-auto border-t border-amber-200 p-2 sm:p-3"><div className="grid gap-1.5 xl:grid-cols-2 2xl:grid-cols-3">{pendingRequests.map((request) => <div key={request.id} className="flex min-w-0 items-center gap-2 rounded-lg bg-white p-2"><span className="min-w-0 flex-1"><strong className="block truncate text-xs">{request.recorderName}</strong><span className="block truncate text-[10px] text-slate-600">{request.requestedDate}　{request.requestedStartTime}〜{request.requestedEndTime}{request.note ? `／${request.note}` : ''}</span></span><div className="flex shrink-0 gap-1"><button type="button" onClick={() => void onReviewShiftRequest(request, true)} aria-label={`${request.recorderName}さんの${request.requestedDate}を承認`} className="grid h-8 w-8 place-items-center rounded-lg bg-teal-600 text-white"><Check className="h-4 w-4" /></button><button type="button" onClick={() => void onReviewShiftRequest(request, false)} aria-label={`${request.recorderName}さんの${request.requestedDate}を却下`} className="grid h-8 w-8 place-items-center rounded-lg border border-rose-300 text-rose-700"><X className="h-4 w-4" /></button></div></div>)}</div></div>}
-      </section>}
-      <StaffShiftManager templates={shiftTemplates} records={records} shiftRequests={shiftRequests} recorderProfiles={recorderProfiles} selectedDate={selectedDate} calendarEvents={calendarEvents} childrenList={childrenList} dailyChildPlans={dailyChildPlans} dailyTransportRequirements={dailyTransportRequirements} transportRuns={transportRuns} onSaveRecords={onSaveRecords} />
+      <StaffShiftManager templates={shiftTemplates} records={records} shiftRequests={shiftRequests} recorderProfiles={recorderProfiles} selectedDate={selectedDate} calendarEvents={calendarEvents} childrenList={childrenList} dailyChildPlans={dailyChildPlans} dailyTransportRequirements={dailyTransportRequirements} transportRuns={transportRuns} onSaveRecords={onSaveRecords} onReviewShiftRequest={onReviewShiftRequest} />
     </div>}
 
     {activeTab === 'attendance' && <section className="rounded-2xl border border-slate-200 bg-slate-50 p-3"><h3 className="mb-3 flex items-center gap-2 font-black text-slate-900"><Clock3 className="h-5 w-5 text-teal-600" />出退勤・勤務実績</h3><AttendancePanel records={records} shiftTemplates={shiftTemplates} corrections={corrections} recorderProfiles={recorderProfiles} selectedDate={selectedDate} activeRecorder={activeRecorder} canManage={canManageShifts} canApproveCorrections={canApproveCorrections} canManageShifts={canManageShifts} qrKioskEnabled={qrKioskEnabled} showShiftManager={false} onSaveRecord={onSaveRecord} onSaveRecords={onSaveRecords} onPunch={onPunch} onRequestCorrection={onRequestCorrection} onReviewCorrection={onReviewCorrection} /></section>}
@@ -173,4 +167,10 @@ function moveMonth(month: string, amount: number) {
   const [year, monthNumber] = month.split('-').map(Number);
   const date = new Date(year, monthNumber - 1 + amount, 1);
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function shiftRequestTone(status: StaffShiftRequest['status']) {
+  if (status === '承認') return 'border-emerald-200 bg-emerald-50 text-emerald-900';
+  if (status === '却下') return 'border-rose-200 bg-rose-50 text-rose-800';
+  return 'border-violet-200 bg-violet-50 text-violet-900';
 }

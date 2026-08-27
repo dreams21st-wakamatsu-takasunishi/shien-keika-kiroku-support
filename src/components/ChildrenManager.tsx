@@ -46,6 +46,7 @@ interface ChildrenManagerProps {
 }
 
 type ViewMode = 'grid' | 'list';
+type GroupMode = 'grade' | 'school' | 'area';
 type ControlPanel = 'search' | null;
 type SortField = 'kana' | 'birthDate' | 'regularDays' | 'careType';
 type SortDirection = 'asc' | 'desc';
@@ -59,6 +60,7 @@ interface SortRule {
 
 interface RosterPreferences {
   viewMode: ViewMode;
+  groupMode: GroupMode;
   sortRules: SortRule[];
 }
 
@@ -120,7 +122,7 @@ const isSortField = (value: unknown): value is SortField =>
   typeof value === 'string' && SORT_FIELD_OPTIONS.some((option) => option.value === value);
 
 const loadRosterPreferences = (): RosterPreferences => {
-  const fallback: RosterPreferences = { viewMode: 'grid', sortRules: DEFAULT_SORT_RULES };
+  const fallback: RosterPreferences = { viewMode: 'grid', groupMode: 'grade', sortRules: DEFAULT_SORT_RULES };
   try {
     const stored = window.localStorage.getItem(PREFERENCE_STORAGE_KEY);
     if (!stored) return fallback;
@@ -139,6 +141,7 @@ const loadRosterPreferences = (): RosterPreferences => {
       : [];
     return {
       viewMode: parsed.viewMode === 'list' ? 'list' : 'grid',
+      groupMode: parsed.groupMode === 'school' || parsed.groupMode === 'area' ? parsed.groupMode : 'grade',
       sortRules: sortRules.length ? sortRules : DEFAULT_SORT_RULES,
     };
   } catch {
@@ -166,6 +169,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   const [draftWeekdayFilters, setDraftWeekdayFilters] = useState<WeekdayFilter[]>([]);
   const [activePanel, setActivePanel] = useState<ControlPanel>(null);
   const [viewMode, setViewMode] = useState<ViewMode>(savedPreferences.viewMode);
+  const [groupMode, setGroupMode] = useState<GroupMode>(savedPreferences.groupMode);
   const [sortRules, setSortRules] = useState<SortRule[]>(savedPreferences.sortRules);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingChild, setEditingChild] = useState<ChildProfile | null>(null);
@@ -192,11 +196,11 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(PREFERENCE_STORAGE_KEY, JSON.stringify({ viewMode, sortRules }));
+      window.localStorage.setItem(PREFERENCE_STORAGE_KEY, JSON.stringify({ viewMode, groupMode, sortRules }));
     } catch {
       // Storage may be unavailable in strict privacy modes; the roster remains usable for the current session.
     }
-  }, [sortRules, viewMode]);
+  }, [groupMode, sortRules, viewMode]);
 
   const handleOpenAddModal = () => {
     setEditingChild(null);
@@ -472,6 +476,23 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
       return JAPANESE_COLLATOR.compare(left.name, right.name);
     });
   }, [careTypeFilter, childrenList, gradeFilter, searchTerm, sortRules, today, weekdayFilters]);
+
+  const groupedChildren = useMemo(() => {
+    const groups = new Map<string, ChildProfile[]>();
+    filteredAndSortedList.forEach((child) => {
+      const pickupLocation = getCanonicalTransportLocations(child)
+        .find((location) => location.directions.includes('迎え'));
+      const key = groupMode === 'grade'
+        ? getChildGrade(child)
+        : groupMode === 'school'
+          ? schools.find((school) => school.id === child.schoolId)?.name || child.schoolName || '学校未登録'
+          : resolvedTransportArea(pickupLocation?.address, pickupLocation?.area || child.pickupArea) || '地域未設定';
+      groups.set(key, [...(groups.get(key) || []), child]);
+    });
+    return [...groups.entries()].sort(([left], [right]) => groupMode === 'grade'
+      ? getSchoolAgeRank(left) - getSchoolAgeRank(right)
+      : JAPANESE_COLLATOR.compare(left, right));
+  }, [filteredAndSortedList, groupMode, schools]);
 
   const hasActiveFilters =
     Boolean(searchTerm.trim()) ||
@@ -751,6 +772,12 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
           {filteredAndSortedList.length}
           <span className="font-normal text-slate-500"> / {childrenList.length}名を表示</span>
         </p>
+        <div className="flex flex-wrap items-center gap-2">
+        <label className="text-[10px] font-black text-slate-600">グループ
+          <select value={groupMode} onChange={(event) => setGroupMode(event.target.value as GroupMode)} className="ml-2 min-h-9 rounded-lg border border-slate-300 bg-white px-2 text-xs font-black text-slate-800">
+            <option value="grade">学年ごと</option><option value="school">学校ごと</option><option value="area">地域ごと</option>
+          </select>
+        </label>
         <div className="inline-flex rounded-lg border border-slate-300 bg-white p-1 shadow-xs" aria-label="表示形式">
           <button
             type="button"
@@ -774,6 +801,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
             <List className="h-4 w-4" />
             一覧
           </button>
+        </div>
         </div>
       </div>
 
@@ -814,16 +842,16 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
           )}
         </div>
       ) : viewMode === 'grid' ? (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {filteredAndSortedList.map((child) => (
-            <ChildGridCard
-              key={child.id}
-              child={child}
-              today={today}
-              canEdit={canEdit}
-              onEdit={handleOpenEditModal}
-              onDelete={handleDeleteRequest}
-            />
+        <div className="space-y-5">
+          {groupedChildren.map(([group, children]) => (
+            <section key={group}>
+              <div className="mb-2 flex items-center gap-2"><h3 className="text-sm font-black text-slate-900">{group}</h3><span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-black text-slate-600">{children.length}名</span></div>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                {children.map((child) => (
+                  <ChildGridCard key={child.id} child={child} today={today} canEdit={canEdit} onEdit={handleOpenEditModal} onDelete={handleDeleteRequest} />
+                ))}
+              </div>
+            </section>
           ))}
         </div>
       ) : (
@@ -962,6 +990,9 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                 </select>
                 <p className="mt-1 text-[10px] leading-relaxed text-slate-500">
                   平日の基本退所時刻は{transportProgram === '小学部' ? transportRouteSettings.weekdayElementaryDepartureTime : transportRouteSettings.weekdayCareersDepartureTime}、休日は{transportRouteSettings.holidayDepartureTime}です。当日だけの早退・延長は日別予定で変更できます。
+                </p>
+                <p className="mt-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-[10px] font-black leading-relaxed text-sky-900">
+                  基本時刻の変更場所：管理者メニュー → 事業所・記録設定 → 送迎地点・エリア → 共通設定
                 </p>
               </div>
 

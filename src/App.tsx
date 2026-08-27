@@ -57,7 +57,6 @@ import { HomeScreen, type HomeWorkspace } from './components/HomeScreen';
 import type { DraftTakeoverSelection } from './components/DailyOperationsPanel';
 import { AuthScreen } from './components/AuthScreen';
 import { SetPasswordScreen } from './components/SetPasswordScreen';
-import { RecorderSessionGate } from './components/RecorderSessionGate';
 import { PrivacyReauthGate } from './components/PrivacyReauthGate';
 import { PersonalTransportMode } from './components/PersonalTransportMode';
 import { QuickGuide, type QuickGuideContent } from './components/QuickGuide';
@@ -905,12 +904,14 @@ export default function App() {
   }
   if (remoteMode && auth.profile?.role === 'staff' && !activeRecorder) {
     return (
-      <RecorderSessionGate
-        organizationId={auth.profile.organizationId}
-        organizationName={auth.profile.organizationName}
-        recorderProfiles={recorderProfiles}
-        onUnlock={setActiveRecorder}
-      />
+      <div className="flex min-h-screen items-center justify-center bg-slate-100 p-6">
+        <div className="w-full max-w-lg rounded-2xl border border-amber-200 bg-white p-6 shadow-sm">
+          <AlertTriangle className="mb-3 h-7 w-7 text-amber-600" />
+          <h1 className="text-lg font-black text-slate-950">職員名簿との紐づけが必要です</h1>
+          <p className="mt-2 text-sm leading-relaxed text-slate-600">共通指導員アカウントは使用しません。このログイン職員を、管理者メニューの「職員管理」で本人の職員名簿へ紐づけてください。</p>
+          <button type="button" onClick={() => auth.signOut()} className="mt-5 min-h-11 w-full rounded-xl bg-slate-950 font-black text-white">ログアウト</button>
+        </div>
+      </div>
     );
   }
 
@@ -2061,13 +2062,14 @@ export default function App() {
     }
   };
 
-  const handleQuickMemoHandover = async (content: string) => {
+  const handleQuickMemoHandover = async (content: string, childId?: string) => {
     const now = new Date().toISOString();
     await handleSaveHandover({
       id: typeof crypto !== 'undefined' && 'randomUUID' in crypto
         ? crypto.randomUUID()
         : `handover-${Date.now()}`,
       category: '申し送り',
+      childId,
       content,
       priority: '通常',
       status: '未対応',
@@ -2121,9 +2123,15 @@ export default function App() {
         currentUser={auth.profile}
         activeRecorder={activeRecorder}
         onSaveMenuPreferences={handleSaveRecorderMenuPreferences}
-        onChangeRecorder={auth.profile?.recorderProfileId ? undefined : () => setActiveRecorder(null)}
+        onOpenHomeWorkspace={(workspace) => {
+          setHomeWorkspace(workspace);
+          setActiveTab('home');
+        }}
         onOpenFieldOperations={auth.profile?.recorderProfileId ? () => setFieldOperationsOpen(true) : undefined}
-        onSignOut={remoteMode ? auth.signOut : undefined}
+        onSignOut={remoteMode ? async () => {
+          sessionStorage.removeItem('support-record-list-view-v1');
+          await auth.signOut();
+        } : undefined}
         canOpenSettings={canManageRecordSettings || canManageChildren || canManageTransport || auth.profile?.role === 'admin'}
         canOpenTeam={!remoteMode || auth.profile?.role === 'admin'}
       />

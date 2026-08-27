@@ -406,7 +406,21 @@ export interface StaffShiftRequest {
   updatedAt: string;
 }
 
-export type RecorderMenuItemId = 'home' | 'form' | 'records' | 'children' | 'templates' | 'team';
+export type RecorderMenuItemId =
+  | 'home'
+  | 'dailyChanges'
+  | 'todayWork'
+  | 'attendance'
+  | 'calendar'
+  | 'monthlySchedule'
+  | 'operations'
+  | 'communication'
+  | 'assistant'
+  | 'form'
+  | 'records'
+  | 'children'
+  | 'templates'
+  | 'team';
 
 export interface RecorderMenuPreferences {
   order: RecorderMenuItemId[];
@@ -447,6 +461,7 @@ export type CalendarEventType =
   | '追加利用'
   | '欠席'
   | '勤務予定'
+  | '職員休み'
   | '会議'
   | '外出'
   | '朝礼'

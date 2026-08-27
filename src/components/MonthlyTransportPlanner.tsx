@@ -19,6 +19,7 @@ import {
   Search,
   Trash2,
   UserPlus,
+  UserX,
   X,
 } from 'lucide-react';
 import type {
@@ -424,6 +425,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [attendanceSavingChildId, setAttendanceSavingChildId] = useState<string>();
   const [additionalPickerOpen, setAdditionalPickerOpen] = useState(false);
+  const [absencePickerOpen, setAbsencePickerOpen] = useState(false);
   const [additionalSearch, setAdditionalSearch] = useState('');
   const [monthChildId, setMonthChildId] = useState('');
   const [calendarViewMode, setCalendarViewMode] = useState<CalendarViewMode>('all');
@@ -1326,7 +1328,8 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
             <div className="flex flex-wrap gap-2">
               <span className="inline-flex min-h-10 items-center rounded-xl bg-white px-3 text-[10px] font-black text-slate-700 shadow-sm">{selectedDate}・{displayedServiceChildren.length}名</span>
               <button type="button" disabled={selectedServiceChildren.length === 0} onClick={() => window.print()} className="flex min-h-10 items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-xs font-black text-slate-700 disabled:opacity-40"><Printer className="h-4 w-4" />日別表を印刷</button>
-              {canManage && <button type="button" onClick={() => setAdditionalPickerOpen(true)} className="flex min-h-10 items-center gap-2 rounded-xl bg-teal-700 px-3 text-xs font-black text-white"><UserPlus className="h-4 w-4" />児童を追加</button>}
+              {canManage && <button type="button" onClick={() => setAdditionalPickerOpen(true)} className="flex min-h-10 min-w-32 items-center justify-center gap-2 rounded-xl bg-teal-700 px-3 text-xs font-black text-white"><UserPlus className="h-4 w-4" />児童を追加</button>}
+              {canManage && <button type="button" onClick={() => setAbsencePickerOpen((current) => !current)} className="flex min-h-10 min-w-32 items-center justify-center gap-2 rounded-xl border border-rose-300 bg-white px-3 text-xs font-black text-rose-800"><UserX className="h-4 w-4" />欠席設定{selectedAbsentPlans.length > 0 ? ` ${selectedAbsentPlans.length}` : ''}</button>}
             </div>
           </header>
 
@@ -1399,16 +1402,12 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
           )}
         </section>
 
-        <details className="group mt-3 overflow-hidden rounded-xl border border-rose-200 bg-rose-50">
-          <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-3 py-2 marker:hidden">
-            <span className="min-w-0 flex-1">
-              <span className="block text-xs font-black text-rose-950">欠席設定</span>
-              <span className="block truncate text-[9px] font-bold text-rose-700">開いて欠席する児童をチェック</span>
-            </span>
-            <span className="rounded-full bg-white px-2.5 py-1 text-[10px] font-black text-rose-800">欠席 {selectedAbsentPlans.length}名</span>
-            <ChevronDown className="h-4 w-4 shrink-0 text-rose-700 transition-transform group-open:rotate-180" />
-          </summary>
-          <div className="border-t border-rose-200 p-2.5">
+        {absencePickerOpen && <section className="ui-panel-enter mt-3 overflow-hidden rounded-xl border border-rose-200 bg-rose-50">
+          <div className="flex items-center justify-between gap-2 border-b border-rose-200 px-3 py-2">
+            <div><p className="text-xs font-black text-rose-950">欠席設定</p><p className="text-[9px] font-bold text-rose-700">欠席する児童をチェックします</p></div>
+            <button type="button" onClick={() => setAbsencePickerOpen(false)} className="min-h-9 rounded-lg bg-white px-3 text-[10px] font-black text-rose-800">閉じる</button>
+          </div>
+          <div className="p-2.5">
             <p className="mb-2 text-[10px] font-bold text-rose-800">欠席する児童にチェックを入れます。チェックを外すと利用予定へ戻ります。</p>
             {attendanceChildren.length === 0 ? (
               <p className="rounded-lg bg-white p-2 text-center text-xs font-bold text-slate-500">この日の利用予定児童はいません。</p>
@@ -1436,7 +1435,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
               </div>
             )}
           </div>
-        </details>
+        </section>}
 
         {canManage && (selectedRequirements.length > 0 || drafts.length > 0) && <div className="mt-4 flex flex-wrap items-center justify-end gap-2 border-t border-slate-100 pt-3"><button type="button" onClick={() => prepareSelectedDate(true)} className="min-h-10 rounded-xl border border-slate-300 px-3 text-xs font-black text-slate-600">基本情報を再反映</button><button type="button" disabled={saving} onClick={() => void saveSelected(false)} className="flex min-h-10 items-center gap-2 rounded-xl border border-teal-300 bg-white px-4 text-xs font-black text-teal-800"><Save className="h-4 w-4" />下書き保存</button><button type="button" disabled={saving} onClick={() => void saveSelected(true)} className="flex min-h-10 items-center gap-2 rounded-xl bg-slate-900 px-4 text-xs font-black text-white">{saving ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}送迎条件を確定</button>{dayDraft.status !== 'draft' && <button type="button" disabled={saving} onClick={() => onOpenDispatch(selectedDate)} className="flex min-h-10 items-center gap-2 rounded-xl bg-teal-600 px-4 text-xs font-black text-white"><BusFront className="h-4 w-4" />この日の配車画面を開く</button>}</div>}
         {message && <p className="mt-3 rounded-xl bg-emerald-50 p-3 text-xs font-bold text-emerald-800">{message}</p>}
