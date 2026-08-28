@@ -39,6 +39,7 @@ import {
   TransportFieldAction,
   TransportFieldDashboard,
   TransportFieldRun,
+  TransportOperationEvent,
   TransportRouteOptimizationRequest,
   TransportRouteOptimizationResult,
   TransportRouteSettings,
@@ -1642,11 +1643,20 @@ export async function loadPersonalTransportDashboard(serviceDate: string): Promi
   const resolvedDashboard = dashboard || {
     serviceDate,
     recorderProfileId: '',
+    sameLocationTimeWindowMinutes: 15,
     myRuns: [],
     allRuns: [],
   };
+  const { data: routeSettingsRow } = await assertSupabase()
+    .from('transport_route_settings')
+    .select('same_location_time_window_minutes')
+    .maybeSingle();
+  const dashboardWithSettings = {
+    ...resolvedDashboard,
+    sameLocationTimeWindowMinutes: Number(routeSettingsRow?.same_location_time_window_minutes || resolvedDashboard.sameLocationTimeWindowMinutes || 15),
+  };
   const childIds = Array.from(new Set(resolvedDashboard.allRuns.flatMap((run) => run.stops.map((stop) => stop.childId).filter((id): id is string => Boolean(id)))));
-  if (childIds.length === 0) return resolvedDashboard;
+  if (childIds.length === 0) return dashboardWithSettings;
   const { data: childRows } = await assertSupabase()
     .from('children')
     .select('id,transport_permanent_note')
@@ -1660,7 +1670,7 @@ export async function loadPersonalTransportDashboard(serviceDate: string): Promi
     })),
   }));
   return {
-    ...resolvedDashboard,
+    ...dashboardWithSettings,
     myRuns: enrichRuns(resolvedDashboard.myRuns),
     allRuns: enrichRuns(resolvedDashboard.allRuns),
   };
@@ -1705,6 +1715,48 @@ export async function setTransportCover(runId: string, active: boolean) {
     p_device_token: getAccessDeviceToken(),
   });
   if (error) throw error;
+}
+
+export async function loadTransportOperationEvents(runIds: string[]): Promise<TransportOperationEvent[]> {
+  if (runIds.length === 0) return [];
+  const { data, error } = await assertSupabase()
+    .from('transport_stop_events')
+    .select('id,transport_run_id,stop_id,child_id,event_type,event_at,recorder_profile_id,note,cancelled_at')
+    .in('transport_run_id', runIds)
+    .is('cancelled_at', null)
+    .order('event_at', { ascending: true });
+  if (error) throw error;
+  return (data || []).map((row: any) => ({
+    id: row.id,
+    transportRunId: row.transport_run_id,
+    stopId: row.stop_id || undefined,
+    childId: row.child_id || undefined,
+    eventType: row.event_type,
+    eventAt: row.event_at,
+    recorderProfileId: row.recorder_profile_id,
+    note: row.note || undefined,
+    cancelledAt: row.cancelled_at || undefined,
+  }));
+}
+
+export async function saveTransportOperationEvent(input: {
+  eventId?: string;
+  runId: string;
+  stopId?: string;
+  eventType: TransportFieldAction;
+  eventAt: string;
+  note?: string;
+}) {
+  const { data, error } = await assertSupabase().rpc('set_transport_operation_event', {
+    p_event_id: input.eventId || null,
+    p_transport_run_id: input.runId,
+    p_stop_id: input.stopId || null,
+    p_event_type: input.eventType,
+    p_event_at: input.eventAt,
+    p_note: input.note?.trim() || null,
+  });
+  if (error) throw error;
+  return String(data || '');
 }
 
 export async function saveTransportRouteSettings(

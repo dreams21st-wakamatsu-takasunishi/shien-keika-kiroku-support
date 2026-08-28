@@ -89,6 +89,57 @@ function buildStopMapUrl(stop: TransportFieldStop) {
   return `https://www.google.com/maps/dir/?${new URLSearchParams({ api: '1', destination, travelmode: 'driving' }).toString()}`;
 }
 
+interface TransportStopGroup {
+  id: string;
+  stops: TransportFieldStop[];
+  groupedSchool: boolean;
+}
+
+const minutesFromTime = (value?: string) => {
+  if (!value || !/^\d{1,2}:\d{2}/.test(value)) return undefined;
+  const [hour, minute] = value.split(':').map(Number);
+  return hour * 60 + minute;
+};
+
+const normalizeStopText = (value?: string) => (value || '').replace(/[\s　\-－]/g, '').toLowerCase();
+
+function groupFieldStops(run: TransportFieldRun, timeWindowMinutes: number): TransportStopGroup[] {
+  const groups: TransportStopGroup[] = [];
+  run.stops.forEach((stop) => {
+    const previous = groups.at(-1);
+    const previousStop = previous?.stops[0];
+    const stopMinutes = minutesFromTime(stop.plannedTime);
+    const previousMinutes = minutesFromTime(previousStop?.plannedTime);
+    const sameSchool = run.direction === '迎え'
+      && stop.locationType === '学校'
+      && previousStop?.locationType === '学校'
+      && Boolean(
+        (stop.locationProfileId && stop.locationProfileId === previousStop.locationProfileId)
+        || (
+          normalizeStopText(stop.locationName) === normalizeStopText(previousStop.locationName)
+          && normalizeStopText(stop.navigationLocation || stop.location) === normalizeStopText(previousStop.navigationLocation || previousStop.location)
+        ),
+      )
+      && stopMinutes !== undefined
+      && previousMinutes !== undefined
+      && Math.abs(stopMinutes - previousMinutes) <= timeWindowMinutes;
+    if (sameSchool && previous) {
+      previous.stops.push(stop);
+      previous.groupedSchool = true;
+      previous.id = previous.stops.map((item) => item.id).join(':');
+      return;
+    }
+    groups.push({ id: stop.id, stops: [stop], groupedSchool: false });
+  });
+  return groups;
+}
+
+function groupPlannedTime(group: TransportStopGroup) {
+  const times = Array.from(new Set(group.stops.map((stop) => stop.plannedTime).filter(Boolean))).sort();
+  if (times.length === 0) return '—';
+  return times.length === 1 ? times[0] : `${times[0]}〜${times.at(-1)}`;
+}
+
 export const PersonalTransportMode: React.FC<PersonalTransportModeProps> = ({ currentUser, onSignOut, onExit }) => {
   const [serviceDate, setServiceDate] = useState(getLocalDateString());
   const [view, setView] = useState<'mine' | 'all'>('mine');
@@ -97,7 +148,7 @@ export const PersonalTransportMode: React.FC<PersonalTransportModeProps> = ({ cu
   const [busyKey, setBusyKey] = useState('');
   const [message, setMessage] = useState('');
   const [toast, setToast] = useState('');
-  const [lastEvent, setLastEvent] = useState<{ id: string; label: string } | null>(null);
+  const [lastEvent, setLastEvent] = useState<{ ids: string[]; label: string } | null>(null);
   const [online, setOnline] = useState(navigator.onLine);
   const [selectedRunId, setSelectedRunId] = useState<string>();
   const [highlightedRunId, setHighlightedRunId] = useState<string>();
@@ -189,6 +240,7 @@ export const PersonalTransportMode: React.FC<PersonalTransportModeProps> = ({ cu
   }, [lastEvent]);
 
   const runs = view === 'mine' ? dashboard?.myRuns || [] : dashboard?.allRuns || [];
+  const sameLocationTimeWindowMinutes = dashboard?.sameLocationTimeWindowMinutes || 15;
   const activeRunId = runs.some((run) => run.id === selectedRunId) ? selectedRunId : runs[0]?.id;
   const today = getLocalDateString();
   const dateLabel = useMemo(() => new Intl.DateTimeFormat('ja-JP', {
@@ -219,8 +271,37 @@ export const PersonalTransportMode: React.FC<PersonalTransportModeProps> = ({ cu
     setMessage('');
     try {
       const eventId = await recordTransportFieldAction(run.id, stop?.id, action, note);
-      setLastEvent({ id: eventId, label: `${run.name}の「${actionLabels[action]}」` });
+      setLastEvent({ ids: [eventId], label: `${run.name}の「${actionLabels[action]}」` });
       setToast(`${actionLabels[action]}を登録しました`);
+      await refresh(false);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '送迎状況を登録できませんでした。');
+    } finally {
+      setBusyKey('');
+    }
+  };
+
+  const submitGroupAction = async (
+    run: TransportFieldRun,
+    action: TransportFieldAction,
+    stops: TransportFieldStop[],
+  ) => {
+    if (!online) {
+      setMessage('オフライン中は送迎状況を共有できません。通信を確認し、必要な場合は事業所へ電話連絡してください。');
+      return;
+    }
+    const pendingStops = stops.filter((stop) => !findEvent(stop.events || [], action));
+    if (pendingStops.length === 0) return;
+    const key = `${run.id}:group:${stops.map((stop) => stop.id).join(',')}:${action}`;
+    setBusyKey(key);
+    setMessage('');
+    try {
+      const eventIds: string[] = [];
+      for (const stop of pendingStops) {
+        eventIds.push(await recordTransportFieldAction(run.id, stop.id, action));
+      }
+      setLastEvent({ ids: eventIds.filter(Boolean), label: `${run.name}の「${actionLabels[action]}」${pendingStops.length}名分` });
+      setToast(`${actionLabels[action]}を${pendingStops.length}名分登録しました`);
       await refresh(false);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '送迎状況を登録できませんでした。');
@@ -249,9 +330,9 @@ export const PersonalTransportMode: React.FC<PersonalTransportModeProps> = ({ cu
 
   const undoLastAction = async () => {
     if (!lastEvent) return;
-    setBusyKey(`undo:${lastEvent.id}`);
+    setBusyKey(`undo:${lastEvent.ids.join(',')}`);
     try {
-      await cancelTransportFieldAction(lastEvent.id);
+      for (const eventId of lastEvent.ids) await cancelTransportFieldAction(eventId);
       setToast('直前の操作を取り消しました');
       setLastEvent(null);
       await refresh(false);
@@ -323,7 +404,7 @@ export const PersonalTransportMode: React.FC<PersonalTransportModeProps> = ({ cu
         {lastEvent && (
           <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs text-amber-950">
             <span><strong>{lastEvent.label}</strong>を登録しました。</span>
-            <button type="button" disabled={busyKey === `undo:${lastEvent.id}`} onClick={() => void undoLastAction()} className="flex min-h-10 shrink-0 items-center gap-1 rounded-lg bg-white px-3 font-black shadow-sm"><Undo2 className="h-4 w-4" />取り消す</button>
+             <button type="button" disabled={busyKey === `undo:${lastEvent.ids.join(',')}`} onClick={() => void undoLastAction()} className="flex min-h-10 shrink-0 items-center gap-1 rounded-lg bg-white px-3 font-black shadow-sm"><Undo2 className="h-4 w-4" />取り消す</button>
           </div>
         )}
 
@@ -337,8 +418,8 @@ export const PersonalTransportMode: React.FC<PersonalTransportModeProps> = ({ cu
             <div className="flex items-center justify-between gap-2 px-1"><h2 className="text-sm font-black text-slate-900">選択中の送迎</h2><span className="text-[10px] font-bold text-slate-500">一覧または時間表から便を選択</span></div>
             <div ref={selectedRunDetailRef} className={`scroll-mt-24 rounded-[1.15rem] transition-[box-shadow,transform] duration-500 ${highlightedRunId === activeRunId ? 'animate-pulse ring-4 ring-teal-300 ring-offset-4' : ''}`} aria-live="polite">
               {runs.filter((run) => run.id === activeRunId).map((run) => view === 'all' && !run.isAssigned && !run.isCovering
-                ? <TransportSummaryCard key={run.id} run={run} busy={busyKey === `cover:${run.id}`} onCover={() => void changeCover(run, true)} />
-                : <AssignedTransportCard key={run.id} run={run} busyKey={busyKey} onAction={submitAction} onEndCover={run.isCovering && !run.isAssigned ? () => void changeCover(run, false) : undefined} />)}
+                ? <TransportSummaryCard key={run.id} run={run} groupingWindowMinutes={sameLocationTimeWindowMinutes} busy={busyKey === `cover:${run.id}`} onCover={() => void changeCover(run, true)} />
+                : <AssignedTransportCard key={run.id} run={run} groupingWindowMinutes={sameLocationTimeWindowMinutes} busyKey={busyKey} onAction={submitAction} onGroupAction={submitGroupAction} onEndCover={run.isCovering && !run.isAssigned ? () => void changeCover(run, false) : undefined} />)}
             </div>
           </div>
         )}
@@ -355,8 +436,9 @@ const ModeButton = ({ active, onClick, icon: Icon, label }: { active: boolean; o
   <button type="button" onClick={onClick} className={`flex min-h-11 items-center justify-center gap-2 rounded-lg text-xs font-black ${active ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-600'}`}><Icon className="h-4 w-4" />{label}</button>
 );
 
-const TransportSummaryCard: React.FC<{ run: TransportFieldRun; busy: boolean; onCover: () => void }> = ({ run, busy, onCover }) => {
+const TransportSummaryCard: React.FC<{ run: TransportFieldRun; groupingWindowMinutes: number; busy: boolean; onCover: () => void }> = ({ run, groupingWindowMinutes, busy, onCover }) => {
   const mapUrl = buildMapUrl(run);
+  const stopGroups = groupFieldStops(run, groupingWindowMinutes);
   return <article className={`rounded-2xl border bg-white p-4 shadow-sm ${run.hasHelpRequest ? 'border-rose-400' : run.hasDelay ? 'border-amber-400' : 'border-slate-200'}`}>
     <div className="flex items-start justify-between gap-3">
       <div>
@@ -370,7 +452,7 @@ const TransportSummaryCard: React.FC<{ run: TransportFieldRun; busy: boolean; on
       <p className="rounded-lg bg-slate-50 p-2"><span className="block text-[10px] text-slate-500">車両</span><strong>{run.vehicleName || '未設定'}</strong></p>
     </div>
     <ol className="mt-3 space-y-2">
-      {run.stops.map((stop, index) => <li key={stop.id} className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2.5"><span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-slate-900 text-[10px] font-black text-white">{index + 1}</span><span className="min-w-0 flex-1"><strong className="block truncate text-xs text-slate-950">{stop.plannedTime || '時刻未定'}　{stop.childName || stop.locationName || '乗降地点'}</strong><span className="mt-0.5 block truncate text-[10px] font-bold text-slate-500">{stop.locationName || stop.locationType}{stop.location ? `・${stop.location}` : ''}</span>{stop.permanentNote && <span className="mt-1 block rounded-md bg-amber-100 px-2 py-1 text-[9px] font-black text-amber-950">恒常連絡：{stop.permanentNote}</span>}</span></li>)}
+      {stopGroups.map((group, index) => { const first = group.stops[0]; return <li key={group.id} className={`flex items-start gap-2 rounded-xl border p-2.5 ${group.groupedSchool ? 'border-sky-300 bg-sky-50' : 'border-slate-200 bg-slate-50'}`}><span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-slate-900 text-[10px] font-black text-white">{index + 1}</span><span className="min-w-0 flex-1"><span className="flex flex-wrap items-center gap-1"><strong className="text-xs text-slate-950">{groupPlannedTime(group)}　{group.stops.map((stop) => stop.childName || '児童').join('・')}</strong>{group.groupedSchool && <span className="rounded-full bg-sky-600 px-2 py-0.5 text-[9px] font-black text-white">同学校 {group.stops.length}名</span>}</span><span className="mt-0.5 block truncate text-[10px] font-bold text-slate-500">{first.locationName || first.locationType}{first.location ? `・${first.location}` : ''}</span>{group.stops.filter((stop) => stop.permanentNote).map((stop) => <span key={stop.id} className="mt-1 block rounded-md bg-amber-100 px-2 py-1 text-[9px] font-black text-amber-950">{stop.childName}：{stop.permanentNote}</span>)}</span></li>; })}
     </ol>
     {(run.hasHelpRequest || run.hasDelay) && <p className={`mt-3 rounded-lg p-2 text-xs font-black ${run.hasHelpRequest ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-900'}`}>{run.hasHelpRequest ? '応援要請があります' : '遅延連絡があります'}</p>}
     {mapUrl && <a href={mapUrl} target="_blank" rel="noreferrer" className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-sky-200 bg-sky-50 text-xs font-black text-sky-800"><Route className="h-4 w-4" />経路を地図で確認<ExternalLink className="h-3.5 w-3.5" /></a>}
@@ -380,13 +462,19 @@ const TransportSummaryCard: React.FC<{ run: TransportFieldRun; busy: boolean; on
 
 const AssignedTransportCard: React.FC<{
   run: TransportFieldRun;
+  groupingWindowMinutes: number;
   busyKey: string;
   onAction: (run: TransportFieldRun, action: TransportFieldAction, stop?: TransportFieldStop, note?: string) => void;
+  onGroupAction: (run: TransportFieldRun, action: TransportFieldAction, stops: TransportFieldStop[]) => void;
   onEndCover?: () => void;
-}> = ({ run, busyKey, onAction, onEndCover }) => {
+}> = ({ run, groupingWindowMinutes, busyKey, onAction, onGroupAction, onEndCover }) => {
   const mapUrl = buildMapUrl(run);
   const departed = findEvent(run.runEvents, 'departed');
   const finished = findEvent(run.runEvents, run.direction === '迎え' ? 'facility_arrived' : 'returned');
+  const stopGroups = groupFieldStops(run, groupingWindowMinutes);
+  const completedAction: TransportFieldAction = run.direction === '迎え' ? 'boarded' : 'dropped_off';
+  const nextGroup = departed ? stopGroups.find((group) => group.stops.some((stop) => !findEvent(stop.events || [], 'arrived') || !findEvent(stop.events || [], completedAction))) : undefined;
+  const allStopsCompleted = stopGroups.every((group) => group.stops.every((stop) => Boolean(findEvent(stop.events || [], completedAction))));
   return (
     <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <div className="bg-slate-950 p-4 text-white">
@@ -401,17 +489,19 @@ const AssignedTransportCard: React.FC<{
       </div>
 
       <div className="space-y-3 p-3">
-        {!departed && <ActionButton label="送迎を出発" icon={Navigation} busy={busyKey === `${run.id}:run:departed`} onClick={() => onAction(run, 'departed')} />}
+        {!departed && <ActionButton label="送迎を出発" icon={Navigation} recommended busy={busyKey === `${run.id}:run:departed`} onClick={() => onAction(run, 'departed')} />}
         {departed && <p className="flex items-center gap-2 rounded-lg bg-emerald-50 p-2 text-xs font-bold text-emerald-800"><CheckCircle2 className="h-4 w-4" />{formatTime(departed.eventAt)} 出発</p>}
 
         <ol className="space-y-3">
-          {run.stops.map((stop, index) => <TransportStopCard key={stop.id} run={run} stop={stop} index={index} busyKey={busyKey} onAction={onAction} />)}
+          {stopGroups.map((group, index) => <TransportStopGroupCard key={group.id} run={run} group={group} index={index} busyKey={busyKey} recommended={nextGroup?.id === group.id} onAction={onAction} onGroupAction={onGroupAction} />)}
         </ol>
 
         {departed && !finished && (
           <ActionButton
             label={run.direction === '迎え' ? '事業所へ到着' : '事業所へ帰着'}
             icon={CheckCircle2}
+            recommended={allStopsCompleted}
+            disabled={!allStopsCompleted}
             busy={busyKey === `${run.id}:run:${run.direction === '迎え' ? 'facility_arrived' : 'returned'}`}
             onClick={() => onAction(run, run.direction === '迎え' ? 'facility_arrived' : 'returned')}
           />
@@ -427,32 +517,44 @@ const AssignedTransportCard: React.FC<{
   );
 };
 
-const TransportStopCard: React.FC<{
+const TransportStopGroupCard: React.FC<{
   run: TransportFieldRun;
-  stop: TransportFieldStop;
+  group: TransportStopGroup;
   index: number;
   busyKey: string;
+  recommended: boolean;
   onAction: (run: TransportFieldRun, action: TransportFieldAction, stop?: TransportFieldStop) => void;
-}> = ({ run, stop, index, busyKey, onAction }) => {
-  const arrived = findEvent(stop.events || [], 'arrived');
+  onGroupAction: (run: TransportFieldRun, action: TransportFieldAction, stops: TransportFieldStop[]) => void;
+}> = ({ run, group, index, busyKey, recommended, onAction, onGroupAction }) => {
+  const first = group.stops[0];
   const completedAction: TransportFieldAction = run.direction === '迎え' ? 'boarded' : 'dropped_off';
-  const completed = findEvent(stop.events || [], completedAction);
-  const stopMapUrl = buildStopMapUrl(stop);
+  const arrivalEvents = group.stops.map((stop) => findEvent(stop.events || [], 'arrived')).filter((event): event is TransportFieldEvent => Boolean(event));
+  const completedEvents = group.stops.map((stop) => findEvent(stop.events || [], completedAction)).filter((event): event is TransportFieldEvent => Boolean(event));
+  const arrived = arrivalEvents.length === group.stops.length;
+  const completed = completedEvents.length === group.stops.length;
+  const nextAction = !arrived ? 'arrived' : !completed ? completedAction : undefined;
+  const groupBusyPrefix = `${run.id}:group:${group.stops.map((stop) => stop.id).join(',')}`;
+  const stopMapUrl = buildStopMapUrl(first);
+  const triggerAction = (action: TransportFieldAction) => group.stops.length > 1
+    ? onGroupAction(run, action, group.stops)
+    : onAction(run, action, first);
   return (
-    <li className={`rounded-xl border p-3 ${completed ? 'border-emerald-200 bg-emerald-50/60' : 'border-slate-200'}`}>
+    <li className={`rounded-xl border p-3 transition-shadow ${completed ? 'border-emerald-200 bg-emerald-50/60' : group.groupedSchool ? 'border-sky-300 bg-sky-50/60' : 'border-slate-200'} ${recommended && nextAction ? 'ring-4 ring-amber-300 shadow-lg' : ''}`}>
+      {recommended && nextAction && <p className="mb-2 flex items-center gap-1 text-[10px] font-black text-amber-800"><Navigation className="h-3.5 w-3.5" />次に「{actionLabels[nextAction]}」を確認してください</p>}
       <div className="flex items-start gap-3">
         <span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-xs font-black ${completed ? 'bg-emerald-600 text-white' : 'bg-slate-100 text-slate-700'}`}>{completed ? <CheckCircle2 className="h-5 w-5" /> : index + 1}</span>
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-black">{stop.childName || stop.locationName || `${index + 1}番目の乗降`}</h3><span className="text-xs font-black text-teal-800">予定 {stop.plannedTime || '—'}</span></div>
-          <p className="mt-1 flex items-start gap-1 text-xs text-slate-600"><MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span>{stop.locationName || stop.locationType}{stop.location ? `・${stop.location}` : ''}</span></p>
+          <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-black">{group.stops.map((stop) => stop.childName || stop.locationName || `${index + 1}番目の乗降`).join('・')}</h3><span className="text-xs font-black text-teal-800">予定 {groupPlannedTime(group)}</span></div>
+          {group.groupedSchool && <span className="mt-1 inline-flex rounded-full bg-sky-600 px-2 py-0.5 text-[9px] font-black text-white">同じ学校・近い迎え時刻　{group.stops.length}名</span>}
+          <p className="mt-1 flex items-start gap-1 text-xs text-slate-600"><MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span>{first.locationName || first.locationType}{first.location ? `・${first.location}` : ''}</span></p>
           {stopMapUrl && <a href={stopMapUrl} target="_blank" rel="noreferrer" className="mt-2 inline-flex min-h-9 items-center gap-1 rounded-lg border border-sky-200 bg-sky-50 px-3 text-[11px] font-black text-sky-800"><Route className="h-3.5 w-3.5" />この地点だけ地図を開く<ExternalLink className="h-3 w-3" /></a>}
-          {stop.permanentNote && <p className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-[11px] font-black text-amber-950">恒常連絡：{stop.permanentNote}</p>}
-          {stop.note && <p className="mt-2 rounded-lg bg-slate-100 p-2 text-[11px] font-bold text-slate-700">当日の連絡：{stop.note}</p>}
+          {group.stops.filter((stop) => stop.permanentNote).map((stop) => <p key={`${stop.id}:permanent`} className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-2 text-[11px] font-black text-amber-950">{stop.childName}・恒常連絡：{stop.permanentNote}</p>)}
+          {group.stops.filter((stop) => stop.note).map((stop) => <p key={`${stop.id}:daily`} className="mt-2 rounded-lg bg-slate-100 p-2 text-[11px] font-bold text-slate-700">{stop.childName}・当日の連絡：{stop.note}</p>)}
         </div>
       </div>
       <div className="mt-3 grid grid-cols-2 gap-2">
-        {arrived ? <EventDone label="到着" event={arrived} /> : <ActionButton compact label="到着" icon={MapPin} busy={busyKey === `${run.id}:${stop.id}:arrived`} onClick={() => onAction(run, 'arrived', stop)} />}
-        {completed ? <EventDone label={actionLabels[completedAction]} event={completed} /> : <ActionButton compact label={actionLabels[completedAction]} icon={CircleDot} disabled={!arrived} busy={busyKey === `${run.id}:${stop.id}:${completedAction}`} onClick={() => onAction(run, completedAction, stop)} />}
+        {arrived ? <EventDone label="到着" event={arrivalEvents.at(-1)!} /> : <ActionButton compact recommended={recommended && nextAction === 'arrived'} label={group.stops.length > 1 ? `到着（${group.stops.length}名）` : '到着'} icon={MapPin} busy={busyKey === `${groupBusyPrefix}:arrived` || busyKey === `${run.id}:${first.id}:arrived`} onClick={() => triggerAction('arrived')} />}
+        {completed ? <EventDone label={actionLabels[completedAction]} event={completedEvents.at(-1)!} /> : <ActionButton compact recommended={recommended && nextAction === completedAction} label={group.stops.length > 1 ? `${actionLabels[completedAction]}（${group.stops.length}名）` : actionLabels[completedAction]} icon={CircleDot} disabled={!arrived} busy={busyKey === `${groupBusyPrefix}:${completedAction}` || busyKey === `${run.id}:${first.id}:${completedAction}`} onClick={() => triggerAction(completedAction)} />}
       </div>
     </li>
   );
@@ -460,9 +562,9 @@ const TransportStopCard: React.FC<{
 
 const EventDone = ({ label, event }: { label: string; event: TransportFieldEvent }) => <p className="flex min-h-11 items-center justify-center rounded-xl bg-emerald-100 px-2 text-xs font-black text-emerald-800"><CheckCircle2 className="mr-1 h-4 w-4" />{formatTime(event.eventAt)} {label}</p>;
 
-const ActionButton = ({ label, icon: Icon, busy, disabled, compact, onClick }: { label: string; icon: React.ElementType; busy: boolean; disabled?: boolean; compact?: boolean; onClick: () => void }) => (
-  <button type="button" disabled={busy || disabled} onClick={onClick} className={`${compact ? 'min-h-11 text-xs' : 'min-h-13 text-sm'} flex w-full items-center justify-center gap-2 rounded-xl bg-teal-700 px-3 font-black text-white disabled:bg-slate-300 disabled:text-slate-500`}>
-    {busy ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Icon className="h-5 w-5" />}{label}
+const ActionButton = ({ label, icon: Icon, busy, disabled, compact, recommended, onClick }: { label: string; icon: React.ElementType; busy: boolean; disabled?: boolean; compact?: boolean; recommended?: boolean; onClick: () => void }) => (
+  <button type="button" disabled={busy || disabled} onClick={onClick} aria-current={recommended ? 'step' : undefined} className={`${compact ? 'min-h-11 text-xs' : 'min-h-13 text-sm'} relative flex w-full items-center justify-center gap-2 rounded-xl px-3 font-black text-white transition-all disabled:bg-slate-300 disabled:text-slate-500 ${recommended && !disabled ? 'animate-pulse bg-amber-500 text-slate-950 ring-4 ring-amber-200 shadow-lg' : 'bg-teal-700'}`}>
+    {recommended && !disabled && <span className="absolute -top-2 right-2 rounded-full bg-slate-950 px-2 py-0.5 text-[8px] font-black text-white">次の操作</span>}{busy ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Icon className="h-5 w-5" />}{label}
   </button>
 );
 

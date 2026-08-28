@@ -57,6 +57,14 @@ const NO_TIME_STATUSES: AttendanceStatus[] = ['欠勤'];
 const PART_TIME_WEEKDAY_DEFAULT = '__part_time_weekday_default__';
 const PART_TIME_HOLIDAY_DEFAULT = '__part_time_holiday_default__';
 
+// 放課後等デイサービスの一般的な人員基準のうち、利用児童数から算出できる
+// 「児童指導員・保育士等の人数」だけを配置確認の目安として表示します。
+// 資格構成、常勤要件、サービス提供時間帯などは別途確認が必要です。
+function getStaffingBaselineHeadcount(utilizationCount: number) {
+  if (utilizationCount <= 0) return 0;
+  return 2 + Math.ceil(Math.max(0, utilizationCount - 10) / 5);
+}
+
 export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
   templates,
   records,
@@ -139,6 +147,27 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
     });
     return counts;
   }, [childrenList, dailyChildPlans, dates]);
+  const staffingBaselineByDate = useMemo(() => new Map(
+    dates.map((date) => [date, getStaffingBaselineHeadcount(utilizationCountByDate.get(date) || 0)]),
+  ), [dates, utilizationCountByDate]);
+  const scheduledStaffCountByDate = useMemo(() => {
+    const counts = new Map<string, number>();
+    dates.forEach((date) => {
+      const count = activeProfiles.filter((profile) => {
+        if (findStaffLeave(calendarEvents, profile.id, date)) return false;
+        const record = records.find((candidate) => candidate.date === date && candidate.recorderProfileId === profile.id);
+        return Boolean(record
+          && record.status !== '欠勤'
+          && record.status !== '有給'
+          && record.status !== '公休'
+          && record.status !== '特別休暇'
+          && record.scheduledStartTime
+          && record.scheduledEndTime);
+      }).length;
+      counts.set(date, count);
+    });
+    return counts;
+  }, [activeProfiles, calendarEvents, dates, records]);
   const monthRecords = useMemo(
     () => records.filter((record) => record.date.startsWith(month)),
     [month, records],
@@ -489,6 +518,33 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
               <div className="flex items-center px-2 py-1.5 text-[10px] font-black text-sky-900">利用人数</div>
               {dates.map((date) => <div key={date} className="flex items-center justify-center border-l border-sky-200 py-1.5 text-[10px] font-black text-sky-900" title={`${date}の基本利用曜日・追加利用・欠席を反映`}>{utilizationCountByDate.get(date) || 0}</div>)}
               <div className="border-l border-sky-200" />
+            </div>
+            <div className="grid border-b border-violet-200 bg-violet-50/70" style={{ gridTemplateColumns: `112px repeat(${dates.length}, minmax(30px, 1fr)) 54px` }}>
+              <div className="flex items-center px-2 py-1 text-[9px] font-black text-violet-900" title="利用10名までは2名、10名を超える場合は5名または端数ごとに1名を加えた人数です。資格構成・常勤要件・配置時間帯は別途確認してください。">基準人数の目安</div>
+              {dates.map((date) => <div key={date} className="flex items-center justify-center border-l border-violet-200 py-1 text-[10px] font-black text-violet-900" title={`${date}の利用人数から算出した配置確認の目安（資格・常勤・時間帯は別途確認）`}>{staffingBaselineByDate.get(date) || 0}</div>)}
+              <div className="border-l border-violet-200" />
+            </div>
+            <div className="grid border-b border-amber-200 bg-amber-50/70" style={{ gridTemplateColumns: `112px repeat(${dates.length}, minmax(30px, 1fr)) 54px` }}>
+              <div className="flex items-center px-2 py-1 text-[9px] font-black text-amber-900" title="基準人数に1名を加えた、加配状況を確認し始めるための目安です。加算の算定可否を自動判定するものではありません。">加配確認 +1</div>
+              {dates.map((date) => { const baseline = staffingBaselineByDate.get(date) || 0; return <div key={date} className="flex items-center justify-center border-l border-amber-200 py-1 text-[10px] font-black text-amber-900" title="加配加算の算定可否は職種・勤務形態・提供時間などを別途確認してください">{baseline > 0 ? baseline + 1 : 0}</div>; })}
+              <div className="border-l border-amber-200" />
+            </div>
+            <div className="grid border-b border-slate-300 bg-white" style={{ gridTemplateColumns: `112px repeat(${dates.length}, minmax(30px, 1fr)) 54px` }}>
+              <div className="flex items-center px-2 py-1.5 text-[9px] font-black text-slate-800">配置予定</div>
+              {dates.map((date) => {
+                const baseline = staffingBaselineByDate.get(date) || 0;
+                const scheduled = scheduledStaffCountByDate.get(date) || 0;
+                const tone = baseline === 0
+                  ? 'bg-slate-50 text-slate-500'
+                  : scheduled < baseline
+                    ? 'bg-rose-100 text-rose-800'
+                    : scheduled === baseline
+                      ? 'bg-amber-100 text-amber-900'
+                      : 'bg-emerald-100 text-emerald-800';
+                const state = baseline === 0 ? '利用予定なし' : scheduled < baseline ? `目安まであと${baseline - scheduled}名` : scheduled === baseline ? '基準人数の目安に到達' : '加配確認ラインに到達';
+                return <div key={date} className={`flex items-center justify-center border-l border-slate-200 py-1.5 text-[10px] font-black ${tone}`} title={`${date} 配置予定${scheduled}名／${state}。勤務時間帯・資格構成は別途確認してください。`}>{scheduled}</div>;
+              })}
+              <div className="border-l border-slate-300" />
             </div>
             <div className="grid border-b border-slate-300 bg-white" style={{ gridTemplateColumns: `112px repeat(${dates.length}, minmax(30px, 1fr)) 54px` }}>
               <div className="flex items-center px-2 py-1.5 text-[10px] font-black text-slate-700">職員名</div>

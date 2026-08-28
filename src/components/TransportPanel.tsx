@@ -6,6 +6,7 @@ import {
   BusFront,
   CarFront,
   CheckCircle2,
+  Clock3,
   ExternalLink,
   GripVertical,
   LoaderCircle,
@@ -53,6 +54,8 @@ import { DailyTransportPlanner } from "./DailyTransportPlanner";
 import { inferTransportArea, resolvedTransportArea } from "../utils/transportArea";
 import { TransportMapPanel } from "./TransportMapPanel";
 import { TransportScheduleBoard } from "./TransportScheduleBoard";
+import { TransportOperationLog } from "./TransportOperationLog";
+import { getTransportProgram } from "../utils/transportDeparture";
 
 const TRANSPORT_LOCATION_TYPES: TransportLocationType[] = [
   "自宅",
@@ -169,6 +172,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
   const [view, setView] = useState<ViewMode>("runs");
   const [runForm, setRunForm] = useState<TransportRun | null>(null);
   const [dayPlannerOpen, setDayPlannerOpen] = useState(false);
+  const [operationLogOpen, setOperationLogOpen] = useState(false);
   const [selectedRunId, setSelectedRunId] = useState(focusRunId);
   const [vehicleForm, setVehicleForm] = useState<Vehicle | null>(null);
   const [statusRun, setStatusRun] = useState<TransportRun | null>(null);
@@ -545,6 +549,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
 
   return (
     <div className="space-y-4">
+      {operationLogOpen && <TransportOperationLog serviceDate={selectedDate} runs={dayRuns} canManage={canManage} onClose={() => setOperationLogOpen(false)} />}
       {assignmentNotice && <div className="fixed left-1/2 top-[max(5rem,calc(env(safe-area-inset-top)+4rem))] z-[95] w-[calc(100%-2rem)] max-w-md -translate-x-1/2 rounded-xl bg-slate-950 px-4 py-3 text-sm font-bold text-white shadow-2xl" role="status"><CheckCircle2 className="mr-2 inline h-5 w-5 text-teal-300" />{assignmentNotice}</div>}
       <section className="rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
         <div className="grid grid-cols-2 gap-1">
@@ -578,8 +583,16 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
                 運転者・添乗員・車両・乗降順をまとめて管理します。
               </p>
             </div>
-            {canManage && (
-              <div className="flex flex-wrap justify-end gap-2">
+            <div className="flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setOperationLogOpen(true)}
+                className="flex min-h-11 items-center gap-2 rounded-xl border border-teal-300 bg-teal-50 px-3 text-sm font-black text-teal-900"
+              >
+                <Clock3 className="h-4 w-4" />
+                送迎実績
+              </button>
+              {canManage && <>
                 <button
                   type="button"
                   onClick={() => {
@@ -599,8 +612,8 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
                   <Plus className="h-5 w-5" />
                   一日の送迎を組む
                 </button>
-              </div>
-            )}
+              </>}
+            </div>
           </div>
           {dayRuns.length === 0 ? (
             <Empty text="送迎便は登録されていません。" />
@@ -662,7 +675,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
                       </span>
                     </div>
                     <ol className="mt-3 space-y-2">
-                      {run.stops.map((stop, index) => (
+                      {run.stops.map((stop, index) => { const child = childrenList.find((candidate) => candidate.id === stop.childId); const program = child ? getTransportProgram(child) : undefined; return (
                         <li
                           key={stop.id}
                           className="flex items-start gap-2 text-sm"
@@ -671,10 +684,10 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
                             {index + 1}
                           </span>
                           <span>
-                            <strong>
+                            <span className="flex flex-wrap items-center gap-1.5"><strong>
                               {stop.plannedTime || "時刻未定"}{" "}
                               {stop.childName || stop.locationType}
-                            </strong>
+                            </strong>{program && <span className={`rounded-full px-1.5 py-0.5 text-[8px] font-black ${program === 'キャリアズ' ? 'bg-violet-100 text-violet-900' : 'bg-sky-100 text-sky-900'}`}>{program}</span>}</span>
                             {stop.locationName && (
                               <span className="ml-1 text-[10px] font-bold text-teal-700">
                                 {stop.locationName}
@@ -690,7 +703,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
                             )}
                           </span>
                         </li>
-                      ))}
+                      ); })}
                     </ol>
                     {warnings.length > 0 && (
                       <div className="mt-3 rounded-xl bg-amber-50 p-3 text-xs font-bold text-amber-900">

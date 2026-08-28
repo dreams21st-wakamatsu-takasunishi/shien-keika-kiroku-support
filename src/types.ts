@@ -749,6 +749,13 @@ export interface TransportFieldEvent {
   cancelledAt?: string;
 }
 
+export interface TransportOperationEvent extends TransportFieldEvent {
+  transportRunId: string;
+  stopId?: string;
+  childId?: string;
+  note?: string;
+}
+
 export interface TransportFieldStop extends TransportStop {
   events: TransportFieldEvent[];
 }
@@ -780,6 +787,7 @@ export interface TransportFieldRun {
 export interface TransportFieldDashboard {
   serviceDate: string;
   recorderProfileId: string;
+  sameLocationTimeWindowMinutes: number;
   myRuns: TransportFieldRun[];
   allRuns: TransportFieldRun[];
 }
