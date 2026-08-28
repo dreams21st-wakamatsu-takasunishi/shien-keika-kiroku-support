@@ -342,8 +342,9 @@ const ModeButton = ({ active, onClick, icon: Icon, label }: { active: boolean; o
   <button type="button" onClick={onClick} className={`flex min-h-11 items-center justify-center gap-2 rounded-lg text-xs font-black ${active ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-600'}`}><Icon className="h-4 w-4" />{label}</button>
 );
 
-const TransportSummaryCard: React.FC<{ run: TransportFieldRun; busy: boolean; onCover: () => void }> = ({ run, busy, onCover }) => (
-  <article className={`rounded-2xl border bg-white p-4 shadow-sm ${run.hasHelpRequest ? 'border-rose-400' : run.hasDelay ? 'border-amber-400' : 'border-slate-200'}`}>
+const TransportSummaryCard: React.FC<{ run: TransportFieldRun; busy: boolean; onCover: () => void }> = ({ run, busy, onCover }) => {
+  const mapUrl = buildMapUrl(run);
+  return <article className={`rounded-2xl border bg-white p-4 shadow-sm ${run.hasHelpRequest ? 'border-rose-400' : run.hasDelay ? 'border-amber-400' : 'border-slate-200'}`}>
     <div className="flex items-start justify-between gap-3">
       <div>
         <div className="flex flex-wrap items-center gap-2"><h2 className="font-black">{run.name}</h2><StatusBadge run={run} /></div>
@@ -355,10 +356,14 @@ const TransportSummaryCard: React.FC<{ run: TransportFieldRun; busy: boolean; on
       <p className="rounded-lg bg-slate-50 p-2"><span className="block text-[10px] text-slate-500">担当</span><strong>{run.driverName || '未設定'}</strong></p>
       <p className="rounded-lg bg-slate-50 p-2"><span className="block text-[10px] text-slate-500">車両</span><strong>{run.vehicleName || '未設定'}</strong></p>
     </div>
+    <ol className="mt-3 space-y-2">
+      {run.stops.map((stop, index) => <li key={stop.id} className="flex items-start gap-2 rounded-xl border border-slate-200 bg-slate-50 p-2.5"><span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-slate-900 text-[10px] font-black text-white">{index + 1}</span><span className="min-w-0 flex-1"><strong className="block truncate text-xs text-slate-950">{stop.plannedTime || '時刻未定'}　{stop.childName || stop.locationName || '乗降地点'}</strong><span className="mt-0.5 block truncate text-[10px] font-bold text-slate-500">{stop.locationName || stop.locationType}{stop.location ? `・${stop.location}` : ''}</span>{stop.permanentNote && <span className="mt-1 block rounded-md bg-amber-100 px-2 py-1 text-[9px] font-black text-amber-950">恒常連絡：{stop.permanentNote}</span>}</span></li>)}
+    </ol>
     {(run.hasHelpRequest || run.hasDelay) && <p className={`mt-3 rounded-lg p-2 text-xs font-black ${run.hasHelpRequest ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-900'}`}>{run.hasHelpRequest ? '応援要請があります' : '遅延連絡があります'}</p>}
+    {mapUrl && <a href={mapUrl} target="_blank" rel="noreferrer" className="mt-3 flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-sky-200 bg-sky-50 text-xs font-black text-sky-800"><Route className="h-4 w-4" />経路を地図で確認<ExternalLink className="h-3.5 w-3.5" /></a>}
     <button type="button" disabled={busy} onClick={onCover} className="mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-teal-700 text-sm font-black text-white disabled:bg-slate-400"><HandHelping className="h-5 w-5" />この便をカバーする</button>
   </article>
-);
+};
 
 const AssignedTransportCard: React.FC<{
   run: TransportFieldRun;

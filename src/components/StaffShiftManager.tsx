@@ -33,6 +33,7 @@ interface StaffShiftManagerProps {
   transportRuns?: TransportRun[];
   selectedDate: string;
   onSaveRecords: (records: AttendanceRecord[]) => Promise<void> | void;
+  onDeleteRecord?: (record: AttendanceRecord) => Promise<void> | void;
   onReviewShiftRequest?: (request: StaffShiftRequest, approved: boolean, note?: string) => Promise<void> | void;
 }
 
@@ -66,6 +67,7 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
   transportRuns = [],
   selectedDate,
   onSaveRecords,
+  onDeleteRecord,
   onReviewShiftRequest,
 }) => {
   const activeProfiles = useMemo(
@@ -85,6 +87,7 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [childTimelineExpanded, setChildTimelineExpanded] = useState(false);
+  const [selectedRequestIds, setSelectedRequestIds] = useState<string[]>([]);
 
   useEffect(() => {
     setMonth(selectedDate.slice(0, 7));
@@ -92,6 +95,10 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
     setWeekStart(getWeekStart(selectedDate));
     setApplyDate(selectedDate);
   }, [selectedDate]);
+
+  useEffect(() => {
+    setSelectedRequestIds([]);
+  }, [month]);
 
   useEffect(() => {
     if (!selectedTemplateId && templates[0]) {
@@ -138,6 +145,9 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
     [dayDate, records],
   );
   const monthRequests = useMemo(() => shiftRequests.filter((request) => request.requestedDate.startsWith(month)), [month, shiftRequests]);
+  const pendingMonthRequests = useMemo(() => monthRequests
+    .filter((request) => request.status === '申請中')
+    .sort((left, right) => left.requestedDate.localeCompare(right.requestedDate) || left.recorderName.localeCompare(right.recorderName, 'ja')), [monthRequests]);
   const dayRequests = useMemo(() => shiftRequests.filter((request) => request.requestedDate === dayDate), [dayDate, shiftRequests]);
   const dayEvents = useMemo(() => calendarEvents.filter((event) => event.date <= dayDate && (event.endDate || event.date) >= dayDate && !event.allDay && event.startTime && event.endTime), [calendarEvents, dayDate]);
   const childTimelineRows = useMemo(() => {
@@ -317,6 +327,42 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
     }
   };
 
+  const deleteDay = async () => {
+    if (!dayForm || !onDeleteRecord) return;
+    const existing = records.find((record) => record.recorderProfileId === dayForm.recorderProfileId && record.date === dayForm.date);
+    if (!existing) return setMessage('削除する勤務予定はありません。');
+    if (isClockedRecord(existing)) return setMessage('打刻済みの勤務情報は削除できません。打刻修正申請を使用してください。');
+    if (!window.confirm(`${existing.recorderName}さんの${existing.date}の勤務予定を削除しますか？`)) return;
+    setBusy(true);
+    try {
+      await onDeleteRecord(existing);
+      setDayForm(null);
+      setMessage(`${existing.recorderName}さんの${existing.date}の勤務予定を削除しました。`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '勤務予定を削除できませんでした。');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const approveSelectedRequests = async () => {
+    if (!onReviewShiftRequest) return;
+    const targets = pendingMonthRequests.filter((request) => selectedRequestIds.includes(request.id));
+    if (targets.length === 0) return setMessage('承認する希望シフトを選択してください。');
+    if (!window.confirm(`選択した${targets.length}件の希望シフトをまとめて承認し、勤務予定へ反映しますか？`)) return;
+    setBusy(true);
+    setMessage('');
+    try {
+      for (const request of targets) await onReviewShiftRequest(request, true);
+      setSelectedRequestIds([]);
+      setMessage(`${targets.length}件の希望シフトを承認し、勤務予定へ反映しました。`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '希望シフトを一括承認できませんでした。');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const navigateView = (amount: number) => {
     if (viewMode === 'week') {
       const next = moveDate(weekStart, amount * 7);
@@ -401,6 +447,11 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
         </div>
       </div>
 
+      {pendingMonthRequests.length > 0 && onReviewShiftRequest && <section className="border-b border-amber-200 bg-amber-50/70 p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-[10px] font-black text-amber-800">{month.replace('-', '年')}月・申請中 {pendingMonthRequests.length}件</p><p className="text-[9px] font-bold text-amber-700">承認する希望だけを選択してください。</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={() => setSelectedRequestIds(pendingMonthRequests.map((request) => request.id))} className="min-h-9 rounded-lg border border-amber-300 bg-white px-3 text-[10px] font-black text-amber-900">すべて選択</button><button type="button" onClick={() => setSelectedRequestIds([])} className="min-h-9 rounded-lg border border-slate-300 bg-white px-3 text-[10px] font-black text-slate-600">解除</button><button type="button" disabled={busy || selectedRequestIds.length === 0} onClick={() => void approveSelectedRequests()} className="min-h-9 rounded-lg bg-teal-700 px-4 text-[10px] font-black text-white disabled:opacity-40">選択した{selectedRequestIds.length}件を承認</button></div></div>
+        <div className="ui-scrollbar mt-2 flex gap-2 overflow-x-auto pb-1">{pendingMonthRequests.map((request) => { const selected = selectedRequestIds.includes(request.id); return <label key={request.id} className={`flex min-w-max cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-[10px] font-bold ${selected ? 'border-teal-500 bg-teal-50 text-teal-950' : 'border-amber-200 bg-white text-slate-700'}`}><input type="checkbox" checked={selected} onChange={() => setSelectedRequestIds((current) => selected ? current.filter((id) => id !== request.id) : [...current, request.id])} className="h-4 w-4 accent-teal-600" /><span><strong className="block">{request.requestedDate.slice(5)}　{request.recorderName}</strong><span>{request.requestedStartTime || '－'}〜{request.requestedEndTime || '－'}</span></span></label>; })}</div>
+      </section>}
+
       <div className="border-t border-slate-100 bg-slate-50/60 p-3">
         {viewMode === 'month' && <div className="overflow-x-auto rounded-xl border border-slate-300 bg-white shadow-sm">
           <div style={{ minWidth: `${112 + dates.length * 30 + 54}px` }}>
@@ -483,7 +534,7 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
           <label className="block text-sm font-bold">状態<select value={dayForm.status} onChange={(event) => setDayForm({ ...dayForm, status: event.target.value as AttendanceStatus })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3">{DAY_STATUSES.map((status) => <option key={status}>{status}</option>)}</select></label>
           {!NO_TIME_STATUSES.includes(dayForm.status) && <div className="grid grid-cols-3 gap-2"><label className="text-sm font-bold">開始<input type="time" value={dayForm.startTime} onChange={(event) => setDayForm({ ...dayForm, startTime: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-2" /></label><label className="text-sm font-bold">終了<input type="time" value={dayForm.endTime} onChange={(event) => setDayForm({ ...dayForm, endTime: event.target.value })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-2" /></label><label className="text-sm font-bold">休憩（分）<input type="number" min="0" max="480" step="5" value={dayForm.breakMinutes} onChange={(event) => setDayForm({ ...dayForm, breakMinutes: Number(event.target.value) })} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-2" /></label></div>}
           <label className="block text-sm font-bold">備考<textarea value={dayForm.note} onChange={(event) => setDayForm({ ...dayForm, note: event.target.value })} className="mt-1 min-h-20 w-full rounded-xl border border-slate-300 p-3" /></label>
-          <button type="button" disabled={busy} onClick={() => void saveDay()} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 font-black text-white disabled:opacity-50"><Save className="h-5 w-5" />保存</button>
+          <div className="grid gap-2 sm:grid-cols-2"><button type="button" disabled={busy} onClick={() => void saveDay()} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 font-black text-white disabled:opacity-50"><Save className="h-5 w-5" />保存</button>{onDeleteRecord && records.some((record) => record.recorderProfileId === dayForm.recorderProfileId && record.date === dayForm.date) && <button type="button" disabled={busy} onClick={() => void deleteDay()} className="min-h-12 rounded-xl border border-rose-300 bg-rose-50 font-black text-rose-700 disabled:opacity-50">勤務予定を削除</button>}</div>
         </Modal>
       )}
       {reviewRequest && (

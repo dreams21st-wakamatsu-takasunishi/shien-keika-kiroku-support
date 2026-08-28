@@ -29,6 +29,7 @@ interface AttendanceHomePanelProps {
   transportRuns: TransportRun[];
   onSaveRecord: (record: AttendanceRecord) => Promise<void> | void;
   onSaveRecords: (records: AttendanceRecord[]) => Promise<void> | void;
+  onDeleteRecord: (record: AttendanceRecord) => Promise<void> | void;
   onSaveShiftRequest: (request: StaffShiftRequest) => Promise<void> | void;
   onSaveShiftRequestDefaults: (recorderProfileId: string, startTime: string, endTime: string) => Promise<void> | void;
   onReviewShiftRequest: (request: StaffShiftRequest, approved: boolean, note?: string) => Promise<void> | void;
@@ -42,7 +43,7 @@ const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 export const AttendanceHomePanel: React.FC<AttendanceHomePanelProps> = ({
   records, shiftTemplates, shiftRequests, corrections, recorderProfiles, activeRecorder,
   canManageShifts, canApproveCorrections, qrKioskEnabled, calendarEvents, childrenList,
-  dailyChildPlans, dailyTransportRequirements, transportRuns, onSaveRecord, onSaveRecords,
+  dailyChildPlans, dailyTransportRequirements, transportRuns, onSaveRecord, onSaveRecords, onDeleteRecord,
   onSaveShiftRequest, onSaveShiftRequestDefaults, onReviewShiftRequest, onPunch,
   onRequestCorrection, onReviewCorrection,
 }) => {
@@ -151,7 +152,7 @@ export const AttendanceHomePanel: React.FC<AttendanceHomePanelProps> = ({
     </section>}
 
     {activeTab === 'planning' && canManageShifts && <div className="space-y-4">
-      <StaffShiftManager templates={shiftTemplates} records={records} shiftRequests={shiftRequests} recorderProfiles={recorderProfiles} selectedDate={selectedDate} calendarEvents={calendarEvents} childrenList={childrenList} dailyChildPlans={dailyChildPlans} dailyTransportRequirements={dailyTransportRequirements} transportRuns={transportRuns} onSaveRecords={onSaveRecords} onReviewShiftRequest={onReviewShiftRequest} />
+      <StaffShiftManager templates={shiftTemplates} records={records} shiftRequests={shiftRequests} recorderProfiles={recorderProfiles} selectedDate={selectedDate} calendarEvents={calendarEvents} childrenList={childrenList} dailyChildPlans={dailyChildPlans} dailyTransportRequirements={dailyTransportRequirements} transportRuns={transportRuns} onSaveRecords={onSaveRecords} onDeleteRecord={onDeleteRecord} onReviewShiftRequest={onReviewShiftRequest} />
     </div>}
 
     {activeTab === 'attendance' && <section className="rounded-2xl border border-slate-200 bg-slate-50 p-3"><h3 className="mb-3 flex items-center gap-2 font-black text-slate-900"><Clock3 className="h-5 w-5 text-teal-600" />出退勤・勤務実績</h3><AttendancePanel records={records} shiftTemplates={shiftTemplates} corrections={corrections} recorderProfiles={recorderProfiles} selectedDate={selectedDate} activeRecorder={activeRecorder} canManage={canManageShifts} canApproveCorrections={canApproveCorrections} canManageShifts={canManageShifts} qrKioskEnabled={qrKioskEnabled} showShiftManager={false} onSaveRecord={onSaveRecord} onSaveRecords={onSaveRecords} onPunch={onPunch} onRequestCorrection={onRequestCorrection} onReviewCorrection={onReviewCorrection} /></section>}

@@ -72,6 +72,7 @@ import {
   changeTransportAssignment,
   closeSupportPlan,
   deleteCalendarEvent,
+  deleteAttendanceRecord,
   deleteDailyChildPlan,
   deleteDailyTransportRequirement,
   deleteMonthlyDailySchedules,
@@ -1358,6 +1359,18 @@ export default function App() {
     }
   };
 
+  const handleDeleteAttendance = async (record: AttendanceRecord) => {
+    if (!canManageShifts) throw new Error('勤務予定を削除する権限がありません。');
+    if (record.clockInAt || record.clockOutAt) throw new Error('打刻済みの勤務情報は削除できません。打刻修正申請を使用してください。');
+    try {
+      if (organizationId) await deleteAttendanceRecord(organizationId, record.id);
+      setAttendanceRecords((previous) => previous.filter((candidate) => candidate.id !== record.id));
+    } catch (error) {
+      persistError(error);
+      throw error;
+    }
+  };
+
   const handleSaveStaffShiftTemplate = async (template: StaffShiftTemplate) => {
     if (remoteMode && auth.profile?.role !== 'admin') throw new Error('勤務テンプレートを変更できるのは管理者のみです。');
     try {
@@ -2271,6 +2284,7 @@ export default function App() {
             onDeleteMonthlyDailySchedules={handleDeleteMonthlyDailySchedules}
             onSaveAttendance={handleSaveAttendance}
             onSaveAttendanceRecords={handleSaveAttendanceRecords}
+            onDeleteAttendance={handleDeleteAttendance}
             onSaveStaffShiftRequest={handleSaveStaffShiftRequest}
             onSaveShiftRequestDefaults={handleSaveShiftRequestDefaults}
             onReviewStaffShiftRequest={handleReviewStaffShiftRequest}

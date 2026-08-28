@@ -1069,6 +1069,13 @@ export async function saveAttendanceRecord(organizationId: string, record: Atten
   if (error) throw error;
 }
 
+export async function deleteAttendanceRecord(organizationId: string, recordId: string) {
+  const { error } = await assertSupabase().from('attendance_records').delete()
+    .eq('organization_id', organizationId)
+    .eq('id', recordId);
+  if (error) throw error;
+}
+
 export async function saveAttendanceRecords(
   organizationId: string,
   records: AttendanceRecord[],
