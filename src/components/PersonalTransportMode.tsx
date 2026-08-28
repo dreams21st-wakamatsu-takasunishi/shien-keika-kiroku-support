@@ -37,6 +37,7 @@ import {
 import { enableDeviceNotifications } from '../utils/deviceNotifications';
 import { getLocalDateString } from '../utils/weekdays';
 import { PersonalAttendanceQrPunch } from './AttendanceQr';
+import { TransportScheduleBoard } from './TransportScheduleBoard';
 
 interface PersonalTransportModeProps {
   currentUser: UserProfile;
@@ -98,6 +99,7 @@ export const PersonalTransportMode: React.FC<PersonalTransportModeProps> = ({ cu
   const [toast, setToast] = useState('');
   const [lastEvent, setLastEvent] = useState<{ id: string; label: string } | null>(null);
   const [online, setOnline] = useState(navigator.onLine);
+  const [selectedRunId, setSelectedRunId] = useState<string>();
   const assignedRunIdsRef = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -185,6 +187,7 @@ export const PersonalTransportMode: React.FC<PersonalTransportModeProps> = ({ cu
   }, [lastEvent]);
 
   const runs = view === 'mine' ? dashboard?.myRuns || [] : dashboard?.allRuns || [];
+  const activeRunId = runs.some((run) => run.id === selectedRunId) ? selectedRunId : runs[0]?.id;
   const today = getLocalDateString();
   const dateLabel = useMemo(() => new Intl.DateTimeFormat('ja-JP', {
     month: 'long', day: 'numeric', weekday: 'short',
@@ -319,7 +322,9 @@ export const PersonalTransportMode: React.FC<PersonalTransportModeProps> = ({ cu
           <div className="rounded-2xl bg-white p-10 text-center shadow-sm"><BusFront className="mx-auto h-10 w-10 text-slate-300" /><p className="mt-3 text-sm font-bold text-slate-600">{view === 'mine' ? '担当する送迎はありません' : '登録された送迎便はありません'}</p>{view === 'mine' && <button type="button" onClick={() => setView('all')} className="mt-4 min-h-11 rounded-xl border border-teal-300 px-4 text-sm font-black text-teal-800">全体の送迎を確認</button>}</div>
         ) : (
           <div className="space-y-3">
-            {runs.map((run) => view === 'all' && !run.isAssigned && !run.isCovering
+            <TransportScheduleBoard runs={runs} selectedRunId={activeRunId} onSelectRun={setSelectedRunId} compact />
+            <div className="flex items-center justify-between gap-2 px-1"><h2 className="text-sm font-black text-slate-900">選択中の送迎</h2><span className="text-[10px] font-bold text-slate-500">一覧または時間表から便を選択</span></div>
+            {runs.filter((run) => run.id === activeRunId).map((run) => view === 'all' && !run.isAssigned && !run.isCovering
               ? <TransportSummaryCard key={run.id} run={run} busy={busyKey === `cover:${run.id}`} onCover={() => void changeCover(run, true)} />
               : <AssignedTransportCard key={run.id} run={run} busyKey={busyKey} onAction={submitAction} onEndCover={run.isCovering && !run.isAssigned ? () => void changeCover(run, false) : undefined} />)}
           </div>

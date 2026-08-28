@@ -634,11 +634,14 @@ const TransportRunLane: React.FC<{
   routeSelected: boolean;
   calculatingRoute: boolean;
   needsRecalculation: boolean;
+  collapsed: boolean;
   expandedStopId?: string;
   holidayOpeningTime?: string;
   onExpandStop: (stopId?: string) => void;
+  onToggleCollapsed: () => void;
   onUpdateRun: (runId: string, patch: Partial<TransportRun>) => void;
   onUpdateStop: (runId: string, stopId: string, patch: Partial<TransportStop>) => void;
+  onAdjustPlannedTime: (runId: string, stopId: string, plannedTime: string) => void;
   onMoveStop: (runId: string, stopId: string, offset: number) => void;
   onRemoveStop: (runId: string, stopId: string) => void;
   onRemoveRun: (run: TransportRun) => void;
@@ -656,11 +659,14 @@ const TransportRunLane: React.FC<{
   routeSelected,
   calculatingRoute,
   needsRecalculation,
+  collapsed,
   expandedStopId,
   holidayOpeningTime,
   onExpandStop,
+  onToggleCollapsed,
   onUpdateRun,
   onUpdateStop,
+  onAdjustPlannedTime,
   onMoveStop,
   onRemoveStop,
   onRemoveRun,
@@ -685,20 +691,24 @@ const TransportRunLane: React.FC<{
         <div className="flex items-center gap-1.5">
           <input aria-label="便名" value={run.name} onChange={(event) => onUpdateRun(run.id, { name: event.target.value })} className="min-h-9 min-w-0 flex-1 rounded-lg border border-white bg-white px-2 text-[11px] font-black" />
           <span title={vehicle ? `総定員${vehicle.capacity}名から運転者1名・添乗${getVehicleStaffSeatCount(run) - 1}名を除いた児童枠` : '車両未設定'} className={`shrink-0 rounded-full px-2 py-1 text-[9px] font-black ${overCapacity ? 'bg-rose-600 text-white' : 'bg-white text-slate-600'}`}>児童 {run.stops.length}/{capacity}名</span>
+          <button type="button" onClick={onToggleCollapsed} aria-expanded={!collapsed} aria-label={`${run.name}を${collapsed ? '展開' : '収納'}`} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-slate-700">{collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}</button>
           <button type="button" onClick={() => onRemoveRun(run)} aria-label={`${run.name}を削除`} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-rose-600"><Trash2 className="h-4 w-4" /></button>
         </div>
+        {!collapsed && <>
         <div className="mt-1.5 grid grid-cols-2 gap-1.5">
           <label className="text-[8px] font-black text-slate-500">{calculationMode === 'departure_forward' ? '送迎開始（基準）' : '開始'}<input type="time" value={run.startTime} onChange={(event) => onUpdateRun(run.id, { startTime: event.target.value })} className="mt-0.5 min-h-9 w-full rounded-lg border border-white bg-white px-1 text-[10px] font-bold" /></label>
           <label className="text-[8px] font-black text-slate-500">{calculationMode === 'arrival_backward' ? '来所・帰着（基準）' : '終了'}<input type="time" value={run.endTime} onChange={(event) => onUpdateRun(run.id, { endTime: event.target.value })} className="mt-0.5 min-h-9 w-full rounded-lg border border-white bg-white px-1 text-[10px] font-bold" /></label>
         </div>
         {run.stops.length > 0 && <p className={`mt-1.5 rounded-md px-2 py-1 text-[9px] font-black ${calculationMode === 'mixed' ? 'bg-rose-100 text-rose-800' : run.routeOptimizedAt ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'}`}>{calculationMode === 'mixed' ? '時刻方式が混在・便を分けてください' : `${timeModeShortLabel(calculationMode)}${anchor !== undefined ? ` ${formattedMinutes(anchor)}` : ''}・${calculationState}`}</p>}
         {holidayOpeningTime && run.startTime < holidayOpeningTime && <p className="mt-1.5 rounded-md bg-amber-100 px-2 py-1 text-[9px] font-black text-amber-900">開所前の手動設定（開所 {holidayOpeningTime}）</p>}
-        <label className="mt-1.5 block text-[8px] font-black text-slate-500">運転者<select value={run.driverRecorderProfileId || ''} onChange={(event) => onUpdateRun(run.id, { driverRecorderProfileId: event.target.value || undefined })} className="mt-0.5 min-h-9 w-full rounded-lg border border-white bg-white px-1 text-[10px] font-bold"><option value="">未設定</option>{activeRecorders.map((profile) => <option key={profile.id} value={profile.id}>{profile.displayName}</option>)}</select></label>
+        <label className="mt-2 block rounded-xl border border-slate-300 bg-white p-2 text-[10px] font-black text-slate-800">運転者<select value={run.driverRecorderProfileId || ''} onChange={(event) => onUpdateRun(run.id, { driverRecorderProfileId: event.target.value || undefined })} className="mt-1 min-h-12 w-full rounded-lg border-2 border-slate-400 bg-white px-3 text-sm font-black text-slate-950 shadow-inner"><option value="">未設定</option>{activeRecorders.map((profile) => <option key={profile.id} value={profile.id}>{profile.displayName}</option>)}</select></label>
         <div className="mt-1.5 flex items-center gap-1.5">
           <button type="button" disabled={calculatingRoute || run.stops.length === 0} onClick={() => onCalculateTime(run.id)} className="flex min-h-9 flex-1 items-center justify-center gap-1 rounded-lg bg-slate-900 px-2 text-[10px] font-black text-white disabled:opacity-40">{calculatingRoute ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <Clock3 className="h-3.5 w-3.5" />}{calculatingRoute ? '計算中…' : '時間計算'}</button>
           {routeCalculation && <button type="button" onClick={() => onSelectRoute(run.id)} className={`min-h-9 rounded-lg border px-2 text-[9px] font-black ${routeSelected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300 bg-white text-slate-700'}`}>{Math.ceil(routeCalculation.totalDurationSeconds / 60)}分・{(routeCalculation.totalDistanceMeters / 1000).toFixed(1)}km</button>}
         </div>
+        </>}
       </header>
+      {!collapsed && (
       <div
         ref={setNodeRef}
         role="group"
@@ -717,7 +727,7 @@ const TransportRunLane: React.FC<{
             <div key={stop.id} className="rounded-xl border border-slate-200 bg-white p-1.5">
               <DraggableChildCard child={child} date={date} direction={run.direction} requirement={requirementByChild.get(child.id)} stop={stop} data={{ childId: child.id, sourceRunId: run.id, sourceStopId: stop.id }} sharedLocation={sharedLocationByChild.get(child.id)} compact />
               <div className="mt-1 flex items-center gap-1">
-                <span className="min-w-0 flex-1 truncate text-[9px] font-bold text-slate-500">{routeCalculation ? `計算結果：到着 ${stop.plannedTime || '未計算'}${routeCalculation.legMinutesByStopId[stop.id] !== undefined ? `・移動 ${routeCalculation.legMinutesByStopId[stop.id]}分` : ''}` : '乗降順を変更できます'}</span>
+                {routeCalculation ? <label className="flex min-w-0 flex-1 items-center gap-1 text-[9px] font-black text-slate-600"><span className="shrink-0">到着</span><input type="time" aria-label={`${child.name}の到着予定時刻`} value={stop.plannedTime || ''} onChange={(event) => onAdjustPlannedTime(run.id, stop.id, event.target.value)} className="min-h-8 min-w-0 flex-1 rounded-md border border-teal-300 bg-teal-50 px-1 text-[10px] font-black text-teal-950" /><span className="hidden shrink-0 xl:inline">移動 {routeCalculation.legMinutesByStopId[stop.id] ?? '—'}分</span></label> : <span className="min-w-0 flex-1 truncate text-[9px] font-bold text-slate-500">乗降順を変更できます</span>}
                 <button type="button" disabled={index === 0} onClick={() => onMoveStop(run.id, stop.id, -1)} aria-label="上へ" className="grid h-8 w-8 place-items-center rounded-md bg-slate-100 disabled:opacity-30"><ArrowUp className="h-3.5 w-3.5" /></button>
                 <button type="button" disabled={index === run.stops.length - 1} onClick={() => onMoveStop(run.id, stop.id, 1)} aria-label="下へ" className="grid h-8 w-8 place-items-center rounded-md bg-slate-100 disabled:opacity-30"><ArrowDown className="h-3.5 w-3.5" /></button>
                 <button type="button" onClick={() => onExpandStop(expanded ? undefined : stop.id)} aria-label="送迎先を編集" className="grid h-8 w-8 place-items-center rounded-md bg-slate-100">{expanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}</button>
@@ -737,6 +747,7 @@ const TransportRunLane: React.FC<{
           );
         })}
       </div>
+      )}
     </article>
   );
 };
@@ -830,6 +841,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
   const [sortPanelOpen, setSortPanelOpen] = useState(false);
   const [mapOpen, setMapOpen] = useState(false);
   const [ganttOpen, setGanttOpen] = useState(false);
+  const [collapsedRunIds, setCollapsedRunIds] = useState<Set<string>>(() => new Set());
   const [groupDragEnabled, setGroupDragEnabled] = useState(true);
   const [sortRules, setSortRules] = useState<ChildSortRule[]>([
     { field: 'time', direction: 'asc' },
@@ -1117,6 +1129,18 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
   const updateStop = (runId: string, stopId: string, patch: Partial<TransportStop>) => {
     clearRouteCalculations([runId]);
     setDrafts((current) => current.map((run) => run.id === runId ? { ...run, routeOptimizedAt: undefined, stops: run.stops.map((stop) => { const next = stop.id === stopId ? { ...stop, ...patch } : stop; return next.timeMode && next.timeMode !== 'fixed' ? { ...next, plannedTime: undefined } : next; }) } : run));
+  };
+  const adjustCalculatedStopTime = (runId: string, stopId: string, plannedTime: string) => {
+    setDrafts((current) => current.map((run) => run.id === runId
+      ? {
+        ...run,
+        routeOptimizedAt: run.routeOptimizedAt || new Date().toISOString(),
+        stops: run.stops.map((stop) => stop.id === stopId
+          ? { ...stop, plannedTime: plannedTime || undefined, timeMode: 'fixed', timeAnchorTime: plannedTime || undefined }
+          : stop),
+      }
+      : run));
+    setRoutingNotice('計算結果の到着時刻を手動調整しました。ルート表示は維持されます。');
   };
   const removeStop = (runId: string, stopId: string) => {
     clearRouteCalculations([runId]);
@@ -1413,7 +1437,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
               </div>
               <div className="space-y-2 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
                 {vehicleRuns.length === 0 && <button type="button" onClick={() => addRun(direction, vehicle)} className="min-h-20 w-full rounded-xl border-2 border-dashed border-slate-300 bg-white text-[10px] font-bold text-slate-400">この車両に{direction}便を追加</button>}
-                {vehicleRuns.map((run) => <TransportRunLane key={run.id} run={run} vehicle={vehicle} childrenList={childrenList} date={date} activeRecorders={activeRecorders} requirementByChild={requirementByChild} sharedLocationByChild={sharedLocationByChild} routeCalculation={calculatedRoutes[run.id]} routeSelected={selectedRouteRunId === run.id} calculatingRoute={calculatingRouteRunId === run.id} needsRecalculation={recalculationRequiredRunIds.has(run.id)} expandedStopId={expandedStopId} holidayOpeningTime={direction === '迎え' && transportPlanDay?.pickupMode === 'home' ? routeSettings.holidayOpeningTime : undefined} onExpandStop={setExpandedStopId} onUpdateRun={updateRun} onUpdateStop={updateStop} onMoveStop={moveStop} onRemoveStop={removeStop} onRemoveRun={removeRun} onCalculateTime={(runId) => void calculateRunTime(runId)} onSelectRoute={setSelectedRouteRunId} />)}
+                {vehicleRuns.map((run) => <TransportRunLane key={run.id} run={run} vehicle={vehicle} childrenList={childrenList} date={date} activeRecorders={activeRecorders} requirementByChild={requirementByChild} sharedLocationByChild={sharedLocationByChild} routeCalculation={calculatedRoutes[run.id]} routeSelected={selectedRouteRunId === run.id} calculatingRoute={calculatingRouteRunId === run.id} needsRecalculation={recalculationRequiredRunIds.has(run.id)} collapsed={collapsedRunIds.has(run.id)} expandedStopId={expandedStopId} holidayOpeningTime={direction === '迎え' && transportPlanDay?.pickupMode === 'home' ? routeSettings.holidayOpeningTime : undefined} onExpandStop={setExpandedStopId} onToggleCollapsed={() => setCollapsedRunIds((current) => { const next = new Set(current); if (next.has(run.id)) next.delete(run.id); else next.add(run.id); return next; })} onUpdateRun={updateRun} onUpdateStop={updateStop} onAdjustPlannedTime={adjustCalculatedStopTime} onMoveStop={moveStop} onRemoveStop={removeStop} onRemoveRun={removeRun} onCalculateTime={(runId) => void calculateRunTime(runId)} onSelectRoute={setSelectedRouteRunId} />)}
               </div>
             </section>
           );
@@ -1434,7 +1458,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         </div>
         <button type="button" onClick={() => setChildPickerOpen(true)} className="flex min-h-10 items-center gap-1 rounded-xl border border-teal-300 bg-teal-50 px-3 text-xs font-black text-teal-800"><UserPlus className="h-4 w-4" />児童を追加</button>
         <button type="button" onClick={() => setMapOpen((current) => !current)} className={`min-h-10 rounded-xl border px-3 text-xs font-black ${mapOpen ? 'border-sky-600 bg-sky-600 text-white' : 'border-sky-300 bg-white text-sky-800'}`}>{mapOpen ? 'ミニマップを収納' : 'ミニマップを表示'}</button>
-        <button type="button" onClick={() => setGanttOpen((current) => !current)} className={`min-h-10 rounded-xl border px-3 text-xs font-black ${ganttOpen ? 'border-violet-600 bg-violet-600 text-white' : 'border-violet-300 bg-white text-violet-800'}`}>{ganttOpen ? '配置確認を収納' : '職員・時間を確認'}</button>
+        <button type="button" onClick={() => setGanttOpen(true)} className="min-h-10 rounded-xl border border-violet-300 bg-white px-3 text-xs font-black text-violet-800">全画面ガントを表示</button>
         <label className="flex min-h-10 items-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 text-[10px] font-black text-emerald-900"><input type="checkbox" checked={groupDragEnabled} onChange={(event) => setGroupDragEnabled(event.target.checked)} className="h-4 w-4 accent-emerald-600" />同じ場所・近い時刻をまとめて移動</label>
         <p className="min-w-0 flex-1 text-[10px] font-bold leading-relaxed text-slate-500">{routingNotice || 'ミニマップで送迎先を確認し、児童カードを車両の便へドラッグします。配置後、各便の「時間計算」を押してください。'}</p>
       </div>
@@ -1446,7 +1470,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         onDragEnd={handleDragEnd}
       >
         <div className="ui-scrollbar flex-1 overflow-y-auto p-2 sm:p-3 lg:overflow-auto">
-          <div className={`mx-auto grid max-w-[1900px] items-start gap-2 lg:min-h-0 lg:items-stretch ${ganttOpen ? 'lg:h-full lg:grid-rows-[minmax(24rem,3fr)_minmax(18rem,2fr)]' : 'lg:h-full lg:grid-rows-1'} ${mapOpen ? 'lg:grid-cols-[220px_minmax(0,1fr)_minmax(320px,0.72fr)]' : 'lg:grid-cols-[220px_minmax(0,1fr)]'}`}>
+          <div className={`mx-auto grid max-w-[1900px] items-start gap-2 lg:h-full lg:min-h-0 lg:grid-rows-1 lg:items-stretch ${mapOpen ? 'lg:grid-cols-[220px_minmax(0,1fr)_minmax(320px,0.72fr)]' : 'lg:grid-cols-[220px_minmax(0,1fr)]'}`}>
             <aside className="min-w-0 rounded-2xl border border-emerald-300 bg-emerald-50/70 p-2 lg:col-start-1 lg:row-span-2 lg:flex lg:h-full lg:min-h-0 lg:flex-col">
               <div className="mb-2 flex shrink-0 items-center justify-between gap-1 px-1"><div><p className="text-[9px] font-black text-emerald-700">{weekday}曜日・{activeDirection}</p><h3 className="text-sm font-black text-slate-950">未配車児童</h3></div><div className="flex items-center gap-1"><button type="button" onClick={() => setSortPanelOpen((current) => !current)} aria-expanded={sortPanelOpen} className={`grid h-8 w-8 place-items-center rounded-lg border ${sortPanelOpen ? 'border-emerald-700 bg-emerald-700 text-white' : 'border-emerald-200 bg-white text-emerald-800'}`} aria-label="児童リストの並べ替え"><SlidersHorizontal className="h-3.5 w-3.5" /></button><span className="rounded-full bg-white px-2 py-1 text-[9px] font-black text-emerald-800">{unassignedDirectionChildren.length}名</span></div></div>
               {sortPanelOpen && <div className="mb-2 shrink-0 space-y-1.5 rounded-xl border border-emerald-200 bg-white p-2"><div className="flex items-center justify-between"><div><p className="text-[9px] font-black text-slate-700">上から優先して並べ替え</p><p className="text-[8px] font-bold text-slate-400">つまみをドラッグして優先順を変更</p></div><button type="button" onClick={() => setSortRules([{ field: 'time', direction: 'asc' }, { field: 'area', direction: 'asc' }, { field: 'grade', direction: 'asc' }])} className="text-[8px] font-black text-emerald-700">初期値へ戻す</button></div><DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={({ active, over }) => { if (!over || active.id === over.id) return; setSortRules((current) => { const oldIndex = current.findIndex((rule) => rule.field === active.id); const newIndex = current.findIndex((rule) => rule.field === over.id); return oldIndex < 0 || newIndex < 0 ? current : arrayMove(current, oldIndex, newIndex); }); }}><SortableContext items={sortRules.map((rule) => rule.field)} strategy={verticalListSortingStrategy}><div className="space-y-1">{sortRules.map((rule, index) => <SortableSortRuleRow key={rule.field} rule={rule} index={index} rules={sortRules} onChange={(nextRule) => setSortRules((current) => current.map((item, itemIndex) => itemIndex === index ? nextRule : item))} />)}</div></SortableContext></DndContext></div>}
@@ -1458,9 +1482,6 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
             <div className="min-w-0 lg:col-start-2 lg:row-start-1 lg:h-full lg:min-h-0">{renderDirection(activeDirection)}</div>
             {mapOpen && <div className="ui-panel-enter min-w-0 lg:col-start-3 lg:row-start-1 lg:h-full lg:min-h-0">
               <DailyTransportMiniMap direction={activeDirection} points={miniMapPoints} facilityPoint={facilityMapPoint} expectedCount={directionChildren.length} activeChildId={activeDragData?.childId} routes={visibleCalculatedRoutes} selectedRouteRunId={selectedRouteRunId} fillHeight onSelectRoute={setSelectedRouteRunId} />
-            </div>}
-            {ganttOpen && <div className={`ui-panel-enter min-w-0 lg:col-start-2 lg:row-start-2 lg:h-full lg:min-h-0 lg:overflow-y-auto ${mapOpen ? 'lg:col-span-2' : ''}`}>
-              <DraftTransportGantt date={date} direction={activeDirection} drafts={drafts} recorders={activeRecorders} requirements={dailyTransportRequirements} children={childrenList} attendanceRecords={attendanceRecords} staffScheduleItems={staffScheduleItems} calendarEvents={calendarEvents} warnings={planningWarnings} minimumFacilityStaff={routeSettings.minimumFacilityStaff} embedded />
             </div>}
           </div>
         </div>
@@ -1484,6 +1505,10 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
           document.body,
         )}
       </DndContext>
+      {ganttOpen && <div className="app-safe-block ui-fade-in fixed inset-0 z-[170] flex min-h-[100dvh] flex-col bg-slate-100" role="dialog" aria-modal="true" aria-label="職員配置ガント">
+        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-3 shadow-sm"><div><p className="text-[10px] font-black text-violet-700">配車内容を即時反映</p><h3 className="text-base font-black text-slate-950">{date} {activeDirection}・職員配置ガント</h3></div><button type="button" onClick={() => setGanttOpen(false)} aria-label="ガントを閉じる" className="grid h-11 w-11 place-items-center rounded-xl bg-slate-100"><X className="h-5 w-5" /></button></header>
+        <div className="ui-scrollbar min-h-0 flex-1 overflow-auto p-2 sm:p-4"><DraftTransportGantt date={date} direction={activeDirection} drafts={drafts} recorders={activeRecorders} requirements={dailyTransportRequirements} children={childrenList} attendanceRecords={attendanceRecords} staffScheduleItems={staffScheduleItems} calendarEvents={calendarEvents} warnings={planningWarnings} minimumFacilityStaff={routeSettings.minimumFacilityStaff} embedded fullscreen /></div>
+      </div>}
       <footer className="shrink-0 border-t border-slate-200 bg-white p-3 shadow-[0_-8px_30px_rgba(15,23,42,0.08)]">
         <div className="mx-auto flex max-w-[1600px] flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between"><div className="min-h-5 text-xs font-bold text-rose-700">{error}</div><div className="grid shrink-0 grid-cols-2 gap-2 sm:flex"><button type="button" onClick={onClose} className="min-h-11 rounded-xl border border-slate-300 px-5 text-sm font-black text-slate-600">キャンセル</button><button type="button" disabled={saving} onClick={() => void saveAll()} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-teal-600 px-6 text-sm font-black text-white disabled:opacity-50">{saving ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" /> : <Save className="h-5 w-5" />}{saving ? '保存中…' : '配車を保存'}</button></div></div>
       </footer>
@@ -1578,7 +1603,8 @@ const DraftTransportGantt: React.FC<{
   warnings: string[];
   minimumFacilityStaff: number;
   embedded?: boolean;
-}> = ({ date, direction, drafts, recorders, requirements, children, attendanceRecords, staffScheduleItems, calendarEvents, warnings, minimumFacilityStaff, embedded = false }) => {
+  fullscreen?: boolean;
+}> = ({ date, direction, drafts, recorders, requirements, children, attendanceRecords, staffScheduleItems, calendarEvents, warnings, minimumFacilityStaff, embedded = false, fullscreen = false }) => {
   const runs = drafts.filter((run) => run.direction === direction && run.stops.length > 0);
   const assignedIds = new Set(runs.flatMap((run) => [run.driverRecorderProfileId, ...run.assistantRecorderProfileIds].filter((id): id is string => Boolean(id))));
   const rows = recorders.filter((recorder) => recorder.active).sort((left, right) => Number(assignedIds.has(right.id)) - Number(assignedIds.has(left.id)) || left.displayName.localeCompare(right.displayName, 'ja'));
@@ -1607,10 +1633,10 @@ const DraftTransportGantt: React.FC<{
     .map(([time, points]) => ({ time, points }))
     .sort((left, right) => left.time.localeCompare(right.time));
   return (
-    <section className={`${embedded ? 'min-h-full' : 'mx-auto mt-3 max-w-[1600px]'} rounded-2xl border border-slate-300 bg-white p-3 shadow-sm`}>
+    <section className={`${embedded ? 'min-h-full' : 'mx-auto mt-3 max-w-[1600px]'} ${fullscreen ? 'flex h-full min-w-[900px] flex-col' : ''} rounded-2xl border border-slate-300 bg-white p-3 shadow-sm`}>
       <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-[9px] font-black text-teal-700">保存前の配車を即時反映</p><h3 className="text-sm font-black text-slate-950">職員配置ガント・{date} {direction}</h3></div><span className="rounded-full bg-slate-100 px-2 py-1 text-[9px] font-black text-slate-600">施設内最低 {minimumFacilityStaff}名</span></div>
       {timePointGroups.length > 0 && <div className="mt-3 rounded-xl border border-sky-100 bg-sky-50/60 p-2"><div className="grid min-w-0 grid-cols-[7rem_1fr] items-center gap-2"><span className="text-[10px] font-black text-sky-800">児童の{direction}時刻</span><div className="relative h-7 rounded-lg bg-white bg-[linear-gradient(to_right,#bae6fd_1px,transparent_1px)] bg-[size:16.666%_100%]">{timePointGroups.map((group) => <span key={group.time} title={`${group.time} ${group.points.map((point) => point.name).join('・')}`} className="absolute top-1/2 h-4 w-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-sky-600 ring-2 ring-white" style={{ left: `${position(group.time)}%` }} />)}</div></div><div className="mt-2 flex max-h-20 flex-wrap gap-1 overflow-y-auto pl-0 sm:pl-[7.5rem]">{timePointGroups.map((group) => <span key={group.time} className="rounded-lg border border-sky-200 bg-white px-2 py-1 text-[9px] font-bold text-sky-950"><strong>{group.time}</strong> {group.points.map((point) => point.name).join('・')}</span>)}</div></div>}
-      <div className="mt-3 overflow-x-auto"><div className="min-w-[680px]"><div className="ml-28 grid grid-cols-7 text-[9px] font-bold text-slate-400">{[8,10,12,14,16,18,20].map((hour) => <span key={hour}>{hour}:00</span>)}</div><div className="mt-1 max-h-[42dvh] space-y-1 overflow-y-auto pr-1">{rows.map((recorder) => {
+      <div className={`mt-3 overflow-x-auto ${fullscreen ? 'min-h-0 flex-1' : ''}`}><div className="min-w-[680px]"><div className="ml-28 grid grid-cols-7 text-[9px] font-bold text-slate-400">{[8,10,12,14,16,18,20].map((hour) => <span key={hour}>{hour}:00</span>)}</div><div className={`mt-1 space-y-1 overflow-y-auto pr-1 ${fullscreen ? 'max-h-[calc(100dvh-15rem)]' : 'max-h-[42dvh]'}`}>{rows.map((recorder) => {
         const attendance = attendanceRecords.find((item) => item.date === date && item.recorderProfileId === recorder.id);
         const leave = calendarEvents.find((event) => event.eventType === '職員休み' && event.date <= date && (event.endDate || event.date) >= date && event.recorderProfileIds.includes(recorder.id));
         const workItems = staffScheduleItems.filter((item) => item.date === date && item.recorderProfileId === recorder.id);

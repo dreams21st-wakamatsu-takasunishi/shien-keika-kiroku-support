@@ -275,7 +275,7 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
       </section>
 
       <section className="grid grid-cols-2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <MiniSummary label={`${monthPrefix} 勤務日数`} value={`${new Set(monthlyRecords.filter((record) => record.clockInAt).map((record) => `${record.recorderProfileId}:${record.date}`)).size}人日`} />
+        <MiniSummary label={`${monthPrefix} 延べ勤務日数`} value={`${new Set(monthlyRecords.filter((record) => record.clockInAt).map((record) => `${record.recorderProfileId}:${record.date}`)).size}日`} />
         <MiniSummary label="実働合計" value={formatMinutes(monthlyWorkingMinutes)} />
       </section>
 

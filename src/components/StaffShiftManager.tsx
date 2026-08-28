@@ -19,6 +19,7 @@ import type {
   StaffShiftTemplate,
   TransportRun,
 } from '../types';
+import { getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
 
 interface StaffShiftManagerProps {
   templates: StaffShiftTemplate[];
@@ -117,12 +118,17 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
   );
   const utilizationCountByDate = useMemo(() => {
     const counts = new Map<string, number>();
-    dailyChildPlans.forEach((plan) => {
-      if (!plan.date.startsWith(month) || plan.attendancePlan === '欠席') return;
-      counts.set(plan.date, (counts.get(plan.date) || 0) + 1);
+    dates.forEach((date) => {
+      const weekday = getWeekdayFromDate(date);
+      const count = childrenList.filter((child) => {
+        if (child.serviceSuspended) return false;
+        const plan = dailyChildPlans.find((candidate) => candidate.date === date && candidate.childId === child.id);
+        return plan ? plan.attendancePlan !== '欠席' : getRegularDaysForDate(child, date).includes(weekday);
+      }).length;
+      counts.set(date, count);
     });
     return counts;
-  }, [dailyChildPlans, month]);
+  }, [childrenList, dailyChildPlans, dates]);
   const monthRecords = useMemo(
     () => records.filter((record) => record.date.startsWith(month)),
     [month, records],
@@ -398,15 +404,20 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
       <div className="border-t border-slate-100 bg-slate-50/60 p-3">
         {viewMode === 'month' && <div className="overflow-x-auto rounded-xl border border-slate-300 bg-white shadow-sm">
           <div style={{ minWidth: `${112 + dates.length * 30 + 54}px` }}>
+            <div className="grid border-b border-slate-300 bg-slate-100" style={{ gridTemplateColumns: `112px repeat(${dates.length}, minmax(30px, 1fr)) 54px` }}>
+              <div className="flex items-center px-2 text-[10px] font-black text-slate-700">日付</div>
+              {dates.map((date) => { const weekday = new Date(`${date}T12:00:00`).getDay(); return <div key={date} className={`border-l border-slate-300 py-1 text-center text-[9px] font-black ${weekday === 0 ? 'bg-rose-50 text-rose-700' : weekday === 6 ? 'bg-sky-50 text-sky-700' : 'text-slate-700'}`}><span className="block">{Number(date.slice(8))}</span><span>{WEEKDAYS[weekday]}</span></div>; })}
+              <div className="border-l border-slate-300" />
+            </div>
             <div className="grid border-b border-sky-200 bg-sky-50" style={{ gridTemplateColumns: `112px repeat(${dates.length}, minmax(30px, 1fr)) 54px` }}>
               <div className="flex items-center px-2 py-1.5 text-[10px] font-black text-sky-900">利用人数</div>
-              {dates.map((date) => <div key={date} className="flex items-center justify-center border-l border-sky-200 py-1.5 text-[10px] font-black text-sky-900" title={`${date}の利用予定児童`}>{utilizationCountByDate.get(date) || 0}</div>)}
+              {dates.map((date) => <div key={date} className="flex items-center justify-center border-l border-sky-200 py-1.5 text-[10px] font-black text-sky-900" title={`${date}の基本利用曜日・追加利用・欠席を反映`}>{utilizationCountByDate.get(date) || 0}</div>)}
               <div className="border-l border-sky-200" />
             </div>
-            <div className="grid border-b border-slate-300 bg-slate-100" style={{ gridTemplateColumns: `112px repeat(${dates.length}, minmax(30px, 1fr)) 54px` }}>
-              <div className="flex items-center px-2 text-[10px] font-black text-slate-700">職員名</div>
-              {dates.map((date) => { const weekday = new Date(`${date}T12:00:00`).getDay(); return <div key={date} className={`border-l border-slate-300 py-1 text-center text-[9px] font-black ${weekday === 0 ? 'bg-rose-50 text-rose-700' : weekday === 6 ? 'bg-sky-50 text-sky-700' : 'text-slate-700'}`}><span className="block">{Number(date.slice(8))}</span><span>{WEEKDAYS[weekday]}</span></div>; })}
-              <div className="border-l border-slate-300 py-1 text-center text-[9px] font-black text-slate-700">欠勤<br />計</div>
+            <div className="grid border-b border-slate-300 bg-white" style={{ gridTemplateColumns: `112px repeat(${dates.length}, minmax(30px, 1fr)) 54px` }}>
+              <div className="flex items-center px-2 py-1.5 text-[10px] font-black text-slate-700">職員名</div>
+              {dates.map((date) => <div key={date} className="border-l border-slate-200" />)}
+              <div className="flex items-center justify-center border-l border-slate-300 text-center text-[9px] font-black text-slate-700">欠勤計</div>
             </div>
             {visibleProfiles.map((profile) => {
               const profileRecords = monthRecords.filter((record) => record.recorderProfileId === profile.id);

@@ -52,6 +52,7 @@ import {
 import { DailyTransportPlanner } from "./DailyTransportPlanner";
 import { inferTransportArea, resolvedTransportArea } from "../utils/transportArea";
 import { TransportMapPanel } from "./TransportMapPanel";
+import { TransportScheduleBoard } from "./TransportScheduleBoard";
 
 const TRANSPORT_LOCATION_TYPES: TransportLocationType[] = [
   "自宅",
@@ -113,7 +114,6 @@ interface TransportPanelProps {
   activeRecorder?: RecorderProfile;
   warningsByRunId?: Map<string, string[]>;
   focusRunId?: string;
-  initialDayPlannerOpen?: boolean;
   onSaveRun: (run: TransportRun) => Promise<void> | void;
   onSaveRequirements: (requirements: DailyTransportRequirement[]) => Promise<void> | void;
   onChangeAssignment: (change: TransportAssignmentChangeInput) => Promise<void> | void;
@@ -154,7 +154,6 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
   activeRecorder,
   warningsByRunId = new Map(),
   focusRunId,
-  initialDayPlannerOpen = false,
   onSaveRun,
   onSaveRequirements,
   onChangeAssignment,
@@ -169,7 +168,8 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
 }) => {
   const [view, setView] = useState<ViewMode>("runs");
   const [runForm, setRunForm] = useState<TransportRun | null>(null);
-  const [dayPlannerOpen, setDayPlannerOpen] = useState(initialDayPlannerOpen);
+  const [dayPlannerOpen, setDayPlannerOpen] = useState(false);
+  const [selectedRunId, setSelectedRunId] = useState(focusRunId);
   const [vehicleForm, setVehicleForm] = useState<Vehicle | null>(null);
   const [statusRun, setStatusRun] = useState<TransportRun | null>(null);
   const [statusRecorderId, setStatusRecorderId] = useState(
@@ -206,6 +206,11 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
         .sort((left, right) => left.startTime.localeCompare(right.startTime)),
     [runs, selectedDate],
   );
+  const activeRunId = dayRuns.some((run) => run.id === selectedRunId)
+    ? selectedRunId
+    : dayRuns.some((run) => run.id === focusRunId)
+      ? focusRunId
+      : dayRuns[0]?.id;
 
   useEffect(() => {
     const next = new Map(dayRuns.map((run) => [run.id, `${run.driverRecorderProfileId || ''}|${run.assistantRecorderProfileIds.join(',')}`]));
@@ -600,8 +605,11 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
           {dayRuns.length === 0 ? (
             <Empty text="送迎便は登録されていません。" />
           ) : (
-            <div className="grid gap-3 p-3 lg:grid-cols-2">
-              {dayRuns.map((run) => {
+            <div className="space-y-3 p-3">
+              <TransportScheduleBoard runs={dayRuns} selectedRunId={activeRunId} onSelectRun={setSelectedRunId} />
+              <div className="flex items-center justify-between gap-2 px-1"><h4 className="text-sm font-black text-slate-900">選択中の便</h4><span className="text-[10px] font-bold text-slate-500">時間表から切り替えできます</span></div>
+              <div className="grid gap-3 lg:grid-cols-2">
+              {dayRuns.filter((run) => run.id === activeRunId).map((run) => {
                 const warnings = warningsByRunId.get(run.id) || [];
                 const assigned =
                   activeRecorder &&
@@ -779,6 +787,7 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
                   </article>
                 );
               })}
+              </div>
             </div>
           )}
         </section>
