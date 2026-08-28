@@ -144,6 +144,7 @@ interface HomeScreenProps {
   onSaveStaffShiftRequest: (request: StaffShiftRequest) => Promise<void> | void;
   onSaveShiftRequestDefaults: (recorderProfileId: string, startTime: string, endTime: string) => Promise<void> | void;
   onReviewStaffShiftRequest: (request: StaffShiftRequest, approved: boolean, note?: string) => Promise<void> | void;
+  onDeleteReviewedStaffShiftRequest: (request: StaffShiftRequest) => Promise<void> | void;
   onPunchAttendance: (recorder: RecorderProfile, pin: string, action: '出勤' | '退勤' | '休憩開始' | '休憩終了') => Promise<void> | void;
   onRequestAttendanceCorrection: (record: AttendanceRecord, pin: string, clockIn: string | undefined, clockOut: string | undefined, reason: string) => Promise<void> | void;
   onReviewAttendanceCorrection: (request: AttendanceCorrectionRequest, approved: boolean, note?: string) => Promise<void> | void;
@@ -247,6 +248,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onSaveStaffShiftRequest,
   onSaveShiftRequestDefaults,
   onReviewStaffShiftRequest,
+  onDeleteReviewedStaffShiftRequest,
   onPunchAttendance,
   onRequestAttendanceCorrection,
   onReviewAttendanceCorrection,
@@ -510,7 +512,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           />
         )}
 
-        {activePanel === 'attendance' && <AttendanceHomePanel records={attendanceRecords} shiftTemplates={staffShiftTemplates} shiftRequests={staffShiftRequests} corrections={attendanceCorrections} recorderProfiles={recorderProfiles} activeRecorder={activeRecorder} canManageShifts={canManageShifts} canApproveCorrections={!organizationId || currentUser?.role === 'admin'} qrKioskEnabled={Boolean(organizationId)} calendarEvents={calendarEvents} childrenList={childrenList} dailyChildPlans={dailyChildPlans} dailyTransportRequirements={dailyTransportRequirements} transportRuns={transportRuns} onSaveRecord={onSaveAttendance} onSaveRecords={onSaveAttendanceRecords} onDeleteRecord={onDeleteAttendance} onSaveShiftRequest={onSaveStaffShiftRequest} onSaveShiftRequestDefaults={onSaveShiftRequestDefaults} onReviewShiftRequest={onReviewStaffShiftRequest} onPunch={onPunchAttendance} onRequestCorrection={onRequestAttendanceCorrection} onReviewCorrection={onReviewAttendanceCorrection} />}
+        {activePanel === 'attendance' && <AttendanceHomePanel records={attendanceRecords} shiftTemplates={staffShiftTemplates} shiftRequests={staffShiftRequests} corrections={attendanceCorrections} recorderProfiles={recorderProfiles} activeRecorder={activeRecorder} canManageShifts={canManageShifts} canApproveCorrections={!organizationId || currentUser?.role === 'admin'} qrKioskEnabled={Boolean(organizationId)} calendarEvents={calendarEvents} childrenList={childrenList} dailyChildPlans={dailyChildPlans} dailyTransportRequirements={dailyTransportRequirements} transportRuns={transportRuns} onSaveRecord={onSaveAttendance} onSaveRecords={onSaveAttendanceRecords} onDeleteRecord={onDeleteAttendance} onSaveShiftRequest={onSaveStaffShiftRequest} onSaveShiftRequestDefaults={onSaveShiftRequestDefaults} onReviewShiftRequest={onReviewStaffShiftRequest} onDeleteShiftRequest={onDeleteReviewedStaffShiftRequest} onPunch={onPunchAttendance} onRequestCorrection={onRequestAttendanceCorrection} onReviewCorrection={onReviewAttendanceCorrection} />}
 
         {activePanel === 'calendar' && <CalendarPanel events={calendarEvents} recorderProfiles={recorderProfiles} childrenList={childrenList} selectedDate={todayWorkLaunch.date} onDateChange={(date) => setTodayWorkLaunch((current) => ({ ...current, date }))} canEdit={canManageCalendar} onSave={onSaveCalendarEvent} onDelete={onDeleteCalendarEvent} />}
 

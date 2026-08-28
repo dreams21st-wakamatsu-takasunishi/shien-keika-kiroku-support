@@ -1170,6 +1170,20 @@ export async function saveStaffShiftRequest(
   return mapStaffShiftRequest(data, new Map([[request.recorderProfileId, request.recorderName]]));
 }
 
+export async function deleteReviewedPartTimeShiftRequest(requestId: string): Promise<{
+  requestId: string;
+  deletedAttendanceId?: string;
+}> {
+  const { data, error } = await assertSupabase().rpc('delete_reviewed_part_time_shift_request', {
+    p_request_id: requestId,
+  });
+  if (error) throw error;
+  return {
+    requestId: String(data?.requestId || requestId),
+    deletedAttendanceId: data?.deletedAttendanceId ? String(data.deletedAttendanceId) : undefined,
+  };
+}
+
 export async function saveShiftRequestDefaults(
   recorderProfileId: string,
   startTime: string,

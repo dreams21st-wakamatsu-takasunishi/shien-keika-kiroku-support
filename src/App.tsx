@@ -80,6 +80,7 @@ import {
   deleteMorningMeetingConfirmation,
   deleteRecordDraft,
   deleteSchool,
+  deleteReviewedPartTimeShiftRequest,
   deleteStaffScheduleItem,
   deleteStaffShiftTemplate,
   deleteTransportRun,
@@ -1440,6 +1441,31 @@ export default function App() {
     } catch (error) { persistError(error); throw error; }
   };
 
+  const handleDeleteReviewedStaffShiftRequest = async (request: StaffShiftRequest) => {
+    if (!canManageShifts) throw new Error('確認済みのシフト希望を削除する権限がありません。');
+    if (request.status === '申請中') throw new Error('申請中の希望は、承認または却下してから削除してください。');
+    const recorder = recorderProfiles.find((profile) => profile.id === request.recorderProfileId);
+    if (recorder?.employmentType !== 'part_time') throw new Error('この削除操作はパート職員のシフト希望のみ対象です。');
+    const linkedAttendance = request.status === '承認'
+      ? attendanceRecords.find((record) => record.recorderProfileId === request.recorderProfileId && record.date === request.requestedDate)
+      : undefined;
+    if (linkedAttendance?.clockInAt || linkedAttendance?.clockOutAt) throw new Error('打刻済みの勤務情報は削除できません。打刻修正申請を使用してください。');
+    try {
+      let deletedAttendanceId: string | undefined;
+      if (organizationId) {
+        const result = await deleteReviewedPartTimeShiftRequest(request.id);
+        deletedAttendanceId = result.deletedAttendanceId;
+      } else {
+        deletedAttendanceId = linkedAttendance?.id;
+      }
+      setStaffShiftRequests((previous) => previous.filter((candidate) => candidate.id !== request.id));
+      if (deletedAttendanceId) setAttendanceRecords((previous) => previous.filter((record) => record.id !== deletedAttendanceId));
+    } catch (error) {
+      persistError(error);
+      throw error;
+    }
+  };
+
   const handlePunchAttendance = async (
     recorder: RecorderProfile,
     pin: string,
@@ -2288,6 +2314,7 @@ export default function App() {
             onSaveStaffShiftRequest={handleSaveStaffShiftRequest}
             onSaveShiftRequestDefaults={handleSaveShiftRequestDefaults}
             onReviewStaffShiftRequest={handleReviewStaffShiftRequest}
+            onDeleteReviewedStaffShiftRequest={handleDeleteReviewedStaffShiftRequest}
             onPunchAttendance={handlePunchAttendance}
             onRequestAttendanceCorrection={handleRequestAttendanceCorrection}
             onReviewAttendanceCorrection={handleReviewAttendanceCorrection}

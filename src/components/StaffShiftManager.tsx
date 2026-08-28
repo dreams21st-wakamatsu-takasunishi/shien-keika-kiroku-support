@@ -4,6 +4,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Save,
+  Trash2,
   X,
 } from 'lucide-react';
 import type {
@@ -35,6 +36,7 @@ interface StaffShiftManagerProps {
   onSaveRecords: (records: AttendanceRecord[]) => Promise<void> | void;
   onDeleteRecord?: (record: AttendanceRecord) => Promise<void> | void;
   onReviewShiftRequest?: (request: StaffShiftRequest, approved: boolean, note?: string) => Promise<void> | void;
+  onDeleteShiftRequest?: (request: StaffShiftRequest) => Promise<void> | void;
 }
 
 interface DayForm {
@@ -69,6 +71,7 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
   onSaveRecords,
   onDeleteRecord,
   onReviewShiftRequest,
+  onDeleteShiftRequest,
 }) => {
   const activeProfiles = useMemo(
     () => recorderProfiles.filter((profile) => profile.active),
@@ -363,6 +366,28 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
     }
   };
 
+  const deleteReviewedRequest = async () => {
+    if (!reviewRequest || !onDeleteShiftRequest) return;
+    const profile = activeProfiles.find((candidate) => candidate.id === reviewRequest.recorderProfileId);
+    if (profile?.employmentType !== 'part_time' || reviewRequest.status === '申請中') return;
+    const linkedScheduleNote = reviewRequest.status === '承認'
+      ? '承認時に反映した未打刻の勤務予定も同時に削除されます。'
+      : '却下済みの希望履歴を削除します。';
+    if (!window.confirm(`${reviewRequest.recorderName}さんの${reviewRequest.requestedDate}の${reviewRequest.status}済み希望を削除しますか？\n${linkedScheduleNote}`)) return;
+    setBusy(true);
+    setMessage('');
+    try {
+      await onDeleteShiftRequest(reviewRequest);
+      setSelectedRequestIds((current) => current.filter((id) => id !== reviewRequest.id));
+      setReviewRequest(null);
+      setMessage(`${reviewRequest.recorderName}さんの確認済みシフト希望を削除しました。`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '確認済みシフト希望を削除できませんでした。');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const navigateView = (amount: number) => {
     if (viewMode === 'week') {
       const next = moveDate(weekStart, amount * 7);
@@ -541,6 +566,7 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
         <Modal title="シフト希望を確認" onClose={() => setReviewRequest(null)}>
           <div className={`rounded-xl border p-3 ${requestPanelTone(reviewRequest.status)}`}><strong className="block text-sm">{reviewRequest.recorderName}／{reviewRequest.requestedDate}</strong><span className="mt-1 block text-sm font-black">希望 {reviewRequest.requestedStartTime || '－'}〜{reviewRequest.requestedEndTime || '－'}・{reviewRequest.status}</span>{reviewRequest.note && <p className="mt-2 text-xs">メモ：{reviewRequest.note}</p>}</div>
           {reviewRequest.status === '申請中' && onReviewShiftRequest && <div className="grid grid-cols-2 gap-2"><button type="button" onClick={async () => { await onReviewShiftRequest(reviewRequest, true); setReviewRequest(null); }} className="min-h-12 rounded-xl bg-teal-600 font-black text-white">承認</button><button type="button" onClick={async () => { await onReviewShiftRequest(reviewRequest, false); setReviewRequest(null); }} className="min-h-12 rounded-xl border border-rose-300 font-black text-rose-700">却下</button></div>}
+          {reviewRequest.status !== '申請中' && onDeleteShiftRequest && activeProfiles.find((profile) => profile.id === reviewRequest.recorderProfileId)?.employmentType === 'part_time' && <button type="button" disabled={busy} onClick={() => void deleteReviewedRequest()} className="flex min-h-11 w-full items-center justify-center gap-2 rounded-xl border border-rose-300 bg-rose-50 font-black text-rose-700 disabled:opacity-50"><Trash2 className="h-4 w-4" />{reviewRequest.status}済み希望を削除</button>}
           <button type="button" onClick={() => { const profile = activeProfiles.find((item) => item.id === reviewRequest.recorderProfileId); const date = reviewRequest.requestedDate; setReviewRequest(null); if (profile) openDay(profile, date); }} className="min-h-11 w-full rounded-xl border border-slate-300 font-black text-slate-700">この日の勤務予定を編集</button>
         </Modal>
       )}

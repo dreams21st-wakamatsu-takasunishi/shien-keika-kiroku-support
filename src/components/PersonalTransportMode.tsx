@@ -100,7 +100,9 @@ export const PersonalTransportMode: React.FC<PersonalTransportModeProps> = ({ cu
   const [lastEvent, setLastEvent] = useState<{ id: string; label: string } | null>(null);
   const [online, setOnline] = useState(navigator.onLine);
   const [selectedRunId, setSelectedRunId] = useState<string>();
+  const [highlightedRunId, setHighlightedRunId] = useState<string>();
   const assignedRunIdsRef = useRef<Set<string>>(new Set());
+  const selectedRunDetailRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     assignedRunIdsRef.current = new Set(dashboard?.myRuns.filter((run) => run.isAssigned).map((run) => run.id) || []);
@@ -192,6 +194,15 @@ export const PersonalTransportMode: React.FC<PersonalTransportModeProps> = ({ cu
   const dateLabel = useMemo(() => new Intl.DateTimeFormat('ja-JP', {
     month: 'long', day: 'numeric', weekday: 'short',
   }).format(new Date(`${serviceDate}T12:00:00`)), [serviceDate]);
+
+  const selectRunAndShowDetails = (runId: string) => {
+    setSelectedRunId(runId);
+    setHighlightedRunId(runId);
+    window.requestAnimationFrame(() => window.requestAnimationFrame(() => {
+      selectedRunDetailRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }));
+    window.setTimeout(() => setHighlightedRunId((current) => current === runId ? undefined : current), 2200);
+  };
 
   const submitAction = async (
     run: TransportFieldRun,
@@ -322,11 +333,13 @@ export const PersonalTransportMode: React.FC<PersonalTransportModeProps> = ({ cu
           <div className="rounded-2xl bg-white p-10 text-center shadow-sm"><BusFront className="mx-auto h-10 w-10 text-slate-300" /><p className="mt-3 text-sm font-bold text-slate-600">{view === 'mine' ? '担当する送迎はありません' : '登録された送迎便はありません'}</p>{view === 'mine' && <button type="button" onClick={() => setView('all')} className="mt-4 min-h-11 rounded-xl border border-teal-300 px-4 text-sm font-black text-teal-800">全体の送迎を確認</button>}</div>
         ) : (
           <div className="space-y-3">
-            <TransportScheduleBoard runs={runs} selectedRunId={activeRunId} onSelectRun={setSelectedRunId} compact />
+            <TransportScheduleBoard runs={runs} selectedRunId={activeRunId} onSelectRun={selectRunAndShowDetails} compact />
             <div className="flex items-center justify-between gap-2 px-1"><h2 className="text-sm font-black text-slate-900">選択中の送迎</h2><span className="text-[10px] font-bold text-slate-500">一覧または時間表から便を選択</span></div>
-            {runs.filter((run) => run.id === activeRunId).map((run) => view === 'all' && !run.isAssigned && !run.isCovering
-              ? <TransportSummaryCard key={run.id} run={run} busy={busyKey === `cover:${run.id}`} onCover={() => void changeCover(run, true)} />
-              : <AssignedTransportCard key={run.id} run={run} busyKey={busyKey} onAction={submitAction} onEndCover={run.isCovering && !run.isAssigned ? () => void changeCover(run, false) : undefined} />)}
+            <div ref={selectedRunDetailRef} className={`scroll-mt-24 rounded-[1.15rem] transition-[box-shadow,transform] duration-500 ${highlightedRunId === activeRunId ? 'animate-pulse ring-4 ring-teal-300 ring-offset-4' : ''}`} aria-live="polite">
+              {runs.filter((run) => run.id === activeRunId).map((run) => view === 'all' && !run.isAssigned && !run.isCovering
+                ? <TransportSummaryCard key={run.id} run={run} busy={busyKey === `cover:${run.id}`} onCover={() => void changeCover(run, true)} />
+                : <AssignedTransportCard key={run.id} run={run} busyKey={busyKey} onAction={submitAction} onEndCover={run.isCovering && !run.isAssigned ? () => void changeCover(run, false) : undefined} />)}
+            </div>
           </div>
         )}
 
