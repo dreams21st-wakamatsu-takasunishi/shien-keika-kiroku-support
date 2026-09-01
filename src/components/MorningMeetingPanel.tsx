@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { RealtimeChannel } from '@supabase/supabase-js';
 import {
+  AlertTriangle,
   CalendarDays,
   Check,
   CheckCircle2,
@@ -9,11 +10,13 @@ import {
   Clock3,
   Copy,
   FilePlus2,
+  GitMerge,
   ListPlus,
   LoaderCircle,
   MousePointer2,
   PencilLine,
   Radio,
+  RefreshCw,
   Save,
   Settings2,
   Trash2,
@@ -21,6 +24,7 @@ import {
   Users,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
+import { MorningMeetingConflictError } from '../services/dataService';
 import type {
   MorningMeetingConfirmation,
   MorningMeetingRecord,
@@ -40,7 +44,7 @@ interface MorningMeetingPanelProps {
   currentUser?: UserProfile | null;
   canManageTemplates: boolean;
   dailySummary?: string[];
-  onSave: (record: MorningMeetingRecord) => Promise<void> | void;
+  onSave: (record: MorningMeetingRecord) => Promise<MorningMeetingRecord>;
   onSaveTemplate: (template: MorningMeetingTemplate) => Promise<void> | void;
   onArchiveTemplate: (templateId: string) => Promise<void> | void;
   onSetConfirmation: (
@@ -62,6 +66,12 @@ interface CollaboratorActivity {
   typing: boolean;
   focused: boolean;
   lastActiveAt: string;
+}
+
+interface MorningMeetingConflict {
+  latestRecord?: MorningMeetingRecord;
+  localContent: string;
+  baseContent: string;
 }
 
 function createSessionId() {
@@ -127,6 +137,14 @@ function isConfirmationCurrent(confirmedAt: string, updatedAt?: string) {
     return confirmedAt >= updatedAt;
   }
   return confirmedTime >= updatedTime;
+}
+
+function combineConflictingContent(localContent: string, remoteContent: string, remoteEditor: string) {
+  if (!remoteContent.trim() || localContent === remoteContent || localContent.includes(remoteContent)) {
+    return localContent;
+  }
+  if (!localContent.trim() || remoteContent.includes(localContent)) return remoteContent;
+  return `${localContent.trimEnd()}\n\n【${remoteEditor}さんの更新内容・要確認】\n${remoteContent.trimStart()}`;
 }
 
 function RemoteCursorOverlay({
@@ -218,11 +236,12 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
     [records, targetDate]
   );
   const [content, setContent] = useState(selectedRecord?.content || '');
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error' | 'remote'>('idle');
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error' | 'remote' | 'conflict'>('idle');
   const [viewerCount, setViewerCount] = useState(1);
   const [collaborators, setCollaborators] = useState<CollaboratorActivity[]>([]);
   const [editorScroll, setEditorScroll] = useState({ top: 0, left: 0 });
   const [remoteEditor, setRemoteEditor] = useState('');
+  const [conflict, setConflict] = useState<MorningMeetingConflict | null>(null);
   const [copied, setCopied] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [showTemplateManager, setShowTemplateManager] = useState(false);
@@ -240,7 +259,14 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
   const saveTimerRef = useRef<number | null>(null);
   const typingTimerRef = useRef<number | null>(null);
   const lastPresenceTrackAtRef = useRef(0);
+  const lastCursorBroadcastAtRef = useRef(0);
   const localPendingRef = useRef(false);
+  const saveInFlightRef = useRef(false);
+  const saveQueuedRef = useRef(false);
+  const editVersionRef = useRef(0);
+  const persistedRecordRef = useRef<MorningMeetingRecord | undefined>(selectedRecord);
+  const loadedDateRef = useRef(targetDate);
+  const conflictRef = useRef<MorningMeetingConflict | null>(null);
   const sessionId = useRef(createSessionId()).current;
   const editorName = activeRecorder?.displayName || currentUser?.displayName || '職員';
   const editorUserKey = activeRecorder?.id || currentUser?.id || editorName;
@@ -270,6 +296,7 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
   editorNameRef.current = editorName;
   recorderIdRef.current = activeRecorder?.id;
   localActivityRef.current = localActivity;
+  conflictRef.current = conflict;
   const remoteCollaborators = useMemo(
     () => collaborators.filter((collaborator) =>
       collaborator.sessionId !== sessionId && collaborator.userKey !== editorUserKey
@@ -322,6 +349,7 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
     && content.trim()
     && selectedRecord.content === content
     && saveStatus !== 'saving'
+    && !conflict
   );
 
   useEffect(() => {
@@ -337,12 +365,56 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
   }, [cursorColor, editorName, editorUserKey]);
 
   useEffect(() => {
-    if (localPendingRef.current) return;
-    const storedContent = selectedRecord?.content || '';
-    contentRef.current = storedContent;
-    setContent(storedContent);
-    setSaveStatus('idle');
-  }, [selectedRecord?.content, selectedRecord?.updatedAt, targetDate]);
+    if (loadedDateRef.current !== targetDate) {
+      loadedDateRef.current = targetDate;
+      persistedRecordRef.current = selectedRecord;
+      localPendingRef.current = false;
+      saveQueuedRef.current = false;
+      editVersionRef.current = 0;
+      conflictRef.current = null;
+      setConflict(null);
+      const storedContent = selectedRecord?.content || '';
+      contentRef.current = storedContent;
+      setContent(storedContent);
+      setSaveStatus('idle');
+      return;
+    }
+
+    const currentBase = persistedRecordRef.current;
+    const currentRevision = currentBase?.revision || 0;
+    const incomingRevision = selectedRecord?.revision || 0;
+    if (!selectedRecord || incomingRevision <= currentRevision || saveInFlightRef.current) return;
+
+    if (localPendingRef.current) {
+      if (selectedRecord.content === contentRef.current) {
+        if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = null;
+        persistedRecordRef.current = selectedRecord;
+        localPendingRef.current = false;
+        setConflict(null);
+        setSaveStatus('saved');
+        return;
+      }
+      if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+      const nextConflict: MorningMeetingConflict = {
+        latestRecord: selectedRecord,
+        localContent: contentRef.current,
+        baseContent: currentBase?.content || '',
+      };
+      conflictRef.current = nextConflict;
+      setConflict(nextConflict);
+      setRemoteEditor(selectedRecord.updatedByName || '別の職員');
+      setSaveStatus('conflict');
+      return;
+    }
+
+    persistedRecordRef.current = selectedRecord;
+    contentRef.current = selectedRecord.content;
+    setContent(selectedRecord.content);
+    setRemoteEditor(selectedRecord.updatedByName || '別の職員');
+    setSaveStatus('remote');
+  }, [selectedRecord, targetDate]);
 
   useEffect(() => {
     if (!supabase || !organizationId) {
@@ -381,14 +453,7 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
         };
         if (incoming.senderId === sessionId || typeof incoming.content !== 'string') return;
         acceptRemoteActivity(incoming.activity);
-        if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = null;
-        localPendingRef.current = false;
-        const remoteContent = incoming.content.slice(0, 20000);
-        contentRef.current = remoteContent;
-        setContent(remoteContent);
         setRemoteEditor(typeof incoming.editorName === 'string' ? incoming.editorName : '別の職員');
-        setSaveStatus('remote');
       })
       .on('broadcast', { event: 'cursor' }, ({ payload }) => {
         const incoming = payload as { activity?: unknown };
@@ -430,8 +495,8 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
         }
       })
       .subscribe((status) => {
+        channelReadyRef.current = status === 'SUBSCRIBED';
         if (status === 'SUBSCRIBED') {
-          channelReadyRef.current = true;
           const initialActivity = {
             ...localActivityRef.current,
             userKey: editorUserKey,
@@ -443,11 +508,13 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
           setLocalActivity(initialActivity);
           lastPresenceTrackAtRef.current = Date.now();
           void channel.track(initialActivity);
+        } else {
+          setViewerCount(1);
         }
       });
 
     const heartbeatTimer = window.setInterval(() => {
-      if (!channelReadyRef.current) return;
+      if (!channelReadyRef.current || channel.state !== 'joined' || !channel.socket.isConnected()) return;
       const heartbeatActivity = {
         ...localActivityRef.current,
         lastActiveAt: new Date().toISOString(),
@@ -464,7 +531,7 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
 
     return () => {
       window.clearInterval(heartbeatTimer);
-      if (channelReadyRef.current) {
+      if (channelReadyRef.current && channel.state === 'joined' && channel.socket.isConnected()) {
         void channel.send({
           type: 'broadcast',
           event: 'leave',
@@ -490,31 +557,79 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
     return () => window.clearInterval(staleCollaboratorTimer);
   }, []);
 
-  const persistPendingContent = (showStatus: boolean) => {
+  const persistPendingContent = async (showStatus: boolean): Promise<boolean> => {
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     saveTimerRef.current = null;
-    if (!localPendingRef.current) return;
+    if (!localPendingRef.current) return true;
+    if (conflictRef.current) return false;
+    if (saveInFlightRef.current) {
+      saveQueuedRef.current = true;
+      return false;
+    }
 
-    localPendingRef.current = false;
+    saveInFlightRef.current = true;
+    saveQueuedRef.current = false;
     const date = targetDateRef.current;
+    const snapshot = contentRef.current;
+    const editVersion = editVersionRef.current;
     const now = new Date().toISOString();
-    const storedRecord = recordsRef.current.find((record) => record.date === date);
+    const storedRecord = persistedRecordRef.current?.date === date
+      ? persistedRecordRef.current
+      : recordsRef.current.find((record) => record.date === date);
     const nextRecord: MorningMeetingRecord = {
       date,
-      content: contentRef.current,
+      content: snapshot,
+      revision: storedRecord?.revision || 0,
       updatedByName: editorNameRef.current,
       updatedByRecorderId: recorderIdRef.current,
       createdAt: storedRecord?.createdAt || now,
       updatedAt: now,
     };
 
-    void Promise.resolve(onSaveRef.current(nextRecord))
-      .then(() => {
-        if (showStatus && targetDateRef.current === date) setSaveStatus('saved');
-      })
-      .catch(() => {
-        if (showStatus && targetDateRef.current === date) setSaveStatus('error');
-      });
+    try {
+      const savedRecord = await onSaveRef.current(nextRecord);
+      persistedRecordRef.current = savedRecord;
+      if (
+        targetDateRef.current === date
+        && editVersionRef.current === editVersion
+        && contentRef.current === snapshot
+      ) {
+        localPendingRef.current = false;
+        if (showStatus) setSaveStatus('saved');
+      } else {
+        localPendingRef.current = true;
+        saveQueuedRef.current = true;
+      }
+      return true;
+    } catch (error) {
+      if (error instanceof MorningMeetingConflictError) {
+        const nextConflict: MorningMeetingConflict = {
+          latestRecord: error.latestRecord,
+          localContent: contentRef.current,
+          baseContent: storedRecord?.content || '',
+        };
+        conflictRef.current = nextConflict;
+        setConflict(nextConflict);
+        setRemoteEditor(error.latestRecord?.updatedByName || '別の職員');
+        setSaveStatus('conflict');
+      } else if (targetDateRef.current === date) {
+        setSaveStatus('error');
+      }
+      return false;
+    } finally {
+      saveInFlightRef.current = false;
+      if (
+        targetDateRef.current === date
+        && localPendingRef.current
+        && !conflictRef.current
+        && saveQueuedRef.current
+      ) {
+        saveQueuedRef.current = false;
+        saveTimerRef.current = window.setTimeout(() => {
+          void persistPendingContent(true);
+        }, 150);
+      }
+    }
   };
 
   const publishLocalActivity = (
@@ -533,33 +648,55 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
     setLocalActivity(nextActivity);
 
     const channel = channelRef.current;
-    if (channel && channelReadyRef.current) {
+    if (
+      channel
+      && channelReadyRef.current
+      && channel.state === 'joined'
+      && channel.socket.isConnected()
+    ) {
       const now = Date.now();
       if (forcePresenceTrack || now - lastPresenceTrackAtRef.current >= 400) {
         lastPresenceTrackAtRef.current = now;
         void channel.track(nextActivity);
       }
-      void channel.send({
-        type: 'broadcast',
-        event: 'cursor',
-        payload: { activity: nextActivity },
-      });
+      if (forcePresenceTrack || now - lastCursorBroadcastAtRef.current >= 250) {
+        lastCursorBroadcastAtRef.current = now;
+        void channel.send({
+          type: 'broadcast',
+          event: 'cursor',
+          payload: { activity: nextActivity },
+        });
+      }
     }
     return nextActivity;
   };
 
   useEffect(() => () => {
     if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current);
-    persistPendingContent(false);
+    void persistPendingContent(false);
+  }, []);
+
+  useEffect(() => {
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!localPendingRef.current && !saveInFlightRef.current && !conflictRef.current) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warnBeforeUnload);
+    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
   }, []);
 
   const scheduleSave = (nextContent: string) => {
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     localPendingRef.current = true;
+    saveQueuedRef.current = saveInFlightRef.current;
+    editVersionRef.current += 1;
     setSaveStatus('saving');
     setRemoteEditor('');
     contentRef.current = nextContent;
-    saveTimerRef.current = window.setTimeout(() => persistPendingContent(true), 600);
+    saveTimerRef.current = window.setTimeout(() => {
+      void persistPendingContent(true);
+    }, 600);
   };
 
   const updateContent = (
@@ -573,7 +710,7 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
     contentRef.current = limited;
     setContent(limited);
     scheduleSave(limited);
-    const activity = publishLocalActivity({
+    publishLocalActivity({
       cursorStart,
       cursorEnd,
       typing: true,
@@ -583,18 +720,6 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
     typingTimerRef.current = window.setTimeout(() => {
       publishLocalActivity({ typing: false }, true);
     }, 4000);
-    if (channelRef.current && channelReadyRef.current) {
-      void channelRef.current.send({
-        type: 'broadcast',
-        event: 'content',
-        payload: {
-          content: limited,
-          senderId: sessionId,
-          editorName,
-          activity,
-        },
-      });
-    }
   };
 
   const insertSection = (section: string) => {
@@ -617,6 +742,50 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
     } catch {
       setCopied(false);
     }
+  };
+
+  const acceptLatestRecord = () => {
+    const latestRecord = conflictRef.current?.latestRecord;
+    if (!latestRecord) {
+      window.location.reload();
+      return;
+    }
+    if (!window.confirm('この端末の未保存内容を破棄し、別の職員が保存した最新内容を読み込みますか？')) return;
+    persistedRecordRef.current = latestRecord;
+    contentRef.current = latestRecord.content;
+    localPendingRef.current = false;
+    saveQueuedRef.current = false;
+    editVersionRef.current += 1;
+    conflictRef.current = null;
+    setConflict(null);
+    setContent(latestRecord.content);
+    setSaveStatus('remote');
+  };
+
+  const keepLocalAfterConflict = (combine: boolean) => {
+    const currentConflict = conflictRef.current;
+    const latestRecord = currentConflict?.latestRecord;
+    if (!currentConflict || !latestRecord) {
+      setSaveStatus('error');
+      return;
+    }
+    const nextContent = combine
+      ? combineConflictingContent(
+          contentRef.current,
+          latestRecord.content,
+          latestRecord.updatedByName || '別の職員'
+        )
+      : contentRef.current;
+    if (
+      !combine
+      && !window.confirm('別の職員の更新内容を上書きし、この端末の内容を保存しますか？')
+    ) return;
+    persistedRecordRef.current = latestRecord;
+    conflictRef.current = null;
+    setConflict(null);
+    contentRef.current = nextContent;
+    setContent(nextContent);
+    scheduleSave(nextContent);
   };
 
   const handleEditorSelection = (event: React.SyntheticEvent<HTMLTextAreaElement>) => {
@@ -647,8 +816,17 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
     }, true);
   };
 
-  const changeDate = (nextDate: string) => {
-    persistPendingContent(false);
+  const changeDate = async (nextDate: string) => {
+    if (nextDate === targetDateRef.current) return;
+    if (conflictRef.current) {
+      window.alert('同時更新の確認を完了してから朝礼日を変更してください。');
+      return;
+    }
+    const saved = await persistPendingContent(false);
+    if (!saved && localPendingRef.current) {
+      window.alert('未保存の内容があります。保存完了後に朝礼日を変更してください。');
+      return;
+    }
     if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current);
     typingTimerRef.current = null;
     publishLocalActivity({
@@ -747,7 +925,7 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
             <h3 className="flex items-center gap-2 text-base font-black text-slate-900">
               <ClipboardPenLine className="h-5 w-5 text-sky-700" />朝礼記録
             </h3>
-            <p className="mt-0.5 text-[10px] text-slate-600">入力内容は自動保存・リアルタイム共有されます。</p>
+            <p className="mt-0.5 text-[10px] text-slate-600">入力内容は同時更新を確認しながら自動保存されます。</p>
           </div>
           <span className={`flex min-h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[10px] font-bold ${
             organizationId ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'
@@ -768,7 +946,7 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
               <input
                 type="date"
                 value={targetDate}
-                onChange={(event) => changeDate(event.target.value)}
+                onChange={(event) => void changeDate(event.target.value)}
                 className="min-h-11 rounded-xl border border-slate-300 bg-white pl-9 pr-3 text-sm font-bold text-slate-800"
               />
             </span>
@@ -778,6 +956,7 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
               {saveStatus === 'saving' && <span className="flex items-center gap-1 font-bold text-sky-700"><LoaderCircle className="h-3.5 w-3.5 animate-spin" />自動保存中...</span>}
               {saveStatus === 'saved' && <span className="flex items-center gap-1 font-bold text-emerald-700"><Check className="h-3.5 w-3.5" />保存しました</span>}
               {saveStatus === 'remote' && <span className="font-bold text-indigo-700">{remoteEditor}さんの入力を反映しました</span>}
+              {saveStatus === 'conflict' && <span className="font-bold text-amber-800">別の職員の更新を確認してください</span>}
               {saveStatus === 'error' && <span className="font-bold text-rose-700">保存できませんでした。通信状態を確認してください。</span>}
               {saveStatus === 'idle' && selectedRecord && (
                 <span>最終更新：{new Date(selectedRecord.updatedAt).toLocaleString('ja-JP')}・{selectedRecord.updatedByName || '職員'}</span>
@@ -794,6 +973,62 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
             </button>
           </div>
         </div>
+
+        {conflict && (
+          <section className="order-2 rounded-xl border-2 border-amber-400 bg-amber-50 p-3" role="alert">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
+              <div className="min-w-0 flex-1">
+                <h4 className="text-sm font-black text-amber-950">同じ朝礼記録が別の職員によって更新されました</h4>
+                <p className="mt-1 text-[11px] leading-5 text-amber-900">
+                  この端末の入力は保持されています。内容を比較し、どの内容を保存するか選んでください。
+                </p>
+                {conflict.latestRecord && (
+                  <details className="mt-2 rounded-lg border border-amber-300 bg-white p-2">
+                    <summary className="cursor-pointer text-[11px] font-black text-amber-900">
+                      {conflict.latestRecord.updatedByName || '別の職員'}さんの最新内容を確認
+                    </summary>
+                    <div className="mt-2 grid gap-2 md:grid-cols-2">
+                      <div>
+                        <p className="mb-1 text-[9px] font-black text-slate-500">この端末の未保存内容</p>
+                        <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-lg bg-sky-50 p-2 text-[10px] leading-5 text-slate-800">{content}</pre>
+                      </div>
+                      <div>
+                        <p className="mb-1 text-[9px] font-black text-slate-500">保存済みの最新内容</p>
+                        <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-lg bg-amber-100/70 p-2 text-[10px] leading-5 text-slate-800">{conflict.latestRecord.content}</pre>
+                      </div>
+                    </div>
+                  </details>
+                )}
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={!conflict.latestRecord}
+                    onClick={() => keepLocalAfterConflict(true)}
+                    className="flex min-h-10 items-center gap-1.5 rounded-lg bg-amber-700 px-3 text-[11px] font-black text-white disabled:opacity-40"
+                  >
+                    <GitMerge className="h-4 w-4" />両方を残して編集
+                  </button>
+                  <button
+                    type="button"
+                    disabled={!conflict.latestRecord}
+                    onClick={() => keepLocalAfterConflict(false)}
+                    className="flex min-h-10 items-center gap-1.5 rounded-lg border border-amber-500 bg-white px-3 text-[11px] font-black text-amber-900 disabled:opacity-40"
+                  >
+                    <Save className="h-4 w-4" />この端末の内容を保存
+                  </button>
+                  <button
+                    type="button"
+                    onClick={acceptLatestRecord}
+                    className="flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-[11px] font-black text-slate-700"
+                  >
+                    <RefreshCw className="h-4 w-4" />最新内容を読み込む
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
 
         {dailySummary.length > 0 && (
           <section className="order-2 rounded-xl border border-teal-200 bg-teal-50 p-3">

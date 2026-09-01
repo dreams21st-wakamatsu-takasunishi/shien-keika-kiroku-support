@@ -66,6 +66,7 @@ import { normalizeTemplateFatigueScale } from './utils/templateNormalizer';
 import { upgradeStandardWeekdayTemplate } from './data/weekdayTemplate';
 import { upgradeStandardHolidayTemplate } from './data/holidayTemplate';
 import {
+  MorningMeetingConflictError,
   archiveMorningMeetingTemplate,
   archiveAnnouncement,
   archiveTemplate,
@@ -1990,13 +1991,17 @@ export default function App() {
 
   const handleSaveMorningMeeting = async (record: MorningMeetingRecord) => {
     try {
-      if (organizationId) await saveMorningMeetingRecord(organizationId, record);
+      const savedRecord = organizationId
+        ? await saveMorningMeetingRecord(organizationId, record)
+        : { ...record, revision: Math.max(1, record.revision || 1) };
       setMorningMeetingRecords((previous) => [
-        record,
-        ...previous.filter((candidate) => candidate.date !== record.date),
+        savedRecord,
+        ...previous.filter((candidate) => candidate.date !== savedRecord.date),
       ].sort((left, right) => right.date.localeCompare(left.date)));
       setDataError(null);
+      return savedRecord;
     } catch (error) {
+      if (error instanceof MorningMeetingConflictError) throw error;
       const message = error instanceof Error ? error.message : '朝礼記録を保存できませんでした。';
       setDataError(message);
       throw error;

@@ -367,6 +367,7 @@ function mapMorningMeetingRecord(row: any): MorningMeetingRecord {
   return {
     date: row.meeting_date,
     content: row.content || '',
+    revision: Number(row.revision || 1),
     updatedByName: row.updated_by_name || undefined,
     updatedByRecorderId: row.updated_by_recorder_profile_id || undefined,
     createdAt: row.created_at,
@@ -2452,21 +2453,47 @@ export async function updateHandoverStatus(
   if (error) throw error;
 }
 
+export class MorningMeetingConflictError extends Error {
+  readonly code = 'MORNING_MEETING_CONFLICT';
+
+  constructor(public readonly latestRecord?: MorningMeetingRecord) {
+    super('別の職員が朝礼記録を先に更新しました。');
+    this.name = 'MorningMeetingConflictError';
+  }
+}
+
 export async function saveMorningMeetingRecord(
   organizationId: string,
   record: MorningMeetingRecord
-) {
-  const { error } = await assertSupabase().from('morning_meeting_records').upsert(
-    {
-      organization_id: organizationId,
-      meeting_date: record.date,
-      content: record.content,
-      updated_by_recorder_profile_id: record.updatedByRecorderId || null,
-      updated_by_name: record.updatedByName?.trim() || null,
-    },
-    { onConflict: 'organization_id,meeting_date' }
-  );
-  if (error) throw error;
+): Promise<MorningMeetingRecord> {
+  const client = assertSupabase();
+  const { data, error } = await client.rpc('save_morning_meeting_record_guarded', {
+    p_organization_id: organizationId,
+    p_meeting_date: record.date,
+    p_content: record.content,
+    p_updated_by_recorder_profile_id: record.updatedByRecorderId || null,
+    p_updated_by_name: record.updatedByName?.trim() || null,
+    p_expected_revision: Math.max(0, Number(record.revision || 0)),
+  });
+  if (error) {
+    if (error.code === '40001' || error.message?.includes('MORNING_MEETING_CONFLICT')) {
+      const { data: latestRow } = await client
+        .from('morning_meeting_records')
+        .select('*')
+        .eq('organization_id', organizationId)
+        .eq('meeting_date', record.date)
+        .maybeSingle();
+      throw new MorningMeetingConflictError(latestRow ? mapMorningMeetingRecord(latestRow) : undefined);
+    }
+    throw error;
+  }
+  const saved = Array.isArray(data) ? data[0] : data;
+  return {
+    ...record,
+    revision: Number(saved?.new_revision || Math.max(1, record.revision + 1)),
+    createdAt: String(saved?.record_created_at || record.createdAt),
+    updatedAt: String(saved?.saved_at || new Date().toISOString()),
+  };
 }
 
 export async function saveMorningMeetingTemplate(

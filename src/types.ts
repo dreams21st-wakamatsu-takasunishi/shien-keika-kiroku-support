@@ -959,6 +959,7 @@ export interface HandoverConfirmation extends ConfirmationReceipt {
 export interface MorningMeetingRecord {
   date: string;
   content: string;
+  revision: number;
   updatedByName?: string;
   updatedByRecorderId?: string;
   createdAt: string;
