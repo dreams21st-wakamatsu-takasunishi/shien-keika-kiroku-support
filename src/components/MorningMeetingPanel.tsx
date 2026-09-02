@@ -74,6 +74,23 @@ interface MorningMeetingConflict {
   baseContent: string;
 }
 
+interface RemoteLiveDraft {
+  sessionId: string;
+  editorName: string;
+  content: string;
+  baseRevision: number;
+  activity: CollaboratorActivity;
+  lastActiveAt: string;
+}
+
+interface PendingContentBroadcast {
+  content: string;
+  baseRevision: number;
+  activity: CollaboratorActivity;
+}
+
+type RealtimeConnectionStatus = 'local' | 'connecting' | 'connected' | 'disconnected';
+
 function createSessionId() {
   return typeof crypto !== 'undefined' && 'randomUUID' in crypto
     ? crypto.randomUUID()
@@ -109,11 +126,16 @@ function upsertCollaborator(
   incoming: CollaboratorActivity
 ) {
   return [
-    ...collaborators.filter((collaborator) =>
-      collaborator.sessionId !== incoming.sessionId && collaborator.userKey !== incoming.userKey
-    ),
+    ...collaborators.filter((collaborator) => collaborator.sessionId !== incoming.sessionId),
     incoming,
   ];
+}
+
+function upsertRemoteLiveDraft(drafts: RemoteLiveDraft[], incoming: RemoteLiveDraft) {
+  return [
+    ...drafts.filter((draft) => draft.sessionId !== incoming.sessionId),
+    incoming,
+  ].sort((left, right) => right.lastActiveAt.localeCompare(left.lastActiveAt));
 }
 
 function getCursorPositionLabel(content: string, activity: CollaboratorActivity) {
@@ -236,12 +258,16 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
     [records, targetDate]
   );
   const [content, setContent] = useState(selectedRecord?.content || '');
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error' | 'remote' | 'conflict'>('idle');
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error' | 'remote' | 'live' | 'conflict'>('idle');
   const [viewerCount, setViewerCount] = useState(1);
   const [collaborators, setCollaborators] = useState<CollaboratorActivity[]>([]);
   const [editorScroll, setEditorScroll] = useState({ top: 0, left: 0 });
   const [remoteEditor, setRemoteEditor] = useState('');
   const [conflict, setConflict] = useState<MorningMeetingConflict | null>(null);
+  const [remoteLiveDrafts, setRemoteLiveDrafts] = useState<RemoteLiveDraft[]>([]);
+  const [realtimeStatus, setRealtimeStatus] = useState<RealtimeConnectionStatus>(
+    organizationId ? 'connecting' : 'local'
+  );
   const [copied, setCopied] = useState(false);
   const [selectedTemplateId, setSelectedTemplateId] = useState('');
   const [showTemplateManager, setShowTemplateManager] = useState(false);
@@ -260,6 +286,9 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
   const typingTimerRef = useRef<number | null>(null);
   const lastPresenceTrackAtRef = useRef(0);
   const lastCursorBroadcastAtRef = useRef(0);
+  const lastContentBroadcastAtRef = useRef(0);
+  const contentBroadcastTimerRef = useRef<number | null>(null);
+  const pendingContentBroadcastRef = useRef<PendingContentBroadcast | null>(null);
   const localPendingRef = useRef(false);
   const saveInFlightRef = useRef(false);
   const saveQueuedRef = useRef(false);
@@ -298,10 +327,8 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
   localActivityRef.current = localActivity;
   conflictRef.current = conflict;
   const remoteCollaborators = useMemo(
-    () => collaborators.filter((collaborator) =>
-      collaborator.sessionId !== sessionId && collaborator.userKey !== editorUserKey
-    ),
-    [collaborators, editorUserKey, sessionId]
+    () => collaborators.filter((collaborator) => collaborator.sessionId !== sessionId),
+    [collaborators, sessionId]
   );
   const visibleCollaborators = useMemo(
     () => [
@@ -312,6 +339,17 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
   );
   const typingCollaborators = visibleCollaborators.filter((collaborator) => collaborator.typing);
   const effectiveViewerCount = Math.max(viewerCount, remoteCollaborators.length + 1);
+  const remoteDraftBySession = useMemo(
+    () => new Map(remoteLiveDrafts.map((draft) => [draft.sessionId, draft])),
+    [remoteLiveDrafts]
+  );
+  const cursorOverlayCollaborators = useMemo(
+    () => remoteCollaborators.filter((collaborator) => {
+      const draft = remoteDraftBySession.get(collaborator.sessionId);
+      return !draft || draft.content === content;
+    }),
+    [content, remoteCollaborators, remoteDraftBySession]
+  );
   const confirmationActor = activeRecorder
     ? {
         confirmerKey: `recorder:${activeRecorder.id}`,
@@ -373,6 +411,7 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
       editVersionRef.current = 0;
       conflictRef.current = null;
       setConflict(null);
+      setRemoteLiveDrafts([]);
       const storedContent = selectedRecord?.content || '';
       contentRef.current = storedContent;
       setContent(storedContent);
@@ -391,6 +430,9 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
         saveTimerRef.current = null;
         persistedRecordRef.current = selectedRecord;
         localPendingRef.current = false;
+        setRemoteLiveDrafts((current) =>
+          current.filter((draft) => draft.content !== selectedRecord.content)
+        );
         setConflict(null);
         setSaveStatus('saved');
         return;
@@ -410,6 +452,9 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
     }
 
     persistedRecordRef.current = selectedRecord;
+    setRemoteLiveDrafts((current) =>
+      current.filter((draft) => draft.content !== selectedRecord.content)
+    );
     contentRef.current = selectedRecord.content;
     setContent(selectedRecord.content);
     setRemoteEditor(selectedRecord.updatedByName || '別の職員');
@@ -420,27 +465,32 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
     if (!supabase || !organizationId) {
       setViewerCount(1);
       setCollaborators([]);
+      setRealtimeStatus('local');
       return;
     }
 
-    const channel = supabase.channel(`morning-meeting:${organizationId}:${targetDate}`, {
+    const channel = supabase.channel(`organization:${organizationId}:morning-meeting:${targetDate}`, {
       config: {
+        private: true,
         broadcast: { self: false },
         presence: { key: sessionId },
       },
     });
     channelRef.current = channel;
     channelReadyRef.current = false;
+    setRealtimeStatus('connecting');
     setCollaborators([]);
+    setRemoteLiveDrafts([]);
 
     const acceptRemoteActivity = (value: unknown) => {
       const activity = parseCollaboratorActivity(value);
-      if (
-        !activity ||
-        activity.sessionId === sessionId ||
-        activity.userKey === editorUserKey
-      ) return;
+      if (!activity || activity.sessionId === sessionId) return;
       setCollaborators((current) => upsertCollaborator(current, activity));
+      setRemoteLiveDrafts((current) => current.map((draft) =>
+        draft.sessionId === activity.sessionId
+          ? { ...draft, activity, lastActiveAt: activity.lastActiveAt }
+          : draft
+      ));
     };
 
     channel
@@ -449,11 +499,87 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
           content?: unknown;
           senderId?: unknown;
           editorName?: unknown;
+          baseRevision?: unknown;
           activity?: unknown;
         };
         if (incoming.senderId === sessionId || typeof incoming.content !== 'string') return;
-        acceptRemoteActivity(incoming.activity);
-        setRemoteEditor(typeof incoming.editorName === 'string' ? incoming.editorName : '別の職員');
+        const activity = parseCollaboratorActivity(incoming.activity);
+        if (!activity) return;
+        acceptRemoteActivity(activity);
+        const remoteContent = incoming.content.slice(0, 20000);
+        const nextDraft: RemoteLiveDraft = {
+          sessionId: activity.sessionId,
+          editorName: typeof incoming.editorName === 'string'
+            ? incoming.editorName.slice(0, 100)
+            : activity.editorName,
+          content: remoteContent,
+          baseRevision: typeof incoming.baseRevision === 'number'
+            ? Math.max(0, incoming.baseRevision)
+            : 0,
+          activity,
+          lastActiveAt: activity.lastActiveAt,
+        };
+        setRemoteLiveDrafts((current) => upsertRemoteLiveDraft(current, nextDraft));
+        setRemoteEditor(nextDraft.editorName);
+        if (!localPendingRef.current && !saveInFlightRef.current && !conflictRef.current) {
+          contentRef.current = remoteContent;
+          setContent(remoteContent);
+          setSaveStatus('live');
+        }
+      })
+      .on('broadcast', { event: 'saved' }, ({ payload }) => {
+        const incoming = payload as {
+          senderId?: unknown;
+          editorName?: unknown;
+          content?: unknown;
+          revision?: unknown;
+          updatedAt?: unknown;
+        };
+        if (
+          incoming.senderId === sessionId
+          || typeof incoming.senderId !== 'string'
+          || typeof incoming.content !== 'string'
+          || typeof incoming.revision !== 'number'
+        ) return;
+        setRemoteLiveDrafts((current) =>
+          current.filter((draft) => draft.sessionId !== incoming.senderId)
+        );
+        const currentBase = persistedRecordRef.current;
+        if (incoming.revision <= (currentBase?.revision || 0)) return;
+        const updatedAt = typeof incoming.updatedAt === 'string'
+          ? incoming.updatedAt
+          : new Date().toISOString();
+        const remoteRecord: MorningMeetingRecord = {
+          date: targetDateRef.current,
+          content: incoming.content.slice(0, 20000),
+          revision: incoming.revision,
+          updatedByName: typeof incoming.editorName === 'string'
+            ? incoming.editorName.slice(0, 100)
+            : '別の職員',
+          createdAt: currentBase?.createdAt || updatedAt,
+          updatedAt,
+        };
+        if (localPendingRef.current || saveInFlightRef.current || conflictRef.current) {
+          if (remoteRecord.content !== contentRef.current) {
+            if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
+            saveTimerRef.current = null;
+            const nextConflict: MorningMeetingConflict = {
+              latestRecord: remoteRecord,
+              localContent: contentRef.current,
+              baseContent: currentBase?.content || '',
+            };
+            conflictRef.current = nextConflict;
+            setConflict(nextConflict);
+            setRemoteEditor(remoteRecord.updatedByName || '別の職員');
+            setSaveStatus('conflict');
+          }
+          return;
+        }
+        persistedRecordRef.current = remoteRecord;
+        contentRef.current = remoteRecord.content;
+        setContent(remoteRecord.content);
+        setRemoteEditor(remoteRecord.updatedByName || '別の職員');
+        setSaveStatus('remote');
       })
       .on('broadcast', { event: 'cursor' }, ({ payload }) => {
         const incoming = payload as { activity?: unknown };
@@ -465,38 +591,40 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
         setCollaborators((current) =>
           current.filter((collaborator) => collaborator.sessionId !== incoming.sessionId)
         );
+        setRemoteLiveDrafts((current) =>
+          current.filter((draft) => draft.sessionId !== incoming.sessionId)
+        );
       })
       .on('presence', { event: 'sync' }, () => {
         const state = channel.presenceState();
         const presenceEntries = Object.values(state).flat();
-        if (presenceEntries.length > 0) {
-          const presenceActivities = presenceEntries
-            .map((entry) => parseCollaboratorActivity(entry))
-            .filter((activity): activity is CollaboratorActivity => Boolean(activity));
-          const activitiesByUser = new Map<string, CollaboratorActivity>();
-          presenceActivities.forEach((activity) => {
-            const existing = activitiesByUser.get(activity.userKey);
-            if (!existing || existing.lastActiveAt <= activity.lastActiveAt) {
-              activitiesByUser.set(activity.userKey, activity);
-            }
-          });
-          setViewerCount(Math.max(1, activitiesByUser.size));
-          const remotePresenceActivities = [...activitiesByUser.values()].filter(
-            (activity) => activity.sessionId !== sessionId && activity.userKey !== editorUserKey
+        const presenceActivities = presenceEntries
+          .map((entry) => parseCollaboratorActivity(entry))
+          .filter((activity): activity is CollaboratorActivity => Boolean(activity));
+        const activitiesBySession = new Map<string, CollaboratorActivity>();
+        presenceActivities.forEach((activity) => {
+          const existing = activitiesBySession.get(activity.sessionId);
+          if (!existing || existing.lastActiveAt <= activity.lastActiveAt) {
+            activitiesBySession.set(activity.sessionId, activity);
+          }
+        });
+        setViewerCount(Math.max(1, activitiesBySession.size));
+        const remotePresenceActivities = [...activitiesBySession.values()].filter(
+          (activity) => activity.sessionId !== sessionId
+        );
+        setCollaborators((current) => remotePresenceActivities.map((activity) => {
+          const broadcastActivity = current.find(
+            (candidate) => candidate.sessionId === activity.sessionId
           );
-          setCollaborators((current) => remotePresenceActivities.map((activity) => {
-            const broadcastActivity = current.find(
-              (candidate) => candidate.userKey === activity.userKey
-            );
-            return broadcastActivity && broadcastActivity.lastActiveAt > activity.lastActiveAt
-              ? broadcastActivity
-              : activity;
-          }));
-        }
+          return broadcastActivity && broadcastActivity.lastActiveAt > activity.lastActiveAt
+            ? broadcastActivity
+            : activity;
+        }));
       })
       .subscribe((status) => {
         channelReadyRef.current = status === 'SUBSCRIBED';
         if (status === 'SUBSCRIBED') {
+          setRealtimeStatus('connected');
           const initialActivity = {
             ...localActivityRef.current,
             userKey: editorUserKey,
@@ -510,6 +638,7 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
           void channel.track(initialActivity);
         } else {
           setViewerCount(1);
+          setRealtimeStatus('disconnected');
         }
       });
 
@@ -553,6 +682,10 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
         const lastActive = Date.parse(collaborator.lastActiveAt);
         return Number.isNaN(lastActive) || lastActive >= staleThreshold;
       }));
+      setRemoteLiveDrafts((current) => current.filter((draft) => {
+        const lastActive = Date.parse(draft.lastActiveAt);
+        return Number.isNaN(lastActive) || lastActive >= staleThreshold;
+      }));
     }, 5000);
     return () => window.clearInterval(staleCollaboratorTimer);
   }, []);
@@ -589,6 +722,25 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
     try {
       const savedRecord = await onSaveRef.current(nextRecord);
       persistedRecordRef.current = savedRecord;
+      const channel = channelRef.current;
+      if (
+        channel
+        && channelReadyRef.current
+        && channel.state === 'joined'
+        && channel.socket.isConnected()
+      ) {
+        void channel.send({
+          type: 'broadcast',
+          event: 'saved',
+          payload: {
+            senderId: sessionId,
+            editorName: editorNameRef.current,
+            content: savedRecord.content,
+            revision: savedRecord.revision,
+            updatedAt: savedRecord.updatedAt,
+          },
+        });
+      }
       if (
         targetDateRef.current === date
         && editVersionRef.current === editVersion
@@ -671,8 +823,52 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
     return nextActivity;
   };
 
+  const flushContentBroadcast = () => {
+    if (contentBroadcastTimerRef.current) window.clearTimeout(contentBroadcastTimerRef.current);
+    contentBroadcastTimerRef.current = null;
+    const pending = pendingContentBroadcastRef.current;
+    pendingContentBroadcastRef.current = null;
+    if (!pending) return;
+    const channel = channelRef.current;
+    if (
+      !channel
+      || !channelReadyRef.current
+      || channel.state !== 'joined'
+      || !channel.socket.isConnected()
+    ) return;
+    lastContentBroadcastAtRef.current = Date.now();
+    void channel.send({
+      type: 'broadcast',
+      event: 'content',
+      payload: {
+        content: pending.content,
+        senderId: sessionId,
+        editorName,
+        baseRevision: pending.baseRevision,
+        activity: pending.activity,
+      },
+    });
+  };
+
+  const publishContentDraft = (nextContent: string, activity: CollaboratorActivity) => {
+    pendingContentBroadcastRef.current = {
+      content: nextContent,
+      baseRevision: persistedRecordRef.current?.revision || 0,
+      activity,
+    };
+    const elapsed = Date.now() - lastContentBroadcastAtRef.current;
+    const wait = Math.max(0, 120 - elapsed);
+    if (wait === 0 && contentBroadcastTimerRef.current === null) {
+      flushContentBroadcast();
+      return;
+    }
+    if (contentBroadcastTimerRef.current !== null) return;
+    contentBroadcastTimerRef.current = window.setTimeout(flushContentBroadcast, wait);
+  };
+
   useEffect(() => () => {
     if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current);
+    if (contentBroadcastTimerRef.current) window.clearTimeout(contentBroadcastTimerRef.current);
     void persistPendingContent(false);
   }, []);
 
@@ -710,12 +906,13 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
     contentRef.current = limited;
     setContent(limited);
     scheduleSave(limited);
-    publishLocalActivity({
+    const activity = publishLocalActivity({
       cursorStart,
       cursorEnd,
       typing: true,
       focused: true,
     });
+    publishContentDraft(limited, activity);
     if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current);
     typingTimerRef.current = window.setTimeout(() => {
       publishLocalActivity({ typing: false }, true);
@@ -928,11 +1125,20 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
             <p className="mt-0.5 text-[10px] text-slate-600">入力内容は同時更新を確認しながら自動保存されます。</p>
           </div>
           <span className={`flex min-h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[10px] font-bold ${
-            organizationId ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-900'
+            realtimeStatus === 'connected'
+              ? 'bg-emerald-100 text-emerald-800'
+              : 'bg-amber-100 text-amber-900'
           }`}>
-            <Radio className="h-3.5 w-3.5" />
-            {organizationId ? `共有中・${effectiveViewerCount}人` : 'ローカル試用'}
-            {typingCollaborators.length > 0 && `・${typingCollaborators.length}人入力中`}
+            {realtimeStatus === 'connecting' || realtimeStatus === 'disconnected'
+              ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+              : <Radio className="h-3.5 w-3.5" />}
+            {realtimeStatus === 'connected' && `共有中・${effectiveViewerCount}人`}
+            {realtimeStatus === 'connecting' && '共同編集へ接続中'}
+            {realtimeStatus === 'disconnected' && '共同編集を再接続中'}
+            {realtimeStatus === 'local' && 'ローカル試用'}
+            {realtimeStatus === 'connected'
+              && typingCollaborators.length > 0
+              && `・${typingCollaborators.length}人入力中`}
           </span>
         </div>
       </div>
@@ -956,6 +1162,7 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
               {saveStatus === 'saving' && <span className="flex items-center gap-1 font-bold text-sky-700"><LoaderCircle className="h-3.5 w-3.5 animate-spin" />自動保存中...</span>}
               {saveStatus === 'saved' && <span className="flex items-center gap-1 font-bold text-emerald-700"><Check className="h-3.5 w-3.5" />保存しました</span>}
               {saveStatus === 'remote' && <span className="font-bold text-indigo-700">{remoteEditor}さんの入力を反映しました</span>}
+              {saveStatus === 'live' && <span className="flex items-center gap-1 font-bold text-indigo-700"><Radio className="h-3.5 w-3.5 animate-pulse" />{remoteEditor}さんの入力をリアルタイム反映中</span>}
               {saveStatus === 'conflict' && <span className="font-bold text-amber-800">別の職員の更新を確認してください</span>}
               {saveStatus === 'error' && <span className="font-bold text-rose-700">保存できませんでした。通信状態を確認してください。</span>}
               {saveStatus === 'idle' && selectedRecord && (
@@ -1295,7 +1502,8 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
                   />
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-[10px] font-black text-slate-800">
-                      {collaborator.editorName}{isCurrentUser ? '（自分）' : ''}
+                      {collaborator.editorName}
+                      {isCurrentUser ? '（自分）' : collaborator.userKey === editorUserKey ? '（別端末）' : ''}
                     </p>
                     <p className={`mt-0.5 flex items-center gap-1 text-[9px] font-bold ${
                       collaborator.typing ? 'text-indigo-700' : 'text-slate-500'
@@ -1347,6 +1555,63 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
           )}
         </div>
 
+        {remoteLiveDrafts.length > 0 && (
+          <section className="order-4 rounded-xl border border-indigo-200 bg-indigo-50/80 p-3" aria-live="polite">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h4 className="flex items-center gap-1.5 text-xs font-black text-indigo-950">
+                <Radio className="h-4 w-4 animate-pulse text-indigo-600" />他端末の入力内容
+              </h4>
+              <span className="text-[9px] font-bold text-indigo-700">
+                {saveStatus === 'saving' || saveStatus === 'conflict'
+                  ? 'この端末の入力を保護しながら表示しています'
+                  : '編集欄へリアルタイム反映中'}
+              </span>
+            </div>
+            <div className="mt-2 grid gap-2 md:grid-cols-2">
+              {remoteLiveDrafts.map((draft) => {
+                const latestLine = draft.content
+                  .split('\n')
+                  .map((line) => line.trim())
+                  .filter(Boolean)
+                  .at(-1) || '入力内容は空です';
+                const reflected = draft.content === content
+                  && saveStatus !== 'saving'
+                  && saveStatus !== 'conflict';
+                return (
+                  <details key={draft.sessionId} className="rounded-lg border border-white bg-white p-2.5 shadow-xs">
+                    <summary className="cursor-pointer list-none">
+                      <span className="flex items-start gap-2">
+                        <span
+                          className={`mt-0.5 h-3 w-3 shrink-0 rounded-full ${draft.activity.typing ? 'animate-pulse' : ''}`}
+                          style={{ backgroundColor: draft.activity.color }}
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="flex flex-wrap items-center gap-1 text-[10px] font-black text-slate-800">
+                            {draft.editorName}
+                            {draft.activity.userKey === editorUserKey && <span className="text-indigo-600">（別端末）</span>}
+                            <span className={`rounded-full px-1.5 py-0.5 text-[8px] ${
+                              draft.activity.typing
+                                ? 'bg-indigo-100 text-indigo-700'
+                                : 'bg-slate-100 text-slate-500'
+                            }`}>
+                              {draft.activity.typing ? '入力中' : '入力停止'}
+                            </span>
+                          </span>
+                          <span className="mt-0.5 block truncate text-[9px] text-slate-600">{latestLine}</span>
+                          <span className="mt-0.5 block text-[8px] font-bold text-indigo-600">
+                            {reflected ? '編集欄に反映済み' : '開いて入力内容を確認'}
+                          </span>
+                        </span>
+                      </span>
+                    </summary>
+                    <pre className="mt-2 max-h-44 overflow-auto whitespace-pre-wrap rounded-lg bg-indigo-50 p-2 text-[10px] leading-5 text-slate-800">{draft.content || '（空欄）'}</pre>
+                  </details>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
         <div className="relative order-4">
           <textarea
             value={content}
@@ -1368,7 +1633,7 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
           />
           <RemoteCursorOverlay
             content={content}
-            collaborators={remoteCollaborators}
+            collaborators={cursorOverlayCollaborators}
             scrollTop={editorScroll.top}
             scrollLeft={editorScroll.left}
           />
