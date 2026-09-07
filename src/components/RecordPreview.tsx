@@ -164,7 +164,7 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
       const filename = `支援経過記録_${record.childName}_${record.date}.pdf`;
       await generatePDFFromElement('pdf-preview-target-container', filename);
     } catch (err) {
-      alert('PDF出力中にエラーが発生しました。ブラウザの印刷機能をお試しください。');
+      alert(err instanceof Error ? err.message : 'PDF出力中にエラーが発生しました。ブラウザの印刷機能をお試しください。');
     } finally {
       setIsExportingPDF(false);
     }

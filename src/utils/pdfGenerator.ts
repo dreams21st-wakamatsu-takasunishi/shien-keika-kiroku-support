@@ -1,5 +1,15 @@
-import html2canvas from 'html2canvas-pro';
-import { jsPDF } from 'jspdf';
+// PDF libraries are loaded only when exporting, not on every application start.
+let libraries: Promise<{ html2canvas: typeof import('html2canvas-pro').default; jsPDF: typeof import('jspdf').jsPDF }> | undefined;
+
+function loadPdfLibraries() {
+  libraries ??= Promise.all([import('html2canvas-pro'), import('jspdf')])
+    .then(([canvasModule, pdfModule]) => ({ html2canvas: canvasModule.default, jsPDF: pdfModule.jsPDF }))
+    .catch(() => {
+      libraries = undefined; // Allow an explicit retry after the connection recovers.
+      throw new Error('PDF機能を読み込めませんでした。通信状況を確認して再試行してください。更新通知がある場合は、入力内容を保存してからアプリを更新してください。');
+    });
+  return libraries;
+}
 
 /**
  * Captures an HTML element and exports it as a clean A4 PDF file.
@@ -12,6 +22,7 @@ export async function generatePDFFromElement(
   if (!element) {
     throw new Error(`Target element #${elementId} not found for PDF export.`);
   }
+  const { html2canvas, jsPDF } = await loadPdfLibraries();
 
   // Temporary styling tweaks for optimal screenshot quality
   const originalWidth = element.style.width;
@@ -58,9 +69,10 @@ export async function generatePDFFromElement(
 
     pdf.save(filename);
   } catch (error) {
-    element.style.width = originalWidth;
     console.error('PDF export error:', error);
     throw error;
+  } finally {
+    element.style.width = originalWidth;
   }
 }
 
@@ -73,6 +85,7 @@ export async function generatePagedPDFFromElement(
   if (!container) throw new Error(`Target element #${elementId} not found for PDF export.`);
   const pages = Array.from(container.querySelectorAll<HTMLElement>(':scope > [data-pdf-page]'));
   if (pages.length === 0) throw new Error('PDFへ出力する記録がありません。');
+  const { html2canvas, jsPDF } = await loadPdfLibraries();
 
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
   const pageWidth = pdf.internal.pageSize.getWidth();
