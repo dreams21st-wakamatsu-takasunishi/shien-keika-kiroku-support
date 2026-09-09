@@ -62,6 +62,7 @@ import { inferTransportArea, resolvedTransportArea } from '../utils/transportAre
 import { buildSiblingGroupByChild } from '../utils/childSiblings';
 import { findTransportMapLocation, findTransportZones, normalizeMapAddress } from '../utils/transportMap';
 import { getVehicleChildCapacity, getVehicleStaffSeatCount } from '../utils/vehicleCapacity';
+import { DraftStopTimeBoard } from './DraftStopTimeBoard';
 import {
   DailyTransportMiniMap,
   type CalculatedTransportRunRoute,
@@ -615,49 +616,6 @@ const DraggedChildPreview: React.FC<{
     </article>
   </div>
 );
-
-const DraftStopTimeBoard: React.FC<{
-  direction: TransportDirection;
-  drafts: TransportRun[];
-  childrenList: ChildProfile[];
-}> = ({ direction, drafts, childrenList }) => {
-  const groups = useMemo(() => {
-    const byLocation = new Map<string, {
-      key: string;
-      locationName: string;
-      address: string;
-      items: Array<{ stopId: string; childName: string; program?: '小学部' | 'キャリアズ'; plannedTime?: string; runName: string }>;
-    }>();
-    drafts.filter((run) => run.direction === direction).forEach((run) => run.stops.forEach((stop) => {
-      const address = stop.navigationLocation || stop.location || '';
-      const locationName = stop.locationName || stop.locationType || '送迎先未設定';
-      const key = `${locationName}|${address}`.normalize('NFKC').replace(/[\s　-]/g, '').toLowerCase();
-      const current = byLocation.get(key) || { key, locationName, address, items: [] };
-      const child = childrenList.find((candidate) => candidate.id === stop.childId);
-      current.items.push({ stopId: stop.id, childName: stop.childName || '児童', program: child ? getTransportProgram(child) : undefined, plannedTime: stop.plannedTime, runName: run.name });
-      byLocation.set(key, current);
-    }));
-    return [...byLocation.values()].map((group) => ({
-      ...group,
-      items: group.items.sort((left, right) => String(left.plannedTime || '99:99').localeCompare(String(right.plannedTime || '99:99')) || left.childName.localeCompare(right.childName, 'ja')),
-      firstTime: group.items.map((item) => item.plannedTime).filter((time): time is string => Boolean(time)).sort()[0],
-    })).sort((left, right) => String(left.firstTime || '99:99').localeCompare(String(right.firstTime || '99:99')) || left.locationName.localeCompare(right.locationName, 'ja'));
-  }, [childrenList, direction, drafts]);
-  const scheduled = groups.filter((group) => group.firstTime);
-  const unscheduled = groups.filter((group) => !group.firstTime);
-  const slots = Array.from({ length: 27 }, (_, index) => {
-    const total = 8 * 60 + index * 30;
-    return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
-  });
-  const slotFor = (time?: string) => {
-    if (!time) return '';
-    const [hour, minute] = time.split(':').map(Number);
-    const rounded = Math.max(8 * 60, Math.min(21 * 60, Math.floor((hour * 60 + minute) / 30) * 30));
-    return `${String(Math.floor(rounded / 60)).padStart(2, '0')}:${String(rounded % 60).padStart(2, '0')}`;
-  };
-  const GroupCard: React.FC<{ group: typeof groups[number] }> = ({ group }) => <article className={`rounded-lg border-l-4 bg-white p-2 shadow-sm ${direction === '迎え' ? 'border-sky-500' : 'border-violet-500'}`}><strong className="block truncate text-[10px] text-slate-950" title={group.locationName}>{group.locationName}</strong>{group.address && <span className="mt-0.5 block truncate text-[8px] font-bold text-slate-400" title={group.address}>{group.address}</span>}<div className="mt-1 space-y-0.5">{group.items.map((item) => <p key={item.stopId} className="flex items-center justify-between gap-2 text-[9px] font-black text-slate-700"><span className="flex min-w-0 items-center gap-1"><span className="truncate">{item.childName}</span>{item.program && <span className={`shrink-0 rounded px-1 py-0.5 text-[6px] ${item.program === 'キャリアズ' ? 'bg-violet-100 text-violet-900' : 'bg-sky-100 text-sky-900'}`}>{item.program}</span>}</span><span className="shrink-0 text-teal-800">{item.plannedTime || '未計算'}</span></p>)}</div>{new Set(group.items.map((item) => item.runName)).size > 1 && <span className="mt-1 block text-[8px] font-bold text-amber-700">複数便：{[...new Set(group.items.map((item) => item.runName))].join('・')}</span>}</article>;
-  return <section className="flex min-h-[22rem] min-w-0 flex-col overflow-hidden rounded-2xl border border-slate-300 bg-white shadow-sm lg:h-full lg:min-h-0"><header className="shrink-0 border-b border-slate-200 p-3"><p className="text-[9px] font-black text-teal-700">編集内容をリアルタイム反映</p><h3 className="mt-0.5 text-sm font-black text-slate-950">{direction}先・時間表</h3><p className="mt-1 text-[9px] font-bold text-slate-500">同じ送迎先は1枚にまとめています。</p></header><div className="ui-scrollbar min-h-0 flex-1 overflow-y-auto bg-slate-50/60 p-2">{groups.length === 0 ? <p className="rounded-xl border-2 border-dashed border-slate-200 bg-white p-5 text-center text-[10px] font-bold text-slate-400">児童を便へ配置すると表示されます。</p> : <div className="space-y-0">{slots.map((slot) => { const slotGroups = scheduled.filter((group) => slotFor(group.firstTime) === slot); return <div key={slot} className="grid grid-cols-[2.8rem_1fr] border-t border-slate-200 first:border-t-0"><time className="py-2 pr-1 text-[9px] font-black text-slate-500">{slot}</time><div className="space-y-1 border-l border-slate-200 py-1.5 pl-2">{slotGroups.map((group) => <GroupCard key={group.key} group={group} />)}</div></div>; })}{unscheduled.length > 0 && <div className="mt-2 rounded-xl border border-amber-200 bg-amber-50 p-2"><p className="mb-1 text-[9px] font-black text-amber-900">時刻未計算</p><div className="space-y-1">{unscheduled.map((group) => <GroupCard key={group.key} group={group} />)}</div></div>}</div>}</div></section>;
-};
 
 const TransportRunLane: React.FC<{
   run: TransportRun;
@@ -1481,7 +1439,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         <button type="button" onClick={() => setChildPickerOpen(true)} className="flex min-h-10 items-center gap-1 rounded-xl border border-teal-300 bg-teal-50 px-3 text-xs font-black text-teal-800"><UserPlus className="h-4 w-4" />児童を追加</button>
         <button type="button" onClick={() => setMapOpen((current) => !current)} className={`min-h-10 rounded-xl border px-3 text-xs font-black ${mapOpen ? 'border-sky-600 bg-sky-600 text-white' : 'border-sky-300 bg-white text-sky-800'}`}>{mapOpen ? 'ミニマップを収納' : 'ミニマップを表示'}</button>
         <label className="flex min-h-10 items-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 text-[10px] font-black text-emerald-900"><input type="checkbox" checked={groupDragEnabled} onChange={(event) => setGroupDragEnabled(event.target.checked)} className="h-4 w-4 accent-emerald-600" />同じ場所・近い時刻をまとめて移動</label>
-        <p className="min-w-0 flex-1 text-[10px] font-bold leading-relaxed text-slate-500">{routingNotice || 'ミニマップで送迎先を確認し、児童カードを車両の便へドラッグします。配置後、各便の「時間計算」を押してください。'}</p>
+        <p className="w-full flex-none text-[10px] font-bold leading-relaxed text-slate-500 lg:min-w-48 lg:w-auto lg:flex-1">{routingNotice || 'ミニマップで送迎先を確認し、児童カードを車両の便へドラッグします。配置後、各便の「時間計算」を押してください。'}</p>
       </div>
       <DndContext
         sensors={sensors}
@@ -1490,7 +1448,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         onDragCancel={() => setActiveDragData(undefined)}
         onDragEnd={handleDragEnd}
       >
-        <div className="ui-scrollbar flex-1 overflow-y-auto p-2 sm:p-3 lg:overflow-auto">
+        <div className="ui-scrollbar min-h-0 flex-1 overflow-y-auto p-2 sm:p-3 lg:overflow-auto">
           <div className={`mx-auto grid max-w-[2200px] items-start gap-2 lg:h-full lg:min-h-0 lg:grid-rows-1 lg:items-stretch ${mapOpen ? 'lg:grid-cols-[220px_minmax(0,1fr)_300px_minmax(320px,0.72fr)]' : 'lg:grid-cols-[220px_minmax(0,1fr)_300px]'}`}>
             <aside className="min-w-0 rounded-2xl border border-emerald-300 bg-emerald-50/70 p-2 lg:col-start-1 lg:flex lg:h-full lg:min-h-0 lg:flex-col">
               <div className="mb-2 flex shrink-0 items-center justify-between gap-1 px-1"><div><p className="text-[9px] font-black text-emerald-700">{weekday}曜日・{activeDirection}</p><h3 className="text-sm font-black text-slate-950">未配車児童</h3></div><div className="flex items-center gap-1"><button type="button" onClick={() => setSortPanelOpen((current) => !current)} aria-expanded={sortPanelOpen} className={`grid h-8 w-8 place-items-center rounded-lg border ${sortPanelOpen ? 'border-emerald-700 bg-emerald-700 text-white' : 'border-emerald-200 bg-white text-emerald-800'}`} aria-label="児童リストの並べ替え"><SlidersHorizontal className="h-3.5 w-3.5" /></button><span className="rounded-full bg-white px-2 py-1 text-[9px] font-black text-emerald-800">{unassignedDirectionChildren.length}名</span></div></div>
@@ -1501,7 +1459,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
               </div>
             </aside>
             <div className="min-w-0 lg:col-start-2 lg:row-start-1 lg:h-full lg:min-h-0">{renderDirection(activeDirection)}</div>
-            <div className="min-w-0 lg:col-start-3 lg:row-start-1 lg:h-full lg:min-h-0"><DraftStopTimeBoard direction={activeDirection} drafts={drafts} childrenList={childrenList} /></div>
+            <div className="min-w-0 lg:col-start-3 lg:row-start-1 lg:h-full lg:min-h-0"><DraftStopTimeBoard direction={activeDirection} drafts={drafts} childrenList={childrenList} sameLocationTimeWindowMinutes={routeSettings.sameLocationTimeWindowMinutes} /></div>
             {mapOpen && <div className="ui-panel-enter min-w-0 lg:col-start-4 lg:row-start-1 lg:h-full lg:min-h-0">
               <DailyTransportMiniMap direction={activeDirection} points={miniMapPoints} facilityPoint={facilityMapPoint} expectedCount={directionChildren.length} activeChildId={activeDragData?.childId} routes={visibleCalculatedRoutes} selectedRouteRunId={selectedRouteRunId} fillHeight onSelectRoute={setSelectedRouteRunId} />
             </div>}
