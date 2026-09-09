@@ -47,6 +47,8 @@ import { UNIFIED_TEMPLATE_ID } from './data/unifiedTemplate';
 import { sampleRecords, sampleChildren, sampleRecorderProfiles } from './data/sampleData';
 import { Header, ActiveTab } from './components/Header';
 import { RecordForm } from './components/RecordForm';
+import { RecordOverwriteDialog } from './components/RecordOverwriteDialog';
+import { planRecordSave, type RecordOverwritePair, type RecordSaveOutcome } from './services/recordSaveWorkflow';
 import { RecordPreview } from './components/RecordPreview';
 import { RecordList } from './components/RecordList';
 import { ChildrenManager } from './components/ChildrenManager';
@@ -89,6 +91,7 @@ import {
   deleteVehicle,
   listRecordDrafts,
   loadWorkspaceData,
+  loadRecordsForSave,
   punchAttendance,
   requestAttendanceCorrection,
   replaceChildMonthlyTransportRequirements,
@@ -137,7 +140,6 @@ import {
 } from './services/dataService';
 import { createRecordDraftKey, getDeviceId } from './utils/deviceId';
 import {
-  enqueueRecordSync,
   loadPendingRecordSyncs,
   markPendingRecordSyncError,
   mergePendingRecords,
@@ -335,6 +337,11 @@ export default function App() {
     return saved ? JSON.parse(saved) : [];
   });
   const [currentRecord, setCurrentRecord] = useState<SupportRecord | null>(null);
+  const [overwriteRequest, setOverwriteRequest] = useState<{
+    pairs: RecordOverwritePair[];
+    totalCount: number;
+    resolve: (confirmed: boolean) => void;
+  } | null>(null);
   const [correctionTarget, setCorrectionTarget] = useState<{ stepId?: string; issueId?: string } | null>(null);
   const [readOnlyDraft, setReadOnlyDraft] = useState<{ draftKey: string; ownerName?: string; childId?: string } | null>(null);
   const [formSessionId, setFormSessionId] = useState(0);
@@ -946,24 +953,6 @@ export default function App() {
     throw error;
   };
 
-  const saveRecordsOrQueue = async (items: SupportRecord[]) => {
-    if (!organizationId || !auth.profile) return [];
-    try {
-      return await saveRecords(organizationId, items);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const networkFailure = !navigator.onLine || /network|fetch|connection|offline/i.test(message);
-      if (!networkFailure) throw error;
-      if (auth.profile.fieldModeOnly) {
-        throw new Error('個人端末用の現場モードでは、個人情報を端末内へ保存しません。通信が復旧してから、クラウド保存済みの下書きを開いて保存してください。');
-      }
-      const queued = enqueueRecordSync(organizationId, auth.profile.id, items);
-      setPendingSyncs(queued);
-      setDataError('通信できないため端末に保存しました。通信復旧後に自動送信します。');
-      return [];
-    }
-  };
-
   const handleSaveRecord = async (savedRecord: SupportRecord) => {
     try {
       const result = organizationId ? await saveRecord(organizationId, savedRecord) : undefined;
@@ -988,40 +977,50 @@ export default function App() {
 
   const handleSaveRecords = async (
     savedRecords: SupportRecord[],
-    options?: { keepFormOpen?: boolean },
-  ) => {
-    try {
-      const results = await saveRecordsOrQueue(savedRecords);
-      const resultById = new Map(results.map((result) => [result.id, result]));
-      const savedLocally = savedRecords
-        .filter((record) => resultById.get(record.id)?.outcome !== 'already_saved')
-        .map((record) => {
-          const result = resultById.get(record.id);
-          return result ? { ...record, version: result.version } : record;
-        });
-      setRecords((previous) => {
-        const savedIds = new Set(savedLocally.map((record) => record.id));
-        return [...savedLocally, ...previous.filter((record) => !savedIds.has(record.id))];
+  ): Promise<RecordSaveOutcome> => {
+    // Do not confirm an overwrite against a potentially stale workspace cache.
+    // When offline, keep the draft instead of silently queuing an overwrite.
+    const existing = organizationId ? await loadRecordsForSave(organizationId, savedRecords) : records;
+    const plan = planRecordSave(savedRecords, existing);
+    if (plan.comparisons.length > 0) {
+      const confirmed = await new Promise<boolean>((resolve) => {
+        setOverwriteRequest({ pairs: plan.comparisons, totalCount: savedRecords.length, resolve });
       });
-      if (results.some((result) => result.outcome === 'already_saved')) {
-        await refreshRemoteData(false);
-        setCurrentRecord(null);
-        setActiveTab('records');
-        alert('一部の記録は別端末ですでに保存済みです。上書きせず、最新の記録を表示しました。');
-        void refreshRecordDrafts();
-        return;
+      if (!confirmed) return { status: 'cancelled' };
+      if (plan.comparisons.some((pair) => pair.existing.approvalStatus === '確認済み')) {
+        throw new Error('確認済みの記録は上書きできません。');
       }
-      if (options?.keepFormOpen) {
-        setCurrentRecord(null);
-      } else if (savedLocally.length === 1 && currentRecord?.id === savedLocally[0].id) {
-        setCurrentRecord(savedLocally[0]);
-        setActiveTab('preview');
-      } else {
-        setCurrentRecord(null);
-        setActiveTab('records');
-      }
-      void refreshRecordDrafts();
-    } catch (error) { persistError(error); }
+    }
+    const results = organizationId ? await saveRecords(organizationId, plan.records) : [];
+    const resultById = new Map(results.map((result) => [result.id, result]));
+    const savedLocally = plan.records
+      .filter((record) => resultById.get(record.id)?.outcome !== 'already_saved')
+      .map((record) => {
+        const result = resultById.get(record.id);
+        return result ? { ...record, version: result.version } : record;
+      });
+    setRecords((previous) => {
+      const savedIds = new Set(savedLocally.map((record) => record.id));
+      return [...savedLocally, ...previous.filter((record) => !savedIds.has(record.id))];
+    });
+    if (results.some((result) => result.outcome === 'already_saved')) {
+      await refreshRemoteData(false);
+      throw new Error('保存直前に別端末で記録が保存されました。入力内容は残しています。もう一度保存を押し、最新の記録と比較してください。');
+    }
+    return { status: 'saved', records: savedLocally };
+  };
+
+  // RecordForm calls this only after its local AND shared draft have been updated.
+  const handleRecordSaveComplete = (savedLocally: SupportRecord[], keepFormOpen: boolean) => {
+    void refreshRecordDrafts();
+    if (keepFormOpen) return;
+    if (savedLocally.length === 1 && currentRecord?.id === savedLocally[0].id) {
+      setCurrentRecord(savedLocally[0]);
+      setActiveTab('preview');
+    } else {
+      setCurrentRecord(null);
+      setActiveTab('records');
+    }
   };
 
   const handleEditRecord = (record: SupportRecord) => {
@@ -2145,6 +2144,7 @@ export default function App() {
       )}
       <Header
         activeTab={activeTab === 'preview' ? 'records' : activeTab}
+        activeHomeWorkspace={homeWorkspace}
         setActiveTab={(tab) => {
           if (tab === 'home') {
             returnToHomeMenu();
@@ -2375,6 +2375,8 @@ export default function App() {
                 draft.recorderName || '別職員',
               ])))}
             onSaveRecords={handleSaveRecords}
+            onSaveComplete={handleRecordSaveComplete}
+            onDraftChanged={refreshRecordDrafts}
             onCreateHandover={handleQuickMemoHandover}
             handoverItems={handoverItems}
           />
@@ -2449,6 +2451,8 @@ export default function App() {
         {activeTab === 'team' && auth.profile && (!remoteMode || auth.profile.role === 'admin') && <TeamManager currentUser={auth.profile} onProfileUpdated={auth.reloadProfile} />}
         </div>
       </main>
+      {overwriteRequest && <RecordOverwriteDialog pairs={overwriteRequest.pairs} totalCount={overwriteRequest.totalCount}
+        onDecision={(confirmed) => { overwriteRequest.resolve(confirmed); setOverwriteRequest(null); }} />}
     </div>
   );
 }

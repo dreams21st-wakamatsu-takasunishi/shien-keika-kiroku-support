@@ -68,7 +68,8 @@ import {
   TemplateField,
 } from '../types';
 import { summarizeABCWithAI } from '../utils/aiHelper';
-import { deleteRecordDraft, loadRecordDraft, saveRecordDraft } from '../services/dataService';
+import { deleteRecordDraft, finishRecordDraftSave, loadRecordDraft, saveRecordDraft } from '../services/dataService';
+import { createDraftWriteQueue, removeSavedDraftChildren, type RecordSaveOutcome } from '../services/recordSaveWorkflow';
 import { QuickMemoPad } from './QuickMemoPad';
 import { ChildInfoDialog } from './ChildInfoDialog';
 import {
@@ -127,8 +128,8 @@ interface RecordFormProps {
   lockedChildren?: Record<string, string>;
   onSaveRecords: (
     records: SupportRecord[],
-    options?: { keepFormOpen?: boolean },
-  ) => Promise<void> | void;
+  ) => Promise<RecordSaveOutcome>;
+  onSaveComplete?: (records: SupportRecord[], keepFormOpen: boolean) => void;
   onDraftChanged?: () => void;
   onCreateHandover?: (content: string, childId?: string) => Promise<void> | void;
   handoverItems?: HandoverItem[];
@@ -1761,6 +1762,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   onBackToRecordStatus,
   lockedChildren = {},
   onSaveRecords,
+  onSaveComplete,
   onDraftChanged,
   onCreateHandover,
   handoverItems = [],
@@ -1858,6 +1860,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const [saveError, setSaveError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [savingChildId, setSavingChildId] = useState<string | null>(null);
+  const [saveNotice, setSaveNotice] = useState<string | null>(null);
+  const [pendingCompletion, setPendingCompletion] = useState<{ records: SupportRecord[]; childIds: string[] } | null>(null);
+  const saveInProgress = useRef(false);
+  const draftWrites = useRef(createDraftWriteQueue()).current;
   const [summarizingSectionId, setSummarizingSectionId] = useState<string | null>(null);
   const [showChildPicker, setShowChildPicker] = useState(false);
   const [infoChild, setInfoChild] = useState<ChildProfile | null>(null);
@@ -1877,7 +1883,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   );
   const [takeoverNotice, setTakeoverNotice] = useState<TakeoverNotice | null>(null);
   const draftWriteBlocked = draftStatus === 'locked' || draftStatus === 'taken-over' || Boolean(takeoverNotice);
-  const editingDisabled = readOnly || draftWriteBlocked;
+  const editingDisabled = readOnly || draftWriteBlocked || Boolean(pendingCompletion);
   const [questionIndexMode, setQuestionIndexMode] = useState<'unanswered' | 'all'>('unanswered');
   const draftCleared = useRef(false);
   const skipNextDraftSave = useRef(false);
@@ -2088,6 +2094,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       || draftCleared.current
       || !liveCurrentDraft
       || takeoverNotice
+      || saveInProgress.current
+      || liveCurrentDraft.revision <= (remoteRevision.current || 0)
     ) return;
 
     const addedChildIds = liveCurrentDraft.selectedChildIds.filter((childId) =>
@@ -2139,10 +2147,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     return () => { alive = false; };
     // Realtime and the form-only polling refresh this summary signature.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [liveCurrentDraftSignature, organizationId, draftKey, draftReady, initialRecord, readOnly, storageKey, allowLocalSensitiveStorage]);
+  }, [liveCurrentDraftSignature, organizationId, draftKey, draftReady, initialRecord, readOnly, storageKey, allowLocalSensitiveStorage, isSaving, savingChildId]);
 
   useEffect(() => {
-    if (editingDisabled || !draftReady || draftCleared.current) return;
+    if (editingDisabled || !draftReady || draftCleared.current || isSaving || savingChildId || saveInProgress.current) return;
     if (!initialRecord && wizard.selectedChildIds.length === 0) {
       setDraftStatus(null);
       return;
@@ -2156,6 +2164,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     let cancelled = false;
     let retryTimer: number | undefined;
     const timer = window.setTimeout(() => {
+      if (saveInProgress.current) return;
       const payload: WizardDraft = {
         ...wizard,
         version: 12,
@@ -2168,13 +2177,17 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       if (organizationId && userId) {
         const saveSharedDraft = async (attempt: number) => {
           try {
-            const saved = await saveRecordDraft(organizationId, userId, draftKey, payload, {
-              deviceId,
-              expectedRevision: remoteRevision.current,
-              recorderId: wizard.recorderId || null,
+            const saved = await draftWrites.run(async () => {
+              if (cancelled || saveInProgress.current) return null;
+              const result = await saveRecordDraft(organizationId, userId, draftKey, payload, {
+                deviceId,
+                expectedRevision: remoteRevision.current,
+                recorderId: wizard.recorderId || null,
+              });
+              remoteRevision.current = result.revision;
+              return result;
             });
-            if (cancelled) return;
-            remoteRevision.current = saved.revision;
+            if (cancelled || !saved) return;
             if (!allowLocalSensitiveStorage) localStorage.removeItem(storageKey);
             setDraftSaveError(null);
             setDraftStatus('saved');
@@ -2214,7 +2227,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       window.clearTimeout(timer);
       if (retryTimer) window.clearTimeout(retryTimer);
     };
-  }, [wizard, draftReady, storageKey, organizationId, userId, draftKey, deviceId, onDraftChanged, editingDisabled, initialRecord, draftRetryToken, allowLocalSensitiveStorage]);
+  }, [wizard, draftReady, storageKey, organizationId, userId, draftKey, deviceId, onDraftChanged, editingDisabled, initialRecord, draftRetryToken, allowLocalSensitiveStorage, isSaving, savingChildId]);
 
   useEffect(() => {
     if (!readOnly || !organizationId) return;
@@ -4300,8 +4313,84 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         : record;
   };
 
+  const completeSavedRecords = async (completion: { records: SupportRecord[]; childIds: string[] }) => {
+    // Keep the form mounted until the shared in-progress list no longer contains
+    // these children. Reload first so a coworker's newly transferred children survive.
+    let remaining = removeSavedDraftChildren(wizard, completion.childIds);
+    await draftWrites.run(async () => {
+      if (organizationId && userId) {
+        const remote = await loadRecordDraft(organizationId, draftKey);
+        if (remote) {
+          const latest = normalizeWizardDraft(remote.payload);
+          if (!latest) throw new Error('入力中の下書きを読み直せませんでした。');
+          remoteRevision.current = remote.revision;
+          remaining = removeSavedDraftChildren(latest, completion.childIds);
+          remoteRevision.current = await finishRecordDraftSave(
+            organizationId, userId, draftKey, remote.revision, remaining, deviceId,
+          );
+        }
+      }
+    });
+    const keepFormOpen = remaining.selectedChildIds.length > 0;
+    if (keepFormOpen) {
+      if (!writeLocalDraft(remaining, Boolean(organizationId))) throw new Error('端末内の下書きを更新できませんでした。');
+    } else {
+      localStorage.removeItem(storageKey);
+      draftCleared.current = true;
+    }
+    setWizard(remaining);
+    setPendingCompletion(null);
+    setChecksAcknowledged(false);
+    setSaveError(null);
+    setSaveNotice(`${completion.records.map((record) => record.childName).join('、')}の記録を保存しました。入力中の残りは${remaining.selectedChildIds.length}名です。`);
+    onDraftChanged?.();
+    onSaveComplete?.(completion.records, keepFormOpen);
+  };
+
+  const persistAndComplete = async (childIds: string[]) => {
+    saveInProgress.current = true;
+    setSaveNotice(null);
+    try {
+      // Flush pending edits before opening a potentially long-lived comparison.
+      await draftWrites.run(async () => {
+        if (organizationId && userId) {
+          const saved = await saveRecordDraft(organizationId, userId, draftKey, wizard, {
+            deviceId, expectedRevision: remoteRevision.current, recorderId: wizard.recorderId || null,
+          });
+          remoteRevision.current = saved.revision;
+        }
+        writeLocalDraft(wizard, Boolean(organizationId));
+      });
+      const outcome = await onSaveRecords(childIds.map((childId) => buildRecordForChild(childId, new Date().toISOString())));
+      if (outcome.status === 'cancelled') return;
+      const completion = { records: outcome.records, childIds };
+      setPendingCompletion(completion);
+      try {
+        await completeSavedRecords(completion);
+      } catch {
+        setSaveError('記録の保存は完了しています。入力中一覧の更新に失敗しました。「入力中一覧の更新を再試行」を押してください。記録を重ねて保存することはありません。');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : (error as { message?: string })?.message;
+      setSaveError(!navigator.onLine || /network|fetch|connection|offline/i.test(message || '')
+        ? '通信できないため保存を完了していません。入力内容はこの画面に残しています。通信復旧後にもう一度保存してください。'
+        : message || '保存できませんでした。入力内容を残しています。通信状態を確認してから再試行してください。');
+    } finally {
+      saveInProgress.current = false;
+    }
+  };
+
+  const retrySaveCompletion = async () => {
+    if (!pendingCompletion || saveInProgress.current) return;
+    saveInProgress.current = true;
+    setIsSaving(true);
+    try { await completeSavedRecords(pendingCompletion); }
+    catch { setSaveError('記録は保存済みです。入力中一覧をまだ更新できません。通信状態を確認してから再試行してください。'); }
+    finally { saveInProgress.current = false; setIsSaving(false); }
+  };
+
   const saveChildRecord = async (childId: string) => {
-    if (editingDisabled || !templateForChild(childId) || savingChildId) return;
+    if (editingDisabled || !draftReady || !templateForChild(childId) || saveInProgress.current) return;
     setSaveError(null);
     if (!wizard.date || !wizard.recorderName.trim()) {
       setSaveError('日付と記録者を確認してください。');
@@ -4319,42 +4408,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       return;
     }
 
-    const remainingChildIds = wizard.selectedChildIds.filter((id) => id !== childId);
     setSavingChildId(childId);
     try {
-      await onSaveRecords(
-        [buildRecordForChild(childId, new Date().toISOString())],
-        { keepFormOpen: remainingChildIds.length > 0 },
-      );
-      if (remainingChildIds.length === 0) {
-        draftCleared.current = true;
-        remoteRevision.current = null;
-        localStorage.removeItem(storageKey);
-        if (organizationId) await deleteRecordDraft(organizationId, draftKey);
-        onDraftChanged?.();
-        return;
-      }
-      setWizard((previous) => {
-        const childDrafts = { ...previous.childDrafts };
-        const childStepIds = { ...previous.childStepIds };
-        const childTemplateIds = { ...previous.childTemplateIds };
-        delete childDrafts[childId];
-        delete childStepIds[childId];
-        delete childTemplateIds[childId];
-        return {
-          ...previous,
-          selectedChildIds: previous.selectedChildIds.filter((id) => id !== childId),
-          activeChildId: previous.activeChildId === childId ? remainingChildIds[0] : previous.activeChildId,
-          childDrafts,
-          childStepIds,
-          childTemplateIds,
-          updatedAt: new Date().toISOString(),
-        };
-      });
-      setChecksAcknowledged(false);
-      setSaveError(null);
-    } catch (error) {
-      setSaveError(error instanceof Error ? error.message : '保存できませんでした。');
+      await persistAndComplete([childId]);
     } finally {
       setSavingChildId(null);
     }
@@ -4362,7 +4418,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (editingDisabled) return;
+    if (editingDisabled || !draftReady || saveInProgress.current) return;
     setSaveError(null);
     if (
       !activeTemplate ||
@@ -4385,20 +4441,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       return;
     }
 
-    const now = new Date().toISOString();
-    const records = wizard.selectedChildIds.map((childId) => buildRecordForChild(childId, now));
-
     setIsSaving(true);
     try {
-      await onSaveRecords(records);
-      draftCleared.current = true;
-      remoteRevision.current = null;
-      localStorage.removeItem(storageKey);
-      if (organizationId) await deleteRecordDraft(organizationId, draftKey);
-      onDraftChanged?.();
-    } catch (error) {
-      setSaveError(error instanceof Error ? error.message : '保存できませんでした。');
-      draftCleared.current = false;
+      await persistAndComplete(wizard.selectedChildIds);
     } finally {
       setIsSaving(false);
     }
@@ -4539,6 +4584,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       onInputCapture={(event) => rememberFocusedEditor(event.target, true)}
       className="mx-auto w-full min-w-0 max-w-4xl space-y-4 scroll-mt-20"
     >
+      {saveNotice && <div role="status" className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-900"><Check className="h-5 w-5 shrink-0" />{saveNotice}</div>}
+      {(isSaving || savingChildId) && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/30 p-4" role="status" aria-live="polite"><div className="flex items-center gap-3 rounded-xl bg-white p-5 font-bold text-slate-800 shadow-xl"><LoaderCircle className="h-5 w-5 animate-spin" />保存内容を確認・処理しています…</div></div>}
       {takeoverNotice && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/70 p-4" role="alertdialog" aria-modal="true" aria-labelledby="takeover-alert-title">
           <div className="w-full max-w-lg rounded-2xl border-2 border-amber-400 bg-white p-5 shadow-2xl sm:p-6">
@@ -4897,7 +4944,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             </div>
           </div>
         </div>
-        <fieldset disabled={editingDisabled} className="box-border w-full min-w-0 max-w-full overflow-x-hidden p-5 disabled:opacity-80 sm:p-7">{renderStep()}{stepError && <div className="mt-4 flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><AlertCircle className="w-5 h-5 shrink-0" />{stepError}</div>}</fieldset>
+        <fieldset disabled={editingDisabled || isSaving || Boolean(savingChildId)} className="box-border w-full min-w-0 max-w-full overflow-x-hidden p-5 disabled:opacity-80 sm:p-7">{renderStep()}{stepError && <div className="mt-4 flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><AlertCircle className="w-5 h-5 shrink-0" />{stepError}</div>}</fieldset>
       </section>
 
       {wizard.selectedChildIds.length > 0 && (
@@ -4937,7 +4984,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         </details>
       )}
 
-      {saveError && <div className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{saveError}</div>}
+      {saveError && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{saveError}</div>}
+      {pendingCompletion && <button type="button" disabled={isSaving} onClick={() => void retrySaveCompletion()} className="min-h-12 w-full rounded-xl bg-teal-700 px-4 text-sm font-black text-white disabled:opacity-50">入力中一覧の更新を再試行</button>}
 
       <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
         <button type="button" onClick={goPrevious} disabled={wizard.currentStepIndex === 0} className="min-h-12 rounded-xl border border-slate-300 px-4 text-sm font-bold text-slate-700 disabled:opacity-40 flex items-center justify-center gap-2"><ChevronLeft className="w-4 h-4" />前の質問</button>
@@ -4955,7 +5003,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           {currentStep?.kind === 'review'
             ? editingDisabled
               ? <span className="flex min-h-12 items-center justify-center rounded-xl bg-sky-100 px-6 text-sm font-black text-sky-900">{readOnly ? '閲覧モード' : '入力停止中'}</span>
-              : <button type="submit" disabled={isSaving} className="min-h-12 rounded-xl bg-emerald-600 disabled:bg-slate-400 px-6 text-sm font-bold text-white flex items-center justify-center gap-2"><Save className="w-4 h-4" />{isSaving ? '保存中...' : `${wizard.selectedChildIds.length}名分を保存`}</button>
+              : <button type="submit" disabled={isSaving || Boolean(savingChildId) || !draftReady || wizard.selectedChildIds.length === 0} className="min-h-12 rounded-xl bg-emerald-600 disabled:bg-slate-400 px-6 text-sm font-bold text-white flex items-center justify-center gap-2"><Save className="w-4 h-4" />{isSaving ? '保存中...' : `入力中の${wizard.selectedChildIds.length}名分をまとめて保存`}</button>
             : currentStep?.kind !== 'modules' && <button type="button" onClick={(event) => { event.preventDefault(); goNext(); }} className="min-h-12 rounded-xl bg-teal-600 px-6 text-sm font-bold text-white flex items-center justify-center gap-2">{currentStep?.moduleId ? '項目選択へ戻る' : '次の質問'}<ChevronRight className="w-4 h-4" /></button>}
         </div>
       </div>
@@ -5079,7 +5127,10 @@ function ReviewAllChildren({
   const notices = checks.filter((check) => check.level !== 'error');
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-teal-200 bg-teal-50 p-4 text-sm"><p><strong>日付：</strong>{wizard.date}</p><p><strong>記録者：</strong>{wizard.recorderName}</p></div>
+      <div className="rounded-xl border border-teal-200 bg-teal-50 p-4 text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-xs font-bold text-teal-700">保存する記録の確認</p><p className="mt-1 text-lg font-black text-teal-950">{wizard.date} <span className="ml-2 text-sm">入力中 {wizard.selectedChildIds.length}名</span></p><p className="mt-1 text-xs text-slate-600">記録者：{wizard.recorderName}</p></div><Save className="h-6 w-6 text-teal-600" /></div>
+        <p className="mt-3 border-t border-teal-200 pt-3 text-xs leading-relaxed text-teal-900">児童ごとのボタンは、その1名だけを保存します。保存した児童は入力中から外れ、残りの児童は続けて入力できます。</p>
+      </div>
       <section className={`rounded-xl border-2 p-4 ${
         errors.length > 0
           ? 'border-rose-300 bg-rose-50'
@@ -5196,7 +5247,7 @@ function ReviewAllChildren({
               className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border-2 border-emerald-500 bg-emerald-50 px-4 text-sm font-black text-emerald-800 disabled:border-slate-300 disabled:bg-slate-100 disabled:text-slate-400"
             >
               {savingChildId === childId ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              {savingChildId === childId ? 'この児童を保存中...' : 'この児童だけ保存'}
+              {savingChildId === childId ? 'この児童を保存中...' : `${child?.name || 'この児童'}・1名分のみ保存`}
             </button>
           </article>
         );

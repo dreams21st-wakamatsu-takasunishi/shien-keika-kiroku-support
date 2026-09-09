@@ -1,22 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowUp,
   BusFront,
-  CalendarDays,
-  CalendarRange,
-  ClipboardList,
   Eye,
   EyeOff,
   FileText,
-  Users,
-  Settings,
-  History,
-  PlusCircle,
   RefreshCw,
   ShieldCheck,
   LogOut,
-  House,
   Menu,
   X,
   ChevronDown,
@@ -25,9 +17,6 @@ import {
   RotateCcw,
   Save,
   SlidersHorizontal,
-  MessageSquareText,
-  Sparkles,
-  TriangleAlert,
 } from 'lucide-react';
 import type {
   RecorderMenuItemId,
@@ -37,20 +26,13 @@ import type {
 } from '../types';
 import { APP_BUILD_TIME, APP_VERSION, useAppUpdate } from '../hooks/useAppUpdate';
 
-export type ActiveTab = 'home' | 'form' | 'records' | 'children' | 'templates' | 'team' | 'plans';
-type HomeWorkspaceItem = 'dailyChanges' | 'todayWork' | 'attendance' | 'calendar' | 'monthlySchedule' | 'operations' | 'communication' | 'assistant';
-interface NavigationItem {
-  id: RecorderMenuItemId;
-  tab?: ActiveTab;
-  workspace?: HomeWorkspaceItem;
-  label: string;
-  description: string;
-  icon: React.ComponentType<{ className?: string }>;
-  managerOnly?: boolean;
-}
+import { activeNavigationId, applyMenuPreferences, matchesMenuSearch, navigationItems, type ActiveTab, type HomeWorkspaceItem } from '../utils/navigation';
+import { MenuSearch } from './MenuSearch';
+export type { ActiveTab } from '../utils/navigation';
 
 interface HeaderProps {
   activeTab: ActiveTab;
+  activeHomeWorkspace?: string;
   setActiveTab: (tab: ActiveTab) => void;
   unapprovedCount: number;
   onNewRecord: () => void;
@@ -64,28 +46,12 @@ interface HeaderProps {
   canOpenTeam?: boolean;
 }
 
-const navigationItems: NavigationItem[] = [
-  { id: 'home' as const, tab: 'home' as const, label: 'ホーム', description: '今日の状況と各機能', icon: House },
-  { id: 'dailyChanges' as const, workspace: 'dailyChanges' as const, label: '当日変更', description: '欠席・追加利用・送迎変更', icon: TriangleAlert },
-  { id: 'todayWork' as const, workspace: 'todayWork' as const, label: '本日の業務', description: '職員配置と当日の送迎', icon: ClipboardList },
-  { id: 'attendance' as const, workspace: 'attendance' as const, label: '出勤予定', description: '自分の勤務予定と打刻', icon: CalendarRange },
-  { id: 'calendar' as const, workspace: 'calendar' as const, label: '業務カレンダー', description: '会議・外出・行事', icon: CalendarDays },
-  { id: 'monthlySchedule' as const, workspace: 'monthlySchedule' as const, label: '利用予定／送迎管理', description: '月間の利用・送迎条件', icon: BusFront },
-  { id: 'operations' as const, workspace: 'operations' as const, label: '記録状況', description: '当日の入力状況を確認', icon: Eye },
-  { id: 'communication' as const, workspace: 'communication' as const, label: '朝礼・申し送り', description: '職員間の情報共有', icon: MessageSquareText },
-  { id: 'assistant' as const, workspace: 'assistant' as const, label: 'AIアシスタント', description: '業務変更案を作成', icon: Sparkles },
-  { id: 'form' as const, tab: 'form' as const, label: '記録作成', description: '支援経過記録を入力', icon: PlusCircle },
-  { id: 'records' as const, tab: 'records' as const, label: '記録一覧・確認', description: '記録の確認・修正・出力', icon: History },
-  { id: 'children' as const, tab: 'children' as const, label: '児童名簿', description: '児童情報と送迎先', icon: Users },
-  { id: 'templates' as const, tab: 'templates' as const, label: '設定', description: '記録・学校・送迎の共通設定', icon: Settings, managerOnly: true },
-  { id: 'team' as const, tab: 'team' as const, label: '職員', description: '職員・権限・記録者', icon: ShieldCheck, managerOnly: true },
-];
-
 const roleLabel = (role?: UserProfile['role']) =>
   role === 'admin' ? '管理者' : role === 'manager' ? '児発管' : role === 'classroom_manager' ? '教室長' : '職員';
 
 export const Header: React.FC<HeaderProps> = ({
   activeTab,
+  activeHomeWorkspace = 'menu',
   setActiveTab,
   unapprovedCount,
   onNewRecord,
@@ -99,6 +65,8 @@ export const Header: React.FC<HeaderProps> = ({
   canOpenTeam = false,
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuSearch, setMenuSearch] = useState('');
+  const drawerRef = useRef<HTMLElement>(null);
   const [customizingMenu, setCustomizingMenu] = useState(false);
   const [draftOrder, setDraftOrder] = useState<RecorderMenuItemId[]>([]);
   const [draftHidden, setDraftHidden] = useState<RecorderMenuItemId[]>([]);
@@ -121,18 +89,13 @@ export const Header: React.FC<HeaderProps> = ({
   );
   const privilegedItemIds = new Set<RecorderMenuItemId>(['templates', 'team']);
   const roleItemIds = roleItems.filter((item) => !privilegedItemIds.has(item.id)).map((item) => item.id);
-  const configuredOrder = activeRecorder?.menuPreferences?.order || [];
-  const orderedIds = [
-    ...configuredOrder.filter((item) => roleItemIds.includes(item)),
-    ...roleItemIds.filter((item) => !configuredOrder.includes(item)),
-  ];
+  const mainRoleItems = roleItems.filter((item) => !privilegedItemIds.has(item.id));
+  const orderedIds = applyMenuPreferences(mainRoleItems, activeRecorder?.menuPreferences, true).map((item) => item.id);
   const hiddenItems = new Set(activeRecorder?.menuPreferences?.hidden || []);
-  const visibleItems = orderedIds
-    .filter((item) => item === 'home' || !hiddenItems.has(item))
-    .map((item) => roleItems.find((candidate) => candidate.id === item))
-    .filter((item): item is (typeof navigationItems)[number] => Boolean(item));
-  const mainVisibleItems = visibleItems;
-  const privilegedItems = roleItems.filter((item) => privilegedItemIds.has(item.id));
+  const mainVisibleItems = applyMenuPreferences(mainRoleItems, activeRecorder?.menuPreferences)
+    .filter((item) => matchesMenuSearch(`${item.label} ${item.description} ${item.keywords}`, menuSearch));
+  const privilegedItems = roleItems.filter((item) => privilegedItemIds.has(item.id)
+    && matchesMenuSearch(`${item.label} ${item.description} ${item.keywords}`, menuSearch));
   const privilegedMenuLabel = currentUser?.role === 'admin'
     ? '管理者メニュー'
     : currentUser?.role === 'manager'
@@ -140,19 +103,42 @@ export const Header: React.FC<HeaderProps> = ({
       : currentUser?.role === 'classroom_manager'
         ? '教室長メニュー'
       : '管理メニュー';
-  const currentItem = navigationItems.find((item) => item.tab === activeTab);
+  const currentId = activeNavigationId(activeTab, activeHomeWorkspace);
+  const currentItem = navigationItems.find((item) => item.id === currentId);
+  const currentLabel = activeTab === 'home' && activeHomeWorkspace === 'dispatch' ? '配車編集' : currentItem?.label || 'ホーム';
+
+  useEffect(() => {
+    if (menuSearch.trim()) setPrivilegedMenuOpen(true);
+  }, [menuSearch]);
 
   useEffect(() => {
     if (!menuOpen) return;
+    setMenuSearch('');
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    drawerRef.current?.querySelector<HTMLButtonElement>('button')?.focus();
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setMenuOpen(false);
         setCustomizingMenu(false);
         setPrivilegedMenuOpen(false);
       }
+      if (event.key === 'Tab') {
+        const focusable = Array.from(drawerRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input, [tabindex="0"]') || []) as HTMLElement[];
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (!drawerRef.current?.contains(document.activeElement)) { event.preventDefault(); (event.shiftKey ? last : first)?.focus(); }
+        else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
     };
     document.addEventListener('keydown', closeOnEscape);
-    return () => document.removeEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('keydown', closeOnEscape);
+      document.body.style.overflow = previousOverflow;
+      previousFocus?.focus();
+    };
   }, [menuOpen]);
 
   const openTab = (tab: ActiveTab) => {
@@ -232,7 +218,7 @@ export const Header: React.FC<HeaderProps> = ({
             <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-teal-600 shadow-sm"><FileText className="h-5 w-5" /></span>
             <span className="min-w-0">
               <strong className="block truncate text-sm font-black sm:text-base">支援経過記録 サポート</strong>
-              <span className="block truncate text-[10px] font-bold text-teal-300 sm:text-[11px]">{currentItem?.label || 'ホーム'}</span>
+              <span className="block truncate text-[10px] font-bold text-teal-300 sm:text-[11px]">{currentLabel}</span>
             </span>
           </button>
 
@@ -280,7 +266,7 @@ export const Header: React.FC<HeaderProps> = ({
       {menuOpen && (
         <div className="fixed inset-0 z-[120] ui-fade-in" role="presentation">
           <button type="button" aria-label="画面メニューを閉じる" onClick={() => { setMenuOpen(false); setCustomizingMenu(false); setPrivilegedMenuOpen(false); }} className="absolute inset-0 h-full w-full bg-slate-950/60 backdrop-blur-[2px]" />
-          <aside role="dialog" aria-modal="true" aria-label="画面メニュー" className="app-safe-block ui-slide-in-left absolute inset-y-0 left-0 flex w-[min(88vw,22rem)] flex-col bg-white shadow-2xl">
+          <aside ref={drawerRef} role="dialog" aria-modal="true" aria-label="画面メニュー" className="app-safe-block ui-slide-in-left absolute inset-y-0 left-0 flex w-[min(94vw,24rem)] flex-col bg-white shadow-2xl">
             <header className="bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 p-4 text-white">
               <div className="flex items-center justify-between">
                 <div>
@@ -289,7 +275,7 @@ export const Header: React.FC<HeaderProps> = ({
                 </div>
                 <button type="button" onClick={() => { setMenuOpen(false); setCustomizingMenu(false); setPrivilegedMenuOpen(false); }} aria-label="閉じる" className="grid h-11 w-11 place-items-center rounded-xl bg-white/10"><X className="h-5 w-5" /></button>
               </div>
-              <div className="mt-4 rounded-2xl border border-white/10 bg-white/10 p-3">
+              <div className="mt-3 rounded-xl border border-white/10 bg-white/10 px-3 py-2">
                 <p className="text-[10px] font-bold text-slate-300">ログイン中の職員</p>
                 <p className="mt-0.5 text-base font-black">{currentUser?.displayName || activeRecorder?.displayName || 'ローカル職員'}</p>
                 <p className="mt-1 text-[10px] text-slate-300">
@@ -303,7 +289,9 @@ export const Header: React.FC<HeaderProps> = ({
               </div>
             </header>
 
-            <nav className="flex-1 overflow-y-auto p-3" aria-label="主要画面">
+            {!customizingMenu && <div className="border-b border-slate-200 p-3"><MenuSearch value={menuSearch} onChange={setMenuSearch} label="メニュー検索" placeholder="機能名・目的で探す" /></div>}
+
+            <nav className="min-h-0 flex-1 overflow-y-auto p-3" aria-label="主要画面">
               {customizingMenu ? (
                 <div className="space-y-3">
                   <div className="rounded-2xl border border-teal-200 bg-teal-50 p-3">
@@ -362,7 +350,7 @@ export const Header: React.FC<HeaderProps> = ({
                   <div className="space-y-1">
                     {mainVisibleItems.map((item) => {
                       const Icon = item.icon;
-                      const selected = Boolean(item.tab && activeTab === item.tab);
+                      const selected = item.id === currentId;
                       return (
                         <button key={item.id} type="button" onClick={() => openItem(item)} aria-current={selected ? 'page' : undefined} className={`flex min-h-16 w-full items-center gap-3 rounded-2xl px-3 text-left transition-colors ${selected ? 'bg-teal-50 text-teal-950 ring-1 ring-teal-200' : 'text-slate-800 hover:bg-slate-50'}`}>
                           <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${selected ? 'bg-teal-600 text-white' : 'bg-slate-100 text-slate-600'}`}><Icon className="h-5 w-5" /></span>
@@ -370,11 +358,13 @@ export const Header: React.FC<HeaderProps> = ({
                             <strong className="block text-sm">{item.label}</strong>
                             <span className="mt-0.5 block text-[10px] text-slate-500">{item.description}</span>
                           </span>
+                          {selected && <span className="shrink-0 text-[10px] font-bold text-teal-700">表示中</span>}
                           {item.id === 'records' && unapprovedCount > 0 && <span className="rounded-full bg-amber-400 px-2 py-1 text-[10px] font-black text-slate-950">{unapprovedCount}</span>}
                           <ChevronRight className="h-4 w-4 text-slate-300" />
                         </button>
                       );
                     })}
+                    {mainVisibleItems.length === 0 && privilegedItems.length === 0 && <p role="status" className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">該当するメニューがありません。別の言葉で検索してください。</p>}
                     {privilegedItems.length > 0 && (
                       <div className={`overflow-hidden rounded-2xl border transition-colors ${privilegedItems.some((item) => item.tab === activeTab) ? 'border-indigo-200 bg-indigo-50/70' : 'border-slate-200 bg-white'}`}>
                         <button

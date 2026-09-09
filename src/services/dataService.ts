@@ -2151,6 +2151,22 @@ export interface SaveRecordResult {
   outcome: 'inserted' | 'updated' | 'already_saved';
 }
 
+/** Read current versions immediately before presenting an overwrite preview. */
+export async function loadRecordsForSave(organizationId: string, records: SupportRecord[]): Promise<SupportRecord[]> {
+  if (records.length === 0) return [];
+  const client = assertSupabase();
+  const [byDay, byId] = await Promise.all([
+    client.from('support_records').select('*').eq('organization_id', organizationId)
+      .is('deleted_at', null).in('child_id', [...new Set(records.map((record) => record.childId))])
+      .in('record_date', [...new Set(records.map((record) => record.date))]),
+    client.from('support_records').select('*').eq('organization_id', organizationId)
+      .is('deleted_at', null).in('id', records.map((record) => record.id)),
+  ]);
+  if (byDay.error) throw byDay.error;
+  if (byId.error) throw byId.error;
+  return [...new Map([...(byDay.data || []), ...(byId.data || [])].map((row) => [row.id, mapRecord(row)])).values()];
+}
+
 export async function saveRecords(organizationId: string, records: SupportRecord[]): Promise<SaveRecordResult[]> {
   if (records.length === 0) return [];
   const { data, error } = await assertSupabase().rpc('save_support_records_guarded', {
@@ -2251,6 +2267,28 @@ export async function deleteRecordDraft(organizationId: string, draftKey: string
     .eq('organization_id', organizationId)
     .eq('draft_key', draftKey);
   if (error) throw error;
+}
+
+/** Compare-and-swap cleanup: never erase children transferred in after the read. */
+export async function finishRecordDraftSave(
+  organizationId: string,
+  userId: string,
+  draftKey: string,
+  expectedRevision: number,
+  remainingPayload: { selectedChildIds: string[] },
+  deviceId: string,
+) {
+  const remaining = remainingPayload.selectedChildIds.length > 0;
+  const table = assertSupabase().from('record_drafts');
+  const mutation = remaining
+    ? table.update({ payload: remainingPayload, revision: expectedRevision + 1, device_id: deviceId })
+    : table.delete();
+  const { data, error } = await mutation.eq('organization_id', organizationId)
+    .eq('user_id', userId).eq('draft_key', draftKey).eq('revision', expectedRevision)
+    .select('revision').maybeSingle();
+  if (error) throw error;
+  if (!data) throw new Error('入力中の下書きが別の操作で更新されています。もう一度一覧更新を試してください。');
+  return remaining ? Number(data.revision) : null;
 }
 
 export async function takeOverRecordDraft(

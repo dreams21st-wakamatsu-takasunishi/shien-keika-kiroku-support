@@ -19,7 +19,7 @@ const LIFE_LABELS: Record<string, string> = {
   medication: '※服薬',
 };
 
-const FIELD_LABELS: Record<string, string> = {
+export const UNIFIED_RECORD_FIELD_LABELS: Record<string, string> = {
   module_study_homework: '宿題内容',
   module_study_attitude: '宿題への取り組み',
   module_study_extras: '宿題以外の取り組み',
@@ -44,7 +44,7 @@ function sectionLines(section?: SectionAnswer) {
   const answers = Object.entries(section.answers || {})
     .map(([fieldId, answer]) => {
       const value = compactValue(answer.value, answer.note);
-      return value ? `${FIELD_LABELS[fieldId] || fieldId}：${value}` : '';
+      return value ? `${UNIFIED_RECORD_FIELD_LABELS[fieldId] || fieldId}：${value}` : '';
     })
     .filter(Boolean);
   const abc = section.abcAnalysis;

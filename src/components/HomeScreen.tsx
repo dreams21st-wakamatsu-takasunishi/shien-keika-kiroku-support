@@ -1,4 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { applyMenuPreferences, MENU_CATEGORIES, matchesMenuSearch, navigationItems, type MenuCategory, type NavigationItem } from '../utils/navigation';
+import { MenuSearch } from './MenuSearch';
 import {
   ArrowLeft,
   AlertTriangle,
@@ -6,13 +8,10 @@ import {
   Bot,
   BusFront,
   CalendarDays,
-  CalendarRange,
   CheckCircle2,
   ChevronRight,
   ClipboardPenLine,
   ClipboardList,
-  Clock3,
-  History,
   LoaderCircle,
   MessageSquareText,
   PlusCircle,
@@ -20,7 +19,6 @@ import {
   ShieldCheck,
   Sparkles,
   UsersRound,
-  UserX,
 } from 'lucide-react';
 import type {
   ChildProfile,
@@ -276,6 +274,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [dispatchDate, setDispatchDate] = useState(getLocalDateString());
   const [monthlyScheduleDate, setMonthlyScheduleDate] = useState(getLocalDateString());
   const [monthlyScheduleReturn, setMonthlyScheduleReturn] = useState<HomeWorkspace>('menu');
+  const [menuSearch, setMenuSearch] = useState('');
+  const [menuCategory, setMenuCategory] = useState<MenuCategory>('すべて');
 
   useEffect(() => {
     if (announcementFocusToken > 0) setCommunicationView('announcements');
@@ -372,6 +372,30 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     })
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0], [activeRecorder, currentUser, drafts]);
 
+  const homeItems = applyMenuPreferences(navigationItems.filter((item) => Boolean(item.category)), activeRecorder?.menuPreferences);
+  const filteredHomeItems = homeItems.filter((item) => (menuCategory === 'すべて' || item.category === menuCategory)
+    && matchesMenuSearch(`${item.label} ${item.description} ${item.keywords}`, menuSearch));
+  const homeItemMeta: Partial<Record<NavigationItem['id'], string>> = {
+    dailyChanges: '影響を確認してすぐ反映',
+    todayWork: todayWorkCount > 0 ? `${todayWorkCount}件の予定` : '予定を確認',
+    attendance: activeRecorder ? `${activeRecorder.displayName}さんの勤務` : '勤務を確認',
+    calendar: '会議・外出などを確認',
+    monthlySchedule: '日ごとの予定を確認・編集',
+    children: `${childrenList.filter((child) => !child.serviceSuspended).length}名を確認`,
+    operations: `本日 ${todayRecords.length}件／入力中 ${drafts.length}件${carriedOverDrafts.length > 0 ? `／持越し ${carriedOverDrafts.length}件` : ''}`,
+    records: unapproved.length > 0 ? `未確認 ${unapproved.length}件` : '記録を確認',
+    communication: `${visibleAnnouncements.length + openHandovers}件を確認`,
+    assistant: '実行前に内容を確認',
+    form: '新しい記録を作成',
+  };
+  const openHomeItem = (item: NavigationItem) => {
+    if (item.id === 'form') { onNewRecord(); return; }
+    if (item.tab) { onNavigate(item.tab); return; }
+    if (item.id === 'todayWork') setTodayWorkLaunch({ date: today, view: 'placement' });
+    if (item.id === 'monthlySchedule') { setMonthlyScheduleDate(today); setMonthlyScheduleReturn('menu'); }
+    if (item.workspace) setActivePanel(item.workspace);
+  };
+
   return (
     <div className="mx-auto max-w-[1800px] space-y-4">
       {activePanel === 'menu' ? (
@@ -379,17 +403,17 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           <section className="rounded-2xl bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 p-4 text-white shadow-lg sm:p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0">
-                <p className="text-[10px] font-black uppercase tracking-[0.16em] text-teal-300">{today.replaceAll('-', '/')}・ホーム</p>
-                <h2 className="mt-1 text-lg font-black sm:text-xl">今日の業務を選択</h2>
-                <p className="mt-1 text-[10px] font-bold text-slate-300">ログイン中の職員は画面右上でいつでも確認できます。</p>
+                <p className="text-xs font-bold tracking-wide text-teal-300">{new Date(`${today}T12:00:00`).toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}</p>
+                <h2 className="mt-1 text-xl font-black sm:text-2xl">今日の業務を、ここから。</h2>
+                <p className="mt-1 text-xs text-slate-300">記録の入力・再開、当日の送迎へすぐに移動できます。</p>
               </div>
               <div className="grid shrink-0 grid-cols-2 gap-2 sm:flex">
-                <button type="button" onClick={() => resumableDraft ? onResumeDraft(resumableDraft.draftKey) : onNewRecord()} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-teal-400 px-4 text-sm font-black text-slate-950 shadow-md hover:bg-teal-300">
-                  {resumableDraft ? <RotateCcw className="h-5 w-5" /> : <PlusCircle className="h-5 w-5" />}
+                <button type="button" onClick={() => resumableDraft ? onResumeDraft(resumableDraft.draftKey) : onNewRecord()} className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-teal-400 px-2 text-xs font-black text-slate-950 shadow-md hover:bg-teal-300 sm:gap-2 sm:px-4 sm:text-sm">
+                  {resumableDraft ? <RotateCcw className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" /> : <PlusCircle className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" />}
                   {resumableDraft ? '記録を再開' : '記録を始める'}
                 </button>
-                <button type="button" onClick={() => { setTodayWorkLaunch({ date: today, view: 'transport' }); setActivePanel('todayWork'); }} className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 text-sm font-bold text-white hover:bg-white/15">
-                  <BusFront className="h-5 w-5" />当日送迎を確認
+                <button type="button" aria-label="当日送迎を確認" onClick={() => { setTodayWorkLaunch({ date: today, view: 'transport' }); setActivePanel('todayWork'); }} className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl border border-white/20 bg-white/10 px-2 text-xs font-bold text-white hover:bg-white/15 sm:gap-2 sm:px-4 sm:text-sm">
+                  <BusFront className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" />当日の送迎
                 </button>
               </div>
             </div>
@@ -447,23 +471,34 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             </section>
           )}
 
-          <section>
-            <div className="mb-3 px-1">
-              <h3 className="text-base font-black text-slate-950">確認したい内容を選ぶ</h3>
-              <p className="mt-0.5 text-xs text-slate-500">選んだ内容だけを次の画面に表示します。</p>
+          <section aria-labelledby="home-menu-title" className="space-y-3">
+            <div className="rounded-2xl border border-slate-200 bg-white p-3 shadow-sm sm:p-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h3 id="home-menu-title" className="text-base font-black text-slate-950">業務メニュー</h3>
+                  <p className="mt-1 text-xs text-slate-600">目的で絞り込み、使いたい機能を選んでください。</p>
+                </div>
+                <div className="w-full md:max-w-sm"><MenuSearch value={menuSearch} onChange={setMenuSearch} label="ホームの機能を検索" placeholder="例：欠席、下校、シフト、PDF" /></div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-1.5" role="group" aria-label="業務の分類">
+                {MENU_CATEGORIES.map((category) => <button type="button" key={category} aria-pressed={menuCategory === category}
+                  onClick={() => setMenuCategory(category)}
+                  className={`min-h-11 rounded-xl px-3 text-xs font-bold transition-colors sm:px-4 ${menuCategory === category ? 'bg-slate-900 text-white shadow-sm' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>{category}</button>)}
+              </div>
             </div>
-            <div className="grid gap-3 sm:grid-cols-2">
-              <WorkspaceCard icon={UserX} title="当日変更" description="急な欠席・送迎担当の交代" meta="影響を確認してすぐ反映" tone="amber" onClick={() => setActivePanel('dailyChanges')} />
-              <WorkspaceCard icon={CalendarDays} title="本日の業務" description="職員配置・当日の送迎一覧" meta={todayWorkCount > 0 ? `${todayWorkCount}件の予定` : '予定を確認'} tone="teal" onClick={() => { setTodayWorkLaunch({ date: getLocalDateString(), view: 'placement' }); setActivePanel('todayWork'); }} />
-              <WorkspaceCard icon={Clock3} title="出勤予定" description="自分の予定・打刻・シフト希望" meta={activeRecorder ? `${activeRecorder.displayName}さんの勤務` : '勤務を確認'} tone="sky" onClick={() => setActivePanel('attendance')} />
-              <WorkspaceCard icon={CalendarRange} title="業務カレンダー" description="会議・外出・研修・面談・行事" meta="勤務予定は表示しません" tone="indigo" onClick={() => setActivePanel('calendar')} />
-              <WorkspaceCard icon={BusFront} title="利用予定／送迎管理" description="利用予定・欠席・送迎条件・配車" meta="日ごとの予定を確認・編集" tone="violet" onClick={() => { setMonthlyScheduleDate(today); setMonthlyScheduleReturn('menu'); setActivePanel('monthlySchedule'); }} />
-              <WorkspaceCard icon={UsersRound} title="児童名簿" description="児童情報・学校・利用曜日・送迎先" meta={`${childrenList.filter((child) => !child.serviceSuspended).length}名を確認`} tone="teal" onClick={() => onNavigate('children')} />
-              <WorkspaceCard icon={ClipboardList} title="記録状況" description="利用児童・入力中・保存済み" meta={`本日 ${todayRecords.length}件／入力中 ${drafts.length}件${carriedOverDrafts.length > 0 ? `／持越し ${carriedOverDrafts.length}件` : ''}`} tone="sky" onClick={() => setActivePanel('operations')} />
-              <WorkspaceCard icon={History} title="記録一覧・確認" description="保存済み記録の確認・修正・出力" meta={unapproved.length > 0 ? `未確認 ${unapproved.length}件` : '記録を確認'} tone="teal" onClick={() => onNavigate('records')} />
-              <WorkspaceCard icon={MessageSquareText} title="共有・連絡" description="お知らせ・朝礼・申し送り" meta={`${visibleAnnouncements.length + openHandovers}件を確認`} tone="amber" onClick={() => setActivePanel('communication')} />
-              <WorkspaceCard icon={Bot} title="AIアシスタント" description="児童情報の変更や記録の整理" meta="実行前に内容を確認" tone="indigo" onClick={() => setActivePanel('assistant')} />
+            <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs text-slate-600">
+              <p role="status">{menuCategory} <span className="font-bold text-slate-900">{filteredHomeItems.length}</span>件</p>
+              {activeRecorder && <p>表示・並び順は「画面メニュー → 自分のメニューを編集」で変更</p>}
             </div>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-label="業務メニューの一覧">
+              {filteredHomeItems.map((item) => <div key={item.id}><WorkspaceCard icon={item.icon} title={item.label} description={item.description}
+                meta={homeItemMeta[item.id] || ''} tone={item.tone} onClick={() => openHomeItem(item)} /></div>)}
+            </div>
+            {filteredHomeItems.length === 0 && <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-center">
+              <p className="font-bold text-slate-800">該当する機能がありません</p>
+              <p className="mt-2 text-sm text-slate-600">別の言葉で探すか、分類を「すべて」に戻してください。非表示にした機能はメニュー編集から戻せます。</p>
+              <button type="button" onClick={() => { setMenuSearch(''); setMenuCategory('すべて'); }} className="mt-4 min-h-11 rounded-xl border border-teal-300 bg-teal-50 px-4 text-sm font-bold text-teal-800">絞り込みを解除</button>
+            </div>}
           </section>
         </>
       ) : (
@@ -1076,15 +1111,15 @@ function WorkspaceCard({
     <button
       type="button"
       onClick={onClick}
-      className="group flex min-h-28 w-full items-center gap-4 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-teal-300 hover:shadow-md"
+      className="group flex h-full min-h-28 w-full items-start gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition-colors hover:border-teal-400 hover:bg-teal-50/30 hover:shadow-md sm:gap-4"
     >
-      <span className={`grid h-12 w-12 shrink-0 place-items-center rounded-2xl transition-colors ${tones[tone]}`}><Icon className="h-6 w-6" /></span>
+      <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl transition-colors ${tones[tone]}`}><Icon aria-hidden="true" className="h-5 w-5" /></span>
       <span className="min-w-0 flex-1">
-        <strong className="block text-base text-slate-950">{title}</strong>
-        <span className="mt-1 block text-xs text-slate-500">{description}</span>
-        <span className="mt-2 block text-[10px] font-black text-teal-700">{meta}</span>
+        <strong className="block text-base leading-snug text-slate-950">{title}</strong>
+        <span className="mt-1 block text-xs leading-relaxed text-slate-600">{description}</span>
+        <span className="mt-2 block text-xs font-bold text-teal-800">{meta}</span>
       </span>
-      <ChevronRight className="h-5 w-5 shrink-0 text-slate-300 transition-transform group-hover:translate-x-0.5" />
+      <ChevronRight aria-hidden="true" className="mt-1 h-4 w-4 shrink-0 text-slate-400" />
     </button>
   );
 }
