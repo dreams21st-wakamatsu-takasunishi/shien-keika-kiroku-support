@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { BusFront, CalendarCheck2, CalendarClock, CheckCircle2, Clock3, Eye, FileEdit, Info, PlayCircle, Trash2, UserRoundCheck } from 'lucide-react';
 import type { ChildProfile, DailyChildPlan, DailyTransportRequirement, RecordDraftSummary, SupportRecord } from '../types';
 import { getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
@@ -210,7 +211,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
               <div className="space-y-3">
                 <div>
                   <p className="text-xs font-black text-amber-950">引き継ぐ児童を選択してください</p>
-                  <p className="mt-1 text-[11px] text-slate-600">下の児童一覧に表示されたチェックボックスから複数選択できます。</p>
+                  <p className="mt-1 text-[11px] text-slate-600">下のチェックボックスで児童を選び、画面右下の「引き継ぎ確定」を押してください。</p>
                 </div>
                 <div className="flex flex-wrap gap-2 sm:justify-end">
                   <button
@@ -270,6 +271,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
                       <input
                         type="checkbox"
                         checked={selectedForTakeover}
+                        disabled={takingOver}
                         onChange={() => toggleTakeoverSelection(draft.draftKey, child.id)}
                         className="h-4 w-4 accent-amber-600"
                       />
@@ -442,15 +444,20 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
         </details>
       )}
       {takeoverSelectionMode && (
+        <div aria-hidden="true" className="h-24" />
+      )}
+      {/* A portal keeps this fixed to the viewport, outside animated/overflow-hidden panels. */}
+      {takeoverSelectionMode && !infoChild && createPortal(
         <button
           type="button"
           disabled={selectedTakeovers.length === 0 || takingOver}
           onClick={() => void handleTakeOverSelected()}
-          className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-[90] flex min-h-14 items-center justify-center gap-2 rounded-2xl bg-amber-600 px-5 text-sm font-black text-white shadow-2xl ring-4 ring-white/80 disabled:cursor-not-allowed disabled:bg-slate-400 sm:right-8"
+          className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-[max(1rem,env(safe-area-inset-right))] z-40 flex min-h-14 max-w-[calc(100%-2rem)] items-center justify-center gap-2 rounded-2xl bg-amber-600 px-5 text-sm font-black text-white shadow-2xl ring-4 ring-white/80 disabled:cursor-not-allowed disabled:bg-slate-400 sm:right-[max(2rem,env(safe-area-inset-right))]"
         >
           <UserRoundCheck className="h-5 w-5" />
           {takingOver ? '引き継ぎ中…' : `引き継ぎ確定（${selectedTakeovers.length}名）`}
-        </button>
+        </button>,
+        document.body,
       )}
       <ChildInfoDialog child={infoChild} onClose={() => setInfoChild(null)} />
     </section>

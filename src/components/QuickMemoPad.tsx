@@ -4,6 +4,7 @@ import { Check, Cloud, Send, StickyNote, Trash2, X } from 'lucide-react';
 import { deleteRecordDraft, loadRecordDraft, saveRecordDraft } from '../services/dataService';
 import { getCurrentDraftCycleKey, getNextDraftResetAt, isDraftCurrent } from '../utils/draftExpiry';
 import { getDeviceId } from '../utils/deviceId';
+import { placeAnchoredPanel } from '../utils/anchoredPanel';
 
 interface QuickMemoPadProps {
   organizationId?: string;
@@ -50,12 +51,26 @@ function readMemoPosition(storageKey: string): MemoPosition | null {
   }
 }
 
+function getMemoViewport() {
+  const viewport = window.visualViewport;
+  const styles = getComputedStyle(document.documentElement);
+  const inset = (side: string) => Number.parseFloat(styles.getPropertyValue(`--app-safe-area-${side}`)) || 0;
+  const left = (viewport?.offsetLeft || 0) + inset('left');
+  const top = (viewport?.offsetTop || 0) + inset('top');
+  return {
+    left,
+    top,
+    width: Math.max(1, Math.min(viewport?.width || window.innerWidth, document.documentElement.clientWidth) - inset('left') - inset('right')),
+    height: Math.max(1, (viewport?.height || window.innerHeight) - inset('top') - inset('bottom')),
+  };
+}
+
 function clampMemoPosition(position: MemoPosition): MemoPosition {
-  const safeTop = Number.parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--app-safe-area-top')) || 0;
+  const viewport = getMemoViewport();
   const edge = 10;
   return {
-    x: Math.min(Math.max(position.x, edge), Math.max(edge, window.innerWidth - MEMO_TRIGGER_SIZE - edge)),
-    y: Math.min(Math.max(position.y, safeTop + edge), Math.max(safeTop + edge, window.innerHeight - MEMO_TRIGGER_SIZE - edge)),
+    x: Math.min(Math.max(position.x, viewport.left + edge), Math.max(viewport.left + edge, viewport.left + viewport.width - MEMO_TRIGGER_SIZE - edge)),
+    y: Math.min(Math.max(position.y, viewport.top + edge), Math.max(viewport.top + edge, viewport.top + viewport.height - MEMO_TRIGGER_SIZE - edge)),
   };
 }
 
@@ -104,14 +119,16 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
   const [position, setPosition] = useState<MemoPosition | null>(() => readMemoPosition(positionStorageKey));
   const [dragging, setDragging] = useState(false);
   const skipNextSave = useRef(false);
-  const sheetRef = useRef<HTMLElement>(null);
+  const sheetContentRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const longPressTimer = useRef<number | null>(null);
   const dragState = useRef<MemoDragState | null>(null);
   const suppressNextClick = useRef(false);
   const deviceId = useRef(getDeviceId()).current;
   const remoteRevision = useRef<number | null>(null);
-  const [sheetTransformOrigin, setSheetTransformOrigin] = useState('100% 100%');
+  const [sheetLayout, setSheetLayout] = useState(() => placeAnchoredPanel(
+    { left: 10, top: 10, width: MEMO_TRIGGER_SIZE, height: MEMO_TRIGGER_SIZE }, getMemoViewport(), 560,
+  ));
   const writeLocalMemo = (payload: QuickMemoPayload, remoteConfirmed = false) => {
     try {
       if (allowLocalSensitiveStorage) localStorage.setItem(storageKey, JSON.stringify(payload));
@@ -239,39 +256,48 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
     document.documentElement.classList.remove('quick-memo-drag-active');
   }, []);
 
-  const updateSheetTransformOrigin = () => {
-    const sheet = sheetRef.current;
+  const updateSheetLayout = () => {
+    const contentElement = sheetContentRef.current;
     const trigger = triggerRef.current;
-    if (!sheet || !trigger) return;
-    const triggerRect = trigger.getBoundingClientRect();
-    const computed = getComputedStyle(sheet);
-    const left = computed.left !== 'auto'
-      ? Number.parseFloat(computed.left)
-      : window.innerWidth - Number.parseFloat(computed.right || '0') - sheet.offsetWidth;
-    const top = computed.top !== 'auto'
-      ? Number.parseFloat(computed.top)
-      : window.innerHeight - Number.parseFloat(computed.bottom || '0') - sheet.offsetHeight;
-    const originX = triggerRect.left + triggerRect.width / 2 - left;
-    const originY = triggerRect.top + triggerRect.height / 2 - top;
-    setSheetTransformOrigin(`${originX}px ${originY}px`);
+    if (!contentElement || !trigger) return;
+    // Layout offsets do not include the icon's hover/drag scale or the editor's opening animation.
+    const layout = placeAnchoredPanel({
+      left: trigger.offsetLeft, top: trigger.offsetTop, width: trigger.offsetWidth, height: trigger.offsetHeight,
+    }, getMemoViewport(), contentElement.offsetHeight + 2);
+    setSheetLayout((previous) => Object.keys(layout).every((key) => previous[key] === layout[key]) ? previous : layout);
   };
 
   useLayoutEffect(() => {
-    updateSheetTransformOrigin();
+    updateSheetLayout();
   }, [position, open]);
 
   useEffect(() => {
+    let frame = 0;
     const handleResize = () => {
       setPosition((current) => {
-        if (!current) return null;
-        const next = clampMemoPosition(current);
-        localStorage.setItem(positionStorageKey, JSON.stringify(next));
+        const trigger = triggerRef.current;
+        if (!current && !trigger) return null;
+        const base = current || { x: trigger!.offsetLeft, y: trigger!.offsetTop };
+        const next = clampMemoPosition(base);
+        if (base.x === next.x && base.y === next.y) return current;
+        // Keyboard/rotation adjustments must not overwrite the user's saved drag position.
         return next;
       });
-      window.requestAnimationFrame(updateSheetTransformOrigin);
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(updateSheetLayout);
     };
+    const observer = new ResizeObserver(updateSheetLayout);
+    if (sheetContentRef.current) observer.observe(sheetContentRef.current);
     window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
+    window.visualViewport?.addEventListener('resize', handleResize);
+    window.visualViewport?.addEventListener('scroll', handleResize);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      observer.disconnect();
+      window.removeEventListener('resize', handleResize);
+      window.visualViewport?.removeEventListener('resize', handleResize);
+      window.visualViewport?.removeEventListener('scroll', handleResize);
+    };
   }, [positionStorageKey]);
 
   const clearLongPressTimer = () => {
@@ -382,81 +408,82 @@ export const QuickMemoPad: React.FC<QuickMemoPadProps> = ({
   return createPortal(
     <>
       <section
-        ref={sheetRef}
         aria-label="クイックメモ"
         aria-hidden={!open}
-        style={{ transformOrigin: sheetTransformOrigin }}
-        className={`quick-memo-sheet fixed inset-x-3 z-50 max-h-[min(68vh,34rem)] overflow-hidden rounded-2xl border border-amber-200 bg-amber-50 shadow-2xl transition-[transform,opacity] duration-300 ease-out sm:inset-x-auto sm:w-96 ${
+        style={sheetLayout}
+        className={`quick-memo-sheet fixed z-50 overflow-y-auto overscroll-contain rounded-2xl border border-amber-200 bg-amber-50 shadow-2xl transition-[transform,opacity] duration-300 ease-out motion-reduce:transition-none ${
           open ? 'pointer-events-auto scale-100 opacity-100' : 'pointer-events-none scale-[0.08] opacity-0'
         }`}
       >
-        <div className="flex items-center justify-between border-b border-amber-200 bg-amber-100/80 px-4 py-3">
-          <div>
-            <h3 className="flex items-center gap-2 text-sm font-bold text-amber-950">
-              <StickyNote className="h-4 w-4" />クイックメモ
-            </h3>
-            <p className="mt-0.5 text-[11px] text-amber-800">
-              {allowLocalSensitiveStorage ? '自動保存' : 'クラウド保存・端末内保存なし'}・毎日午前3時リセット／アイコンは長押しで移動
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            tabIndex={open ? 0 : -1}
-            className="flex min-h-10 min-w-10 items-center justify-center rounded-full text-amber-900 hover:bg-amber-200"
-            aria-label="メモ帳をしまう"
-          >
-            <X className="h-5 w-5" />
-          </button>
-        </div>
-
-        <div className="p-4">
-          <textarea
-            rows={9}
-            maxLength={4000}
-            value={content}
-            onChange={(event) => setContent(event.target.value)}
-            tabIndex={open ? 0 : -1}
-            placeholder={'例：\n・15:20　〇〇さんが活動室で困っている様子\n・△△さんから「あとで話したい」と相談あり'}
-            className="w-full resize-none rounded-xl border border-amber-300 bg-white p-3 text-base leading-relaxed text-slate-900 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-200 sm:text-sm"
-          />
-          <div className="mt-2 flex items-center justify-between gap-3">
-            <p aria-live="polite" className={`flex min-w-0 items-center gap-1 text-[10px] ${status === 'error' ? 'text-rose-700' : 'text-amber-800'}`}>
-              {status === 'saved' ? <Check className="h-3.5 w-3.5 shrink-0" /> : <Cloud className="h-3.5 w-3.5 shrink-0" />}
-              <span className="truncate">{statusLabel}</span>
-            </p>
-            <span className="shrink-0 text-[10px] text-amber-700">{content.length} / 4000</span>
-          </div>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            {onCreateHandover && (
-              <div className="space-y-2 sm:col-span-2">
-                <label className="block text-[11px] font-black text-amber-950">
-                  申し送りの対象
-                  <select value={handoverChildId} onChange={(event) => setHandoverChildId(event.target.value)} tabIndex={open ? 0 : -1} className="mt-1 min-h-11 w-full rounded-lg border border-amber-300 bg-white px-3 text-sm text-slate-900">
-                    <option value="">事業所全体（全児童の記録画面に表示）</option>
-                    {children.map((child) => <option key={child.id} value={child.id}>{child.name}</option>)}
-                  </select>
-                </label>
-                <button
-                  type="button"
-                  onClick={() => void createHandover()}
-                  disabled={!content.trim() || forwarding}
-                  tabIndex={open ? 0 : -1}
-                  className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3 text-xs font-bold text-white disabled:opacity-40"
-                >
-                  <Send className="h-4 w-4" />{forwarding ? '登録中...' : '申し送りに登録'}
-                </button>
-              </div>
-            )}
+        <div ref={sheetContentRef}>
+          <div className="flex items-center justify-between border-b border-amber-200 bg-amber-100/80 px-4 py-3">
+            <div>
+              <h3 className="flex items-center gap-2 text-sm font-bold text-amber-950">
+                <StickyNote className="h-4 w-4" />クイックメモ
+              </h3>
+              <p className="mt-0.5 text-[11px] text-amber-800">
+                {allowLocalSensitiveStorage ? '自動保存' : 'クラウド保存・端末内保存なし'}・毎日午前3時リセット／アイコンは長押しで移動
+              </p>
+            </div>
             <button
               type="button"
-              onClick={clearMemo}
-              disabled={!content}
+              onClick={() => setOpen(false)}
               tabIndex={open ? 0 : -1}
-              className="flex min-h-11 items-center justify-center gap-2 rounded-lg border border-amber-300 bg-white px-3 text-xs font-bold text-rose-700 disabled:opacity-40"
+              className="flex min-h-10 min-w-10 items-center justify-center rounded-full text-amber-900 hover:bg-amber-200"
+              aria-label="メモ帳をしまう"
             >
-              <Trash2 className="h-4 w-4" />メモを消去
+              <X className="h-5 w-5" />
             </button>
+          </div>
+
+          <div className="p-4">
+            <textarea
+              rows={9}
+              maxLength={4000}
+              value={content}
+              onChange={(event) => setContent(event.target.value)}
+              tabIndex={open ? 0 : -1}
+              placeholder={'例：\n・15:20　〇〇さんが活動室で困っている様子\n・△△さんから「あとで話したい」と相談あり'}
+              className="w-full resize-none rounded-xl border border-amber-300 bg-white p-3 text-base leading-relaxed text-slate-900 outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-200 sm:text-sm"
+            />
+            <div className="mt-2 flex items-center justify-between gap-3">
+              <p aria-live="polite" className={`flex min-w-0 items-center gap-1 text-[10px] ${status === 'error' ? 'text-rose-700' : 'text-amber-800'}`}>
+                {status === 'saved' ? <Check className="h-3.5 w-3.5 shrink-0" /> : <Cloud className="h-3.5 w-3.5 shrink-0" />}
+                <span className="truncate">{statusLabel}</span>
+              </p>
+              <span className="shrink-0 text-[10px] text-amber-700">{content.length} / 4000</span>
+            </div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              {onCreateHandover && (
+                <div className="space-y-2 sm:col-span-2">
+                  <label className="block text-[11px] font-black text-amber-950">
+                    申し送りの対象
+                    <select value={handoverChildId} onChange={(event) => setHandoverChildId(event.target.value)} tabIndex={open ? 0 : -1} className="mt-1 min-h-11 w-full rounded-lg border border-amber-300 bg-white px-3 text-sm text-slate-900">
+                      <option value="">事業所全体（全児童の記録画面に表示）</option>
+                      {children.map((child) => <option key={child.id} value={child.id}>{child.name}</option>)}
+                    </select>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => void createHandover()}
+                    disabled={!content.trim() || forwarding}
+                    tabIndex={open ? 0 : -1}
+                    className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-indigo-600 px-3 text-xs font-bold text-white disabled:opacity-40"
+                  >
+                    <Send className="h-4 w-4" />{forwarding ? '登録中...' : '申し送りに登録'}
+                  </button>
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={clearMemo}
+                disabled={!content}
+                tabIndex={open ? 0 : -1}
+                className="flex min-h-11 items-center justify-center gap-2 rounded-lg border border-amber-300 bg-white px-3 text-xs font-bold text-rose-700 disabled:opacity-40"
+              >
+                <Trash2 className="h-4 w-4" />メモを消去
+              </button>
+            </div>
           </div>
         </div>
       </section>
