@@ -2,19 +2,8 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Camera, CheckCircle2, Clock3, QrCode, RefreshCw, X } from 'lucide-react';
 import type { AttendanceQrChallenge, AttendanceRecord, UserProfile } from '../types';
 import { issueAttendanceQrChallenge, punchAttendanceWithQr, registerAttendanceKioskDevice } from '../services/dataService';
-
-const QR_PREFIX = 'shien-attendance:v1:';
-
-function qrPayload(token: string) {
-  return `${QR_PREFIX}${token}`;
-}
-
-function parseQrToken(value: string) {
-  const normalized = value.trim();
-  if (!normalized.startsWith(QR_PREFIX)) return '';
-  const token = normalized.slice(QR_PREFIX.length);
-  return /^[a-f0-9]{64}$/i.test(token) ? token : '';
-}
+import { attendanceQrPayload } from '../utils/attendanceQr';
+import { AttendanceQrScanner } from './AttendanceQrScanner';
 
 function attendanceErrorMessage(error: unknown) {
   const raw = error instanceof Error ? error.message : String(error || '');
@@ -46,7 +35,7 @@ export function AttendanceQrKiosk({ enabled, canRegister }: { enabled: boolean; 
     try {
       const next = await issueAttendanceQrChallenge();
       const qr = await import('qrcode');
-      const dataUrl = await qr.toDataURL(qrPayload(next.token), {
+      const dataUrl = await qr.toDataURL(attendanceQrPayload(next.token), {
         width: 560,
         margin: 2,
         errorCorrectionLevel: 'M',
@@ -139,7 +128,7 @@ export function AttendanceQrKiosk({ enabled, canRegister }: { enabled: boolean; 
               <button type="button" disabled={loading} onClick={() => void issue()} className="mt-4 min-h-11 rounded-xl border border-slate-300 px-4 text-sm font-black disabled:opacity-50"><RefreshCw className={`mr-2 inline h-4 w-4 ${loading ? 'animate-spin' : ''}`} />今すぐ更新</button>
             </section>
           </main>
-          <p className="text-center text-xs font-bold text-slate-400">QR画像を保存しても、有効期限後は打刻できません。</p>
+          <p className="text-center text-xs font-bold leading-relaxed text-slate-400">ログイン画面の「玄関QRでログイン」からも使用できます（承認済み個人端末のみ）。<br />QR画像を保存しても、有効期限後は利用できません。</p>
         </div>
       )}
     </>
@@ -174,66 +163,6 @@ export function PersonalAttendanceQrPunch({ currentUser }: { currentUser: UserPr
       {lastRecord && <p className="mt-2 text-[10px] font-bold text-slate-500">本日の状態：{lastRecord.status}／出勤 {formatAttendanceTime(lastRecord.clockInAt)}／退勤 {formatAttendanceTime(lastRecord.clockOutAt)}</p>}
       {action && <AttendanceQrScanner action={action} onClose={() => setAction(null)} onScanned={punch} />}
     </section>
-  );
-}
-
-function AttendanceQrScanner({ action, onClose, onScanned }: { action: '出勤' | '退勤'; onClose: () => void; onScanned: (token: string) => Promise<void> }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const controlsRef = useRef<{ stop: () => void } | null>(null);
-  const processingRef = useRef(false);
-  const [error, setError] = useState('');
-  const [processing, setProcessing] = useState(false);
-
-  useEffect(() => {
-    let active = true;
-    const start = async () => {
-      try {
-        if (!navigator.mediaDevices?.getUserMedia) throw new Error('この端末ではカメラを利用できません。ブラウザーとカメラ権限を確認してください。');
-        const { BrowserQRCodeReader } = await import('@zxing/browser');
-        if (!active || !videoRef.current) return;
-        const reader = new BrowserQRCodeReader();
-        controlsRef.current = await reader.decodeFromConstraints(
-          { audio: false, video: { facingMode: { ideal: 'environment' } } },
-          videoRef.current,
-          (result) => {
-            if (!result || processingRef.current) return;
-            const token = parseQrToken(result.getText());
-            if (!token) {
-              setError('打刻用ではないQRコードです。玄関端末のQRコードを読み取ってください。');
-              return;
-            }
-            processingRef.current = true;
-            setProcessing(true);
-            setError('');
-            void onScanned(token).catch((cause) => {
-              processingRef.current = false;
-              setProcessing(false);
-              setError(attendanceErrorMessage(cause));
-            });
-          },
-        );
-      } catch (cause) {
-        if (active) setError(attendanceErrorMessage(cause));
-      }
-    };
-    void start();
-    return () => {
-      active = false;
-      controlsRef.current?.stop();
-      controlsRef.current = null;
-    };
-  }, [onScanned]);
-
-  return (
-    <div className="fixed inset-0 z-[190] flex flex-col bg-slate-950 text-white" role="dialog" aria-modal="true" aria-label={`${action}用QRコードを読み取る`}>
-      <header className="flex items-center justify-between gap-3 px-4 pb-3 pt-[max(.75rem,env(safe-area-inset-top))]"><div><p className="text-xs font-black text-sky-300">{action}として打刻</p><h2 className="text-lg font-black">玄関端末のQRコードを枠内へ</h2></div><button type="button" onClick={onClose} className="grid h-11 w-11 place-items-center rounded-xl border border-slate-700" aria-label="カメラを閉じる"><X className="h-6 w-6" /></button></header>
-      <main className="relative min-h-0 flex-1 overflow-hidden bg-black">
-        <video ref={videoRef} muted playsInline className="h-full w-full object-cover" />
-        <div className="pointer-events-none absolute inset-0 grid place-items-center bg-slate-950/25"><div className="aspect-square w-[min(72vw,420px)] rounded-3xl border-4 border-white shadow-[0_0_0_999px_rgba(2,6,23,.38)]" /></div>
-        {processing && <div className="absolute inset-x-4 bottom-5 rounded-xl bg-sky-700 p-3 text-center text-sm font-black"><RefreshCw className="mr-2 inline h-5 w-5 animate-spin" />{action}を記録しています…</div>}
-        {error && <p className="absolute inset-x-4 bottom-5 rounded-xl bg-rose-700 p-3 text-center text-sm font-black"><AlertTriangle className="mr-1 inline h-5 w-5" />{error}</p>}
-      </main>
-    </div>
   );
 }
 

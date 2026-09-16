@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
-import { Building2, ChevronRight, FileText, IdCard, LockKeyhole, Mail, ShieldCheck } from 'lucide-react';
+import { Building2, ChevronRight, FileText, IdCard, LockKeyhole, Mail, QrCode, ShieldCheck } from 'lucide-react';
+import { AttendanceQrScanner } from './AttendanceQrScanner';
 
 interface AuthScreenProps {
   onSignIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   onStaffIdSignIn: (organizationCode: string, employeeCode: string, password: string) => Promise<{ error: Error | null }>;
+  onQrSignIn: (token: string) => Promise<{ error: Error | null }>;
   initialMessage?: string | null;
 }
 
@@ -18,7 +20,7 @@ function readRememberedOrganizationCode() {
   }
 }
 
-export const AuthScreen: React.FC<AuthScreenProps> = ({ onSignIn, onStaffIdSignIn, initialMessage }) => {
+export const AuthScreen: React.FC<AuthScreenProps> = ({ onSignIn, onStaffIdSignIn, onQrSignIn, initialMessage }) => {
   const rememberedOrganizationCode = readRememberedOrganizationCode();
   const [loginMethod, setLoginMethod] = useState<'staff-id' | 'email'>('staff-id');
   const [email, setEmail] = useState('');
@@ -28,6 +30,18 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onSignIn, onStaffIdSignI
   const [password, setPassword] = useState('');
   const [message, setMessage] = useState<string | null>(initialMessage || null);
   const [submitting, setSubmitting] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
+
+  const handleQrSignIn = async (token: string) => {
+    setSubmitting(true);
+    try {
+      const result = await onQrSignIn(token);
+      if (result.error) throw result.error;
+      setQrOpen(false);
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -46,6 +60,8 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onSignIn, onStaffIdSignI
           // Remembering a non-secret facility code is optional.
         }
       }
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : 'ログインできませんでした。通信状況を確認してください。');
     } finally {
       setSubmitting(false);
     }
@@ -67,6 +83,14 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onSignIn, onStaffIdSignI
             <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" />
             <span>本アプリは招待制です。管理者から招待された職員のみログインできます。</span>
           </div>
+
+          <section className="mb-6 rounded-xl border border-sky-200 bg-sky-50 p-3">
+            <button type="button" disabled={submitting} onClick={() => { setMessage(null); setQrOpen(true); }} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-sky-700 px-3 text-sm font-black text-white hover:bg-sky-600 disabled:opacity-50">
+              <QrCode className="h-5 w-5" />玄関QRでログイン
+            </button>
+            <p className="mt-2 text-xs leading-relaxed text-sky-950">承認済みの個人端末で、出退勤用QRを読み取ります。この端末に紐づく職員としてログインします。</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-slate-600">初回・未登録端末は下の方法でログインしてください。QRログインだけでは出退勤は打刻されません。</p>
+          </section>
 
           <div className="mb-5">
             <p className="text-base font-black text-slate-900">
@@ -164,6 +188,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onSignIn, onStaffIdSignI
 
           <button
             type="button"
+            disabled={submitting}
             onClick={() => {
               setLoginMethod((current) => current === 'staff-id' ? 'email' : 'staff-id');
               setPassword('');
@@ -179,6 +204,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onSignIn, onStaffIdSignI
           </button>
         </div>
       </div>
+      {qrOpen && <AttendanceQrScanner action="ログイン" onClose={() => setQrOpen(false)} onScanned={handleQrSignIn} />}
     </div>
   );
 };

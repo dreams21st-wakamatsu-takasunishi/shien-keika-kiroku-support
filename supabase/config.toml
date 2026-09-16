@@ -386,6 +386,11 @@ deno_version = 2
 [functions.send-calendar-reminders]
 verify_jwt = false
 
+# Login happens before a session exists. The handler authenticates with the
+# approved personal-device secret AND a valid, short-lived entrance QR.
+[functions.attendance-qr-login]
+verify_jwt = false
+
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 

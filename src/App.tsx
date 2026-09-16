@@ -857,7 +857,7 @@ export default function App() {
     return <LoadingScreen text="認証状態を確認しています..." />;
   }
   if (remoteMode && !auth.session) {
-    return <AuthScreen onSignIn={auth.signIn} onStaffIdSignIn={auth.signInWithStaffId} initialMessage={auth.error} />;
+    return <AuthScreen onSignIn={auth.signIn} onStaffIdSignIn={auth.signInWithStaffId} onQrSignIn={auth.signInWithAttendanceQr} initialMessage={auth.error} />;
   }
   if (remoteMode && auth.session && auth.needsPasswordSetup) {
     return (

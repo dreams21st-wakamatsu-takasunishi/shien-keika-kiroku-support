@@ -301,6 +301,42 @@ export function useAuth() {
     setLoading(false);
   };
 
+  const signInWithAttendanceQr = async (qrToken: string) => {
+    if (!supabase) return { error: new Error('Supabaseが設定されていません。') };
+    setError(null);
+    try {
+      const { data, error: invokeError } = await supabase.functions.invoke('attendance-qr-login', {
+        body: { qrToken, deviceToken: getAccessDeviceToken() },
+        timeout: 15_000,
+      });
+      if (invokeError) {
+        let message = 'QRログインできませんでした。通信状況を確認するか、職員ID・メールでログインしてください。';
+        const context = (invokeError as { context?: Response }).context;
+        if (context) {
+          try {
+            const payload = await context.clone().json() as { error?: unknown };
+            if (typeof payload.error === 'string') message = payload.error;
+          } catch { /* Keep a safe fallback for proxy errors. */ }
+        }
+        return { error: new Error(message) };
+      }
+      if (!data?.session?.access_token || !data.session.refresh_token) {
+        return { error: new Error('ログイン情報を受け取れませんでした。もう一度読み取ってください。') };
+      }
+      const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
+      });
+      if (sessionError || !sessionData.session) return { error: sessionError || new Error('ログイン状態を開始できませんでした。') };
+      setSession(sessionData.session);
+      setLastInteractiveAuthAt(Date.now());
+      setInitialized(true);
+      return { error: null };
+    } catch {
+      return { error: new Error('QRログインできませんでした。通信とブラウザーの保存設定を確認してください。') };
+    }
+  };
+
   const completePasswordSetup = async (password: string) => {
     if (!supabase || !session) {
       return { error: new Error('招待セッションを確認できません。招待メールのリンクをもう一度開いてください。') };
@@ -336,6 +372,7 @@ export function useAuth() {
     error,
     signIn,
     signInWithStaffId,
+    signInWithAttendanceQr,
     completePasswordSetup,
     signOut,
     reloadProfile,
