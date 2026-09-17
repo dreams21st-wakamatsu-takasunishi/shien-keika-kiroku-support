@@ -44,6 +44,12 @@ Deno.test('personal QR: authenticated issuance, shared scanning, atomic attendan
     `);
     await db.exec(await Deno.readTextFile(new URL('../migrations/202609160001_attendance_qr_login.sql', import.meta.url)));
     await db.exec(await Deno.readTextFile(new URL('../migrations/202609160002_personal_staff_qr.sql', import.meta.url)));
+    // Use the real app's resolver, including explicit-link precedence. The old
+    // simplified fixture missed email and staff-ID logins sharing one recorder.
+    const linksMigration = await Deno.readTextFile(new URL('../migrations/202608210004_login_recorder_links.sql', import.meta.url));
+    const resolver = linksMigration.match(/create or replace function public\.current_recorder_profile_id\(\)[\s\S]*?\$\$;/);
+    assert.ok(resolver);
+    await db.exec(resolver[0]);
     const phone = 'b'.repeat(64), scanner = 'c'.repeat(64);
     const issue = async (deviceToken = phone) => (await db.query<{ result: { token: string; expiresAt: string; serverNow: string } }>(
       'select issue_personal_staff_qr($1) as result', [deviceToken])).rows[0].result;
@@ -52,6 +58,29 @@ Deno.test('personal QR: authenticated issuance, shared scanning, atomic attendan
     const inspect = (token: string, scannerToken = scanner) => db.query('select inspect_personal_staff_qr($1,$2)', [token, scannerToken]);
     const status = async (token: string) => (await db.query<{ result: { usedAt: string | null; action: string | null } }>(
       'select get_personal_staff_qr_status($1) as result', [token])).rows[0].result;
+    // Reproduce the reported error before applying the repair: email/profile
+    // points to the recorder, whose staff-ID account is a different auth user.
+    await db.exec(`update profiles set recorder_profile_id='${recorder}' where id='${otherUser}'; set request.jwt.claim.sub='${otherUser}'`);
+    assert.equal((await db.query<{ id: string }>('select current_recorder_profile_id() as id')).rows[0].id, recorder);
+    await assert.rejects(() => issue(), /STAFF_QR_ACCOUNT_UNAVAILABLE/);
+    await db.exec(await Deno.readTextFile(new URL('../migrations/202609170001_staff_qr_explicit_identity_links.sql', import.meta.url)));
+    const emailQr = await issue();
+    await db.exec("set request.jwt.claim.role='service_role'");
+    const emailIdentity = await db.query<{ result: { userId: string; recorderProfileId: string } }>('select inspect_personal_staff_qr($1,$2) as result', [emailQr.token, scanner]);
+    assert.equal(emailIdentity.rows[0].result.userId, otherUser, 'identity must remain the actual email-login issuer');
+    assert.equal(emailIdentity.rows[0].result.recorderProfileId, recorder);
+    await assert.rejects(() => consume(emailQr.token, 'ログイン', scanner, user), /STAFF_QR_ACCOUNT_UNAVAILABLE/);
+    assert.equal((await consume(emailQr.token, 'ログイン', scanner, otherUser)).rows[0].result.userId, otherUser);
+    // A staff-ID login also remains valid when the recorder has an email link.
+    await db.exec(`set request.jwt.claim.sub='${user}'; set request.jwt.claim.role='authenticated'`);
+    const staffQr = await issue();
+    await db.exec("set request.jwt.claim.role='service_role'");
+    assert.equal((await consume(staffQr.token)).rows[0].result.userId, user);
+    // Stops on the actual staff-ID account remain enforced, with or without an
+    // explicit link. Unrelated login users still cannot select this recorder.
+    await db.exec(`update profiles set recorder_profile_id=null where id='${otherUser}'; update profiles set recorder_profile_id='${recorder}' where id='${user}'; update recorder_profiles set individual_login_enabled=false where id='${recorder}'`);
+    await assert.rejects(() => issue(), /STAFF_QR_ACCOUNT_UNAVAILABLE/);
+    await db.exec(`update recorder_profiles set individual_login_enabled=true where id='${recorder}'; update profiles set recorder_profile_id=null where id='${user}'; delete from staff_qr_events; set request.jwt.claim.role='authenticated'`);
     await assert.rejects(() => issue(scanner), /STAFF_QR_PERSONAL_REQUIRED/);
     await assert.rejects(() => issue('d'.repeat(64)), /STAFF_QR_PERSONAL_REQUIRED/);
     const first = await issue();
@@ -79,7 +108,7 @@ Deno.test('personal QR: authenticated issuance, shared scanning, atomic attendan
     await denied('STAFF_QR_PERSONAL_REQUIRED', `update organization_devices set owner_recorder_profile_id='${otherRecorder}' where id='${device}'`, `update organization_devices set owner_recorder_profile_id='${recorder}' where id='${device}'`);
     await denied('STAFF_QR_ACCOUNT_UNAVAILABLE', `update profiles set active=false where id='${user}'`, `update profiles set active=true where id='${user}'`);
     await denied('STAFF_QR_ACCOUNT_UNAVAILABLE', `update recorder_profiles set individual_login_enabled=false where id='${recorder}'`, `update recorder_profiles set individual_login_enabled=true where id='${recorder}'`);
-    await denied('STAFF_QR_ACCOUNT_UNAVAILABLE', `update profiles set recorder_profile_id='${recorder}' where id='${otherUser}'`, `update profiles set recorder_profile_id=null where id='${otherUser}'`);
+    await denied('STAFF_QR_ACCOUNT_UNAVAILABLE', `update profiles set recorder_profile_id='${otherRecorder}' where id='${user}'`, `update profiles set recorder_profile_id=null where id='${user}'`);
     await denied('STAFF_QR_OUTSIDE_ACCESS_TIME', 'update organizations set personal_access_time_enabled=true, personal_access_days=\'{}\'', 'update organizations set personal_access_time_enabled=false');
     await denied('STAFF_QR_EXPIRED', 'update staff_qr_tokens set expires_at=now()-interval \'1 second\'', 'update staff_qr_tokens set expires_at=now()+interval \'2 minutes\'');
     await assert.rejects(() => consume(first.token, 'ログイン', scanner, otherUser), /STAFF_QR_ACCOUNT_UNAVAILABLE/);
