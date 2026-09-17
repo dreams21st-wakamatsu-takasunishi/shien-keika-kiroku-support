@@ -35,7 +35,7 @@ export function AttendanceQrScanner({ action, onClose, onScanned }: {
             if (!active || !result || processingRef.current) return;
             const token = parseAttendanceQrToken(result.getText());
             if (!token) {
-              setError('玄関用ではないQRコードです。玄関端末に表示中のQRコードを読み取ってください。');
+              setError('本人用ではないQRコードです。個人端末の「本人用QRを表示」から新しいQRを表示してください。');
               return;
             }
             // One request per scan; a rejected scan requires an explicit retry.
@@ -67,10 +67,10 @@ export function AttendanceQrScanner({ action, onClose, onScanned }: {
   return (
     <div className="fixed inset-0 z-[190] flex flex-col bg-slate-950 text-white" role="dialog" aria-modal="true" aria-label={`${action}用QRコードを読み取る`}>
       <header className="flex items-center justify-between gap-3 px-4 pb-3 pt-[max(.75rem,env(safe-area-inset-top))]">
-        <div><p className="text-xs font-black text-sky-300">{login ? '承認済み個人端末でログイン' : `${action}として打刻`}</p><h2 className="text-lg font-black">玄関端末のQRコードを枠内へ</h2></div>
+        <div><p className="text-xs font-black text-sky-300">施設共用端末・{login ? 'ログイン' : `${action}として打刻`}</p><h2 className="text-lg font-black">個人端末の本人用QRを枠内へ</h2></div>
         <button type="button" disabled={processing} onClick={onClose} className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-slate-700 disabled:opacity-40" aria-label="カメラを閉じる"><X className="h-6 w-6" /></button>
       </header>
-      {login && <p className="px-4 pb-3 text-xs leading-relaxed text-slate-300">この端末に登録された職員としてログインします。出退勤の打刻は行いません。</p>}
+      <p className="px-4 pb-3 text-xs leading-relaxed text-slate-300">{login ? 'QRを表示した職員として、この事業所端末にログインします。出退勤は打刻しません。' : `QRを表示した職員の${action}をサーバー時刻で記録します。ログイン中の職員は切り替わりません。`}</p>
       <main className="relative min-h-0 flex-1 overflow-hidden bg-black">
         <video ref={videoRef} muted playsInline className="h-full w-full object-cover" />
         <div className="pointer-events-none absolute inset-0 grid place-items-center bg-slate-950/25"><div className="aspect-square w-[min(72vw,420px)] rounded-3xl border-4 border-white shadow-[0_0_0_999px_rgba(2,6,23,.38)]" /></div>

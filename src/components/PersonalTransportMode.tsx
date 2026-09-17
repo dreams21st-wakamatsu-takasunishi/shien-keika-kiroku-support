@@ -36,7 +36,7 @@ import {
 } from '../services/dataService';
 import { enableDeviceNotifications } from '../utils/deviceNotifications';
 import { getLocalDateString } from '../utils/weekdays';
-import { PersonalAttendanceQrPunch } from './AttendanceQr';
+import { PersonalStaffQr } from './AttendanceQr';
 import { TransportScheduleBoard } from './TransportScheduleBoard';
 
 interface PersonalTransportModeProps {
@@ -382,7 +382,7 @@ export const PersonalTransportMode: React.FC<PersonalTransportModeProps> = ({ cu
           </div>
         )}
 
-        {serviceDate === getLocalDateString() && <PersonalAttendanceQrPunch currentUser={currentUser} />}
+        <PersonalStaffQr currentUser={currentUser} />
 
         <section className="rounded-2xl bg-white p-3 shadow-sm">
           <div className="flex items-center justify-between gap-2">

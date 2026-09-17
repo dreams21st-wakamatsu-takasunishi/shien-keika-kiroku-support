@@ -4,7 +4,6 @@ import {
   Announcement,
   AnnouncementConfirmation,
   AttendanceCorrectionRequest,
-  AttendanceQrChallenge,
   AttendanceRecord,
   CalendarEvent,
   ChildProfile,
@@ -1256,26 +1255,6 @@ export async function reviewAttendanceCorrection(
   if (error) throw error;
 }
 
-export async function issueAttendanceQrChallenge(): Promise<AttendanceQrChallenge> {
-  const { data, error } = await assertSupabase().rpc('issue_attendance_qr_challenge', {
-    p_device_token: getAccessDeviceToken(),
-  });
-  if (error) throw error;
-  const result = (data || {}) as Record<string, unknown>;
-  const token = String(result.token || '');
-  const expiresAt = String(result.expiresAt || '');
-  if (!token || !expiresAt) throw new Error('打刻用QRコードを発行できませんでした。');
-  const expiryTime = new Date(expiresAt).getTime();
-  return {
-    token,
-    expiresAt,
-    refreshAfterSeconds: Math.max(30, Number(result.refreshAfterSeconds) || 90),
-    serverNow: Number.isFinite(expiryTime)
-      ? new Date(expiryTime - 2 * 60 * 1000).toISOString()
-      : new Date().toISOString(),
-  };
-}
-
 export async function registerAttendanceKioskDevice() {
   const { data, error } = await assertSupabase().rpc('register_attendance_kiosk_device', {
     p_device_token: getAccessDeviceToken(),
@@ -1284,23 +1263,6 @@ export async function registerAttendanceKioskDevice() {
   });
   if (error) throw error;
   return String(data || '');
-}
-
-export async function punchAttendanceWithQr(
-  recorderProfileId: string,
-  recorderName: string,
-  qrToken: string,
-  action: '出勤' | '退勤',
-) {
-  const { data, error } = await assertSupabase().rpc('punch_attendance_with_qr', {
-    p_qr_token: qrToken,
-    p_action: action,
-    p_device_token: getAccessDeviceToken(),
-  });
-  if (error) throw error;
-  const row = Array.isArray(data) ? data[0] : data;
-  if (!row) throw new Error('打刻結果を取得できませんでした。');
-  return mapAttendanceRecord(row, new Map([[recorderProfileId, recorderName]]));
 }
 
 export async function saveVehicle(organizationId: string, vehicle: Vehicle) {

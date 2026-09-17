@@ -3,6 +3,7 @@ import type { Session } from '@supabase/supabase-js';
 import { isSupabaseConfigured, supabase } from '../lib/supabase';
 import { UserProfile } from '../types';
 import { getAccessDeviceLabel, getAccessDevicePlatform, getAccessDeviceToken } from '../utils/accessDevice';
+import { scanPersonalStaffQr } from '../services/staffQrService';
 
 function mapProfile(
   row: any,
@@ -289,7 +290,8 @@ export function useAuth() {
     if (!supabase) return;
     setError(null);
     setLoading(true);
-    const { error: signOutError } = await supabase.auth.signOut();
+    // Signing out the shared PC must not sign out the phone that displays QR.
+    const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' });
     if (signOutError) {
       setError(`ログアウトできませんでした: ${signOutError.message}`);
       setLoading(false);
@@ -305,21 +307,7 @@ export function useAuth() {
     if (!supabase) return { error: new Error('Supabaseが設定されていません。') };
     setError(null);
     try {
-      const { data, error: invokeError } = await supabase.functions.invoke('attendance-qr-login', {
-        body: { qrToken, deviceToken: getAccessDeviceToken() },
-        timeout: 15_000,
-      });
-      if (invokeError) {
-        let message = 'QRログインできませんでした。通信状況を確認するか、職員ID・メールでログインしてください。';
-        const context = (invokeError as { context?: Response }).context;
-        if (context) {
-          try {
-            const payload = await context.clone().json() as { error?: unknown };
-            if (typeof payload.error === 'string') message = payload.error;
-          } catch { /* Keep a safe fallback for proxy errors. */ }
-        }
-        return { error: new Error(message) };
-      }
+      const data = await scanPersonalStaffQr(qrToken, 'ログイン');
       if (!data?.session?.access_token || !data.session.refresh_token) {
         return { error: new Error('ログイン情報を受け取れませんでした。もう一度読み取ってください。') };
       }
@@ -332,8 +320,8 @@ export function useAuth() {
       setLastInteractiveAuthAt(Date.now());
       setInitialized(true);
       return { error: null };
-    } catch {
-      return { error: new Error('QRログインできませんでした。通信とブラウザーの保存設定を確認してください。') };
+    } catch (cause) {
+      return { error: cause instanceof Error ? cause : new Error('QRログインできませんでした。通信とブラウザーの保存設定を確認してください。') };
     }
   };
 

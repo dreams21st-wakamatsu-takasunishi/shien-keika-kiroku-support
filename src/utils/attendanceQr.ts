@@ -1,4 +1,5 @@
-const QR_PREFIX = 'shien-attendance:v1:';
+// Deliberately different from the retired facility-displayed entrance QR.
+const QR_PREFIX = 'shien-staff:v1:';
 
 export function attendanceQrPayload(token: string) {
   return `${QR_PREFIX}${token}`;

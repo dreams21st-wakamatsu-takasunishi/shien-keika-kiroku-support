@@ -574,7 +574,7 @@ export interface AttendanceQrChallenge {
   token: string;
   expiresAt: string;
   refreshAfterSeconds: number;
-  /** Server-synchronized issue time derived from the challenge expiry. */
+  /** Server issue time, used to display an accurate QR expiry countdown. */
   serverNow: string;
 }
 

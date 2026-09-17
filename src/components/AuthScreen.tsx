@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Building2, ChevronRight, FileText, IdCard, LockKeyhole, Mail, QrCode, ShieldCheck } from 'lucide-react';
 import { AttendanceQrScanner } from './AttendanceQrScanner';
+import { FacilityQrPunchControls } from './AttendanceQr';
 
 interface AuthScreenProps {
   onSignIn: (email: string, password: string) => Promise<{ error: Error | null }>;
@@ -86,10 +87,11 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onSignIn, onStaffIdSignI
 
           <section className="mb-6 rounded-xl border border-sky-200 bg-sky-50 p-3">
             <button type="button" disabled={submitting} onClick={() => { setMessage(null); setQrOpen(true); }} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-sky-700 px-3 text-sm font-black text-white hover:bg-sky-600 disabled:opacity-50">
-              <QrCode className="h-5 w-5" />玄関QRでログイン
+              <QrCode className="h-5 w-5" />本人用QRでログイン
             </button>
-            <p className="mt-2 text-xs leading-relaxed text-sky-950">承認済みの個人端末で、出退勤用QRを読み取ります。この端末に紐づく職員としてログインします。</p>
-            <p className="mt-1 text-[11px] leading-relaxed text-slate-600">初回・未登録端末は下の方法でログインしてください。QRログインだけでは出退勤は打刻されません。</p>
+            <p className="mt-2 text-xs leading-relaxed text-sky-950">事業所端末のカメラで、個人端末に表示した本人用QRを読み取ります。QRの職員としてログインします。</p>
+            <p className="mt-1 text-[11px] leading-relaxed text-slate-600">承認済みの施設共用端末専用です。初回・個人端末は下の職員ID／メールでログインしてください。</p>
+            <div className="mt-3 border-t border-sky-200 pt-3"><p className="mb-2 text-xs font-bold text-slate-700">出退勤だけ行う（ログインはしません）</p><FacilityQrPunchControls disabled={submitting} /></div>
           </section>
 
           <div className="mb-5">
