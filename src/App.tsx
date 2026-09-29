@@ -51,6 +51,7 @@ import { RecordOverwriteDialog } from './components/RecordOverwriteDialog';
 import { planRecordSave, type RecordOverwritePair, type RecordSaveOutcome } from './services/recordSaveWorkflow';
 import { RecordPreview } from './components/RecordPreview';
 import { RecordList } from './components/RecordList';
+import { MeetingWorkspace } from './meeting/MeetingWorkspace';
 import { ChildrenManager } from './components/ChildrenManager';
 import { SupportPlanManager } from './components/SupportPlanManager';
 import { TeamManager } from './components/TeamManager';
@@ -170,6 +171,8 @@ export default function App() {
   const remoteMode = auth.configured;
   const organizationId = auth.profile?.organizationId;
   const [activeTab, setActiveTab] = useState<ActiveTab | 'preview'>('home');
+  const [meetingFocusId, setMeetingFocusId] = useState<string | null>(null);
+  const [meetingDirty, setMeetingDirty] = useState(false);
   const [homeWorkspace, setHomeWorkspace] = useState<HomeWorkspace>('menu');
   const [announcementFocusToken, setAnnouncementFocusToken] = useState(0);
   const [recordStatusDate, setRecordStatusDate] = useState(getLocalDateString());
@@ -2123,6 +2126,7 @@ export default function App() {
   };
 
   const returnToHomeMenu = () => {
+    if (activeTab === 'meetings' && meetingDirty && !window.confirm('会議の変更が保存されていません。画面を移動しますか？')) return;
     setReadOnlyDraft(null);
     setCurrentRecord(null);
     setCorrectionTarget(null);
@@ -2146,6 +2150,9 @@ export default function App() {
         activeTab={activeTab === 'preview' ? 'records' : activeTab}
         activeHomeWorkspace={homeWorkspace}
         setActiveTab={(tab) => {
+          if (activeTab === 'meetings' && tab !== 'meetings' && tab !== 'home' && meetingDirty
+            && !window.confirm('会議の変更が保存されていません。画面を移動しますか？')) return;
+          setMeetingFocusId(null);
           if (tab === 'home') {
             returnToHomeMenu();
             return;
@@ -2167,6 +2174,8 @@ export default function App() {
         activeRecorder={activeRecorder}
         onSaveMenuPreferences={handleSaveRecorderMenuPreferences}
         onOpenHomeWorkspace={(workspace) => {
+          if (activeTab === 'meetings' && meetingDirty
+            && !window.confirm('会議の変更が保存されていません。画面を移動しますか？')) return;
           setHomeWorkspace(workspace);
           setActiveTab('home');
         }}
@@ -2406,6 +2415,20 @@ export default function App() {
             onDeleteRecord={handleDeleteRecord}
             canDeleteRecords={!remoteMode || auth.profile?.role !== 'staff'}
             onNewRecord={handleNewRecordClick}
+            organizationId={organizationId || (!remoteMode ? 'local' : undefined)}
+            childrenList={childrenList}
+            onOpenMeetings={(meetingId) => { setMeetingFocusId(meetingId || null); setActiveTab('meetings'); }}
+          />
+        )}
+        {activeTab === 'meetings' && (
+          <MeetingWorkspace
+            organizationId={organizationId || (!remoteMode ? 'local' : undefined)}
+            currentUser={auth.profile || (!remoteMode ? { id: 'local-demo', organizationId: 'local', displayName: '試用者', role: 'admin' } : null)}
+            childrenList={childrenList}
+            calendarEvents={calendarEventsForCurrentUser}
+            canReview={!remoteMode || canReview}
+            initialMeetingId={meetingFocusId || undefined}
+            onDirtyChange={setMeetingDirty}
           />
         )}
         {activeTab === 'children' && (
@@ -2547,6 +2570,7 @@ function ScreenContextBar({
     home: { title: 'ホーム', description: '' },
     form: { title: '記録作成', description: '質問に沿って支援経過を入力' },
     records: { title: '記録一覧', description: '確認・修正・出力' },
+    meetings: { title: '会議支援', description: '準備・進行・文字起こし・支援経過' },
     preview: { title: '記録確認', description: '内容確認・修正指摘・承認' },
     children: { title: '児童名簿', description: '児童情報・利用曜日の管理' },
     plans: { title: '個別支援計画', description: '現在は機能凍結中' },

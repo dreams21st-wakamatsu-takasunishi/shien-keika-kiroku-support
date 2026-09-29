@@ -418,6 +418,7 @@ export type RecorderMenuItemId =
   | 'assistant'
   | 'form'
   | 'records'
+  | 'meetings'
   | 'children'
   | 'templates'
   | 'team';
