@@ -172,6 +172,7 @@ export default function App() {
   const organizationId = auth.profile?.organizationId;
   const [activeTab, setActiveTab] = useState<ActiveTab | 'preview'>('home');
   const [meetingFocusId, setMeetingFocusId] = useState<string | null>(null);
+  const [meetingFocusChildId, setMeetingFocusChildId] = useState<string | null>(null);
   const [meetingDirty, setMeetingDirty] = useState(false);
   const [homeWorkspace, setHomeWorkspace] = useState<HomeWorkspace>('menu');
   const [announcementFocusToken, setAnnouncementFocusToken] = useState(0);
@@ -2417,7 +2418,7 @@ export default function App() {
             onNewRecord={handleNewRecordClick}
             organizationId={organizationId || (!remoteMode ? 'local' : undefined)}
             childrenList={childrenList}
-            onOpenMeetings={(meetingId) => { setMeetingFocusId(meetingId || null); setActiveTab('meetings'); }}
+            onOpenMeetings={(meetingId, childId) => { setMeetingFocusId(meetingId || null); setMeetingFocusChildId(childId || null); setActiveTab('meetings'); }}
           />
         )}
         {activeTab === 'meetings' && (
@@ -2428,6 +2429,7 @@ export default function App() {
             calendarEvents={calendarEventsForCurrentUser}
             canReview={!remoteMode || canReview}
             initialMeetingId={meetingFocusId || undefined}
+            initialChildId={meetingFocusChildId || undefined}
             onDirtyChange={setMeetingDirty}
           />
         )}

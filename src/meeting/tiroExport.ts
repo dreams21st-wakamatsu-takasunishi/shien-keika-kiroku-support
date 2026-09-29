@@ -4,15 +4,18 @@ function lines(values: string[]) {
   return values.filter(Boolean).map((value) => `・${value}`).join('\n') || '・未記入';
 }
 
-export function buildTiroContext(meeting: MeetingCase, child: { name: string; kana?: string; schoolName?: string }) {
+type MeetingChild = { name: string; kana?: string; schoolName?: string };
+const childName = (child: MeetingChild) => `${child.name}${child.kana ? `（${child.kana}）` : ''}`;
+
+export function buildTiroContext(meeting: MeetingCase, children: MeetingChild[]) {
   const people = meeting.content.participants.filter((item) => item.name.trim())
     .map((item) => `${item.name}${item.reading ? `（${item.reading}）` : ''}${item.role ? `／${item.role}` : ''}`);
   const terms = meeting.content.terms.filter((item) => item.includeInTiro && item.spelling.trim())
     .map((item) => `${item.spelling}${item.reading ? `（${item.reading}）` : ''}`);
   return [
     `会議：${meeting.meetingType}／${meeting.title}`,
-    `対象児童：${child.name}${child.kana ? `（${child.kana}）` : ''}`,
-    child.schoolName ? `学校：${child.schoolName}` : '',
+    `対象児童：${children.map(childName).join('、') || '未選択'}`,
+    ...children.filter((child) => child.schoolName).map((child) => `${child.name}の学校：${child.schoolName}`),
     `目的：${meeting.content.purpose || '未記入'}`,
     `出席予定者：${people.join('、') || '未記入'}`,
     `固有名詞・専門用語：${terms.join('、') || '未記入'}`,
@@ -21,14 +24,14 @@ export function buildTiroContext(meeting: MeetingCase, child: { name: string; ka
   ].filter(Boolean).join('\n');
 }
 
-export function buildTiroSheet(meeting: MeetingCase, child: { name: string; kana?: string; schoolName?: string }) {
+export function buildTiroSheet(meeting: MeetingCase, children: MeetingChild[]) {
   return [
     'Tiro文字起こし用 事前情報シート',
     `会議の種類：${meeting.meetingType}`,
     `会議名：${meeting.title}`,
     `日時：${meeting.meetingDate}`,
-    `対象児童：${child.name}${child.kana ? `（${child.kana}）` : ''}`,
-    child.schoolName ? `学校：${child.schoolName}` : '',
+    `対象児童：${children.map(childName).join('、') || '未選択'}`,
+    ...children.filter((child) => child.schoolName).map((child) => `${child.name}の学校：${child.schoolName}`),
     `目的：${meeting.content.purpose || '未記入'}`,
     '\n出席予定者・呼ばれ方',
     lines(meeting.content.participants.map((person) => [
@@ -55,11 +58,11 @@ export function downloadTiroSheet(text: string, date: string) {
   URL.revokeObjectURL(url);
 }
 
-export function composeMeetingProgress(meeting: MeetingCase) {
+export function composeMeetingProgress(meeting: MeetingCase, childId = meeting.childId) {
   const outcome = meeting.content.outcome;
   const parts = [
     [`${meeting.meetingType}を実施`, meeting.title],
-    ['本人の意向', outcome.childWish],
+    ['本人の意向', meeting.childIds.length > 1 ? meeting.content.childWishes?.[childId] || '' : outcome.childWish],
     ['保護者の意向', outcome.familyWish],
     ['関係機関からの報告', outcome.reports],
     ['合意した内容', outcome.agreements],

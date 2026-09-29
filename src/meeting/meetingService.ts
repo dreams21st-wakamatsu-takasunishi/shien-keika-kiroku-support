@@ -24,9 +24,11 @@ function mapCase(row: any): MeetingCase {
   const content = row.content || {};
   return {
     id: row.id, organizationId: row.organization_id, childId: row.child_id,
+    childIds: row.child_ids?.length ? row.child_ids : [row.child_id],
     calendarEventId: row.calendar_event_id || undefined, title: row.title,
     meetingType: row.meeting_type, meetingDate: row.meeting_date, status: row.status,
-    content: { ...emptyMeetingContent(), ...content, outcome: { ...emptyOutcome(), ...(content.outcome || {}) } },
+    content: { ...emptyMeetingContent(), ...content, childWishes: content.childWishes || {},
+      outcome: { ...emptyOutcome(), ...(content.outcome || {}) } },
     editorUserIds: row.editor_user_ids || [], revision: row.revision,
     createdBy: row.created_by, updatedAt: row.updated_at,
   };
@@ -57,11 +59,11 @@ export async function listMeetingCases(organizationId: string): Promise<MeetingC
 }
 
 export async function createMeetingCase(input: {
-  organizationId: string; childId: string; title: string; meetingType: MeetingCase['meetingType'];
+  organizationId: string; childIds: string[]; title: string; meetingType: MeetingCase['meetingType'];
   meetingDate: string; calendarEventId?: string; content?: MeetingContent;
 }): Promise<MeetingCase> {
   if (isDemo(input.organizationId)) {
-    const created: MeetingCase = { id: crypto.randomUUID(), organizationId: 'local', childId: input.childId,
+    const created: MeetingCase = { id: crypto.randomUUID(), organizationId: 'local', childId: input.childIds[0], childIds: input.childIds,
       calendarEventId: input.calendarEventId, title: input.title, meetingType: input.meetingType,
       meetingDate: input.meetingDate, status: '準備中', content: input.content || emptyMeetingContent(),
       editorUserIds: [], revision: 1, createdBy: 'local-demo', updatedAt: new Date().toISOString() };
@@ -69,7 +71,7 @@ export async function createMeetingCase(input: {
     return created;
   }
   const { data, error } = await client().from('meeting_cases').insert({
-    organization_id: input.organizationId, child_id: input.childId,
+    organization_id: input.organizationId, child_id: input.childIds[0], child_ids: input.childIds,
     title: input.title, meeting_type: input.meetingType, meeting_date: input.meetingDate,
     calendar_event_id: input.calendarEventId || null, content: input.content || emptyMeetingContent(),
   }).select('*').single();
@@ -88,6 +90,7 @@ export async function updateMeetingCase(meeting: MeetingCase): Promise<MeetingCa
   const { data, error } = await client().from('meeting_cases').update({
     title: meeting.title, meeting_type: meeting.meetingType, meeting_date: meeting.meetingDate,
     status: meeting.status, content: meeting.content, editor_user_ids: meeting.editorUserIds,
+    child_ids: meeting.childIds,
     revision: meeting.revision + 1,
   }).eq('organization_id', meeting.organizationId).eq('id', meeting.id)
     .eq('revision', meeting.revision).select('*').maybeSingle();
@@ -126,12 +129,12 @@ export async function addMeetingTranscript(input: {
   return mapTranscript(data);
 }
 
-export async function getMeetingProgress(organizationId: string, meetingId: string): Promise<MeetingProgressRecord | null> {
-  if (isDemo(organizationId)) return demoProgress.find((item) => item.meetingId === meetingId) || null;
+export async function listMeetingProgressForCase(organizationId: string, meetingId: string): Promise<MeetingProgressRecord[]> {
+  if (isDemo(organizationId)) return demoProgress.filter((item) => item.meetingId === meetingId);
   const { data, error } = await client().from('meeting_progress_records').select('*')
-    .eq('organization_id', organizationId).eq('meeting_id', meetingId).maybeSingle();
+    .eq('organization_id', organizationId).eq('meeting_id', meetingId);
   if (error) throw error;
-  return data ? mapProgress(data) : null;
+  return (data || []).map(mapProgress);
 }
 
 export async function listMeetingProgress(organizationId: string): Promise<MeetingProgressRecord[]> {

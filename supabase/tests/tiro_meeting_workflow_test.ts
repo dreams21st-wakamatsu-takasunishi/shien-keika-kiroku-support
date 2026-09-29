@@ -26,6 +26,7 @@ Deno.test('meeting workflow enforces access, versioning, review and device rules
         role text not null, active boolean not null default true, recorder_profile_id uuid);
       create table public.children (
         organization_id uuid not null references public.organizations(id), id text not null,
+        deleted_at timestamptz,
         primary key (organization_id, id));
       create table public.calendar_events (
         organization_id uuid not null references public.organizations(id), id uuid not null,
@@ -61,7 +62,7 @@ Deno.test('meeting workflow enforces access, versioning, review and device rules
         ('${outsider}', '${org}', 'staff', '${outsider}'),
         ('${reviewer}', '${org}', 'admin', null),
         ('${foreignUser}', '${otherOrg}', 'admin', null);
-      insert into public.children values ('${org}', 'child-1'), ('${otherOrg}', 'child-2');
+      insert into public.children (organization_id,id) values ('${org}', 'child-1'), ('${org}', 'child-3'), ('${otherOrg}', 'child-2');
     `);
     const migration = await Deno.readTextFile(new URL('../migrations/202609290001_tiro_meeting_workflow.sql', import.meta.url));
     await db.exec(migration);
@@ -76,10 +77,23 @@ Deno.test('meeting workflow enforces access, versioning, review and device rules
     await db.query(`insert into public.meeting_cases
       (organization_id,id,child_id,title,meeting_type,meeting_date)
       values ($1,$2,'child-1','担当者会議','担当者会議','2026-09-29')`, [org, meeting]);
+    await db.exec('reset role');
+    const multiChildMigration = await Deno.readTextFile(new URL('../migrations/202609290002_multi_child_meetings.sql', import.meta.url));
+    await db.exec(multiChildMigration);
+    await owner();
+    await db.exec('begin');
+    const returned = await db.query<{ child_ids: string[] }>(`insert into public.meeting_cases
+      (organization_id,id,child_id,child_ids,title,meeting_type,meeting_date)
+      values ($1,$2,'child-1',array['child-1','child-3'],'兄弟会議','担当者会議','2026-09-30') returning child_ids`, [org, otherMeeting]);
+    assert.deepEqual(returned.rows[0].child_ids, ['child-1', 'child-3']);
+    await db.exec('rollback');
+    await db.query(`update public.meeting_cases set child_ids=array['child-1','child-3'],revision=2 where id=$1`, [meeting]);
+    assert.deepEqual((await db.query<{ child_ids: string[] }>('select child_ids from public.meeting_cases where id=$1', [meeting])).rows[0].child_ids, ['child-1', 'child-3']);
+    await assert.rejects(() => db.query(`update public.meeting_cases set child_ids=array['child-1','child-2'],revision=3 where id=$1`, [meeting]));
     let result = await db.query<{ created_by: string; revision: number }>(
       'select created_by,revision from public.meeting_cases where id=$1', [meeting]);
-    assert.deepEqual(result.rows[0], { created_by: creator, revision: 1 });
-    await db.query('update public.meeting_cases set editor_user_ids=$1,revision=2 where id=$2', [[editor], meeting]);
+    assert.deepEqual(result.rows[0], { created_by: creator, revision: 2 });
+    await db.query('update public.meeting_cases set editor_user_ids=$1,revision=3 where id=$2', [[editor], meeting]);
 
     await actAs(outsider);
     assert.equal((await db.query('select id from public.meeting_cases')).rows.length, 0);
@@ -109,25 +123,30 @@ Deno.test('meeting workflow enforces access, versioning, review and device rules
     await assert.rejects(() => db.query(`insert into public.meeting_progress_records
       (organization_id,meeting_id,child_id,record_date,body,approval_status)
       values ($1,$2,'child-1','2026-09-29','draft','未確認')`, [org, meeting]));
-    await db.query(`update public.meeting_cases set status='結果確認済み',revision=3 where id=$1`, [meeting]);
+    await db.query(`update public.meeting_cases set status='結果確認済み',revision=4 where id=$1`, [meeting]);
     await db.query(`insert into public.meeting_progress_records
       (organization_id,meeting_id,child_id,record_date,body,approval_status)
       values ($1,$2,'child-1','2026-09-29','submitted','未確認')`, [org, meeting]);
+    await db.query(`insert into public.meeting_progress_records
+      (organization_id,meeting_id,child_id,record_date,body,approval_status)
+      values ($1,$2,'child-3','2026-09-29','sibling submitted','未確認')`, [org, meeting]);
+    assert.equal((await db.query('select id from public.meeting_progress_records where meeting_id=$1', [meeting])).rows.length, 2);
+    await assert.rejects(() => db.query(`update public.meeting_cases set child_ids=array['child-1'],revision=5 where id=$1`, [meeting]));
     await assert.rejects(() => db.query(`update public.meeting_progress_records
-      set body='changed',revision=2 where meeting_id=$1`, [meeting]));
+      set body='changed',revision=2 where meeting_id=$1 and child_id='child-1'`, [meeting]));
 
     await actAs(reviewer);
     assert.equal((await db.query('select id from public.meeting_cases')).rows.length, 1);
     await assert.rejects(() => db.query(`update public.meeting_progress_records
-      set body='reviewer changed',approval_status='確認済み',revision=2 where meeting_id=$1`, [meeting]));
+      set body='reviewer changed',approval_status='確認済み',revision=2 where meeting_id=$1 and child_id='child-1'`, [meeting]));
     await db.query(`update public.meeting_progress_records
-      set approval_status='確認済み',revision=2 where meeting_id=$1`, [meeting]);
+      set approval_status='確認済み',revision=2 where meeting_id=$1 and child_id='child-1'`, [meeting]);
     await assert.rejects(() => db.query(`update public.meeting_progress_records
-      set approval_status='要修正',revision=3 where meeting_id=$1`, [meeting]));
+      set approval_status='要修正',revision=3 where meeting_id=$1 and child_id='child-1'`, [meeting]));
 
     await owner();
     await assert.rejects(() => db.query(`update public.meeting_cases
-      set title='after approval',revision=4 where id=$1`, [meeting]));
+      set title='after approval',revision=5 where id=$1`, [meeting]));
     await assert.rejects(() => db.query(`insert into public.meeting_transcripts
       (organization_id,meeting_id,version,source_kind,raw_text)
       values ($1,$2,3,'要約のみ','after approval')`, [org, meeting]));

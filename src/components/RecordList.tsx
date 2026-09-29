@@ -19,7 +19,7 @@ interface RecordListProps {
   onNewRecord: () => void;
   organizationId?: string;
   childrenList?: import('../types').ChildProfile[];
-  onOpenMeetings?: (meetingId?: string) => void;
+  onOpenMeetings?: (meetingId?: string, childId?: string) => void;
 }
 
 interface StoredRecordListState {

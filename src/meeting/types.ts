@@ -50,6 +50,7 @@ export interface MeetingContent {
   terms: MeetingTerm[];
   agenda: MeetingAgenda[];
   outcome: MeetingOutcome;
+  childWishes: Record<string, string>;
   recordingExplainedAt?: string;
   recordingExplainedBy?: string;
   recordingChecked: boolean;
@@ -60,6 +61,7 @@ export interface MeetingCase {
   id: string;
   organizationId: string;
   childId: string;
+  childIds: string[];
   calendarEventId?: string;
   title: string;
   meetingType: MeetingType;
@@ -102,5 +104,6 @@ export const emptyOutcome = (): MeetingOutcome => ({
 
 export const emptyMeetingContent = (): MeetingContent => ({
   purpose: '', location: '', participants: [], terms: [], agenda: [], outcome: emptyOutcome(),
+  childWishes: {},
   recordingChecked: false,
 });
