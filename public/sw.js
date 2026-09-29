@@ -130,7 +130,7 @@ self.addEventListener('push', (event) => {
   } catch {
     payload = { body: event.data ? event.data.text() : '' };
   }
-  const title = payload.title || '支援経過記録サポート';
+  const title = payload.title || 'Dサポート';
   const options = {
     body: payload.body || '新しいお知らせがあります。',
     icon: './app-icon.svg',

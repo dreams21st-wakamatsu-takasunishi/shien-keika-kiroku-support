@@ -38,7 +38,7 @@ export async function enableDeviceNotifications(organizationId: string) {
 export async function showAnnouncementNotification(title: string, content: string, id?: string) {
   if (!deviceNotificationsSupported() || Notification.permission !== 'granted') return;
   const registration = await navigator.serviceWorker.ready;
-  await registration.showNotification(title || '支援経過記録サポート', {
+  await registration.showNotification(title || 'Dサポート', {
     body: content || '新しいお知らせがあります。',
     icon: './app-icon.svg',
     badge: './app-icon.svg',
