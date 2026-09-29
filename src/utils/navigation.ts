@@ -1,11 +1,11 @@
 import {
   BusFront, CalendarDays, CalendarRange, ClipboardList, Eye, History, House,
-  MessageSquareText, PlusCircle, Settings, ShieldCheck, Sparkles, TriangleAlert, Users,
+  MessageSquareText, PlusCircle, Settings, ShieldCheck, Sparkles, TriangleAlert, Users, Mic,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 import type { RecorderMenuItemId, RecorderMenuPreferences } from '../types';
 
-export type ActiveTab = 'home' | 'form' | 'records' | 'children' | 'templates' | 'team' | 'plans';
+export type ActiveTab = 'home' | 'form' | 'records' | 'meetings' | 'children' | 'templates' | 'team' | 'plans';
 export type HomeWorkspaceItem = 'dailyChanges' | 'todayWork' | 'attendance' | 'calendar' | 'monthlySchedule' | 'operations' | 'communication' | 'assistant';
 export const MENU_CATEGORIES = ['すべて', '当日の対応', '予定・送迎', '記録・児童', '共有・連絡'] as const;
 export type MenuCategory = typeof MENU_CATEGORIES[number];
@@ -35,6 +35,7 @@ export const navigationItems: NavigationItem[] = [
   { id: 'assistant', workspace: 'assistant', label: 'AIアシスタント', description: '児童情報の変更や記録の整理', keywords: '提案 業務変更', category: '共有・連絡', tone: 'indigo', icon: Sparkles },
   { id: 'form', tab: 'form', label: '記録作成', description: '児童を選んで支援経過記録を入力', keywords: '新規 作成 保存', category: '記録・児童', tone: 'teal', icon: PlusCircle },
   { id: 'records', tab: 'records', label: '記録一覧・確認', description: '保存済み記録の確認・修正・出力', keywords: '過去 PDF 印刷 コピー 承認', category: '記録・児童', tone: 'teal', icon: History },
+  { id: 'meetings', tab: 'meetings', label: '会議支援', description: '会議準備・進行・Tiro文字起こし・支援経過', keywords: '担当者会議 保護者面談 ケース会議 文字起こし', category: '記録・児童', tone: 'indigo', icon: Mic },
   { id: 'children', tab: 'children', label: '児童名簿', description: '児童情報・学校・利用曜日・送迎先', keywords: '住所 兄弟 基本予定 メモ', category: '記録・児童', tone: 'teal', icon: Users },
   { id: 'templates', tab: 'templates', label: '設定', description: '記録・学校・送迎の共通設定', keywords: '退所 時刻 エリア', tone: 'indigo', icon: Settings, managerOnly: true },
   { id: 'team', tab: 'team', label: '職員', description: '職員・権限・記録者', keywords: '端末 招待 名簿', tone: 'indigo', icon: ShieldCheck, managerOnly: true },
