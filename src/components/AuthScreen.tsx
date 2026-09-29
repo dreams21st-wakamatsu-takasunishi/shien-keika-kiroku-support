@@ -75,7 +75,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onSignIn, onStaffIdSignI
           <div className="w-14 h-14 rounded-2xl bg-teal-600 flex items-center justify-center mx-auto shadow-xl mb-3">
             <FileText className="w-7 h-7" />
           </div>
-          <h1 className="text-xl font-bold">支援経過記録 サポート</h1>
+          <h1 className="text-xl font-bold">Dサポート</h1>
           <p className="text-xs text-slate-400 mt-1">児発・放課後等デイサービス向け共有記録システム</p>
         </div>
 

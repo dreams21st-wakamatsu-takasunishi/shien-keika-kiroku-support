@@ -217,7 +217,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button type="button" onClick={() => openTab('home')} className="flex min-w-0 flex-1 items-center gap-2 text-left" aria-label="ホームへ移動">
             <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-teal-600 shadow-sm"><FileText className="h-5 w-5" /></span>
             <span className="min-w-0">
-              <strong className="block truncate text-sm font-black sm:text-base">支援経過記録 サポート</strong>
+              <strong className="block truncate text-sm font-black sm:text-base">Dサポート</strong>
               <span className="block truncate text-[10px] font-bold text-teal-300 sm:text-[11px]">{currentLabel}</span>
             </span>
           </button>
