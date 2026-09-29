@@ -80,6 +80,7 @@ import {
 } from '../utils/templateNormalizer';
 import { calculateSchoolGrade } from '../utils/schoolGrade';
 import { getWizardQuestions, renderQuestionText } from '../utils/wizardQuestions';
+import { findFieldStepId } from '../utils/recordStepNavigation';
 import { formatRegularDays, getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
 import {
   formatHomeworkDetails,
@@ -213,6 +214,7 @@ interface PreSaveCheck {
   title: string;
   detail: string;
   stepId?: string;
+  focusSubject?: string;
 }
 
 interface DraftPreviewEntry {
@@ -673,12 +675,17 @@ const choiceClass = 'min-h-12 rounded-xl border px-3 py-2.5 text-sm font-bold tr
 function HomeworkSubjectInput({
   answer,
   onChange,
+  focusSubject,
 }: {
   answer: SectionFieldAnswer;
   onChange: (answer: SectionFieldAnswer) => void;
+  focusSubject?: string;
 }) {
   const details = normalizeHomeworkDetails(answer.homeworkDetails, answer.value);
   const [expandedSubject, setExpandedSubject] = useState<string | null>(null);
+  useEffect(() => {
+    if (focusSubject && details.subjects.includes(focusSubject)) setExpandedSubject(focusSubject);
+  }, [focusSubject]);
   const commit = (nextDetails: typeof details) => {
     onChange({
       ...answer,
@@ -1872,6 +1879,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const [childSearch, setChildSearch] = useState('');
   const [checksAcknowledged, setChecksAcknowledged] = useState(false);
   const [expandedGroupStepId, setExpandedGroupStepId] = useState<string | null>(null);
+  const jumpTargetRef = useRef<{ childId: string; stepId: string } | null>(null);
+  const [detailJump, setDetailJump] = useState<{ childId: string; sectionId: string; fieldId: string; subject: string } | null>(null);
   const [pendingModuleStepId, setPendingModuleStepId] = useState<string | null>(null);
   const [pendingModuleType, setPendingModuleType] = useState<RecordModuleType | null>(null);
   const [reorderingChildTabs, setReorderingChildTabs] = useState(false);
@@ -3017,6 +3026,19 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const currentPageSteps = pageStepsFor(currentStep);
 
   useEffect(() => {
+    const target = jumpTargetRef.current;
+    if (target?.childId === wizard.activeChildId && currentPageSteps.some((step) => step.id === target.stepId)) {
+      setExpandedGroupStepId(target.stepId);
+      jumpTargetRef.current = null;
+      let followUpFrame = 0;
+      const frame = window.requestAnimationFrame(() => {
+        followUpFrame = window.requestAnimationFrame(() => {
+          document.getElementById(`group-question-${target.stepId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        });
+      });
+      return () => { window.cancelAnimationFrame(frame); window.cancelAnimationFrame(followUpFrame); };
+    }
+    jumpTargetRef.current = null;
     setExpandedGroupStepId(null);
   }, [currentStep?.id, wizard.activeChildId]);
 
@@ -3253,8 +3275,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         section.fields.forEach((field) => {
           if (!fieldIsVisible(field, draft, section.id)) return;
           const answer = sectionAnswer?.answers?.[field.id];
-          const stepId = `field-${section.id}-${field.id}`;
-          if (field.required && !answer?.value?.trim() && !draft.skippedQuestionIds.includes(stepId)) {
+          const stepId = findFieldStepId(childPerSteps, section.id, field.id);
+          if (field.required && !answer?.value?.trim() && (!stepId || !draft.skippedQuestionIds.includes(stepId))) {
             checks.push({
               id: `${childId}-${stepId}-required`,
               childId,
@@ -3274,17 +3296,18 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                   ? !HOMEWORK_OTHER_MODES.includes(homework.notes['その他区分'] as (typeof HOMEWORK_OTHER_MODES)[number])
                   : !homework.notes[subject]?.trim()
             );
-            if (incomplete.length > 0) {
+            incomplete.forEach((subject) => {
               checks.push({
-                id: `${childId}-${stepId}-homework`,
+                id: `${childId}-${stepId}-homework-${subject}`,
                 childId,
                 childName,
                 level: 'warning',
-                title: `${incomplete.join('・')}の詳しい内容が未入力です`,
+                title: `${subject}の詳しい内容が未入力です`,
                 detail: '教科を選択した直下の教材または自由記入欄を確認してください。',
                 stepId,
+                focusSubject: subject,
               });
-            }
+            });
           }
           if (field.type === 'study_extras' && answer?.nestedDetails) {
             const details = answer.nestedDetails;
@@ -3405,6 +3428,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   };
 
   const moveToStep = (index: number, childId = wizard.activeChildId) => {
+    jumpTargetRef.current = null;
+    setDetailJump(null);
     setStepError(null);
     setSaveError(null);
     const targetIndex = Math.max(0, Math.min(index, steps.length - 1));
@@ -3432,10 +3457,15 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingModuleStepId, steps]);
 
-  const moveToChildStep = (childId: string, stepId: string) => {
+  const moveToChildStep = (childId: string, stepId: string, focusSubject?: string) => {
     const targetSteps = buildStepsForTemplate(templateForChild(childId), wizard.childDrafts[childId]);
     const targetIndex = targetSteps.findIndex((step) => step.id === stepId);
-    if (targetIndex < 0) return;
+    if (targetIndex < 0) { setStepError('移動先の質問が見つかりません。入力内容を更新して再確認してください。'); return; }
+    const targetStep = targetSteps[targetIndex];
+    jumpTargetRef.current = { childId, stepId };
+    setDetailJump(focusSubject && targetStep.sectionId && targetStep.fieldId
+      ? { childId, sectionId: targetStep.sectionId, fieldId: targetStep.fieldId, subject: focusSubject }
+      : null);
     setStepError(null);
     setSaveError(null);
     setWizard((previous) => ({
@@ -3672,6 +3702,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           <HomeworkSubjectInput
             answer={answer}
             onChange={(nextAnswer) => updateFieldAnswer(sectionId, field.id, nextAnswer)}
+            focusSubject={detailJump?.childId === wizard.activeChildId && detailJump.sectionId === sectionId && detailJump.fieldId === field.id ? detailJump.subject : undefined}
           />
         )}
         {field.type === 'study_extras' && (
@@ -5118,7 +5149,7 @@ function ReviewAllChildren({
   checks: PreSaveCheck[];
   checksAcknowledged: boolean;
   onChecksAcknowledged: (checked: boolean) => void;
-  onJump: (childId: string, stepId: string) => void;
+  onJump: (childId: string, stepId: string, focusSubject?: string) => void;
   onSaveChild: (childId: string) => void;
   savingChildId: string | null;
   saveDisabled: boolean;
@@ -5168,7 +5199,7 @@ function ReviewAllChildren({
                   {check.stepId && (
                     <button
                       type="button"
-                      onClick={() => onJump(check.childId, check.stepId!)}
+                      onClick={() => onJump(check.childId, check.stepId!, check.focusSubject)}
                       className="mt-2 min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-xs font-black text-slate-800"
                     >
                       未入力箇所へ移動
