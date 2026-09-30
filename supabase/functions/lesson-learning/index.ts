@@ -1,6 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { identityFingerprint, isServiceDate, isStudentId, parseHistory, parseIdentity } from '../../../src/learning/contracts.ts';
 import {parseWordInbox} from '../../../src/learning/wordReviews.ts';
+import {parseLearningTask,parseLearningTasks} from '../../../src/learning/tasks.ts';
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-support-device-token', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status,
@@ -33,13 +34,13 @@ Deno.serve(async request => {
     let body;
     try { body = JSON.parse(raw); } catch { return reply({ error: '送信内容を確認してください。' }, 400); }
     const action = body?.action;
-    if (!['list', 'inspect', 'link', 'disable', 'history','word-inbox','word-artifact','word-decide'].includes(action)) return reply({ error: '操作内容を確認してください。' }, 400);
+    if (!['list', 'inspect', 'link', 'disable', 'history','word-inbox','word-artifact','word-decide','tasks-list','tasks-save'].includes(action)) return reply({ error: '操作内容を確認してください。' }, 400);
     const sourceProject = Deno.env.get('D_LESSON_PROJECT_REF') || '';
     const secret = Deno.env.get('D_LESSON_BRIDGE_SECRET') || '';
     const configured = /^[a-z0-9]{20}$/.test(sourceProject) && secret.length >= 32;
-    const wordBridge=async(payload:Record<string,unknown>)=>{
+    const wordBridge=async(payload:Record<string,unknown>,endpoint='support-word-review')=>{
       if(!configured)throw failure('学習連携のサーバー設定が未完了です。',503);
-      const result=await fetch(`https://${sourceProject}.supabase.co/functions/v1/support-word-review`,{
+      const result=await fetch(`https://${sourceProject}.supabase.co/functions/v1/${endpoint}`,{
         method:'POST',headers:{'Content-Type':'application/json','x-lesson-bridge-key':secret},
         body:JSON.stringify({...payload,supportProjectRef:new URL(url).hostname.split('.')[0],organizationId:context.organizationId,
           actorId:context.actorId,actorName:context.actorName}),signal:AbortSignal.timeout(25000),redirect:'error'});
@@ -108,6 +109,16 @@ Deno.serve(async request => {
     const { data: link, error: linkError } = await user.from('lesson_child_links').select('*').eq('organization_id', context.organizationId)
       .eq('child_id', body.childId).eq('active', true).maybeSingle();
     if (linkError || !link) return reply({ error: '有効な学習連携がありません。更新して確認してください。' }, 409);
+    if(action==='tasks-list'||action==='tasks-save'){
+      const current=await getContext();
+      if(action==='tasks-save'&&current.canManageLinks!==true)return reply({error:'課題の指定には学習連携の管理権限が必要です。'},403);
+      if(link.source_project_ref!==sourceProject)return reply({error:'学習連携先を確認してください。'},409);
+      const payload=await wordBridge({action:action==='tasks-list'?'list':'save',studentId:link.source_student_id,linkId:link.id,childId:link.child_id,...(action==='tasks-save'?{task:body.task}:{})},'support-learning-tasks');
+      await getContext();
+      const {data:stillLinked,error:stillError}=await user.from('lesson_child_links').select('id').eq('id',link.id).eq('active',true).eq('revision',link.revision).maybeSingle();
+      if(stillError||!stillLinked)throw failure('連携状態が変更されました。更新してください。',409);
+      return reply(action==='tasks-list'?{schemaVersion:1,tasks:parseLearningTasks(payload)}:{schemaVersion:1,task:parseLearningTask(payload?.task)});
+    }
     if(action==='word-artifact'||action==='word-decide'){
       if(typeof body.requestId!=='string'||! /^[0-9a-f-]{36}$/i.test(body.requestId))return reply({error:'申請を選択してください。'},400);
       if(action==='word-decide'&&context.canReviewWord!==true)return reply({error:'Word作品の確認・承認権限が必要です。'},403);

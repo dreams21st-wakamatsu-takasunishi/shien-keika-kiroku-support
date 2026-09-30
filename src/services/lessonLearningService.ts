@@ -2,6 +2,7 @@ import { supabase } from '../lib/supabase';
 import { getAccessDeviceToken } from '../utils/accessDevice';
 import type { LessonHistory, LessonIdentity, LessonLink } from '../learning/contracts';
 import type {WordReviewRequest,WordReviewInbox} from '../learning/wordReviews';
+import {parseLearningTask,parseLearningTasks,type LearningTask} from '../learning/tasks';
 
 async function invoke<T>(body: Record<string, unknown>): Promise<T> {
   if (!supabase) throw new Error('学習連携には職員ログインとクラウド接続が必要です。');
@@ -22,6 +23,12 @@ export const inspectLessonStudent = (childId: string, studentId: string) => invo
 export const linkLessonStudent = (childId: string, studentId: string, fingerprint: string) => invoke<{ link: LessonLink }>({ action: 'link', childId, studentId, fingerprint, confirmed: true });
 export const disableLessonLink = (link: LessonLink) => invoke<{ link: LessonLink }>({ action: 'disable', childId: link.child_id, revision: link.revision });
 export const loadLessonHistory = (childId: string, date: string) => invoke<LessonHistory>({ action: 'history', childId, date });
+export const loadLearningTasks=async(childId:string)=>parseLearningTasks(await invoke({action:'tasks-list',childId}));
+export const saveLearningTask=async(childId:string,task:Omit<LearningTask,'updatedAt'>)=>{
+  const result=await invoke<{schemaVersion:number;task:unknown}>({action:'tasks-save',childId,task});
+  if(result.schemaVersion!==1)throw Error('課題の保存結果を確認できません。');
+  const saved=parseLearningTask(result.task);if(saved.id!==task.id)throw Error('課題の保存結果を確認できません。');return saved;
+};
 export const loadWordReviewInbox=()=>invoke<WordReviewInbox>({action:'word-inbox'});
 export interface WordArtifact {url:string;fileType:string;requestId:string;revision:number;fileHash:string}
 export const loadWordArtifact=(request:WordReviewRequest)=>invoke<WordArtifact>({action:'word-artifact',childId:request.childId,requestId:request.id});

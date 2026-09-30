@@ -68,9 +68,12 @@ try {
     update children set name='架空児童',birth_date='2018-01-01';`);
   await db.exec(readFileSync(new URL('../supabase/migrations/202609300003_lesson_authorized_migration.sql',import.meta.url),'utf8'));
   await db.exec(readFileSync(new URL('../supabase/migrations/202609300004_lesson_link_business_conflicts.sql',import.meta.url),'utf8'));
+  await db.exec(readFileSync(new URL('../supabase/migrations/202609300005_lesson_confirmed_identity.sql',import.meta.url),'utf8'));
   await db.exec('set role service_role');
   const migrated=(await db.query('select (migrate_authorized_lesson_link($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)).*',[orgA,'child-a2','架空児童','2018-01-01','abcdefghijklmnopqrst','user_data','student_a2','main','架空児童','User-specified workbook: unique kana/name and classroom number; student Auth verified'])).rows[0];
   assert.equal(migrated.verified_by,null);assert.equal(migrated.verification_source,'authorized_migration');
+  const confirmed=(await db.query('select * from migrate_authorized_lesson_link($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[orgA,'child-a2','架空児童','2018-01-01','abcdefghijklmnopqrst','user_data','student_a2','main','架空児童','User-confirmed child identity and classroom number; existing student Auth verified'])).rows[0];
+  assert.equal(confirmed.id,migrated.id);
   await assert.rejects(()=>db.query('select migrate_authorized_lesson_link($1,$2,$3,$4,$5,$6,$7,$8,$9)',[orgA,'child-a2','別児童','2018-01-01','abcdefghijklmnopqrst','user_data','student_a2','main','架空児童']),error=>error.code==='PT409');
   await db.exec('reset role;set role authenticated');
   await assert.rejects(()=>db.query('select migrate_authorized_lesson_link($1,$2,$3,$4,$5,$6,$7,$8,$9)',[orgA,'child-a2','架空児童','2018-01-01','abcdefghijklmnopqrst','user_data','student_a2','main','架空児童']),error=>error.code==='42501');
