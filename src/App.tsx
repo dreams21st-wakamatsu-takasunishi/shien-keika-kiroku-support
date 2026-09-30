@@ -46,6 +46,8 @@ import { defaultTemplates, requiredRecordTemplates } from './data/defaultTemplat
 import { UNIFIED_TEMPLATE_ID } from './data/unifiedTemplate';
 import { sampleRecords, sampleChildren, sampleRecorderProfiles } from './data/sampleData';
 import { Header, ActiveTab } from './components/Header';
+import { LessonLearningManager } from './components/LessonLearningManager';
+import {LessonReviewNotice} from './components/LessonReviewNotice';
 import { RecordForm } from './components/RecordForm';
 import { RecordOverwriteDialog } from './components/RecordOverwriteDialog';
 import { planRecordSave, type RecordOverwritePair, type RecordSaveOutcome } from './services/recordSaveWorkflow';
@@ -171,6 +173,7 @@ export default function App() {
   const remoteMode = auth.configured;
   const organizationId = auth.profile?.organizationId;
   const [activeTab, setActiveTab] = useState<ActiveTab | 'preview'>('home');
+  const [learningReviewFocus,setLearningReviewFocus]=useState(0);
   const [meetingFocusId, setMeetingFocusId] = useState<string | null>(null);
   const [meetingFocusChildId, setMeetingFocusChildId] = useState<string | null>(null);
   const [meetingDirty, setMeetingDirty] = useState(false);
@@ -2238,6 +2241,10 @@ export default function App() {
         </div>
         )}
         {dataError && <div className="mb-4 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-lg p-3">{dataError}</div>}
+        <LessonReviewNotice enabled={remoteMode&&Boolean(auth.profile)&&!auth.profile?.fieldModeOnly} scopeKey={`${organizationId||''}:${auth.profile?.id||''}:${auth.profile?.role||''}`} onOpen={()=>{
+          if(activeTab==='meetings'&&meetingDirty&&!window.confirm('会議支援の未保存の内容を残したまま、Word確認へ移動しますか？'))return;
+          setLearningReviewFocus(value=>value+1);setActiveTab('learning');
+        }}/>
         {activeTab !== 'home' && (
           <ScreenContextBar
             activeTab={activeTab}
@@ -2436,6 +2443,9 @@ export default function App() {
         {activeTab === 'children' && (
           <ChildrenManager childrenList={childrenList} schools={schools} transportRouteSettings={transportRouteSettings} canEdit={canManageChildren} onAddChild={handleAddChild} onUpdateChild={handleUpdateChild} onDeleteChild={handleDeleteChild} />
         )}
+        {activeTab === 'learning' && !auth.profile?.fieldModeOnly && (
+          <LessonLearningManager scopeKey={`${organizationId || 'local'}:${auth.profile?.id || 'local'}:${auth.profile?.role || 'local'}`} childrenList={childrenList} remoteMode={remoteMode} reviewFocus={learningReviewFocus}/>
+        )}
         {FEATURE_FLAGS.supportPlansAndFiveDomains && activeTab === 'plans' && (
           <SupportPlanManager childrenList={childrenList} supportPlans={supportPlans} canEdit={canManageRecordSettings} onSavePlan={handleSavePlan} onClosePlan={handleClosePlan} />
         )}
@@ -2575,6 +2585,7 @@ function ScreenContextBar({
     meetings: { title: '会議支援', description: '準備・進行・文字起こし・支援経過' },
     preview: { title: '記録確認', description: '内容確認・修正指摘・承認' },
     children: { title: '児童名簿', description: '児童情報・利用曜日の管理' },
+    learning: { title: '学習管理', description: 'Dレッスンの実績・アカウント連携' },
     plans: { title: '個別支援計画', description: '現在は機能凍結中' },
     templates: { title: '設定', description: 'AI・記録フォーマットの管理' },
     team: { title: '職員管理', description: '記録者・ログイン職員の管理' },

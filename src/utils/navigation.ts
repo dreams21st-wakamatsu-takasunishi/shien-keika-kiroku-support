@@ -1,11 +1,11 @@
 import {
   BusFront, CalendarDays, CalendarRange, ClipboardList, Eye, History, House,
-  MessageSquareText, PlusCircle, Settings, ShieldCheck, Sparkles, TriangleAlert, Users, Mic,
+  MessageSquareText, PlusCircle, Settings, ShieldCheck, Sparkles, TriangleAlert, Users, Mic, BookOpenCheck,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 import type { RecorderMenuItemId, RecorderMenuPreferences } from '../types';
 
-export type ActiveTab = 'home' | 'form' | 'records' | 'meetings' | 'children' | 'templates' | 'team' | 'plans';
+export type ActiveTab = 'home' | 'form' | 'records' | 'meetings' | 'learning' | 'children' | 'templates' | 'team' | 'plans';
 export type HomeWorkspaceItem = 'dailyChanges' | 'todayWork' | 'attendance' | 'calendar' | 'monthlySchedule' | 'operations' | 'communication' | 'assistant';
 export const MENU_CATEGORIES = ['すべて', '当日の対応', '予定・送迎', '記録・児童', '共有・連絡'] as const;
 export type MenuCategory = typeof MENU_CATEGORIES[number];
@@ -37,6 +37,7 @@ export const navigationItems: NavigationItem[] = [
   { id: 'records', tab: 'records', label: '記録一覧・確認', description: '保存済み記録の確認・修正・出力', keywords: '過去 PDF 印刷 コピー 承認', category: '記録・児童', tone: 'teal', icon: History },
   { id: 'meetings', tab: 'meetings', label: '会議支援', description: '会議準備・進行・Tiro文字起こし・支援経過', keywords: '担当者会議 保護者面談 ケース会議 文字起こし', category: '記録・児童', tone: 'indigo', icon: Mic },
   { id: 'children', tab: 'children', label: '児童名簿', description: '児童情報・学校・利用曜日・送迎先', keywords: '住所 兄弟 基本予定 メモ', category: '記録・児童', tone: 'teal', icon: Users },
+  { id: 'learning', tab: 'learning', label: '学習管理', description: 'Dレッスンの実績・学習アカウント連携', keywords: 'パソコン 練習 成績 進捗', category: '記録・児童', tone: 'teal', icon: BookOpenCheck },
   { id: 'templates', tab: 'templates', label: '設定', description: '記録・学校・送迎の共通設定', keywords: '退所 時刻 エリア', tone: 'indigo', icon: Settings, managerOnly: true },
   { id: 'team', tab: 'team', label: '職員', description: '職員・権限・記録者', keywords: '端末 招待 名簿', tone: 'indigo', icon: ShieldCheck, managerOnly: true },
 ];

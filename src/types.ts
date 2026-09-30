@@ -376,6 +376,8 @@ export type ConfigurableUserRole = 'manager' | 'classroom_manager';
 export type RolePermissionKey =
   | 'review_records'
   | 'manage_children'
+  | 'manage_learning_links'
+  | 'review_learning_work'
   | 'manage_record_settings'
   | 'manage_shifts'
   | 'manage_calendar'
@@ -419,6 +421,7 @@ export type RecorderMenuItemId =
   | 'form'
   | 'records'
   | 'meetings'
+  | 'learning'
   | 'children'
   | 'templates'
   | 'team';

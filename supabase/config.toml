@@ -391,6 +391,10 @@ verify_jwt = false
 [functions.attendance-qr-login]
 verify_jwt = false
 
+# The handler validates the staff token with Auth, then enforces org/device RLS.
+[functions.lesson-learning]
+verify_jwt = false
+
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 

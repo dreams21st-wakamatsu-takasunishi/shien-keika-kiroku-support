@@ -5,6 +5,8 @@ import type { ConfigurableUserRole, OrganizationRolePermission, RolePermissionKe
 const PERMISSIONS: Array<{ key: RolePermissionKey; label: string; description: string }> = [
   { key: 'review_records', label: '記録の確認・承認', description: '未確認記録の確認、要修正の登録を行えます。' },
   { key: 'manage_children', label: '児童情報の管理', description: '児童名簿、利用曜日、送迎先を編集できます。' },
+  { key: 'manage_learning_links', label: '学習アカウントの連携管理', description: 'Dレッスンの本人情報を確認し、児童との連携・解除を行えます。' },
+  { key: 'review_learning_work', label: 'Word作品の確認・承認', description: '連携児童の提出作品を確認し、承認・差し戻しを行えます。' },
   { key: 'manage_record_settings', label: '記録・AI設定', description: '質問テンプレートとAI文章設定を変更できます。' },
   { key: 'manage_shifts', label: '月間シフト・休日管理', description: '職員の勤務予定とパート職員の希望を確定できます。' },
   { key: 'manage_calendar', label: '業務カレンダー管理', description: '会議、外出、研修などの予定を登録できます。' },
