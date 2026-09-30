@@ -1639,8 +1639,60 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
           )}
         </div>
 
+        <div className="relative order-4">
+          <textarea
+            value={content}
+            onChange={(event) => {
+              const editor = event.currentTarget;
+              updateContent(editor.value, editor.selectionStart, editor.selectionEnd);
+            }}
+            onSelect={handleEditorSelection}
+            onFocus={handleEditorFocus}
+            onBlur={handleEditorBlur}
+            onScroll={(event) => setEditorScroll({
+              top: event.currentTarget.scrollTop,
+              left: event.currentTarget.scrollLeft,
+            })}
+            rows={12}
+            aria-label="朝礼記録の入力"
+            aria-describedby="morning-collaboration-status"
+            placeholder={'例：\n【本日の予定】\n・15:00から避難訓練\n\n【児童対応】\n・〇〇さんは来所時の体調を確認'}
+            className="relative z-10 block min-h-72 w-full resize-y rounded-2xl border-2 border-slate-300 bg-slate-50/95 p-4 text-sm leading-7 text-slate-900 focus:border-sky-500 focus:bg-white/95 focus:ring-4 focus:ring-sky-100"
+          />
+          <RemoteCursorOverlay
+            content={content}
+            collaborators={cursorOverlayCollaborators}
+            scrollTop={editorScroll.top}
+            scrollLeft={editorScroll.left}
+          />
+        </div>
+
+        <div className="order-5 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[10px] text-slate-500">{content.length.toLocaleString()} / 20,000文字・自動保存</p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={!content}
+              onClick={() => void copyContent()}
+              className="flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 disabled:opacity-40"
+            >
+              {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+              {copied ? 'コピー済み' : '内容をコピー'}
+            </button>
+            <button
+              type="button"
+              disabled={!content}
+              onClick={clearContent}
+              className="flex min-h-10 items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 text-xs font-bold text-rose-700 disabled:opacity-40"
+            >
+              <Trash2 className="h-4 w-4" />消去
+            </button>
+          </div>
+        </div>
+
+        {/* Other editors' previews must stay below the editor so live updates never move its input position. */}
         {remoteLiveDrafts.length > 0 && (
-          <section className="order-4 rounded-xl border border-indigo-200 bg-indigo-50/80 p-3" aria-live="polite">
+          <section className="order-8 max-h-80 overflow-y-auto rounded-xl border border-indigo-200 bg-indigo-50/80 p-3" aria-label="他端末の入力内容" aria-live="polite">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <h4 className="flex items-center gap-1.5 text-xs font-black text-indigo-950">
                 <Radio className="h-4 w-4 animate-pulse text-indigo-600" />他端末の入力内容
@@ -1694,56 +1746,6 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
             </div>
           </section>
         )}
-
-        <div className="relative order-4">
-          <textarea
-            value={content}
-            onChange={(event) => {
-              const editor = event.currentTarget;
-              updateContent(editor.value, editor.selectionStart, editor.selectionEnd);
-            }}
-            onSelect={handleEditorSelection}
-            onFocus={handleEditorFocus}
-            onBlur={handleEditorBlur}
-            onScroll={(event) => setEditorScroll({
-              top: event.currentTarget.scrollTop,
-              left: event.currentTarget.scrollLeft,
-            })}
-            rows={12}
-            aria-describedby="morning-collaboration-status"
-            placeholder={'例：\n【本日の予定】\n・15:00から避難訓練\n\n【児童対応】\n・〇〇さんは来所時の体調を確認'}
-            className="relative z-10 block min-h-72 w-full resize-y rounded-2xl border-2 border-slate-300 bg-slate-50/95 p-4 text-sm leading-7 text-slate-900 focus:border-sky-500 focus:bg-white/95 focus:ring-4 focus:ring-sky-100"
-          />
-          <RemoteCursorOverlay
-            content={content}
-            collaborators={cursorOverlayCollaborators}
-            scrollTop={editorScroll.top}
-            scrollLeft={editorScroll.left}
-          />
-        </div>
-
-        <div className="order-5 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[10px] text-slate-500">{content.length.toLocaleString()} / 20,000文字・自動保存</p>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={!content}
-              onClick={() => void copyContent()}
-              className="flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 disabled:opacity-40"
-            >
-              {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
-              {copied ? 'コピー済み' : '内容をコピー'}
-            </button>
-            <button
-              type="button"
-              disabled={!content}
-              onClick={clearContent}
-              className="flex min-h-10 items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 text-xs font-bold text-rose-700 disabled:opacity-40"
-            >
-              <Trash2 className="h-4 w-4" />消去
-            </button>
-          </div>
-        </div>
       </div>
     </section>
   );

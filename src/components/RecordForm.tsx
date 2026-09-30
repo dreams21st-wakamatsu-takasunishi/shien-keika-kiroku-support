@@ -81,6 +81,13 @@ import {
 import { calculateSchoolGrade } from '../utils/schoolGrade';
 import { getWizardQuestions, renderQuestionText } from '../utils/wizardQuestions';
 import { findFieldStepId } from '../utils/recordStepNavigation';
+import {
+  getIncompleteHomeworkSubjects,
+  getIncompletePcActivities,
+  getIncompleteStudyExtras,
+  getMockExamAttempts,
+  type MockExamAttempt,
+} from '../utils/recordIncompleteDetails';
 import { formatRegularDays, getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
 import {
   formatHomeworkDetails,
@@ -676,16 +683,18 @@ function HomeworkSubjectInput({
   answer,
   onChange,
   focusSubject,
+  focusRequestId,
 }: {
   answer: SectionFieldAnswer;
   onChange: (answer: SectionFieldAnswer) => void;
   focusSubject?: string;
+  focusRequestId?: number;
 }) {
   const details = normalizeHomeworkDetails(answer.homeworkDetails, answer.value);
   const [expandedSubject, setExpandedSubject] = useState<string | null>(null);
   useEffect(() => {
     if (focusSubject && details.subjects.includes(focusSubject)) setExpandedSubject(focusSubject);
-  }, [focusSubject]);
+  }, [focusSubject, focusRequestId]);
   const commit = (nextDetails: typeof details) => {
     onChange({
       ...answer,
@@ -914,26 +923,9 @@ function detailArray(details: Record<string, string | string[]> | undefined, key
   return Array.isArray(value) ? value : [];
 }
 
-interface MockExamAttempt {
-  characterCount: string;
-  pastRound: string;
-}
-
 interface WritingPracticeAttempt {
   round: string;
   characterCount: string;
-}
-
-function getMockExamAttempts(details: Record<string, string | string[]>): MockExamAttempt[] {
-  const counts = detailArray(details, 'mockCharacterCounts');
-  const rounds = detailArray(details, 'mockPastRounds');
-  const legacyCount = String(details.mockCharacterCount || '');
-  const legacyRound = String(details.mockPastRound || '');
-  const count = Math.max(counts.length, rounds.length, legacyCount || legacyRound ? 1 : 0, 1);
-  return Array.from({ length: count }, (_, index) => ({
-    characterCount: String(counts[index] ?? (index === 0 ? legacyCount : '')),
-    pastRound: String(rounds[index] ?? (index === 0 ? legacyRound : '')),
-  }));
 }
 
 function withMockExamAttempts(
@@ -1068,13 +1060,34 @@ function MealDetailsInput({
 function StudyExtrasInput({
   answer,
   onChange,
+  focusSelection,
+  focusRequestId,
 }: {
   answer: SectionFieldAnswer;
   onChange: (answer: SectionFieldAnswer) => void;
+  focusSelection?: string;
+  focusRequestId?: number;
 }) {
   const details = answer.nestedDetails || {};
   const selections = detailArray(details, 'selections');
   const [expanded, setExpanded] = useState<string | null>(null);
+  const focusedSelectionRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!focusSelection || !selections.includes(focusSelection)) return;
+    setExpanded(focusSelection);
+    let secondFrame = 0;
+    let thirdFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        thirdFrame = window.requestAnimationFrame(() => focusedSelectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      window.cancelAnimationFrame(secondFrame);
+      window.cancelAnimationFrame(thirdFrame);
+    };
+  }, [focusSelection, focusRequestId]);
 
   const commit = (nextDetails: Record<string, string | string[]>) => {
     const nextSelections = detailArray(nextDetails, 'selections');
@@ -1138,7 +1151,7 @@ function StudyExtrasInput({
               ? String(details.otherNote || '')
               : '';
         return (
-          <div key={selection} className={`overflow-hidden rounded-2xl border-2 ${selected ? 'border-teal-500 bg-teal-50' : 'border-slate-200 bg-white'}`}>
+          <div key={selection} ref={focusSelection === selection ? focusedSelectionRef : undefined} className={`overflow-hidden rounded-2xl border-2 ${selected ? 'border-teal-500 bg-teal-50' : 'border-slate-200 bg-white'}`}>
             <button type="button" aria-pressed={selected} aria-expanded={isExpanded} onClick={() => toggleSelection(selection)} className="flex min-h-14 w-full items-center gap-3 px-4 py-3 text-left">
               <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border-2 ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300 text-transparent'}`}><Check className="h-5 w-5" /></span>
               <span className="min-w-0 flex-1"><strong className="block text-base text-slate-900">{selection}</strong>{selected && selection !== '取り組みなし' && <span className="block truncate text-xs font-bold text-teal-800">{summary || '詳細を入力してください'}</span>}</span>
@@ -1190,13 +1203,34 @@ function StudyExtrasInput({
 function PcActivitiesInput({
   answer,
   onChange,
+  focusSelection,
+  focusRequestId,
 }: {
   answer: SectionFieldAnswer;
   onChange: (answer: SectionFieldAnswer) => void;
+  focusSelection?: string;
+  focusRequestId?: number;
 }) {
   const details = answer.nestedDetails || {};
   const selections = detailArray(details, 'selections');
   const [expanded, setExpanded] = useState<string | null>(null);
+  const focusedSelectionRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!focusSelection || !selections.includes(focusSelection)) return;
+    setExpanded(focusSelection);
+    let secondFrame = 0;
+    let thirdFrame = 0;
+    const firstFrame = window.requestAnimationFrame(() => {
+      secondFrame = window.requestAnimationFrame(() => {
+        thirdFrame = window.requestAnimationFrame(() => focusedSelectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+      });
+    });
+    return () => {
+      window.cancelAnimationFrame(firstFrame);
+      window.cancelAnimationFrame(secondFrame);
+      window.cancelAnimationFrame(thirdFrame);
+    };
+  }, [focusSelection, focusRequestId]);
 
   const commit = (nextDetails: Record<string, string | string[]>) => {
     const nextSelections = detailArray(nextDetails, 'selections');
@@ -1264,7 +1298,7 @@ function PcActivitiesInput({
               }).filter(Boolean).join('／')
             : String(details.otherNote || '');
         return (
-          <div key={selection} className={`overflow-hidden rounded-2xl border-2 ${selected ? 'border-teal-500 bg-teal-50' : 'border-slate-200 bg-white'}`}>
+          <div key={selection} ref={focusSelection === selection ? focusedSelectionRef : undefined} className={`overflow-hidden rounded-2xl border-2 ${selected ? 'border-teal-500 bg-teal-50' : 'border-slate-200 bg-white'}`}>
             <button type="button" aria-pressed={selected} aria-expanded={isExpanded} onClick={() => toggleSelection(selection)} className="flex min-h-14 w-full items-center gap-3 px-4 py-3 text-left">
               <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border-2 ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300 text-transparent'}`}><Check className="h-5 w-5" /></span>
               <span className="min-w-0 flex-1"><strong className="block text-base text-slate-900">{selection}</strong>{selected && <span className="block truncate text-xs font-bold text-teal-800">{summary || '詳細を入力してください'}</span>}</span>
@@ -1880,6 +1914,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const [checksAcknowledged, setChecksAcknowledged] = useState(false);
   const [expandedGroupStepId, setExpandedGroupStepId] = useState<string | null>(null);
   const jumpTargetRef = useRef<{ childId: string; stepId: string } | null>(null);
+  const [jumpRequestId, setJumpRequestId] = useState(0);
   const [detailJump, setDetailJump] = useState<{ childId: string; sectionId: string; fieldId: string; subject: string } | null>(null);
   const [pendingModuleStepId, setPendingModuleStepId] = useState<string | null>(null);
   const [pendingModuleType, setPendingModuleType] = useState<RecordModuleType | null>(null);
@@ -3040,7 +3075,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     }
     jumpTargetRef.current = null;
     setExpandedGroupStepId(null);
-  }, [currentStep?.id, wizard.activeChildId]);
+  }, [currentStep?.id, wizard.activeChildId, jumpRequestId]);
 
   const groupedStepSummary = (step: WizardStep, status: AnswerStatus) => {
     if (status === 'skipped') return 'スキップ済み';
@@ -3287,15 +3322,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
               stepId,
             });
           }
-          if (field.type === 'homework_subjects' && answer?.homeworkDetails) {
-            const homework = normalizeHomeworkDetails(answer.homeworkDetails, answer.value);
-            const incomplete = homework.subjects.filter((subject) =>
-              HOMEWORK_ACADEMIC_SUBJECTS.includes(subject as (typeof HOMEWORK_ACADEMIC_SUBJECTS)[number])
-                ? !(homework.materials[subject] || []).length
-                : subject === 'その他'
-                  ? !HOMEWORK_OTHER_MODES.includes(homework.notes['その他区分'] as (typeof HOMEWORK_OTHER_MODES)[number])
-                  : !homework.notes[subject]?.trim()
-            );
+          if (field.type === 'homework_subjects' && answer) {
+            const incomplete = getIncompleteHomeworkSubjects(answer);
             incomplete.forEach((subject) => {
               checks.push({
                 id: `${childId}-${stepId}-homework-${subject}`,
@@ -3310,46 +3338,32 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             });
           }
           if (field.type === 'study_extras' && answer?.nestedDetails) {
-            const details = answer.nestedDetails;
-            const selections = detailArray(details, 'selections');
-            const incomplete = [
-              selections.includes('漢検') && !String(details.kankenGrade || '').trim() ? '漢検の級' : '',
-              selections.includes('漢検') && detailArray(details, 'kankenActivities').length === 0 ? '漢検の取り組み内容' : '',
-              selections.includes('漢検') && detailArray(details, 'kankenActivities').includes('その他') && !String(details.kankenOtherNote || '').trim() ? '漢検のその他内容' : '',
-              selections.includes('エジソン') && detailArray(details, 'edisonActivities').length === 0 ? 'エジソンの内容' : '',
-              selections.includes('その他') && !String(details.otherNote || '').trim() ? 'その他の内容' : '',
-            ].filter(Boolean);
-            if (incomplete.length) {
+            getIncompleteStudyExtras(answer.nestedDetails).forEach(({ selection, missing }) => {
               checks.push({
-                id: `${childId}-${stepId}-study-extras`,
+                id: `${childId}-${stepId}-study-extras-${selection}`,
                 childId,
                 childName,
                 level: 'warning',
-                title: `${incomplete.join('・')}が未入力です`,
+                title: `${selection}：${missing.join('・')}が未入力です`,
                 detail: '選択した項目のすぐ下に表示される詳細欄を確認してください。',
                 stepId,
+                focusSubject: selection,
               });
-            }
+            });
           }
           if (field.type === 'pc_activities' && answer?.nestedDetails) {
-            const details = answer.nestedDetails;
-            const selections = detailArray(details, 'selections');
-            const incomplete = [
-              selections.includes('Dレッスン') && detailArray(details, 'dLessonActivities').length === 0 ? 'Dレッスンの練習内容' : '',
-              selections.includes('文章入力模擬試験') && getMockExamAttempts(details).some((attempt) => !attempt.characterCount.trim() || !attempt.pastRound.trim()) ? '模擬試験の文字数または過去問回' : '',
-              selections.includes('その他') && !String(details.otherNote || '').trim() ? 'その他の内容' : '',
-            ].filter(Boolean);
-            if (incomplete.length) {
+            getIncompletePcActivities(answer.nestedDetails).forEach(({ selection, missing }) => {
               checks.push({
-                id: `${childId}-${stepId}-pc-activities`,
+                id: `${childId}-${stepId}-pc-activities-${selection}`,
                 childId,
                 childName,
                 level: 'warning',
-                title: `${incomplete.join('・')}が未入力です`,
+                title: `${selection}：${missing.join('・')}が未入力です`,
                 detail: '選択した項目のすぐ下に表示される詳細欄を確認してください。',
                 stepId,
+                focusSubject: selection,
               });
-            }
+            });
           }
           if (field.type === 'meal_details') {
             const details = answer?.nestedDetails || {};
@@ -3463,6 +3477,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     if (targetIndex < 0) { setStepError('移動先の質問が見つかりません。入力内容を更新して再確認してください。'); return; }
     const targetStep = targetSteps[targetIndex];
     jumpTargetRef.current = { childId, stepId };
+    setJumpRequestId((previous) => previous + 1);
     setDetailJump(focusSubject && targetStep.sectionId && targetStep.fieldId
       ? { childId, sectionId: targetStep.sectionId, fieldId: targetStep.fieldId, subject: focusSubject }
       : null);
@@ -3703,18 +3718,23 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             answer={answer}
             onChange={(nextAnswer) => updateFieldAnswer(sectionId, field.id, nextAnswer)}
             focusSubject={detailJump?.childId === wizard.activeChildId && detailJump.sectionId === sectionId && detailJump.fieldId === field.id ? detailJump.subject : undefined}
+            focusRequestId={jumpRequestId}
           />
         )}
         {field.type === 'study_extras' && (
           <StudyExtrasInput
             answer={answer}
             onChange={(nextAnswer) => updateFieldAnswer(sectionId, field.id, nextAnswer)}
+            focusSelection={detailJump?.childId === wizard.activeChildId && detailJump.sectionId === sectionId && detailJump.fieldId === field.id ? detailJump.subject : undefined}
+            focusRequestId={jumpRequestId}
           />
         )}
         {field.type === 'pc_activities' && (
           <PcActivitiesInput
             answer={answer}
             onChange={(nextAnswer) => updateFieldAnswer(sectionId, field.id, nextAnswer)}
+            focusSelection={detailJump?.childId === wizard.activeChildId && detailJump.sectionId === sectionId && detailJump.fieldId === field.id ? detailJump.subject : undefined}
+            focusRequestId={jumpRequestId}
           />
         )}
         {(field.type === 'posture_observation' || postureField) && (
@@ -5004,7 +5024,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                     <div className="divide-y divide-slate-100">
                       {group.steps.map((step) => {
                         const status = answerStatus(step, activeChildDraft);
-                        return <button key={step.id} type="button" onClick={() => moveToStep(steps.findIndex((item) => item.id === step.id))} className="flex min-h-12 w-full items-center gap-3 px-3 py-2 text-left hover:bg-slate-50"><span className={`h-3 w-3 shrink-0 rounded-full ${status === 'answered' ? 'bg-emerald-500' : status === 'skipped' ? 'bg-slate-400' : 'bg-amber-500'}`} /><span className="min-w-0 flex-1 text-sm font-bold leading-relaxed text-slate-800">{step.title}</span><span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black ${status === 'answered' ? 'bg-emerald-100 text-emerald-800' : status === 'skipped' ? 'bg-slate-200 text-slate-700' : 'bg-amber-100 text-amber-800'}`}>{status === 'answered' ? '回答済' : status === 'skipped' ? 'スキップ' : '未回答'}</span></button>;
+                        return <button key={step.id} type="button" onClick={() => moveToChildStep(wizard.activeChildId, step.id)} className="flex min-h-12 w-full items-center gap-3 px-3 py-2 text-left hover:bg-slate-50"><span className={`h-3 w-3 shrink-0 rounded-full ${status === 'answered' ? 'bg-emerald-500' : status === 'skipped' ? 'bg-slate-400' : 'bg-amber-500'}`} /><span className="min-w-0 flex-1 text-sm font-bold leading-relaxed text-slate-800">{step.title}</span><span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-black ${status === 'answered' ? 'bg-emerald-100 text-emerald-800' : status === 'skipped' ? 'bg-slate-200 text-slate-700' : 'bg-amber-100 text-amber-800'}`}>{status === 'answered' ? '回答済' : status === 'skipped' ? 'スキップ' : '未回答'}</span></button>;
                       })}
                     </div>
                   </section>
