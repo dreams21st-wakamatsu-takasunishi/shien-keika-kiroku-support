@@ -22,56 +22,62 @@ export function LessonLearningManager({ childrenList, remoteMode, scopeKey,revie
   const [candidate, setCandidate] = useState<{ identity: LessonIdentity; fingerprint: string } | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [history, setHistory] = useState<LessonHistory | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [listBusy, setListBusy] = useState(false);
+  const [operationBusy, setOperationBusy] = useState(false);
+  const [listError, setListError] = useState('');
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
   const requestVersion = useRef(0);
+  const listVersion = useRef(0);
+  const busy = listBusy || operationBusy;
   const selectedChild = childrenList.find(child => child.id === childId);
   const selectedLink = links.find(link => link.child_id === childId);
 
   const refresh = useCallback(async () => {
+    const version = ++listVersion.current;
+    setListBusy(remoteMode); setListError(''); setLoaded(false); setLinks([]); setCanManage(false); setConfigured(false); setHistory(null); setCandidate(null); setConfirmed(false);
     if (!remoteMode) return;
-    const version = ++requestVersion.current;
-    setBusy(true); setError(''); setLoaded(false); setLinks([]); setCanManage(false); setConfigured(false); setHistory(null); setCandidate(null); setConfirmed(false);
     try {
       const result = await loadLessonLinks();
-      if (version !== requestVersion.current) return;
+      if (version !== listVersion.current) return;
       setLinks(result.links); setCanManage(result.canManageLinks); setConfigured(result.configured); setLoaded(true);
     } catch (error) {
-      if (version === requestVersion.current) setError(error instanceof Error ? error.message : '連携一覧を取得できませんでした。');
-    } finally { if (version === requestVersion.current) setBusy(false); }
+      if (version === listVersion.current) setListError(error instanceof Error ? error.message : '連携一覧を取得できませんでした。');
+    } finally { if (version === listVersion.current) setListBusy(false); }
   }, [remoteMode, scopeKey]);
   useEffect(() => {
-    requestVersion.current++; setHistory(null); setCandidate(null); setConfirmed(false); setStudentId(''); setMessage(''); setError(''); setBusy(false);
+    requestVersion.current++; setHistory(null); setCandidate(null); setConfirmed(false); setStudentId(''); setMessage(''); setError(''); setOperationBusy(false);
   }, [childId, date]);
-  useEffect(() => { void refresh(); return () => { requestVersion.current++; }; }, [refresh]);
+  useEffect(() => { setOperationBusy(false); setError(''); setMessage(''); void refresh(); return () => { listVersion.current++; requestVersion.current++; }; }, [refresh]);
 
-  const run = async (operation: () => Promise<void>) => {
-    setBusy(true); setError(''); setMessage('');
-    try { await operation(); } catch (error) { setError(error instanceof Error ? error.message : '処理を完了できませんでした。'); }
-    finally { setBusy(false); }
-  };
-  const readHistory = async () => {
-    setHistory(null);
+  const run = async (operation: (version: number) => Promise<void>) => {
     const version = ++requestVersion.current;
+    setOperationBusy(true); setError(''); setMessage('');
+    try { await operation(version); } catch (error) { if (version === requestVersion.current) setError(error instanceof Error ? error.message : '処理を完了できませんでした。'); }
+    finally { if (version === requestVersion.current) setOperationBusy(false); }
+  };
+  const readHistory = async (version: number) => {
+    setHistory(null);
     const result = await loadLessonHistory(childId, date);
     if (version === requestVersion.current) setHistory(result);
   };
-  const verify = async () => {
+  const verify = async (version: number) => {
     setCandidate(null); setConfirmed(false);
-    const version = ++requestVersion.current;
     const result = await inspectLessonStudent(childId, studentId.trim());
     if (version === requestVersion.current) setCandidate(result);
   };
-  const saveLink = async () => {
+  const saveLink = async (version: number) => {
     if (!candidate || !confirmed) return;
     await linkLessonStudent(childId, candidate.identity.studentId, candidate.fingerprint);
+    if (version !== requestVersion.current) return;
     setCandidate(null); setConfirmed(false); setStudentId('');
-    await refresh(); setMessage('学習アカウントを連携しました。');
+    await refresh(); if (version === requestVersion.current) setMessage('学習アカウントを連携しました。');
   };
-  const disable = async () => {
+  const disable = async (version: number) => {
     if (!selectedLink || !window.confirm(`${selectedChild?.name || '選択児童'}の学習連携を解除しますか？\n学習データ・ログイン・支援経過記録は削除されません。`)) return;
-    await disableLessonLink(selectedLink); await refresh(); setMessage('学習連携を解除しました。');
+    await disableLessonLink(selectedLink);
+    if (version !== requestVersion.current) return;
+    await refresh(); if (version === requestVersion.current) setMessage('学習連携を解除しました。');
   };
   const filtered = childrenList.filter(child => `${child.name} ${child.kana || ''}`.normalize('NFKC').includes(search.normalize('NFKC').trim()));
 
@@ -83,12 +89,22 @@ export function LessonLearningManager({ childrenList, remoteMode, scopeKey,revie
     {!remoteMode && <p role="status" className="border-l-4 border-amber-500 bg-amber-50 px-4 py-3 text-sm text-amber-950">学習連携には職員ログインとクラウド接続が必要です。</p>}
     {remoteMode && loaded && !configured && <p role="status" className="border-l-4 border-amber-500 bg-amber-50 px-4 py-3 text-sm text-amber-950">学習連携のサーバー設定が未完了です。</p>}
     {error && <p role="alert" className="border-l-4 border-rose-500 bg-rose-50 px-4 py-3 text-sm text-rose-900">{error}</p>}
+    {listError && <p role="alert" className="border-l-4 border-rose-500 bg-rose-50 px-4 py-3 text-sm text-rose-900">{listError}</p>}
     {message && <p role="status" className="flex items-center gap-2 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"><Check className="h-4 w-4" />{message}</p>}
     <div role="tablist" aria-label="学習管理の表示" className="flex flex-wrap gap-1 border-b border-slate-200">
       {([['history', '当日の取り組み'], ['tasks','課題の指定'], ['reviews','Word確認'], ['links', 'アカウント連携']] as const).map(([value, label]) => <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => setTab(value)} className={`min-h-11 border-b-2 px-4 text-sm font-bold ${tab === value ? 'border-teal-700 text-teal-800' : 'border-transparent text-slate-600'}`}>{label}</button>)}
     </div>
-    <div className="grid min-w-0 gap-5 lg:grid-cols-[280px_minmax(0,1fr)]">
-      <aside className="min-w-0 border-b border-slate-200 pb-4 lg:border-b-0 lg:border-r lg:pr-5">
+    {tab === 'tasks' && <div className="flex flex-wrap items-end gap-3">
+      <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm font-bold text-slate-700">対象児童
+        <select aria-label="課題の対象児童" value={selectedChild ? childId : ''} disabled={operationBusy || !remoteMode} onChange={event => setChildId(event.target.value)} className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 sm:max-w-md">
+          <option value="">児童を選択</option>
+          {childrenList.map(child => <option key={child.id} value={child.id}>{child.name}{loaded ? links.some(link => link.child_id === child.id) ? '（連携済み）' : '（未連携）' : ''}</option>)}
+        </select>
+      </label>
+      <p role="status" className="py-2 text-xs text-slate-600">{listBusy ? '連携情報を読み込み中...' : loaded ? `${childrenList.length}名・連携済み ${links.filter(link => childrenList.some(child => child.id === link.child_id)).length}名` : remoteMode ? '連携情報を取得できていません。' : 'クラウド未接続'}</p>
+    </div>}
+    <div className={`grid min-w-0 gap-5 ${tab === 'tasks' ? '' : 'lg:grid-cols-[280px_minmax(0,1fr)]'}`}>
+      {tab !== 'tasks' && <aside className="min-w-0 border-b border-slate-200 pb-4 lg:border-b-0 lg:border-r lg:pr-5">
         <label className="relative block"><Search className="absolute left-3 top-3 h-4 w-4 text-slate-500" /><input aria-label="児童を検索" value={search} onChange={event => setSearch(event.target.value)} placeholder="児童名で検索" className="min-h-10 w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm" /></label>
         <p className="my-3 text-xs text-slate-600">{filtered.length}名・連携済み {loaded ? links.filter(link => childrenList.some(child => child.id === link.child_id)).length : '—'}名</p>
         <div className="max-h-[50vh] overflow-y-auto lg:max-h-[65vh]">
@@ -96,11 +112,15 @@ export function LessonLearningManager({ childrenList, remoteMode, scopeKey,revie
           {filtered.map(child => <button key={child.id} type="button" disabled={busy} onClick={() => setChildId(child.id)} aria-pressed={childId === child.id} className={`flex min-h-14 w-full items-center justify-between gap-2 border-b border-slate-100 px-3 py-2 text-left text-sm disabled:opacity-50 ${childId === child.id ? 'bg-teal-50 text-teal-950' : 'hover:bg-slate-50'}`}><span className="min-w-0 break-words font-bold">{child.name}</span><span className="shrink-0 text-xs text-slate-600">{loaded ? links.some(link => link.child_id === child.id) ? '連携済み' : '未連携' : '未確認'}</span></button>)}
           {filtered.length === 0 && <p className="py-6 text-center text-sm text-slate-600">該当する児童がいません。</p>}
         </div>
-      </aside>
+      </aside>}
       <section className="min-w-0 space-y-4" aria-label={tab === 'history' ? '当日の取り組み' : tab === 'reviews' ? 'Word確認' : tab==='tasks'?'課題の指定':'アカウント連携'}>
         {tab==='reviews'?<WordReviewInbox childrenList={childrenList} childId={childId} remoteMode={remoteMode} scopeKey={scopeKey}/>:!selectedChild ? <p className="py-10 text-center text-sm text-slate-600">児童を選択してください。</p> : <>
           <div className="flex flex-wrap items-center gap-3"><h3 className="break-words text-base font-bold text-slate-950">{selectedChild.name}</h3>{selectedLink && <span className="text-xs text-slate-600">Dレッスン: {selectedLink.source_display_name}</span>}</div>
-          {tab==='tasks'?selectedLink&&configured&&loaded?<div key={`${scopeKey}:${selectedLink.id}:${selectedLink.revision}`}><LearningTaskManager childId={childId} linkId={selectedLink.id} canManage={canManage} scopeKey={scopeKey}/></div>:<p className="py-6 text-sm text-slate-600">{loaded?'課題を指定するには学習アカウントの連携が必要です。':'連携状態は未確認です。'}</p>:tab === 'history' ? <>
+          {tab==='tasks'?selectedLink&&configured&&loaded?<div key={`${scopeKey}:${childId}:${selectedLink.id}:${selectedLink.revision}`}><LearningTaskManager childId={childId} linkId={selectedLink.id} canManage={canManage} scopeKey={scopeKey}/></div>:<div className="space-y-3 py-6 text-sm text-slate-600">
+            <p role="status">{!remoteMode ? '職員ログインとクラウド接続が必要です。' : listBusy ? '連携情報を読み込み中...' : !loaded ? '連携情報の取得に失敗しました。' : !configured ? '学習連携のサーバー設定が未完了です。' : 'この児童の学習アカウントは未連携です。'}</p>
+            {remoteMode && !listBusy && !loaded && <button type="button" onClick={() => void refresh()} className="flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 px-3"><RefreshCw className="h-4 w-4" />再取得</button>}
+            {loaded && configured && !selectedLink && canManage && <button type="button" onClick={() => setTab('links')} className="flex min-h-10 items-center gap-2 rounded-lg border border-teal-600 px-3 text-teal-800"><Link2 className="h-4 w-4" />アカウント連携</button>}
+          </div>:tab === 'history' ? <>
             <div className="flex flex-wrap items-end gap-3"><label className="flex flex-col gap-1 text-xs font-bold text-slate-700">実施日<input type="date" aria-label="実施日" value={date} disabled={busy} onChange={event => setDate(event.target.value)} className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm" /></label><button type="button" disabled={busy || !selectedLink || !configured || !loaded || !date} onClick={() => void run(readHistory)} className="flex min-h-10 items-center gap-2 rounded-lg bg-teal-700 px-4 text-sm font-bold text-white disabled:opacity-50">{busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}実績を取得</button></div>
             {loaded && !selectedLink && <p className="py-4 text-sm text-slate-600">学習アカウントが未連携です。</p>}
             {history ? <>
