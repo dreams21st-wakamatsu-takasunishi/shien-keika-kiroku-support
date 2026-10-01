@@ -2369,6 +2369,7 @@ export default function App() {
             userId={auth.profile?.id}
             userDisplayName={auth.profile?.displayName}
             allowLocalSensitiveStorage={!auth.profile?.fieldModeOnly}
+            lessonImportEnabled={remoteMode && !auth.profile?.fieldModeOnly}
             draftKey={activeDraftKey}
             activeRecorder={activeRecorder || undefined}
             assistantPrefill={assistantRecordPrefill}

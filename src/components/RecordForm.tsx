@@ -111,6 +111,8 @@ import { isIntegratedHolidayTemplate, isStructuredHolidayTemplate, STANDARD_HOLI
 import { UNIFIED_TEMPLATE, UNIFIED_TEMPLATE_ID } from '../data/unifiedTemplate';
 import { generateStructuredHolidaySummary } from '../utils/holidayRecordSummary';
 import { generateUnifiedRecordSummary } from '../utils/unifiedRecordSummary';
+import {LessonHistoryImport} from './LessonHistoryImport';
+import {evidenceScopeIssue,formatPcActivities,IMPORT_KEY,lessonEventText,readLessonEvidence} from '../learning/recordImport';
 
 interface RecordFormProps {
   templates: Template[];
@@ -122,6 +124,7 @@ interface RecordFormProps {
   userId?: string;
   userDisplayName?: string;
   allowLocalSensitiveStorage?: boolean;
+  lessonImportEnabled?: boolean;
   draftKey?: string;
   activeRecorder?: RecorderProfile;
   assistantPrefill?: { childId: string; date: string; requestId: string } | null;
@@ -1214,6 +1217,8 @@ function PcActivitiesInput({
   const details = answer.nestedDetails || {};
   const selections = detailArray(details, 'selections');
   const [expanded, setExpanded] = useState<string | null>(null);
+  let importedEvents:ReturnType<typeof readLessonEvidence> = [];
+  try { importedEvents = readLessonEvidence(details); } catch { /* Displayed below and checked before saving. */ }
   const focusedSelectionRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!focusSelection || !selections.includes(focusSelection)) return;
@@ -1233,29 +1238,7 @@ function PcActivitiesInput({
   }, [focusSelection, focusRequestId]);
 
   const commit = (nextDetails: Record<string, string | string[]>) => {
-    const nextSelections = detailArray(nextDetails, 'selections');
-    const parts = nextSelections.map((selection) => {
-      if (selection === 'Dレッスン') {
-        const activities = detailArray(nextDetails, 'dLessonActivities');
-        return activities.length ? `Dレッスン（${activities.join('・')}）` : 'Dレッスン';
-      }
-      if (selection === '文章入力模擬試験') {
-        const attempts = getMockExamAttempts(nextDetails);
-        const values = attempts
-          .map((attempt, index) => {
-            const detail = [
-              attempt.characterCount.trim() && `${attempt.characterCount.trim()}文字`,
-              attempt.pastRound.trim() && `第${attempt.pastRound.trim()}回過去問`,
-            ].filter(Boolean).join('・');
-            return detail ? `${index + 1}回目：${detail}` : '';
-          })
-          .filter(Boolean);
-        return values.length ? `文章入力模擬試験（${values.join('／')}）` : '文章入力模擬試験';
-      }
-      const note = String(nextDetails.otherNote || '').trim();
-      return note ? `その他（${note}）` : 'その他';
-    });
-    onChange({ ...answer, value: parts.join('、'), nestedDetails: nextDetails });
+    onChange({ ...answer, value: formatPcActivities(nextDetails), nestedDetails: nextDetails });
   };
 
   const toggleSelection = (selection: string) => {
@@ -1269,7 +1252,7 @@ function PcActivitiesInput({
 
   const removeSelection = (selection: string) => {
     const next: Record<string, string | string[]> = { ...details, selections: selections.filter((item) => item !== selection) };
-    if (selection === 'Dレッスン') delete next.dLessonActivities;
+    if (selection === 'Dレッスン') { delete next.dLessonActivities; delete next[IMPORT_KEY]; }
     if (selection === '文章入力模擬試験') {
       delete next.mockCharacterCount;
       delete next.mockPastRound;
@@ -1283,11 +1266,12 @@ function PcActivitiesInput({
 
   return (
     <div className="space-y-3">
+      {typeof details.pcManualValue === 'string' && <label className="block text-sm font-bold text-slate-700">既存の手入力<textarea aria-label="既存のパソコン手入力" rows={2} value={details.pcManualValue} onChange={event=>commit({...details,pcManualValue:event.target.value})} className={inputClass}/></label>}
       {['Dレッスン', '文章入力模擬試験', 'その他'].map((selection) => {
         const selected = selections.includes(selection);
         const isExpanded = selected && expanded === selection;
         const summary = selection === 'Dレッスン'
-          ? detailArray(details, 'dLessonActivities').join('・')
+          ? [...detailArray(details, 'dLessonActivities'), ...(importedEvents.length ? [`実績 ${importedEvents.length}件確認済み`] : [])].join('・')
           : selection === '文章入力模擬試験'
             ? getMockExamAttempts(details).map((attempt, index) => {
                 const values = [
@@ -1353,6 +1337,7 @@ function PcActivitiesInput({
           </div>
         );
       })}
+      {(() => {try {const events=readLessonEvidence(details);return events.length>0&&<div className="border-l-4 border-teal-500 px-3 text-sm text-slate-700"><p className="font-bold">確認済みの取り込み実績</p><ul className="mt-2 space-y-2">{events.map(event=><li key={`${event.studentId}:${event.id}`} className="break-words">{event.date} / {lessonEventText(event)}</li>)}</ul></div>;} catch {return <p role="alert" className="text-sm text-rose-800">取り込み済み実績の形式を確認できません。</p>;}})()}
     </div>
   );
 }
@@ -1790,6 +1775,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   userId,
   userDisplayName,
   allowLocalSensitiveStorage = true,
+  lessonImportEnabled = false,
   draftKey: requestedDraftKey,
   activeRecorder,
   assistantPrefill,
@@ -3258,6 +3244,12 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       const childPerSteps = perChildStepsFrom(childTemplate, wizard.childDrafts[childId]);
       const dailyPlan = dailyChildPlans.find((plan) => plan.childId === childId && plan.date === wizard.date);
       const draft = wizard.childDrafts[childId] || createChildDraft(childTemplate);
+      Object.entries(draft.sectionAnswers as Record<string,SectionAnswer>).forEach(([sectionId, section]) => {
+        Object.entries(section.answers).forEach(([fieldId, answer]) => {
+          const issue = evidenceScopeIssue(answer.nestedDetails, childId, wizard.date, organizationId);
+          if (issue) checks.push({id:`${childId}-${sectionId}-${fieldId}-lesson-scope`,childId,childName,level:'error',title:'Dレッスン実績の確認が必要です',detail:issue,stepId:findFieldStepId(childPerSteps,sectionId,fieldId)});
+        });
+      });
       const unanswered = unansweredForChild(childId);
       const skipped = skippedForChild(childId);
 
@@ -3352,7 +3344,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             });
           }
           if (field.type === 'pc_activities' && answer?.nestedDetails) {
-            getIncompletePcActivities(answer.nestedDetails).forEach(({ selection, missing }) => {
+            let importedCount = 0;
+            try { importedCount = readLessonEvidence(answer.nestedDetails).length; } catch { /* Reported by the evidence validation above. */ }
+            getIncompletePcActivities(answer.nestedDetails).filter(issue=>issue.selection!=='Dレッスン'||importedCount===0).forEach(({ selection, missing }) => {
               checks.push({
                 id: `${childId}-${stepId}-pc-activities-${selection}`,
                 childId,
@@ -3730,12 +3724,17 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           />
         )}
         {field.type === 'pc_activities' && (
+          <>
+          {lessonImportEnabled && organizationId && userId && activeChild && <div key={`${organizationId}:${userId}:${wizard.activeChildId}:${wizard.date}:${sectionId}:${field.id}`}>
+            <LessonHistoryImport childId={wizard.activeChildId} childName={activeChild.name} date={wizard.date} organizationId={organizationId} actorId={userId} answer={answer} disabled={editingDisabled} onChange={next=>updateFieldAnswer(sectionId,field.id,next)}/>
+          </div>}
           <PcActivitiesInput
             answer={answer}
             onChange={(nextAnswer) => updateFieldAnswer(sectionId, field.id, nextAnswer)}
             focusSelection={detailJump?.childId === wizard.activeChildId && detailJump.sectionId === sectionId && detailJump.fieldId === field.id ? detailJump.subject : undefined}
             focusRequestId={jumpRequestId}
           />
+          </>
         )}
         {(field.type === 'posture_observation' || postureField) && (
           <PostureObservationInput
