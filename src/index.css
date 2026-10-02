@@ -1,5 +1,19 @@
 @import "tailwindcss";
 
+@media print {
+  html:has(.traffic-cost-page), body:has(.traffic-cost-page) { background: white !important; }
+  body:has(.traffic-cost-page) #root > div > header,
+  body:has(.traffic-cost-page) [role="banner"],
+  body:has(.traffic-cost-page) .traffic-cost-no-print { display: none !important; }
+  body:has(.traffic-cost-page) main > :not(:has(.traffic-cost-page)) { display: none !important; }
+  .traffic-cost-page, .traffic-cost-page * { visibility: visible !important; }
+  .traffic-cost-page { position: absolute; inset: 0; width: 100%; margin: 0 !important; padding: 0 !important; max-width: none !important; font-size: 11px; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .traffic-cost-page > div[aria-live] > div { background: white !important; color: #0f172a !important; }
+  .traffic-cost-page > div[aria-live] > div p { color: #0f172a !important; }
+  .traffic-cost-page section, .traffic-cost-page fieldset { break-inside: avoid; }
+  .traffic-cost-page input, .traffic-cost-page select { min-height: 28px !important; }
+}
+
 :root {
   --app-safe-area-top: env(safe-area-inset-top, 0px);
   --app-safe-area-right: env(safe-area-inset-right, 0px);

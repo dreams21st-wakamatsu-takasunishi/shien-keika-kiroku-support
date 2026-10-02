@@ -1,11 +1,11 @@
 import {
   BusFront, CalendarDays, CalendarRange, ClipboardList, Eye, History, House,
-  MessageSquareText, PlusCircle, Settings, ShieldCheck, Sparkles, TriangleAlert, Users, Mic, BookOpenCheck,
+  MessageSquareText, PlusCircle, Settings, ShieldCheck, Sparkles, TriangleAlert, Users, Mic, BookOpenCheck, Calculator,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
 import type { RecorderMenuItemId, RecorderMenuPreferences } from '../types';
 
-export type ActiveTab = 'home' | 'form' | 'records' | 'meetings' | 'learning' | 'children' | 'templates' | 'team' | 'plans';
+export type ActiveTab = 'home' | 'form' | 'records' | 'meetings' | 'learning' | 'trafficCost' | 'children' | 'templates' | 'team' | 'plans';
 export type HomeWorkspaceItem = 'dailyChanges' | 'todayWork' | 'attendance' | 'calendar' | 'monthlySchedule' | 'operations' | 'communication' | 'assistant';
 export const MENU_CATEGORIES = ['すべて', '当日の対応', '予定・送迎', '記録・児童', '共有・連絡'] as const;
 export type MenuCategory = typeof MENU_CATEGORIES[number];
@@ -30,6 +30,7 @@ export const navigationItems: NavigationItem[] = [
   { id: 'attendance', workspace: 'attendance', label: '出勤予定', description: '自分の予定・打刻・シフト希望', keywords: '勤務 申請 承認 パート', category: '予定・送迎', tone: 'sky', icon: CalendarRange },
   { id: 'calendar', workspace: 'calendar', label: '業務カレンダー', description: '会議・外出・研修・面談・行事', keywords: '予定 休み', category: '予定・送迎', tone: 'indigo', icon: CalendarDays },
   { id: 'monthlySchedule', workspace: 'monthlySchedule', label: '利用予定／送迎管理', description: '利用予定・欠席・送迎条件・配車', keywords: '月間 下校 時刻 迎え 送り 住所 学校', category: '予定・送迎', tone: 'violet', icon: BusFront },
+  { id: 'trafficCost', tab: 'trafficCost', label: '交通費計算', description: '外出活動のガソリン代・児童1人あたりの費用', keywords: '距離 燃費 高速 駐車場 集金 車両', category: '予定・送迎', tone: 'teal', icon: Calculator },
   { id: 'operations', workspace: 'operations', label: '記録状況', description: '利用児童・入力中・保存済みを確認', keywords: '未保存 引き継ぎ 下書き', category: '記録・児童', tone: 'sky', icon: Eye },
   { id: 'communication', workspace: 'communication', label: '共有・連絡', description: 'お知らせ・朝礼・申し送り', keywords: 'メモ 通知 連絡事項', category: '共有・連絡', tone: 'amber', icon: MessageSquareText },
   { id: 'assistant', workspace: 'assistant', label: 'AIアシスタント', description: '児童情報の変更や記録の整理', keywords: '提案 業務変更', category: '共有・連絡', tone: 'indigo', icon: Sparkles },

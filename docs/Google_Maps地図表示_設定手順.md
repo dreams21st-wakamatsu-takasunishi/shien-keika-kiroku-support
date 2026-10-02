@@ -19,7 +19,7 @@
 PowerShellでサーバー用Geocoding APIキーと、アプリ側の日次照会上限を登録します。
 
 ```powershell
-Set-Location -LiteralPath 'C:\Users\conta\Desktop\支援経過記録作成サポート'
+Set-Location -LiteralPath 'C:\Users\conta\Desktop\【開発】\支援経過記録作成サポート'
 
 npx.cmd supabase secrets set GOOGLE_GEOCODING_API_KEY="サーバー用Geocoding APIキー" GEOCODING_DAILY_LIMIT="500"
 npx.cmd supabase functions deploy geocode-transport-locations

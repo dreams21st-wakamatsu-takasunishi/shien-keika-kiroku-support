@@ -58,6 +58,7 @@ import { ChildrenManager } from './components/ChildrenManager';
 import { SupportPlanManager } from './components/SupportPlanManager';
 import { TeamManager } from './components/TeamManager';
 import { SettingsHub } from './components/SettingsHub';
+import { TrafficCostCalculator } from './components/TrafficCostCalculator';
 import { HomeScreen, type HomeWorkspace } from './components/HomeScreen';
 import type { DraftTakeoverSelection } from './components/DailyOperationsPanel';
 import { AuthScreen } from './components/AuthScreen';
@@ -2256,6 +2257,7 @@ export default function App() {
         )}
 
         <div key={activeTab} className="ui-screen-enter">
+        {activeTab === 'trafficCost' && <div key={`${organizationId || 'local'}:${auth.profile?.id || activeRecorder?.id || 'local'}`}><TrafficCostCalculator scopeKey={`${organizationId || 'local'}:${auth.profile?.id || activeRecorder?.id || 'local'}`} /></div>}
         {activeTab === 'home' && (
           <HomeScreen
             activeWorkspace={homeWorkspace}
@@ -2587,6 +2589,7 @@ function ScreenContextBar({
     preview: { title: '記録確認', description: '内容確認・修正指摘・承認' },
     children: { title: '児童名簿', description: '児童情報・利用曜日の管理' },
     learning: { title: '学習管理', description: 'Dレッスンの実績・アカウント連携' },
+    trafficCost: { title: '交通費計算', description: '外出活動の費用をかんたんに計算' },
     plans: { title: '個別支援計画', description: '現在は機能凍結中' },
     templates: { title: '設定', description: 'AI・記録フォーマットの管理' },
     team: { title: '職員管理', description: '記録者・ログイン職員の管理' },

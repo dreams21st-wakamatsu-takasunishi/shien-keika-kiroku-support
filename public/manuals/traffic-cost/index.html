@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>交通費計算・距離の調べ方｜Dサポート</title>
+  <link rel="icon" href="data:,">
+  <style>
+    *{box-sizing:border-box}body{margin:0;background:#eef3f6;color:#172b3a;font:16px/1.7 system-ui,"Meiryo",sans-serif}
+    main{max-width:960px;margin:auto;padding:28px 20px 60px}h1{font-size:28px;line-height:1.4;margin:0}h2{font-size:19px;margin:0 0 8px}p{margin:8px 0}
+    header{margin-bottom:20px}header>p{color:#526475}section{background:white;border:1px solid #d7e2e8;border-radius:16px;margin:16px 0;padding:22px;break-inside:avoid}
+    .step{display:inline-grid;place-items:center;background:#0f766e;color:white;border-radius:50%;width:32px;height:32px;margin-right:9px;font-size:16px}
+    .notice{background:#fff9e8;border-left:4px solid #d39a1e;padding:12px 16px;margin-top:16px}.figure{border:1px solid #d7e2e8;background:#f7fafc;padding:14px;border-radius:12px;margin-top:14px}
+    .columns{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:center}.thumb{display:block;width:100%;max-width:525px;height:auto;margin:auto;border:2px solid #94d4d0;border-radius:8px}
+    figcaption,.caption{font-size:13px;color:#526475;margin-top:8px}.label{font-weight:700;color:#0f766e}.route{padding:14px;border-radius:10px;background:white;border-left:5px solid #4285f4}.route strong{display:inline-block;border:3px solid #0f766e;border-radius:8px;padding:4px 12px;font-size:24px}.example{border:1px dashed #8aa3b2;background:#f8fbfd;padding:14px;border-radius:10px}.fields{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}.field{background:white;border:1px solid #d0dae2;border-radius:9px;padding:12px}.field span{display:block;color:#64748b;font-size:12px}.field b{font-size:22px}
+    svg{width:100%;height:auto}.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0}button,a.button{border:1px solid #0f766e;border-radius:10px;background:#0f766e;color:white;font:inherit;font-weight:700;padding:9px 16px;cursor:pointer;text-decoration:none}
+    a{color:#0f766e}ul{padding-left:22px}.formula{font-size:15px;background:#f1f7f7;border-radius:8px;padding:12px}footer{font-size:12px;color:#627485;margin-top:22px}
+    @media(max-width:640px){main{padding:18px 12px}.columns,.fields{grid-template-columns:1fr}section{padding:16px}h1{font-size:23px}}
+    @media print{body{background:white;font-size:12px}main{max-width:none;padding:0}.toolbar{display:none}section{padding:14px;margin:12px 0;border-radius:8px}main>section:nth-of-type(3),main>section:nth-of-type(5){break-before:page;margin-top:0}h1{font-size:24px}h2{font-size:17px}.step{width:26px;height:26px}.thumb{max-height:160px;width:auto;max-width:100%}.figure{padding:8px}footer{font-size:10px}a{color:#172b3a;text-decoration:none}@page{size:A4;margin:14mm}}
+  </style>
+</head>
+<body><main>
+  <header><p class="label">Dサポート / 外出活動</p><h1>交通費計算・距離の調べ方</h1><p>Google マップで車の走行距離を確認し、Dサポートへ数字を入力します。地図との自動連携はありません。</p>
+  <div class="toolbar"><a class="button" href="https://www.google.com/maps" target="_blank" rel="noopener noreferrer">Google マップを開く</a><a class="button" href="traffic-cost-manual.pdf" download="交通費計算_図解マニュアル.pdf">PDF版をダウンロード</a><button type="button" onclick="window.print()">マニュアルを印刷 / PDFに保存</button></div>
+  <div class="notice"><b>使うのは「車のルート」の距離です。</b><br>右クリックの「距離を測定」で出る直線距離ではありません。職員の人数は費用を分担する児童数に含めません。</div></header>
+
+  <section><h2><span class="step">1</span>目的地を探して「ルート・乗換」を選ぶ</h2><p>Google マップを開き、検索欄に施設名または住所を入力します。目的地が正しいことを確認し、「ルート・乗換」を選択してください。</p>
+  <div class="figure"><img class="thumb" src="route-button.png" alt="目的地の情報欄にある「ルート・乗換」ボタン。左端の青い丸のボタンを選ぶ。"><p class="caption"><span class="label">ここを選択：</span>左端の「ルート・乗換」。いただいた操作画面の画像を使用しています。</p></div></section>
+
+  <section><h2><span class="step">2</span>出発地と「車」を指定する</h2><p>出発地には事業所の住所を入力します。「現在地」のままにしないよう確認し、移動手段は車のアイコンを選択します。有料道路の利用有無も実際の外出計画に合わせてください。</p>
+  <div class="figure"><svg viewBox="0 0 780 150" role="img" aria-label="出発地を事業所、目的地を外出先に設定し、車の道路ルートの距離を使う図解"><rect x="5" y="25" width="205" height="90" rx="12" fill="#d7eeeb"/><text x="107" y="60" text-anchor="middle" font-size="17" fill="#17463f">出発地</text><text x="107" y="92" text-anchor="middle" font-size="22" font-weight="700" fill="#17463f">事業所の住所</text><path d="M224 70 H278 V108 H401 V70 H548" stroke="#4285f4" stroke-width="7" fill="none"/><polygon points="540,58 560,70 540,82" fill="#4285f4"/><text x="386" y="39" text-anchor="middle" font-size="17" fill="#1d4ed8">車のルート（道路を走る距離）</text><rect x="566" y="25" width="205" height="90" rx="12" fill="#e3eafa"/><text x="668" y="60" text-anchor="middle" font-size="17" fill="#244a83">目的地</text><text x="668" y="92" text-anchor="middle" font-size="22" font-weight="700" fill="#244a83">外出先の住所</text></svg><p class="caption">設定の考え方を示す模式図です。実際の地図画面ではありません。</p></div></section>
+
+  <section><h2><span class="step">3</span>予定の出発日時に合わせる（必要な場合）</h2><p>日時を指定する場合は「すぐに出発」を開き、「出発時刻」に切り替えて外出日と出発予定時刻を入力します。交通状況によって候補ルートが変わるため、その日時で使うルートを確認します。</p>
+  <div class="columns"><figure class="figure"><img class="thumb" src="departure-menu.png" alt="「すぐに出発」の右側の下向き三角を選択する。"><figcaption>①「すぐに出発」を開く</figcaption></figure><figure class="figure"><img class="thumb" src="departure-options.png" alt="表示されたメニューの中から「出発時刻」を選ぶ。"><figcaption>②「出発時刻」を選ぶ</figcaption></figure></div>
+  <div class="figure"><img class="thumb" src="departure-date.png" alt="出発時刻と日付の欄に、外出予定の時刻・日付を設定する。"><p class="caption">③時刻・日付を設定。画像内の「12:50」「10月2日」は操作例です。</p></div>
+  <p class="caption">日時指定は、目的地が1つのルートで利用できます。経由地がある場合は各区間の距離を確認して合計してください。</p></section>
+
+  <section><h2><span class="step">4</span>実際に走るルートの「km」を読む</h2><p>候補が複数ある場合は使用予定のルートを選び、経路情報に表示される距離を確認します。<b>所要時間の「分」ではなく距離の「km」</b>を控えます。</p>
+  <div class="example"><p class="caption">距離の見方の模式図（数値は説明用の例）</p><div class="route"><b>車のルート</b><p>約20分　<span aria-hidden="true"> / </span><strong>8.5 km</strong> ← この数値を使う</p></div></div>
+  <p>帰りも同じ距離なら「片道距離」を入力します。帰りの道が違う、途中に立ち寄るなどの場合は、行き・帰り・立ち寄り区間の距離を足し、「往復の合計距離」を入力してください。</p>
+  <div class="notice">kmでない場合は単位を確認します。例：850mは0.85km。表示の最短ルートではなく、実際に使用するルートの距離を使ってください。</div></section>
+
+  <section><h2><span class="step">5</span>Dサポートの「交通費計算」に数字を入れる</h2><p>ホームまたは画面メニューから「交通費計算」を開きます。片道距離、当日のガソリン単価、参加する児童の人数を入力し、使用車両にチェックします。</p>
+  <div class="example"><p class="caption">入力例（フリード・スペイドの2台を使用）</p><div class="fields"><div class="field"><span>片道距離（km）</span><b>8.5</b></div><div class="field"><span>ガソリン単価（円/L）</span><b>160</b></div><div class="field"><span>利用児童数（名）</span><b>8</b></div></div><p>片道8.5km → 往復17kmとして自動計算</p></div>
+  <ul><li>初期選択はフリード・スペイド。使わない車両のチェックは外します。</li><li>燃費の初期値はExcelの登録値です。実際の車両に合わせて変更できます。</li><li>高速・駐車場代は往復分を入力します。車両ごとに金額が異なるときは、各車分を合計して「全車合計」を選びます。</li><li>全車の追加費用が同じ金額なら「1台あたり」を選べます。入力額に使用台数を掛けます。</li></ul>
+  <div class="formula">各車のガソリン代 ＝ 往復距離 ÷ 燃費 × ガソリン単価<br>総費用 ＝ 使用車両のガソリン代合計 ＋ 高速・駐車場代<br>児童1人あたり ＝ 総費用 ÷ 利用児童数</div></section>
+
+  <section><h2><span class="step">6</span>金額を確認してコピー・印刷する</h2><p>上部に総費用と児童1人あたりの集金目安が表示されます。端数処理は1円単位の四捨五入、または1・10・100円単位の切り上げから選べます。</p>
+  <div class="example"><b>入力例の結果：</b>総費用416.89円 / 1人あたり52.11円<br>四捨五入の集金目安：52円 × 8名 = 416円（総費用との差 −0.89円）<br>1円切り上げの集金目安：53円 × 8名 = 424円（総費用との差 ＋7.11円）</div>
+  <p>「計算内訳」で各車の費用と集金額との差を確認します。「結果をコピー」で連絡文へ貼り付け、「印刷」で紙やPDFに出力できます。</p>
+  <div class="notice">これは入力した燃費による概算です。入力はそのブラウザのタブ内で保持され、別端末・他職員には共有されません。別の活動を計算するときは「リセット」を使います。</div></section>
+  <footer>参照：<a href="https://support.google.com/maps/answer/144339?co=GENIE.Platform%3DDesktop&amp;hl=ja" target="_blank" rel="noopener noreferrer">Google マップ ヘルプ「ルートを検索して表示する」（パソコン）</a><br>画面素材：事業所提供の操作画像。図解・計算例：Dサポート。2026年10月2日作成。Google マップの表示やボタン名は環境によって異なる場合があります。</footer>
+</main></body></html>

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { activeNavigationId, applyMenuPreferences, matchesMenuSearch, navigationItems, MENU_CATEGORIES } from '../src/utils/navigation.ts';
 
 test('home and drawer use the same unique menu IDs and names', () => {
@@ -9,6 +10,20 @@ test('home and drawer use the same unique menu IDs and names', () => {
     assert.equal(Boolean(item.tab) !== Boolean(item.workspace), true);
   }
   assert.equal(navigationItems.find((item) => item.id === 'communication').label, '共有・連絡');
+});
+
+test('all registered menu IDs survive profile loading and database preference validation', () => {
+  const service = readFileSync(new URL('../src/services/dataService.ts', import.meta.url), 'utf8');
+  const sql = readFileSync(new URL('../supabase/migrations/202610020001_traffic_cost_menu.sql', import.meta.url), 'utf8');
+  const allowed = service.match(/const allowedMenuItems[^=]*=\s*new Set<RecorderMenuItemId>\(\[([\s\S]*?)\]/)?.[1];
+  const databaseAllowed = sql.match(/v_allowed constant text\[\] := array\[([\s\S]*?)\]/)?.[1];
+  assert.ok(allowed);
+  assert.ok(databaseAllowed);
+  for (const item of navigationItems) {
+    assert.ok(allowed.includes(`'${item.id}'`), `profile loading must preserve ${item.id}`);
+    assert.ok(databaseAllowed.includes(`'${item.id}'`), `database must accept ${item.id}`);
+  }
+  assert.equal(navigationItems.find((item) => item.id === 'trafficCost')?.tab, 'trafficCost');
 });
 
 test('saved order and hidden items apply to both home and drawer, without duplicates', () => {
