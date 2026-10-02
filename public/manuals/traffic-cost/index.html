@@ -16,8 +16,9 @@
     svg{width:100%;height:auto}.toolbar{display:flex;gap:10px;flex-wrap:wrap;margin:16px 0}button,a.button{border:1px solid #0f766e;border-radius:10px;background:#0f766e;color:white;font:inherit;font-weight:700;padding:9px 16px;cursor:pointer;text-decoration:none}
     a{color:#0f766e}ul{padding-left:22px}.formula{font-size:15px;background:#f1f7f7;border-radius:8px;padding:12px}footer{font-size:12px;color:#627485;margin-top:22px}
     @media(max-width:640px){main{padding:18px 12px}.columns,.fields{grid-template-columns:1fr}section{padding:16px}h1{font-size:23px}}
-    @media print{body{background:white;font-size:12px}main{max-width:none;padding:0}.toolbar{display:none}section{padding:14px;margin:12px 0;border-radius:8px}main>section:nth-of-type(3),main>section:nth-of-type(5){break-before:page;margin-top:0}h1{font-size:24px}h2{font-size:17px}.step{width:26px;height:26px}.thumb{max-height:160px;width:auto;max-width:100%}.figure{padding:8px}footer{font-size:10px}a{color:#172b3a;text-decoration:none}@page{size:A4;margin:14mm}}
+    @media print{body{background:white;font-size:12px}main{max-width:none;padding:0}.toolbar{display:none}section{padding:14px;margin:12px 0;border-radius:8px;box-decoration-break:clone;-webkit-box-decoration-break:clone}main>section:nth-of-type(3),main>section:nth-of-type(5){break-before:page;margin-top:0}h1{font-size:24px}h2{font-size:17px}.step{width:26px;height:26px}.thumb{max-height:160px;width:auto;max-width:100%}.figure{padding:8px}footer{font-size:10px}a{color:#172b3a;text-decoration:none}@page{size:A4;margin:14mm}}
   </style>
+  <style media="print">main>section:nth-of-type(5){margin-top:14px}</style>
 </head>
 <body><main>
   <header><p class="label">Dサポート / 外出活動</p><h1>交通費計算・距離の調べ方</h1><p>Google マップで車の走行距離を確認し、Dサポートへ数字を入力します。地図との自動連携はありません。</p>
@@ -45,7 +46,7 @@
   <ul><li>初期選択はフリード・スペイド。使わない車両のチェックは外します。</li><li>燃費の初期値はExcelの登録値です。実際の車両に合わせて変更できます。</li><li>高速・駐車場代は往復分を入力します。車両ごとに金額が異なるときは、各車分を合計して「全車合計」を選びます。</li><li>全車の追加費用が同じ金額なら「1台あたり」を選べます。入力額に使用台数を掛けます。</li></ul>
   <div class="formula">各車のガソリン代 ＝ 往復距離 ÷ 燃費 × ガソリン単価<br>総費用 ＝ 使用車両のガソリン代合計 ＋ 高速・駐車場代<br>児童1人あたり ＝ 総費用 ÷ 利用児童数</div></section>
 
-  <section><h2><span class="step">6</span>金額を確認してコピー・印刷する</h2><p>上部に総費用と児童1人あたりの集金目安が表示されます。端数処理は1円単位の四捨五入、または1・10・100円単位の切り上げから選べます。</p>
+  <section><h2><span class="step">6</span>金額を確認してコピー・印刷する</h2><p>入力欄・計算内訳の下に、総費用と児童1人あたりの集金目安が表示されます。続けて、その直下のボタンからコピー・印刷できます。端数処理は1円単位の四捨五入、または1・10・100円単位の切り上げから選べます。</p>
   <div class="example"><b>入力例の結果：</b>総費用416.89円 / 1人あたり52.11円<br>四捨五入の集金目安：52円 × 8名 = 416円（総費用との差 −0.89円）<br>1円切り上げの集金目安：53円 × 8名 = 424円（総費用との差 ＋7.11円）</div>
   <p>「計算内訳」で各車の費用と集金額との差を確認します。「結果をコピー」で連絡文へ貼り付け、「印刷」で紙やPDFに出力できます。</p>
   <div class="notice">これは入力した燃費による概算です。入力はそのブラウザのタブ内で保持され、別端末・他職員には共有されません。別の活動を計算するときは「リセット」を使います。</div></section>

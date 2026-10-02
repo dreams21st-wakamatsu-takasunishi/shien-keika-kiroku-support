@@ -54,11 +54,6 @@ export function TrafficCostCalculator({ scopeKey }: { scopeKey: string }) {
       <a href={`${import.meta.env.BASE_URL}manuals/traffic-cost/index.html`} target="_blank" rel="noopener noreferrer" className="traffic-cost-no-print flex min-h-11 items-center gap-2 rounded-xl border border-teal-300 bg-teal-50 px-4 text-sm font-bold text-teal-800"><BookOpen className="h-4 w-4" />距離の調べ方（図解）</a>
     </header>
 
-    <div className="grid gap-3 sm:grid-cols-2" aria-live="polite" aria-atomic="true">
-      <ResultCard label="総費用（全車の往復合計）" value={valid ? yen(result.total) : '—'} detail={valid ? `ガソリン ${yen(result.fuelTotal)} ＋ 高速・駐車場 ${yen(result.extraTotal)}` : '下の入力欄を埋めると計算します'} />
-      <ResultCard label="児童1人あたりの集金目安" value={valid ? yen(result.chargePerChild) : '—'} detail={valid ? `${input.childCount}名で分担・${roundingLabels[input.rounding]}` : '職員を含めず、利用児童数を入力してください'} primary />
-    </div>
-
     <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
       <div className="flex items-center justify-between gap-2"><h2 className="font-black text-slate-900">1. 距離と人数を入力</h2><span className="text-xs text-slate-500">必須：距離・単価・児童数</span></div>
       <div className="mt-4 grid gap-4 sm:grid-cols-3">
@@ -105,6 +100,11 @@ export function TrafficCostCalculator({ scopeKey }: { scopeKey: string }) {
         <dl className="mt-3 grid gap-3 rounded-xl bg-slate-50 p-3 sm:grid-cols-3"><div><dt className="text-xs text-slate-500">端数処理前の1人あたり</dt><dd className="mt-1 font-bold text-slate-900">{yen(result.perChild)}</dd></div><div><dt className="text-xs text-slate-500">集金合計（目安 × 児童数）</dt><dd className="mt-1 font-bold text-slate-900">{yen(result.collectedTotal)}</dd></div><div><dt className="text-xs text-slate-500">集金合計と総費用の差</dt><dd className={`mt-1 font-bold ${result.balance < -0.005 ? 'text-amber-800' : 'text-slate-900'}`}>{result.balance > 0 ? '+' : ''}{yen(result.balance)}</dd></div></dl>
         <p className="mt-2 text-xs leading-relaxed text-slate-500">途中の金額は丸めずに計算しています。表示は小数第2位まで。集金目安は選んだ端数処理による金額で、実費とは差が出る場合があります。</p>
       </section>}
+
+    <div className="grid gap-3 sm:grid-cols-2" aria-live="polite" aria-atomic="true">
+      <ResultCard label="総費用（全車の往復合計）" value={valid ? yen(result.total) : '—'} detail={valid ? `ガソリン ${yen(result.fuelTotal)} ＋ 高速・駐車場 ${yen(result.extraTotal)}` : '上の入力欄を埋めると計算します'} />
+      <ResultCard label="児童1人あたりの集金目安" value={valid ? yen(result.chargePerChild) : '—'} detail={valid ? `${input.childCount}名で分担・${roundingLabels[input.rounding]}` : '職員を含めず、利用児童数を入力してください'} primary />
+    </div>
 
     <footer className="traffic-cost-no-print flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4">
       <div><p className="text-xs text-slate-500">{storageUnavailable ? 'このブラウザでは入力を保持できません。画面を閉じる前に結果をコピーしてください。' : '入力はこのタブ内で保持されます。別端末には共有されません。'}</p>{message && <p className="mt-1 text-xs font-bold text-teal-800" role="status">{message}</p>}</div>
