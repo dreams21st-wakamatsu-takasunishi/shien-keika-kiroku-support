@@ -137,7 +137,7 @@ export function useAuth() {
         // Calculator drafts are tab-local, but must not survive shared-device logout.
         try {
           for (const key of Object.keys(sessionStorage)) {
-            if (key.startsWith('d-support-traffic-cost-v1:')) sessionStorage.removeItem(key);
+            if (key.startsWith('d-support-traffic-cost-v1:') || key.startsWith('d-support-activity-draft-v1:')) sessionStorage.removeItem(key);
           }
         } catch { /* Unavailable browser storage must not block logout. */ }
         setSession(null);

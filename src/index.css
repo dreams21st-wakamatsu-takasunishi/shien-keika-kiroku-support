@@ -1,5 +1,18 @@
 @import "tailwindcss";
 
+.activity-print-only { display: none; }
+@media print {
+  body:has(.activity-workspace) #root > div > header,
+  body:has(.activity-workspace) [role="banner"],
+  body:has(.activity-workspace) main > :not(:has(.activity-workspace)),
+  .activity-no-print { display: none !important; }
+  .activity-workspace, .activity-print-only, .activity-print-only * { visibility: visible !important; }
+  .activity-workspace { position: absolute; inset: 0; width: 100%; padding: 0; margin: 0; background: white; }
+  .activity-print-only { display: block; color: black; padding: 8mm; }
+  .activity-print-only h1 { font-size: 18pt; margin-bottom: 4mm; }
+  .activity-print-only pre { font-family: sans-serif; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 10pt; line-height: 1.6; }
+}
+
 @media print {
   html:has(.traffic-cost-page), body:has(.traffic-cost-page) { background: white !important; }
   body:has(.traffic-cost-page) #root > div > header,

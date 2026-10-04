@@ -14,7 +14,7 @@ test('home and drawer use the same unique menu IDs and names', () => {
 
 test('all registered menu IDs survive profile loading and database preference validation', () => {
   const service = readFileSync(new URL('../src/services/dataService.ts', import.meta.url), 'utf8');
-  const sql = readFileSync(new URL('../supabase/migrations/202610020001_traffic_cost_menu.sql', import.meta.url), 'utf8');
+  const sql = readFileSync(new URL('../supabase/migrations/202610040001_activity_plans.sql', import.meta.url), 'utf8');
   const allowed = service.match(/const allowedMenuItems[^=]*=\s*new Set<RecorderMenuItemId>\(\[([\s\S]*?)\]/)?.[1];
   const databaseAllowed = sql.match(/v_allowed constant text\[\] := array\[([\s\S]*?)\]/)?.[1];
   assert.ok(allowed);

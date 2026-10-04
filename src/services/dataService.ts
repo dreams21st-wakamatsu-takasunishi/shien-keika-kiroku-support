@@ -265,6 +265,7 @@ function mapRecorderProfile(row: any): RecorderProfile {
     'calendar',
     'monthlySchedule',
     'trafficCost',
+    'activityPlans',
     'operations',
     'communication',
     'assistant',
