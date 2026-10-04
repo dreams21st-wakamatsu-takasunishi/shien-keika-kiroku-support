@@ -1,6 +1,21 @@
 @import "tailwindcss";
 
 .activity-print-only { display: none; }
+.facility-print-only { display: none; }
+@media print {
+  html:has(.facility-workspace), body:has(.facility-workspace) { background: white !important; }
+  body:has(.facility-workspace) #root > div > header,
+  body:has(.facility-workspace) [role="banner"],
+  body:has(.facility-workspace) main > :not(:has(.facility-workspace)),
+  .facility-no-print { display: none !important; }
+  .facility-workspace, .facility-print-only, .facility-print-only * { visibility: visible !important; }
+  .facility-workspace { position: absolute; inset: 0; width: 100%; padding: 0; margin: 0; background: white; }
+  .facility-print-only { display: block; color: black; padding: 8mm; }
+  .facility-print-only pre { font-family: sans-serif; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 10pt; line-height: 1.6; }
+  .facility-print-only .newsletter-paper { max-width: none; padding: 0; }
+  .facility-print-only h2, .facility-print-only h3 { break-after: avoid; }
+  .facility-print-only p { orphans: 3; widows: 3; }
+}
 @media print {
   body:has(.activity-workspace) #root > div > header,
   body:has(.activity-workspace) [role="banner"],

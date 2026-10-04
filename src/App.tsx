@@ -60,6 +60,7 @@ import { TeamManager } from './components/TeamManager';
 import { SettingsHub } from './components/SettingsHub';
 import { TrafficCostCalculator } from './components/TrafficCostCalculator';
 import { ActivityPlanWorkspace } from './components/ActivityPlanWorkspace';
+import { FacilityWorkspace } from './components/FacilityWorkspace';
 import { HomeScreen, type HomeWorkspace } from './components/HomeScreen';
 import type { DraftTakeoverSelection } from './components/DailyOperationsPanel';
 import { AuthScreen } from './components/AuthScreen';
@@ -180,6 +181,7 @@ export default function App() {
   const [meetingFocusChildId, setMeetingFocusChildId] = useState<string | null>(null);
   const [meetingDirty, setMeetingDirty] = useState(false);
   const [activityDirty, setActivityDirty] = useState(false);
+  const [facilityDirty, setFacilityDirty] = useState(false);
   const [homeWorkspace, setHomeWorkspace] = useState<HomeWorkspace>('menu');
   const [announcementFocusToken, setAnnouncementFocusToken] = useState(0);
   const [recordStatusDate, setRecordStatusDate] = useState(getLocalDateString());
@@ -1845,6 +1847,7 @@ export default function App() {
   };
 
   const handleNewRecordClick = () => {
+    if (activeTab === 'facilityWork' && facilityDirty && !window.confirm('施設業務の変更が保存されていません。画面を移動しますか？')) return;
     if (activeTab === 'activityPlans' && activityDirty && !window.confirm('活動・指導案の変更が保存されていません。画面を移動しますか？')) return;
     setCurrentRecord(null);
     setCorrectionTarget(null);
@@ -2134,6 +2137,7 @@ export default function App() {
   };
 
   const returnToHomeMenu = () => {
+    if (activeTab === 'facilityWork' && facilityDirty && !window.confirm('施設業務の変更が保存されていません。画面を移動しますか？')) return;
     if (activeTab === 'activityPlans' && activityDirty && !window.confirm('活動・指導案の変更が保存されていません。画面を移動しますか？')) return;
     if (activeTab === 'meetings' && meetingDirty && !window.confirm('会議の変更が保存されていません。画面を移動しますか？')) return;
     setReadOnlyDraft(null);
@@ -2159,6 +2163,7 @@ export default function App() {
         activeTab={activeTab === 'preview' ? 'records' : activeTab}
         activeHomeWorkspace={homeWorkspace}
         setActiveTab={(tab) => {
+          if (activeTab === 'facilityWork' && tab !== 'facilityWork' && tab !== 'home' && facilityDirty && !window.confirm('施設業務の変更が保存されていません。画面を移動しますか？')) return;
           if (activeTab === 'activityPlans' && tab !== 'activityPlans' && tab !== 'home' && activityDirty && !window.confirm('活動・指導案の変更が保存されていません。画面を移動しますか？')) return;
           if (activeTab === 'meetings' && tab !== 'meetings' && tab !== 'home' && meetingDirty
             && !window.confirm('会議の変更が保存されていません。画面を移動しますか？')) return;
@@ -2184,6 +2189,7 @@ export default function App() {
         activeRecorder={activeRecorder}
         onSaveMenuPreferences={handleSaveRecorderMenuPreferences}
         onOpenHomeWorkspace={(workspace) => {
+          if (activeTab === 'facilityWork' && facilityDirty && !window.confirm('施設業務の変更が保存されていません。画面を移動しますか？')) return;
           if (activeTab === 'activityPlans' && activityDirty && !window.confirm('活動・指導案の変更が保存されていません。画面を移動しますか？')) return;
           if (activeTab === 'meetings' && meetingDirty
             && !window.confirm('会議の変更が保存されていません。画面を移動しますか？')) return;
@@ -2264,6 +2270,7 @@ export default function App() {
 
         <div key={activeTab} className="ui-screen-enter">
         {activeTab === 'activityPlans' && !auth.profile?.fieldModeOnly && <div key={`${organizationId || 'local'}:${auth.profile?.id || 'local'}`}><ActivityPlanWorkspace organizationId={organizationId || 'local'} userId={auth.profile?.id || 'local'} onDirtyChange={setActivityDirty} onOpenTrafficCost={() => { if (activityDirty && !window.confirm('未保存の活動案をタブに残して交通費計算へ移動しますか？')) return; setActiveTab('trafficCost'); }} onOpenCalendar={() => { if (activityDirty && !window.confirm('未保存の活動案をタブに残して業務カレンダーへ移動しますか？')) return; setHomeWorkspace('calendar'); setActiveTab('home'); }} /></div>}
+        {activeTab === 'facilityWork' && !auth.profile?.fieldModeOnly && <div key={`facility:${organizationId || 'local'}:${auth.profile?.id || 'local'}`}><FacilityWorkspace organizationId={organizationId || 'local'} userId={auth.profile?.id || 'local'} onDirtyChange={setFacilityDirty} /></div>}
         {activeTab === 'trafficCost' && <div key={`${organizationId || 'local'}:${auth.profile?.id || activeRecorder?.id || 'local'}`}><TrafficCostCalculator scopeKey={`${organizationId || 'local'}:${auth.profile?.id || activeRecorder?.id || 'local'}`} /></div>}
         {activeTab === 'home' && (
           <HomeScreen
@@ -2598,6 +2605,7 @@ function ScreenContextBar({
     learning: { title: '学習管理', description: 'Dレッスンの実績・アカウント連携' },
     trafficCost: { title: '交通費計算', description: '外出活動の費用をかんたんに計算' },
     activityPlans: { title: '活動・指導案', description: 'ひな形から作成・準備確認・振り返り・印刷' },
+    facilityWork: { title: '施設業務', description: '日常点検・備品補充・おたより作成' },
     plans: { title: '個別支援計画', description: '現在は機能凍結中' },
     templates: { title: '設定', description: 'AI・記録フォーマットの管理' },
     team: { title: '職員管理', description: '記録者・ログイン職員の管理' },

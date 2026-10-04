@@ -417,6 +417,7 @@ export type RecorderMenuItemId =
   | 'monthlySchedule'
   | 'trafficCost'
   | 'activityPlans'
+  | 'facilityWork'
   | 'operations'
   | 'communication'
   | 'assistant'
