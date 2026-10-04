@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { applyMenuPreferences, MENU_CATEGORIES, matchesMenuSearch, navigationItems, type MenuCategory, type NavigationItem } from '../utils/navigation';
+import { applyMenuPreferences, groupNavigationItems, MENU_CATEGORIES, matchesMenuSearch, navigationItems, type MenuCategory, type NavigationItem } from '../utils/navigation';
 import { MenuSearch } from './MenuSearch';
 import {
   ArrowLeft,
@@ -276,6 +276,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const [monthlyScheduleReturn, setMonthlyScheduleReturn] = useState<HomeWorkspace>('menu');
   const [menuSearch, setMenuSearch] = useState('');
   const [menuCategory, setMenuCategory] = useState<MenuCategory>('すべて');
+  const [groupedMenu, setGroupedMenu] = useState(true);
 
   useEffect(() => {
     if (announcementFocusToken > 0) setCommunicationView('announcements');
@@ -488,11 +489,18 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2 px-1 text-xs text-slate-600">
               <p role="status">{menuCategory} <span className="font-bold text-slate-900">{filteredHomeItems.length}</span>件</p>
+              <div className="flex gap-1 rounded-xl bg-slate-100 p-1" role="group" aria-label="メニューの表示方法">
+                {([true, false] as const).map((grouped) => <button key={String(grouped)} type="button" aria-pressed={groupedMenu === grouped} onClick={() => setGroupedMenu(grouped)} className={`min-h-10 rounded-lg px-3 font-bold ${groupedMenu === grouped ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}>{grouped ? '用途別' : '自分の並び順'}</button>)}
+              </div>
               {activeRecorder && <p>表示・並び順は「画面メニュー → 自分のメニューを編集」で変更</p>}
             </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-label="業務メニューの一覧">
-              {filteredHomeItems.map((item) => <div key={item.id}><WorkspaceCard icon={item.icon} title={item.label} description={item.description}
-                meta={homeItemMeta[item.id] || ''} tone={item.tone} onClick={() => openHomeItem(item)} /></div>)}
+            <div className="space-y-4" aria-label="業務メニューの一覧">
+              {(groupedMenu ? groupNavigationItems(filteredHomeItems) : [{ label: '', items: filteredHomeItems }]).map((group) => <section key={group.label} aria-label={group.label || '自分の並び順'}>
+                {group.label && <h4 className="mb-2 flex items-center gap-2 px-1 text-sm font-black text-slate-800"><span className="h-4 w-1 rounded-full bg-teal-500" />{group.label}<span className="text-xs font-normal text-slate-500">{group.items.length}件</span></h4>}
+                <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                  {group.items.map((item) => <div key={item.id}><WorkspaceCard icon={item.icon} title={item.label} description={item.description} meta={homeItemMeta[item.id] || ''} tone={item.tone} onClick={() => openHomeItem(item)} /></div>)}
+                </div>
+              </section>)}
             </div>
             {filteredHomeItems.length === 0 && <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-6 text-center">
               <p className="font-bold text-slate-800">該当する機能がありません</p>
@@ -1111,13 +1119,13 @@ function WorkspaceCard({
     <button
       type="button"
       onClick={onClick}
-      className="group flex h-full min-h-28 w-full items-start gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition-colors hover:border-teal-400 hover:bg-teal-50/30 hover:shadow-md sm:gap-4"
+      className="group flex h-full min-h-24 w-full items-start gap-3 rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-sm transition-colors hover:border-teal-400 hover:bg-teal-50/30 hover:shadow-md"
     >
       <span className={`grid h-11 w-11 shrink-0 place-items-center rounded-xl transition-colors ${tones[tone]}`}><Icon aria-hidden="true" className="h-5 w-5" /></span>
       <span className="min-w-0 flex-1">
         <strong className="block text-base leading-snug text-slate-950">{title}</strong>
         <span className="mt-1 block text-xs leading-relaxed text-slate-600">{description}</span>
-        <span className="mt-2 block text-xs font-bold text-teal-800">{meta}</span>
+        {meta && <span className="mt-2 block text-xs font-bold text-teal-800">{meta}</span>}
       </span>
       <ChevronRight aria-hidden="true" className="mt-1 h-4 w-4 shrink-0 text-slate-400" />
     </button>

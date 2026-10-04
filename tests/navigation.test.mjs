@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { activeNavigationId, applyMenuPreferences, matchesMenuSearch, navigationItems, MENU_CATEGORIES } from '../src/utils/navigation.ts';
+import { activeNavigationId, applyMenuPreferences, groupNavigationItems, matchesMenuSearch, navigationItems, MENU_CATEGORIES } from '../src/utils/navigation.ts';
 
 test('home and drawer use the same unique menu IDs and names', () => {
   assert.equal(new Set(navigationItems.map((item) => item.id)).size, navigationItems.length);
@@ -58,4 +58,25 @@ test('workspace location highlights the actual menu, not always Home', () => {
   assert.equal(activeNavigationId('home', 'menu'), 'home');
   assert.equal(activeNavigationId('home', 'dispatch'), 'monthlySchedule');
   assert.equal(activeNavigationId('records', 'calendar'), 'records');
+});
+
+test('purpose groups retain every authorized item once and keep order within a group', () => {
+  const available = navigationItems.filter((item) => !item.managerOnly);
+  const customized = applyMenuPreferences(available, { order: ['records', 'children', 'facilityWork'], hidden: ['attendance'] });
+  const groups = groupNavigationItems(customized);
+  const grouped = groups.flatMap((group) => group.items);
+  assert.equal(grouped.length, customized.length);
+  assert.deepEqual(new Set(grouped.map((item) => item.id)), new Set(customized.map((item) => item.id)));
+  assert.deepEqual(groups.find((group) => group.label === '記録・児童').items.slice(0, 2).map((item) => item.id), ['records', 'children']);
+  assert.deepEqual(groups.find((group) => group.label === '活動・運営').items.map((item) => item.id), ['facilityWork', 'trafficCost', 'activityPlans']);
+  assert.ok(!grouped.some((item) => item.id === 'attendance' || item.managerOnly));
+});
+
+test('empty/search-only/individual-terminal grouping creates no empty or extra groups', () => {
+  assert.deepEqual(groupNavigationItems([]), []);
+  const homeOnly = navigationItems.filter((item) => item.id === 'home');
+  assert.deepEqual(groupNavigationItems(homeOnly).flatMap((group) => group.items), homeOnly);
+  const matches = navigationItems.filter((item) => matchesMenuSearch(`${item.label} ${item.keywords}`, '交通費'));
+  assert.equal(groupNavigationItems(matches).length, 1);
+  assert.equal(groupNavigationItems(matches)[0].label, '活動・運営');
 });

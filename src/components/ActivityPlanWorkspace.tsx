@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { BookOpenCheck, Copy, Plus, Printer, Save, Search, Trash2 } from 'lucide-react';
+import { BookOpenCheck, Copy, Plus, Printer, Search, Trash2 } from 'lucide-react';
+import { EditorActionBar } from './EditorActionBar';
 import { listActivityPlans, saveActivityPlan } from '../services/activityPlanService';
 import { activityDuration, activityKinds, activityStatuses, activityTemplates, activityText, activityTimeline, copyActivity, emptyActivity, restoreActivityDraft, validateActivity, type ActivityContent, type ActivityPlan } from '../utils/activityPlans';
 
@@ -120,10 +121,10 @@ export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, o
           </div>}
           {tab === '振り返り' && <div className="space-y-4" role="tabpanel" aria-label="振り返り"><TextArea label="実施後の振り返り" value={plan.content.reflection} onChange={(reflection) => content({ reflection })} placeholder="実施した内容、参加の様子、うまくいった工夫、課題" /><TextArea label="次回に活かすこと" value={plan.content.nextTime} onChange={(nextTime) => content({ nextTime })} placeholder="次回変更する手順、準備物、支援の工夫" /><p className="text-sm text-slate-600">ここに入力した内容は活動全体の振り返りです。児童ごとの支援経過記録は、実際の観察を確認して別途記録してください。</p></div>}
         </fieldset>
-        <div className="bottom-2 z-20 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-teal-200 bg-white p-3 shadow-lg sm:sticky">
-          <div className="flex flex-wrap gap-2"><button className={button} disabled={busy} onClick={() => setPreview(!preview)}>{preview ? '印刷イメージを収納' : '印刷イメージを確認'}</button><button className={button} disabled={busy} onClick={() => choose(copyActivity(plan))}><Copy className="mr-1 inline h-4 w-4" />別の案として複製</button><button className={button} disabled={busy} onClick={() => choose(copyActivity(plan, true))}>ひな形として再利用</button></div>
-          <button className="min-h-12 rounded-xl bg-teal-700 px-6 font-black text-white disabled:opacity-40" disabled={busy} onClick={() => void save()}><Save className="mr-2 inline h-5 w-5" />{busy ? '保存中…' : '保存'}</button>
-        </div>
+        <EditorActionBar busy={busy} preview={preview} onPreview={() => setPreview(!preview)} onSave={() => void save()} secondary={[
+          { label: '別の案として複製', onClick: () => choose(copyActivity(plan)) },
+          { label: 'ひな形として再利用', onClick: () => choose(copyActivity(plan, true)) },
+        ]} />
         {preview && <div className="rounded-2xl border border-slate-200 bg-white p-4"><div className="flex flex-wrap justify-end gap-2"><button className={button} onClick={() => void navigator.clipboard.writeText(text).then(() => setMessage('指導案の文章をコピーしました。')).catch(() => setError('コピーできませんでした。ブラウザの権限を確認してください。'))}><Copy className="mr-1 inline h-4 w-4" />文章コピー</button><button className={button} onClick={() => window.print()}><Printer className="mr-1 inline h-4 w-4" />印刷・PDF保存</button></div><pre className="mt-3 whitespace-pre-wrap break-words font-sans text-sm leading-relaxed">{text}</pre></div>}
       </div>
     </div>

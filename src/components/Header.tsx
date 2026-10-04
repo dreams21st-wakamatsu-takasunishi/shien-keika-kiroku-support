@@ -26,7 +26,7 @@ import type {
 } from '../types';
 import { APP_BUILD_TIME, APP_VERSION, useAppUpdate } from '../hooks/useAppUpdate';
 
-import { activeNavigationId, applyMenuPreferences, matchesMenuSearch, navigationItems, type ActiveTab, type HomeWorkspaceItem } from '../utils/navigation';
+import { activeNavigationId, applyMenuPreferences, groupNavigationItems, matchesMenuSearch, navigationItems, type ActiveTab, type HomeWorkspaceItem } from '../utils/navigation';
 import { MenuSearch } from './MenuSearch';
 export type { ActiveTab } from '../utils/navigation';
 
@@ -66,6 +66,7 @@ export const Header: React.FC<HeaderProps> = ({
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuSearch, setMenuSearch] = useState('');
+  const [groupedMenu, setGroupedMenu] = useState(true);
   const drawerRef = useRef<HTMLElement>(null);
   const [customizingMenu, setCustomizingMenu] = useState(false);
   const [draftOrder, setDraftOrder] = useState<RecorderMenuItemId[]>([]);
@@ -348,7 +349,12 @@ export const Header: React.FC<HeaderProps> = ({
                     </button>
                   )}
                   <div className="space-y-1">
-                    {mainVisibleItems.map((item) => {
+                    <div className="mb-2 flex gap-1 rounded-xl bg-slate-100 p-1" role="group" aria-label="メニューの表示方法">
+                      {([true, false] as const).map((grouped) => <button key={String(grouped)} type="button" aria-pressed={groupedMenu === grouped} onClick={() => setGroupedMenu(grouped)} className={`min-h-10 flex-1 rounded-lg px-2 text-xs font-bold ${groupedMenu === grouped ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-600'}`}>{grouped ? '用途別' : '自分の並び順'}</button>)}
+                    </div>
+                    {(groupedMenu ? groupNavigationItems(mainVisibleItems) : [{ label: '', items: mainVisibleItems }]).map((group) => <section key={group.label} aria-label={group.label || '自分の並び順'}>
+                    {group.label && <h3 className="px-3 pb-1 pt-4 text-xs font-black text-teal-800">{group.label}</h3>}
+                    {group.items.map((item) => {
                       const Icon = item.icon;
                       const selected = item.id === currentId;
                       return (
@@ -363,7 +369,7 @@ export const Header: React.FC<HeaderProps> = ({
                           <ChevronRight className="h-4 w-4 text-slate-300" />
                         </button>
                       );
-                    })}
+                    })}</section>)}
                     {mainVisibleItems.length === 0 && privilegedItems.length === 0 && <p role="status" className="rounded-xl bg-slate-50 p-4 text-sm text-slate-600">該当するメニューがありません。別の言葉で検索してください。</p>}
                     {privilegedItems.length > 0 && (
                       <div className={`overflow-hidden rounded-2xl border transition-colors ${privilegedItems.some((item) => item.tab === activeTab) ? 'border-indigo-200 bg-indigo-50/70' : 'border-slate-200 bg-white'}`}>

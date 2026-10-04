@@ -7,7 +7,7 @@ import type { RecorderMenuItemId, RecorderMenuPreferences } from '../types';
 
 export type ActiveTab = 'home' | 'form' | 'records' | 'meetings' | 'learning' | 'trafficCost' | 'activityPlans' | 'facilityWork' | 'children' | 'templates' | 'team' | 'plans';
 export type HomeWorkspaceItem = 'dailyChanges' | 'todayWork' | 'attendance' | 'calendar' | 'monthlySchedule' | 'operations' | 'communication' | 'assistant';
-export const MENU_CATEGORIES = ['すべて', '当日の対応', '予定・送迎', '記録・児童', '共有・連絡'] as const;
+export const MENU_CATEGORIES = ['すべて', '当日の対応', '予定・送迎', '記録・児童', '共有・連絡', '活動・運営'] as const;
 export type MenuCategory = typeof MENU_CATEGORIES[number];
 export interface NavigationItem {
   id: RecorderMenuItemId;
@@ -30,9 +30,9 @@ export const navigationItems: NavigationItem[] = [
   { id: 'attendance', workspace: 'attendance', label: '出勤予定', description: '自分の予定・打刻・シフト希望', keywords: '勤務 申請 承認 パート', category: '予定・送迎', tone: 'sky', icon: CalendarRange },
   { id: 'calendar', workspace: 'calendar', label: '業務カレンダー', description: '会議・外出・研修・面談・行事', keywords: '予定 休み', category: '予定・送迎', tone: 'indigo', icon: CalendarDays },
   { id: 'monthlySchedule', workspace: 'monthlySchedule', label: '利用予定／送迎管理', description: '利用予定・欠席・送迎条件・配車', keywords: '月間 下校 時刻 迎え 送り 住所 学校', category: '予定・送迎', tone: 'violet', icon: BusFront },
-  { id: 'trafficCost', tab: 'trafficCost', label: '交通費計算', description: '外出活動のガソリン代・児童1人あたりの費用', keywords: '距離 燃費 高速 駐車場 集金 車両', category: '予定・送迎', tone: 'teal', icon: Calculator },
-  { id: 'activityPlans', tab: 'activityPlans', label: '活動・指導案', description: '活動の流れ・準備チェック・振り返り・印刷', keywords: '工作 運動 調理 外出 教案 ひな形 準備物', category: '予定・送迎', tone: 'teal', icon: BookOpenCheck },
-  { id: 'facilityWork', tab: 'facilityWork', label: '施設業務', description: '日常点検・備品の補充・保護者向けおたより', keywords: 'チェック 安全 在庫 消耗品 入庫 使用 印刷', category: '共有・連絡', tone: 'teal', icon: ClipboardList },
+  { id: 'trafficCost', tab: 'trafficCost', label: '交通費計算', description: '外出活動のガソリン代・児童1人あたりの費用', keywords: '距離 燃費 高速 駐車場 集金 車両', category: '活動・運営', tone: 'teal', icon: Calculator },
+  { id: 'activityPlans', tab: 'activityPlans', label: '活動・指導案', description: '活動の流れ・準備チェック・振り返り・印刷', keywords: '工作 運動 調理 外出 教案 ひな形 準備物', category: '活動・運営', tone: 'teal', icon: BookOpenCheck },
+  { id: 'facilityWork', tab: 'facilityWork', label: '施設業務', description: '日常点検・備品の補充・保護者向けおたより', keywords: 'チェック 安全 在庫 消耗品 入庫 使用 印刷', category: '活動・運営', tone: 'teal', icon: ClipboardList },
   { id: 'operations', workspace: 'operations', label: '記録状況', description: '利用児童・入力中・保存済みを確認', keywords: '未保存 引き継ぎ 下書き', category: '記録・児童', tone: 'sky', icon: Eye },
   { id: 'communication', workspace: 'communication', label: '共有・連絡', description: 'お知らせ・朝礼・申し送り', keywords: 'メモ 通知 連絡事項', category: '共有・連絡', tone: 'amber', icon: MessageSquareText },
   { id: 'assistant', workspace: 'assistant', label: 'AIアシスタント', description: '児童情報の変更や記録の整理', keywords: '提案 業務変更', category: '共有・連絡', tone: 'indigo', icon: Sparkles },
@@ -44,6 +44,14 @@ export const navigationItems: NavigationItem[] = [
   { id: 'templates', tab: 'templates', label: '設定', description: '記録・学校・送迎の共通設定', keywords: '退所 時刻 エリア', tone: 'indigo', icon: Settings, managerOnly: true },
   { id: 'team', tab: 'team', label: '職員', description: '職員・権限・記録者', keywords: '端末 招待 名簿', tone: 'indigo', icon: ShieldCheck, managerOnly: true },
 ];
+
+// Categorize only the already authorized/filtered items. Keep saved ordering
+// within each group; the original order remains available in the flat view.
+export function groupNavigationItems(items: NavigationItem[]): { label: string; items: NavigationItem[] }[] {
+  return ['', ...MENU_CATEGORIES.filter((category) => category !== 'すべて')]
+    .map((label) => ({ label, items: items.filter((item) => (item.category || '') === label) }))
+    .filter((group) => group.items.length > 0);
+}
 
 export function applyMenuPreferences<T extends { id: RecorderMenuItemId }>(items: T[], preferences?: RecorderMenuPreferences, includeHidden = false): T[] {
   const orderedIds = [...new Set([...(preferences?.order || []), ...items.map((item) => item.id)])];
