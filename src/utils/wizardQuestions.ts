@@ -6,8 +6,8 @@ export const DEFAULT_WIZARD_QUESTIONS: WizardQuestions = {
     help: '利用日の種類に合うものを選択してください。',
   },
   children: {
-    title: '記録する児童を選択してください。',
-    help: '複数選択できます。入力中は児童タブですぐに切り替えられます。',
+    title: '今日の担当児童を選択',
+    help: '小学部・キャリアズで絞り込み、まとめて選択できます。入力中も児童を切り替えられます。',
   },
   date: { title: 'いつの支援記録ですか？' },
   recorder: {
