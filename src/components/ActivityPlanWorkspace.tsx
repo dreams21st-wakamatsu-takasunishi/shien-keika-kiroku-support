@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { BookOpenCheck, Copy, Plus, Printer, Search, Trash2 } from 'lucide-react';
 import { EditorActionBar } from './EditorActionBar';
+import { ActivityPlanSheet } from './ActivityPlanSheet';
 import { listActivityPlans, saveActivityPlan } from '../services/activityPlanService';
 import { activityDuration, activityKinds, activityStatuses, activityTemplates, activityText, activityTimeline, copyActivity, emptyActivity, restoreActivityDraft, validateActivity, type ActivityContent, type ActivityPlan } from '../utils/activityPlans';
 
@@ -98,11 +99,14 @@ export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, o
           </div>
           <div role="tablist" aria-label="指導案の項目" className="my-4 flex gap-1 rounded-xl bg-slate-100 p-1">{(['基本・流れ', '準備・安全', '振り返り'] as const).map((t) => <button key={t} type="button" role="tab" aria-selected={tab === t} className={`min-h-11 flex-1 rounded-lg px-1 text-sm font-bold ${tab === t ? 'bg-teal-700 text-white' : 'text-slate-600'}`} onClick={() => setTab(t)}>{t}</button>)}</div>
           {tab === '基本・流れ' && <div className="space-y-4" role="tabpanel" aria-label="基本・流れ">
+            <div className="grid gap-3 sm:grid-cols-2"><label className="text-sm font-bold">支援項目<input className={field} value={plan.content.supportItem || ''} maxLength={160} placeholder="未入力の場合は活動の種類を表示" onChange={(e) => content({ supportItem: e.target.value })} /></label><label className="text-sm font-bold">内容（概要）<input className={field} value={plan.content.summary || ''} maxLength={2000} placeholder="企画の概要" onChange={(e) => content({ summary: e.target.value })} /></label></div>
+            <div className="grid gap-3 sm:grid-cols-3">{([['staffCount','職員人数（名）',1000],['childCount','児童人数（名）',1000],['travelMinutes','往復時間（分）',1440]] as const).map(([key,label,max]) => <label key={key} className="text-sm font-bold">{label}<input className={field} type="number" min={0} max={max} step={1} value={plan.content[key] || ''} onChange={(e) => content({ [key]: e.target.value })} /></label>)}</div>
             <TextArea label="活動のねらい" value={plan.content.goal} onChange={(goal) => content({ goal })} placeholder="どんな経験や力につなげたいか" />
             <div className="grid gap-3 sm:grid-cols-2">{([['target','対象・人数','例：小学部 8名'],['location','活動場所','例：教室・近隣公園'],['leader','主担当','担当職員名']] as const).map(([key,label,placeholder]) => <label key={key} className="text-sm font-bold">{label}<input className={field} value={plan.content[key]} maxLength={160} placeholder={placeholder} onChange={(e) => content({ [key]: e.target.value })} /></label>)}<label className="text-sm font-bold">開始時刻<input className={field} type="time" value={plan.content.startTime} onChange={(e) => content({ startTime: e.target.value })} /></label></div>
             <h2 className="font-black">活動の流れ <span className="text-sm text-teal-700">計{activityDuration(plan)}分</span></h2>
             {plan.content.steps.map((s, i) => <div key={s.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
               <div className="mb-2 flex items-center justify-between gap-2"><b className="text-sm">{i + 1}. {times[i]}</b><div className="flex gap-1"><button className={button} disabled={!i} aria-label={`${i + 1}番目の流れを上へ`} onClick={() => { const steps = [...plan.content.steps]; [steps[i - 1], steps[i]] = [steps[i], steps[i - 1]]; content({ steps }); }}>上へ</button><button className={button} aria-label={`${i + 1}番目の流れを削除`} onClick={() => content({ steps: plan.content.steps.filter((x) => x.id !== s.id) })}><Trash2 className="h-4 w-4" /></button></div></div>
+              <label className="mb-2 block text-sm font-bold">段階<input className={field} value={s.stage || ''} maxLength={100} placeholder="例：導入・展開・まとめ" onChange={(e) => content({ steps: plan.content.steps.map((x) => x.id === s.id ? { ...x, stage: e.target.value } : x) })} /></label>
               <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_110px]"><label className="text-sm font-bold">内容<input className={field} aria-label={`${i + 1}番目の活動内容`} value={s.title} maxLength={200} onChange={(e) => content({ steps: plan.content.steps.map((x) => x.id === s.id ? { ...x, title: e.target.value } : x) })} /></label><label className="text-sm font-bold">所要時間（分）<input className={field} type="number" min={1} max={600} value={s.minutes || ''} onChange={(e) => content({ steps: plan.content.steps.map((x) => x.id === s.id ? { ...x, minutes: Number(e.target.value) } : x) })} /></label></div>
               <label className="mt-2 block text-sm font-bold">支援・声かけ・配慮<input className={field} value={s.support} maxLength={2000} onChange={(e) => content({ steps: plan.content.steps.map((x) => x.id === s.id ? { ...x, support: e.target.value } : x) })} /></label>
             </div>)}
@@ -125,10 +129,10 @@ export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, o
           { label: '別の案として複製', onClick: () => choose(copyActivity(plan)) },
           { label: 'ひな形として再利用', onClick: () => choose(copyActivity(plan, true)) },
         ]} />
-        {preview && <div className="rounded-2xl border border-slate-200 bg-white p-4"><div className="flex flex-wrap justify-end gap-2"><button className={button} onClick={() => void navigator.clipboard.writeText(text).then(() => setMessage('指導案の文章をコピーしました。')).catch(() => setError('コピーできませんでした。ブラウザの権限を確認してください。'))}><Copy className="mr-1 inline h-4 w-4" />文章コピー</button><button className={button} onClick={() => window.print()}><Printer className="mr-1 inline h-4 w-4" />印刷・PDF保存</button></div><pre className="mt-3 whitespace-pre-wrap break-words font-sans text-sm leading-relaxed">{text}</pre></div>}
+        {preview && <div className="rounded-2xl border border-slate-200 bg-white p-4"><div className="flex flex-wrap justify-end gap-2"><button className={button} onClick={() => void navigator.clipboard.writeText(text).then(() => setMessage('指導案の文章をコピーしました。')).catch(() => setError('コピーできませんでした。ブラウザの権限を確認してください。'))}><Copy className="mr-1 inline h-4 w-4" />文章コピー</button><button className={button} onClick={() => window.print()}><Printer className="mr-1 inline h-4 w-4" />印刷・PDF保存</button></div><p className="my-3 text-xs text-slate-600">原本に合わせた表形式です。A4縦で印刷します。長い内容や補足事項は続きのページに表示されます。</p><div className="overflow-x-auto"><ActivityPlanSheet plan={plan} dirty={dirty} /></div></div>}
       </div>
     </div>
-    <article className="activity-print-only"><h1>活動・指導案</h1>{dirty && <p>未保存の入力内容／印刷時点の案</p>}<pre>{text}</pre></article>
+    <article className="activity-print-only"><ActivityPlanSheet plan={plan} dirty={dirty} /></article>
   </section>;
 }
 function TextArea({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder: string }) { return <label className="block text-sm font-bold">{label}<textarea className={`${field} min-h-28 resize-y font-normal leading-relaxed`} value={value} maxLength={10000} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} /></label>; }

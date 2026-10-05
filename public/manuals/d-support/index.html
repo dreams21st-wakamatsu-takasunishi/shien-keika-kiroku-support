@@ -1,0 +1,321 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dサポート 図解操作マニュアル</title><link rel="stylesheet" href="manual.css"></head><body>
+ <header class="toolbar"><a href="#top">Dサポート 図解操作マニュアル</a><label>操作を検索<input type="search" id="search" placeholder="例：配車、宿題、シフト、QR"></label><button id="reset">すべて表示</button><a href="Dサポート_図解操作マニュアル.pdf" download>PDFを保存</a><button id="print">印刷</button></header>
+ <main><section id="top" class="cover"><p class="eyebrow">D SUPPORT / FIELD GUIDE</p><h1>Dサポート<br>図解操作マニュアル</h1><p class="subtitle">迷ったときは、目的の操作から。</p><div class="cover-flow"><div>探す</div><span>→</span><div>入力・確認</div><span>→</span><div>保存・共有</div></div><p>記録・児童／利用予定・送迎／勤務・カレンダー<br>共有・連絡／活動・施設業務／会議・学習／管理者設定</p><div class="cover-notice"><b>このマニュアルについて</b><p>2026年10月5日時点のソースと操作画面をもとに作成しました。指導案の表形式に対応した版です。画面が異なる場合は、編集中の内容を保存してからアプリを最新版に更新してください。</p><p>画面例には実在の児童・職員の情報を使用していません。事業所の権限、端末種別、連携設定によって使用できる機能が異なります。登録・共有ができたかは、保存完了の表示と保存後の再表示で確認してください。</p><p>この冊子は職員向けの主な操作手順です。管理者による導入設定、障害時の技術作業、法令や事業所規程の確認を置き換えるものではありません。</p></div><p class="version">対象：2026-10-05 指導案表形式対応版／作成日：2026-10-05</p></section>
+ <nav class="contents" aria-label="目次"><p class="eyebrow">CONTENTS</p><h2>目的から探す</h2><p>見出しを選ぶと、該当する操作へ移動します。</p><div class="toc-columns"><div class="toc-group"><h3>はじめに</h3><ul><li><a href="#login">1. ログインと端末の使い分け</a></li><li><a href="#home">2. ホームで目的の機能を探す</a></li><li><a href="#menu">3. 自分のメニュー・通知・画面更新</a></li></ul></div><div class="toc-group"><h3>記録・児童</h3><ul><li><a href="#record-select">4. 記録日と複数児童を選ぶ</a></li><li><a href="#record-input">5. 様子・活動・宿題の記録を入力する</a></li><li><a href="#record-save">6. 確認して保存・上書きする</a></li><li><a href="#record-status">7. 記録状況と記録の引き継ぎ</a></li><li><a href="#record-list">8. 記録一覧で検索・確認・出力する</a></li><li><a href="#quick-memo">9. クイックメモから申し送りへ登録する</a></li><li><a href="#children">10. 児童名簿・基本予定・恒常的な連絡</a></li></ul></div><div class="toc-group"><h3>予定・送迎</h3><ul><li><a href="#daily-change">11. 当日の欠席・追加利用・担当交代</a></li><li><a href="#monthly">12. 利用・送迎一覧と日ごとの編集</a></li><li><a href="#monthly-bulk">13. 基本予定の反映・一括編集・学校確認</a></li><li><a href="#dispatch">14. 児童を車両の便へ配車する</a></li><li><a href="#dispatch-time">15. 移動時間を計算・手動調整する</a></li><li><a href="#today">16. 本日の業務・全体送迎を確認する</a></li><li><a href="#field">17. 個人端末で送迎を操作する</a></li><li><a href="#transport-log">18. 送迎実績の一覧と手動修正</a></li></ul></div><div class="toc-group"><h3>勤務・カレンダー</h3><ul><li><a href="#attendance">19. 自分の勤務予定を確認する</a></li><li><a href="#shift-request">20. 複数日のシフト希望を提出する</a></li><li><a href="#shift-create">21. シフトを作成・承認・削除する</a></li><li><a href="#qr-punch">22. 本人用QRで出退勤を打刻する</a></li><li><a href="#attendance-correct">23. 打刻実績と打刻修正</a></li><li><a href="#calendar">24. 業務カレンダーと職員の休み</a></li></ul></div><div class="toc-group"><h3>共有・連絡</h3><ul><li><a href="#announcements">25. お知らせを共有・確認する</a></li><li><a href="#morning">26. 朝礼記録を共同編集する</a></li><li><a href="#handover">27. 児童別・全体の申し送り</a></li></ul></div><div class="toc-group"><h3>活動・施設業務</h3><ul><li><a href="#activity">28. 活動・指導案を作る</a></li><li><a href="#activity-print">29. 原本に合わせた表で指導案を出力する</a></li><li><a href="#traffic">30. 交通費・児童1人あたりの金額を計算する</a></li><li><a href="#inspection">31. 日常点検を記録する</a></li><li><a href="#supplies">32. 備品の在庫と補充を管理する</a></li><li><a href="#newsletter">33. 保護者向けおたよりを作る</a></li></ul></div><div class="toc-group"><h3>会議・学習</h3><ul><li><a href="#meeting">34. 複数児童の会議支援とTiro連携</a></li><li><a href="#learning">35. Dレッスン連携・学習管理</a></li><li><a href="#assistant">36. AIアシスタントの実行案を確認する</a></li></ul></div><div class="toc-group"><h3>管理者・設定</h3><ul><li><a href="#schools">37. 学校台帳・長期休暇・下校時刻表</a></li><li><a href="#transport-settings">38. 基本時刻・地点・エリア・ピン色</a></li><li><a href="#vehicles">39. 車両台帳を管理する</a></li><li><a href="#shift-template">40. 勤務テンプレートを管理する</a></li><li><a href="#permissions">41. 児発管・教室長の権限割り振り</a></li><li><a href="#record-settings">42. 記録の質問・テンプレートとAI文章設定</a></li><li><a href="#staff">43. 職員名簿・個人ログイン・紐づけ</a></li><li><a href="#devices">44. 登録端末とアクセス管理</a></li><li><a href="#invitation-audit">45. メール招待・利用停止・監査履歴</a></li></ul></div></div><div class="tips"><b>まず確認すること</b><p>① 自分の職員名　② 対象の日付　③ 対象の児童・職員・便　④ 保存結果</p><p>メニューが表示されない場合は、非表示設定・アカウント権限・個人端末モードを確認します。入力を消してから調べる必要はありません。</p></div></nav>
+ <p id="search-status" class="screen-only" role="status"></p><section class="manual-page" id="login" data-search="はじめに ログインと端末の使い分け ログイン画面 職員IDログインでは、事業所コード・職員ID・パスワードを入力します。メール登録のあるアカウントは、メールログインへ切り替えます。 ログイン後、上部の職員名が自分であることを確認します。事業所の共有端末と個人端末では、利用できる画面が異なります。 本人用QRでログインする場合は、承認済みの事業所端末側で選び、個人端末に表示した本人用QRを読み取ります。 個人端末の初回ログインは職員IDまたはメールで行います。本人用QRの画像・値は他人へ送らないでください。">
+ <div class="eyebrow">はじめに <span>01 / 45</span></div>
+ <h2>ログインと端末の使い分け</h2><p class="route">開く場所：ログイン画面</p>
+ <figure><button class="image-zoom" aria-label="ログインと端末の使い分けの画面例を拡大"><img src="images/auth.png" alt="ログインと端末の使い分けの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>ログイン方法を選ぶ</div><span aria-hidden="true">→</span><div><b>2</b>本人情報を入力</div><span aria-hidden="true">→</span><div><b>3</b>職員名を確認</div></div>
+ <ol class="steps"><li>職員IDログインでは、事業所コード・職員ID・パスワードを入力します。メール登録のあるアカウントは、メールログインへ切り替えます。</li><li>ログイン後、上部の職員名が自分であることを確認します。事業所の共有端末と個人端末では、利用できる画面が異なります。</li><li>本人用QRでログインする場合は、承認済みの事業所端末側で選び、個人端末に表示した本人用QRを読み取ります。</li></ol><p class="note"><b>確認ポイント</b><br>個人端末の初回ログインは職員IDまたはメールで行います。本人用QRの画像・値は他人へ送らないでください。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 3</p>
+ </section><section class="manual-page" id="home" data-search="はじめに ホームで目的の機能を探す ホーム 「ホームの機能を検索」に、欠席・下校・シフト・PDFなどの言葉を入力します。分類ボタンでも目的を絞り込めます。 記録は「記録を始める」、当日送迎は「当日の送迎」から開けます。児童名簿・活動案などは業務メニューから選びます。 「用途別」と「自分の並び順」は表示方法の切り替えです。別の機能へ移るときは、画面メニューまたは「機能を選び直す」を使います。 メニューが見つからない場合は、検索・分類・非表示設定・アカウントの権限を確認してください。">
+ <div class="eyebrow">はじめに <span>02 / 45</span></div>
+ <h2>ホームで目的の機能を探す</h2><p class="route">開く場所：ホーム</p>
+ <figure><button class="image-zoom" aria-label="ホームで目的の機能を探すの画面例を拡大"><img src="images/menu.png" alt="ホームで目的の機能を探すの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>目的で絞る</div><span aria-hidden="true">→</span><div><b>2</b>機能を選ぶ</div><span aria-hidden="true">→</span><div><b>3</b>ホームへ戻る</div></div>
+ <ol class="steps"><li>「ホームの機能を検索」に、欠席・下校・シフト・PDFなどの言葉を入力します。分類ボタンでも目的を絞り込めます。</li><li>記録は「記録を始める」、当日送迎は「当日の送迎」から開けます。児童名簿・活動案などは業務メニューから選びます。</li><li>「用途別」と「自分の並び順」は表示方法の切り替えです。別の機能へ移るときは、画面メニューまたは「機能を選び直す」を使います。</li></ol><p class="note"><b>確認ポイント</b><br>メニューが見つからない場合は、検索・分類・非表示設定・アカウントの権限を確認してください。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 4</p>
+ </section><section class="manual-page" id="menu" data-search="はじめに 自分のメニュー・通知・画面更新 左上の画面メニュー → 自分のメニューを編集 左上の三本線から画面メニューを開き、ログイン職員・各機能・ログアウトを確認します。 「自分のメニューを編集」で、使う機能の表示・非表示や順序を調整し、保存します。ホームにも同じ設定が反映されます。 新しい版への更新や手動更新は、編集中の内容を保存してから行います。通知を使う端末では、通知の利用設定とブラウザの許可を確認します。 非表示にしても権限は変わりません。共用端末を離れるときはログアウトしてください。">
+ <div class="eyebrow">はじめに <span>03 / 45</span></div>
+ <h2>自分のメニュー・通知・画面更新</h2><p class="route">開く場所：左上の画面メニュー → 自分のメニューを編集</p>
+ <figure><button class="image-zoom" aria-label="自分のメニュー・通知・画面更新の画面例を拡大"><img src="images/menu-edit.png" alt="自分のメニュー・通知・画面更新の操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>画面メニューを開く</div><span aria-hidden="true">→</span><div><b>2</b>表示・順序を調整</div><span aria-hidden="true">→</span><div><b>3</b>保存</div></div>
+ <ol class="steps"><li>左上の三本線から画面メニューを開き、ログイン職員・各機能・ログアウトを確認します。</li><li>「自分のメニューを編集」で、使う機能の表示・非表示や順序を調整し、保存します。ホームにも同じ設定が反映されます。</li><li>新しい版への更新や手動更新は、編集中の内容を保存してから行います。通知を使う端末では、通知の利用設定とブラウザの許可を確認します。</li></ol><p class="note"><b>確認ポイント</b><br>非表示にしても権限は変わりません。共用端末を離れるときはログアウトしてください。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 5</p>
+ </section><section class="manual-page" id="record-select" data-search="記録・児童 記録日と複数児童を選ぶ ホーム → 記録作成 記録作成を開き、最初に記録日を確認します。当日の利用予定も参照し、対象日を間違えないようにします。 児童選択で記録する児童を選びます。複数名を選択した場合は、画面に表示される対象児童のタブで切り替えて入力します。 選択した児童名と人数を確認して次へ進みます。別の職員が入力中の児童は、入力状況・引き継ぎを確認します。 児童の切り替え前後で、画面の児童名を必ず確認します。記録の内容を別の児童へ流用しないでください。">
+ <div class="eyebrow">記録・児童 <span>04 / 45</span></div>
+ <h2>記録日と複数児童を選ぶ</h2><p class="route">開く場所：ホーム → 記録作成</p>
+ <figure><button class="image-zoom" aria-label="記録日と複数児童を選ぶの画面例を拡大"><img src="images/form.png" alt="記録日と複数児童を選ぶの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>記録日を確認</div><span aria-hidden="true">→</span><div><b>2</b>児童を複数選択</div><span aria-hidden="true">→</span><div><b>3</b>対象を確認</div></div>
+ <ol class="steps"><li>記録作成を開き、最初に記録日を確認します。当日の利用予定も参照し、対象日を間違えないようにします。</li><li>児童選択で記録する児童を選びます。複数名を選択した場合は、画面に表示される対象児童のタブで切り替えて入力します。</li><li>選択した児童名と人数を確認して次へ進みます。別の職員が入力中の児童は、入力状況・引き継ぎを確認します。</li></ol><p class="note"><b>確認ポイント</b><br>児童の切り替え前後で、画面の児童名を必ず確認します。記録の内容を別の児童へ流用しないでください。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 6</p>
+ </section><section class="manual-page" id="record-input" data-search="記録・児童 様子・活動・宿題の記録を入力する 記録作成 → 児童を選択 → 項目選択 来所時の様子、学習、パソコン、活動など、入力する項目を選びます。選択肢と補足欄を組み合わせて具体的な様子を残します。 宿題で教科を選んだときは、国語・算数など各教科の詳しい内容も入力します。文章入力練習では、実施した回・文字数を追加します。 必要に応じてABC分析を入力します。「前の質問」「次の質問」「項目選択へ戻る」で移動し、他児童のタブでも同様に入力します。 「未回答のみ」や最終確認で不足箇所を確認します。スキップは回答済みとは異なります。観察していない内容を推測で埋めません。">
+ <div class="eyebrow">記録・児童 <span>05 / 45</span></div>
+ <h2>様子・活動・宿題の記録を入力する</h2><p class="route">開く場所：記録作成 → 児童を選択 → 項目選択</p>
+ <figure><button class="image-zoom" aria-label="様子・活動・宿題の記録を入力するの画面例を拡大"><img src="images/record-input.png" alt="様子・活動・宿題の記録を入力するの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>項目を開く</div><span aria-hidden="true">→</span><div><b>2</b>観察内容を入力</div><span aria-hidden="true">→</span><div><b>3</b>項目選択へ戻る</div></div>
+ <ol class="steps"><li>来所時の様子、学習、パソコン、活動など、入力する項目を選びます。選択肢と補足欄を組み合わせて具体的な様子を残します。</li><li>宿題で教科を選んだときは、国語・算数など各教科の詳しい内容も入力します。文章入力練習では、実施した回・文字数を追加します。</li><li>必要に応じてABC分析を入力します。「前の質問」「次の質問」「項目選択へ戻る」で移動し、他児童のタブでも同様に入力します。</li></ol><p class="note"><b>確認ポイント</b><br>「未回答のみ」や最終確認で不足箇所を確認します。スキップは回答済みとは異なります。観察していない内容を推測で埋めません。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 7</p>
+ </section><section class="manual-page" id="record-save" data-search="記録・児童 確認して保存・上書きする 記録作成 → 最終確認 最終確認で未回答・不足している詳しい内容を確認します。不足箇所への移動を使って修正し、生成された文章も読み直します。 1名だけ完了した場合は「この児童1名分のみ保存」、全員を完了する場合はまとめて保存を使います。 同じ児童・同じ日の記録があるときは、既存記録と新しい記録のプレビューを比較してから上書きします。保存完了の表示と記録一覧を確認します。 下書きの保持と保存済み記録は別です。保存に失敗した場合は、入力を残したまま通信・権限を確認してください。">
+ <div class="eyebrow">記録・児童 <span>06 / 45</span></div>
+ <h2>確認して保存・上書きする</h2><p class="route">開く場所：記録作成 → 最終確認</p>
+ <figure><button class="image-zoom" aria-label="確認して保存・上書きするの画面例を拡大"><img src="images/record-save.png" alt="確認して保存・上書きするの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>未入力を確認</div><span aria-hidden="true">→</span><div><b>2</b>文章を確認</div><span aria-hidden="true">→</span><div><b>3</b>保存結果を確認</div></div>
+ <ol class="steps"><li>最終確認で未回答・不足している詳しい内容を確認します。不足箇所への移動を使って修正し、生成された文章も読み直します。</li><li>1名だけ完了した場合は「この児童1名分のみ保存」、全員を完了する場合はまとめて保存を使います。</li><li>同じ児童・同じ日の記録があるときは、既存記録と新しい記録のプレビューを比較してから上書きします。保存完了の表示と記録一覧を確認します。</li></ol><p class="note"><b>確認ポイント</b><br>下書きの保持と保存済み記録は別です。保存に失敗した場合は、入力を残したまま通信・権限を確認してください。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 8</p>
+ </section><section class="manual-page" id="record-status" data-search="記録・児童 記録状況と記録の引き継ぎ ホーム → 記録状況 対象日を選び、利用予定の児童・入力中の下書き・保存済み記録を確認します。未入力の児童はここから記録を始められます。 下書きを再開・参照する場合は、児童名・記録日・入力していた職員名を確認します。 引き継ぎを選び、対象児童を選択します。画面右下の引き継ぎ確定ボタンで確定し、引き継ぎ後の入力対象を確認します。 他職員の編集作業と重ならないよう声をかけてください。個人端末では支援記録を入力・引き継ぎできません。">
+ <div class="eyebrow">記録・児童 <span>07 / 45</span></div>
+ <h2>記録状況と記録の引き継ぎ</h2><p class="route">開く場所：ホーム → 記録状況</p>
+ <figure><button class="image-zoom" aria-label="記録状況と記録の引き継ぎの画面例を拡大"><img src="images/operations.png" alt="記録状況と記録の引き継ぎの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>対象日を選ぶ</div><span aria-hidden="true">→</span><div><b>2</b>入力状況を確認</div><span aria-hidden="true">→</span><div><b>3</b>引き継ぎを確定</div></div>
+ <ol class="steps"><li>対象日を選び、利用予定の児童・入力中の下書き・保存済み記録を確認します。未入力の児童はここから記録を始められます。</li><li>下書きを再開・参照する場合は、児童名・記録日・入力していた職員名を確認します。</li><li>引き継ぎを選び、対象児童を選択します。画面右下の引き継ぎ確定ボタンで確定し、引き継ぎ後の入力対象を確認します。</li></ol><p class="note"><b>確認ポイント</b><br>他職員の編集作業と重ならないよう声をかけてください。個人端末では支援記録を入力・引き継ぎできません。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 9</p>
+ </section><section class="manual-page" id="record-list" data-search="記録・児童 記録一覧で検索・確認・出力する ホーム → 記録一覧・確認 日付または期間、児童名、状態などで絞り込みます。見出しで並べ替え、必要に応じて並べ替えの優先順を調整します。 対象記録を開き、文章と入力内容を確認します。権限のある職員は「確認完了・承認」を行います。修正時は正しい児童・日付か再確認します。 文章コピー、選択期間の一括コピー、CSV、児童1か月分のPDFなど、目的に合う出力を選びます。PDFは児童と月を選んで出力します。 一覧の絞り込みは、同じ日の画面往復で維持されます。日付変更・ログアウト後は設定を確認し直してください。外部転記は転記先の児童名も確認します。">
+ <div class="eyebrow">記録・児童 <span>08 / 45</span></div>
+ <h2>記録一覧で検索・確認・出力する</h2><p class="route">開く場所：ホーム → 記録一覧・確認</p>
+ <figure><button class="image-zoom" aria-label="記録一覧で検索・確認・出力するの画面例を拡大"><img src="images/records.png" alt="記録一覧で検索・確認・出力するの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>日付・児童で絞る</div><span aria-hidden="true">→</span><div><b>2</b>記録を確認</div><span aria-hidden="true">→</span><div><b>3</b>コピー・PDF出力</div></div>
+ <ol class="steps"><li>日付または期間、児童名、状態などで絞り込みます。見出しで並べ替え、必要に応じて並べ替えの優先順を調整します。</li><li>対象記録を開き、文章と入力内容を確認します。権限のある職員は「確認完了・承認」を行います。修正時は正しい児童・日付か再確認します。</li><li>文章コピー、選択期間の一括コピー、CSV、児童1か月分のPDFなど、目的に合う出力を選びます。PDFは児童と月を選んで出力します。</li></ol><p class="note"><b>確認ポイント</b><br>一覧の絞り込みは、同じ日の画面往復で維持されます。日付変更・ログアウト後は設定を確認し直してください。外部転記は転記先の児童名も確認します。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 10</p>
+ </section><section class="manual-page" id="quick-memo" data-search="記録・児童 クイックメモから申し送りへ登録する 画面上の黄色いメモアイコン 黄色いメモアイコンを押して入力欄を開きます。アイコンを移動した場合は、その位置に合わせて入力欄が開きます。 短い観察や連絡事項を記入します。申し送りへ登録する場合は、対象児童または事業所全体を選びます。 登録後、共有・連絡の申し送りで内容を確認します。記録入力画面の申し送りボタンからも、児童宛てと事業所全体の内容を確認できます。 クイックメモは一時的なメモです。正式な支援記録や継続して共有する情報は、該当機能へ登録してください。">
+ <div class="eyebrow">記録・児童 <span>09 / 45</span></div>
+ <h2>クイックメモから申し送りへ登録する</h2><p class="route">開く場所：画面上の黄色いメモアイコン</p>
+ <figure><button class="image-zoom" aria-label="クイックメモから申し送りへ登録するの画面例を拡大"><img src="images/quick-memo.png" alt="クイックメモから申し送りへ登録するの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>メモを開く</div><span aria-hidden="true">→</span><div><b>2</b>内容・対象を指定</div><span aria-hidden="true">→</span><div><b>3</b>申し送りへ登録</div></div>
+ <ol class="steps"><li>黄色いメモアイコンを押して入力欄を開きます。アイコンを移動した場合は、その位置に合わせて入力欄が開きます。</li><li>短い観察や連絡事項を記入します。申し送りへ登録する場合は、対象児童または事業所全体を選びます。</li><li>登録後、共有・連絡の申し送りで内容を確認します。記録入力画面の申し送りボタンからも、児童宛てと事業所全体の内容を確認できます。</li></ol><p class="note"><b>確認ポイント</b><br>クイックメモは一時的なメモです。正式な支援記録や継続して共有する情報は、該当機能へ登録してください。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 11</p>
+ </section><section class="manual-page" id="children" data-search="記録・児童 児童名簿・基本予定・恒常的な連絡 ホーム → 児童名簿 検索・絞り込みで児童を探します。グリッドとリストを切り替え、学年・学校・地域ごとのまとまりでも確認できます。 児童を追加または編集し、氏名・学年・学校・小学部／キャリアズ・利用曜日・平日／休日の基本予定を登録します。 送迎先、曜日別の下校／迎え時刻、兄弟設定、常に表示する送迎の連絡・メモを登録し、保存します。 名簿の基本情報と日ごとの変更は別です。当日だけの時間・送迎先の変更は、利用予定／送迎管理で行います。">
+ <div class="eyebrow">記録・児童 <span>10 / 45</span></div>
+ <h2>児童名簿・基本予定・恒常的な連絡</h2><p class="route">開く場所：ホーム → 児童名簿</p>
+ <figure><button class="image-zoom" aria-label="児童名簿・基本予定・恒常的な連絡の画面例を拡大"><img src="images/children.png" alt="児童名簿・基本予定・恒常的な連絡の操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>児童を探す</div><span aria-hidden="true">→</span><div><b>2</b>基本情報を編集</div><span aria-hidden="true">→</span><div><b>3</b>保存</div></div>
+ <ol class="steps"><li>検索・絞り込みで児童を探します。グリッドとリストを切り替え、学年・学校・地域ごとのまとまりでも確認できます。</li><li>児童を追加または編集し、氏名・学年・学校・小学部／キャリアズ・利用曜日・平日／休日の基本予定を登録します。</li><li>送迎先、曜日別の下校／迎え時刻、兄弟設定、常に表示する送迎の連絡・メモを登録し、保存します。</li></ol><p class="note"><b>確認ポイント</b><br>名簿の基本情報と日ごとの変更は別です。当日だけの時間・送迎先の変更は、利用予定／送迎管理で行います。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 12</p>
+ </section><section class="manual-page" id="daily-change" data-search="予定・送迎 当日の欠席・追加利用・担当交代 ホーム → 当日変更 対象日を確認し、急な欠席または追加利用の児童を選びます。変更理由・必要な連絡も入力します。 送迎の担当交代や応援が必要な場合は、対象便と変更後の職員を確認して操作します。 変更が利用予定・当日送迎・記録状況に反映されたか確認します。出発済みの便など、現場への連絡も併せて行います。 画面への反映だけで、保護者や運転者への電話連絡が完了するわけではありません。">
+ <div class="eyebrow">予定・送迎 <span>11 / 45</span></div>
+ <h2>当日の欠席・追加利用・担当交代</h2><p class="route">開く場所：ホーム → 当日変更</p>
+ <figure><button class="image-zoom" aria-label="当日の欠席・追加利用・担当交代の画面例を拡大"><img src="images/dailyChanges.png" alt="当日の欠席・追加利用・担当交代の操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>対象日・児童を選ぶ</div><span aria-hidden="true">→</span><div><b>2</b>変更内容を確認</div><span aria-hidden="true">→</span><div><b>3</b>反映結果を確認</div></div>
+ <ol class="steps"><li>対象日を確認し、急な欠席または追加利用の児童を選びます。変更理由・必要な連絡も入力します。</li><li>送迎の担当交代や応援が必要な場合は、対象便と変更後の職員を確認して操作します。</li><li>変更が利用予定・当日送迎・記録状況に反映されたか確認します。出発済みの便など、現場への連絡も併せて行います。</li></ol><p class="note"><b>確認ポイント</b><br>画面への反映だけで、保護者や運転者への電話連絡が完了するわけではありません。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 13</p>
+ </section><section class="manual-page" id="monthly" data-search="予定・送迎 利用・送迎一覧と日ごとの編集 ホーム → 利用予定／送迎管理 対象日を選び、学年・児童名・迎え先・下校／迎え時刻・送り先・送り時刻を一覧で確認します。小学部とキャリアズの表示も確認します。 児童の編集ボタンから利用時間・送迎先・送迎要否を変更します。保護者送迎の場合は時刻欄に「保護者」と表示されます。 時刻変更時にはメモを残して保存します。基本の下校／迎え時刻との差や変更履歴も確認できます。月間カレンダーは必要時だけ開きます。 配車計算後に決まる時刻は、確定前に表示されないことがあります。固定時刻と計算による予定時刻を区別します。">
+ <div class="eyebrow">予定・送迎 <span>12 / 45</span></div>
+ <h2>利用・送迎一覧と日ごとの編集</h2><p class="route">開く場所：ホーム → 利用予定／送迎管理</p>
+ <figure><button class="image-zoom" aria-label="利用・送迎一覧と日ごとの編集の画面例を拡大"><img src="images/monthlySchedule.png" alt="利用・送迎一覧と日ごとの編集の操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>対象日を選ぶ</div><span aria-hidden="true">→</span><div><b>2</b>一覧・時刻を確認</div><span aria-hidden="true">→</span><div><b>3</b>編集して保存</div></div>
+ <ol class="steps"><li>対象日を選び、学年・児童名・迎え先・下校／迎え時刻・送り先・送り時刻を一覧で確認します。小学部とキャリアズの表示も確認します。</li><li>児童の編集ボタンから利用時間・送迎先・送迎要否を変更します。保護者送迎の場合は時刻欄に「保護者」と表示されます。</li><li>時刻変更時にはメモを残して保存します。基本の下校／迎え時刻との差や変更履歴も確認できます。月間カレンダーは必要時だけ開きます。</li></ol><p class="note"><b>確認ポイント</b><br>配車計算後に決まる時刻は、確定前に表示されないことがあります。固定時刻と計算による予定時刻を区別します。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 14</p>
+ </section><section class="manual-page" id="monthly-bulk" data-search="予定・送迎 基本予定の反映・一括編集・学校確認 利用予定／送迎管理 → 利用予定・送迎の設定 設定を開き、基本予定の反映開始日・終了日を指定します。児童名簿と学校台帳の長期休暇期間を確認してから反映します。 「当日一括編集」では、その日の利用児童を続けて編集できます。迎え・送りの時刻、場所、送迎要否、変更メモを確認してまとめて保存します。 児童別・家庭別・学校別のカレンダーでも確認できます。翌月の下校時刻表の確認対象学校を確認し、入手・把握した学校を確認済みにします。 期間を間違えて再反映・一括削除しないよう確認します。長期休暇は所属する学校ごとの登録期間を参照します。">
+ <div class="eyebrow">予定・送迎 <span>13 / 45</span></div>
+ <h2>基本予定の反映・一括編集・学校確認</h2><p class="route">開く場所：利用予定／送迎管理 → 利用予定・送迎の設定</p>
+ <figure><button class="image-zoom" aria-label="基本予定の反映・一括編集・学校確認の画面例を拡大"><img src="images/monthly-settings.png" alt="基本予定の反映・一括編集・学校確認の操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>反映期間を指定</div><span aria-hidden="true">→</span><div><b>2</b>対象・内容を確認</div><span aria-hidden="true">→</span><div><b>3</b>追加・保存</div></div>
+ <ol class="steps"><li>設定を開き、基本予定の反映開始日・終了日を指定します。児童名簿と学校台帳の長期休暇期間を確認してから反映します。</li><li>「当日一括編集」では、その日の利用児童を続けて編集できます。迎え・送りの時刻、場所、送迎要否、変更メモを確認してまとめて保存します。</li><li>児童別・家庭別・学校別のカレンダーでも確認できます。翌月の下校時刻表の確認対象学校を確認し、入手・把握した学校を確認済みにします。</li></ol><p class="note"><b>確認ポイント</b><br>期間を間違えて再反映・一括削除しないよう確認します。長期休暇は所属する学校ごとの登録期間を参照します。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 15</p>
+ </section><section class="manual-page" id="dispatch" data-search="予定・送迎 児童を車両の便へ配車する 利用予定／送迎管理で送迎条件を確定 → 配車編集 送迎便一覧から配車編集を開きます。迎え・送りを切り替え、各車の1便目を確認します。必要な追加便は「便を追加」で作ります。 未配車児童のカード全体をドラッグして便に配置します。同じ場所・近い時刻をまとめて移動する設定を使う場合は、対象児童を確認します。 運転者を指定し、必要なときだけ添乗員欄を開いて追加します。順序・定員・重複を確認し、最後に「配車を保存」を押します。 編集途中の右側時間表はリアルタイム表示ですが、職員への共有は保存後です。分けて配車する場合はまとめ移動を解除します。">
+ <div class="eyebrow">予定・送迎 <span>14 / 45</span></div>
+ <h2>児童を車両の便へ配車する</h2><p class="route">開く場所：利用予定／送迎管理で送迎条件を確定 → 配車編集</p>
+ <figure><button class="image-zoom" aria-label="児童を車両の便へ配車するの画面例を拡大"><img src="images/dispatch-editor.png" alt="児童を車両の便へ配車するの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>迎え／送りを選ぶ</div><span aria-hidden="true">→</span><div><b>2</b>便へドラッグ</div><span aria-hidden="true">→</span><div><b>3</b>配車を保存</div></div>
+ <ol class="steps"><li>送迎便一覧から配車編集を開きます。迎え・送りを切り替え、各車の1便目を確認します。必要な追加便は「便を追加」で作ります。</li><li>未配車児童のカード全体をドラッグして便に配置します。同じ場所・近い時刻をまとめて移動する設定を使う場合は、対象児童を確認します。</li><li>運転者を指定し、必要なときだけ添乗員欄を開いて追加します。順序・定員・重複を確認し、最後に「配車を保存」を押します。</li></ol><p class="note"><b>確認ポイント</b><br>編集途中の右側時間表はリアルタイム表示ですが、職員への共有は保存後です。分けて配車する場合はまとめ移動を解除します。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 16</p>
+ </section><section class="manual-page" id="dispatch-time" data-search="予定・送迎 移動時間を計算・手動調整する 配車編集 → 各便の時間計算 便の出発時刻と乗降順序を決めてから「時間計算」を押します。計算に必要な送迎先住所や地点情報も確認します。 計算結果の到着・乗車・送り予定時刻を確認します。必要があれば手動で時刻を調整し、便全体の順序と整合するか確認します。 右側の時間表で、同じ地点でも大きく異なる時間帯が別カードになっていることを確認して保存します。利用・送迎一覧側の確定時刻も確認します。 計算は到着を保証するものではありません。通信エラー時は入力を保持し、住所・時刻・Google側設定を管理者に確認します。">
+ <div class="eyebrow">予定・送迎 <span>15 / 45</span></div>
+ <h2>移動時間を計算・手動調整する</h2><p class="route">開く場所：配車編集 → 各便の時間計算</p>
+ <figure><button class="image-zoom" aria-label="移動時間を計算・手動調整するの画面例を拡大"><img src="images/dispatch-editor.png" alt="移動時間を計算・手動調整するの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>出発時刻・順序を確認</div><span aria-hidden="true">→</span><div><b>2</b>時間を計算</div><span aria-hidden="true">→</span><div><b>3</b>時刻を調整・保存</div></div>
+ <ol class="steps"><li>便の出発時刻と乗降順序を決めてから「時間計算」を押します。計算に必要な送迎先住所や地点情報も確認します。</li><li>計算結果の到着・乗車・送り予定時刻を確認します。必要があれば手動で時刻を調整し、便全体の順序と整合するか確認します。</li><li>右側の時間表で、同じ地点でも大きく異なる時間帯が別カードになっていることを確認して保存します。利用・送迎一覧側の確定時刻も確認します。</li></ol><p class="note"><b>確認ポイント</b><br>計算は到着を保証するものではありません。通信エラー時は入力を保持し、住所・時刻・Google側設定を管理者に確認します。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 17</p>
+ </section><section class="manual-page" id="today" data-search="予定・送迎 本日の業務・全体送迎を確認する ホーム → 本日の業務 日付を確認し、職員配置と当日の送迎便を確認します。利用予定の児童の送迎先をミニマップでも把握できます。 便リスト・時間表の便を選択し、迎え先・送り先・児童・運転者・予定時刻を確認します。 配車そのものを変更する場合は配車編集を開きます。当日の確認画面で、記録や職員予定との時間重なりを確認します。 一覧表示は把握用です。確定した配車変更は運転者・添乗員へ連絡してください。">
+ <div class="eyebrow">予定・送迎 <span>16 / 45</span></div>
+ <h2>本日の業務・全体送迎を確認する</h2><p class="route">開く場所：ホーム → 本日の業務</p>
+ <figure><button class="image-zoom" aria-label="本日の業務・全体送迎を確認するの画面例を拡大"><img src="images/todayWork.png" alt="本日の業務・全体送迎を確認するの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>日付を確認</div><span aria-hidden="true">→</span><div><b>2</b>職員・便を選ぶ</div><span aria-hidden="true">→</span><div><b>3</b>詳細を確認</div></div>
+ <ol class="steps"><li>日付を確認し、職員配置と当日の送迎便を確認します。利用予定の児童の送迎先をミニマップでも把握できます。</li><li>便リスト・時間表の便を選択し、迎え先・送り先・児童・運転者・予定時刻を確認します。</li><li>配車そのものを変更する場合は配車編集を開きます。当日の確認画面で、記録や職員予定との時間重なりを確認します。</li></ol><p class="note"><b>確認ポイント</b><br>一覧表示は把握用です。確定した配車変更は運転者・添乗員へ連絡してください。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 18</p>
+ </section><section class="manual-page" id="field" data-search="予定・送迎 個人端末で送迎を操作する 個人端末モード → 自分の送迎／全体 自分の送迎と全体を切り替えます。他職員の便も、カバーを選ぶ前に内容を確認できます。便を選ぶと詳細へ移動します。 「送迎を出発」後は、強調された次の操作を確認し、到着・乗車・降車・事業所到着などを実際の状態に合わせて記録します。 学校と時刻が近い児童は同じカードにまとまる場合があります。全児童を確認し、遅延・応援要請や必要なカバー操作を行います。 図は共通の便リスト・時間表部分です。実際の操作ボタンは個人端末に表示されます。運転中は操作せず、安全に停車してから操作してください。">
+ <div class="eyebrow">予定・送迎 <span>17 / 45</span></div>
+ <h2>個人端末で送迎を操作する</h2><p class="route">開く場所：個人端末モード → 自分の送迎／全体</p>
+ <figure><button class="image-zoom" aria-label="個人端末で送迎を操作するの画面例を拡大"><img src="images/personal.png" alt="個人端末で送迎を操作するの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>便を選ぶ</div><span aria-hidden="true">→</span><div><b>2</b>次の操作を確認</div><span aria-hidden="true">→</span><div><b>3</b>到着・乗降を記録</div></div>
+ <ol class="steps"><li>自分の送迎と全体を切り替えます。他職員の便も、カバーを選ぶ前に内容を確認できます。便を選ぶと詳細へ移動します。</li><li>「送迎を出発」後は、強調された次の操作を確認し、到着・乗車・降車・事業所到着などを実際の状態に合わせて記録します。</li><li>学校と時刻が近い児童は同じカードにまとまる場合があります。全児童を確認し、遅延・応援要請や必要なカバー操作を行います。</li></ol><p class="note"><b>確認ポイント</b><br>図は共通の便リスト・時間表部分です。実際の操作ボタンは個人端末に表示されます。運転中は操作せず、安全に停車してから操作してください。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 19</p>
+ </section><section class="manual-page" id="transport-log" data-search="予定・送迎 送迎実績の一覧と手動修正 配車編集の送迎一覧 → 送迎実績 対象日・便を選び、出発、到着、乗車、降車、帰着などの記録を一覧で確認します。予定時刻と実績時刻は別です。 手動入力や修正が必要な箇所を選び、実際の時刻と理由を入力します。児童・便・職員の組み合わせも再確認します。 保存後、変更された時刻と履歴を確認します。誤操作の取消が必要な場合も、影響する後続の操作を確認します。 実績の編集は権限のある職員だけが行えます。時刻を推測して修正しないでください。">
+ <div class="eyebrow">予定・送迎 <span>18 / 45</span></div>
+ <h2>送迎実績の一覧と手動修正</h2><p class="route">開く場所：配車編集の送迎一覧 → 送迎実績</p>
+ <figure><button class="image-zoom" aria-label="送迎実績の一覧と手動修正の画面例を拡大"><img src="images/dispatch.png" alt="送迎実績の一覧と手動修正の操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>便・日を選ぶ</div><span aria-hidden="true">→</span><div><b>2</b>実績を確認</div><span aria-hidden="true">→</span><div><b>3</b>修正理由と保存</div></div>
+ <ol class="steps"><li>対象日・便を選び、出発、到着、乗車、降車、帰着などの記録を一覧で確認します。予定時刻と実績時刻は別です。</li><li>手動入力や修正が必要な箇所を選び、実際の時刻と理由を入力します。児童・便・職員の組み合わせも再確認します。</li><li>保存後、変更された時刻と履歴を確認します。誤操作の取消が必要な場合も、影響する後続の操作を確認します。</li></ol><p class="note"><b>確認ポイント</b><br>実績の編集は権限のある職員だけが行えます。時刻を推測して修正しないでください。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 20</p>
+ </section><section class="manual-page" id="attendance" data-search="勤務・カレンダー 自分の勤務予定を確認する ホーム → 出勤予定 → 自分の予定 「自分の予定」を開き、対象月を選びます。勤務予定日はカレンダーに時間帯が表示されます。 提出したシフト希望の時間帯と、申請中・承認・却下の色分けを確認します。休みの登録も確認します。 勤務予定と希望が異なるときは、管理担当者へ確認します。打刻後の勤務予定は編集できないため、実績修正の申請手順を使います。 勤務希望の提出だけでは出勤確定ではありません。承認後の勤務予定を確認してください。">
+ <div class="eyebrow">勤務・カレンダー <span>19 / 45</span></div>
+ <h2>自分の勤務予定を確認する</h2><p class="route">開く場所：ホーム → 出勤予定 → 自分の予定</p>
+ <figure><button class="image-zoom" aria-label="自分の勤務予定を確認するの画面例を拡大"><img src="images/attendance.png" alt="自分の勤務予定を確認するの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>対象月を選ぶ</div><span aria-hidden="true">→</span><div><b>2</b>勤務・希望を確認</div><span aria-hidden="true">→</span><div><b>3</b>詳細を確認</div></div>
+ <ol class="steps"><li>「自分の予定」を開き、対象月を選びます。勤務予定日はカレンダーに時間帯が表示されます。</li><li>提出したシフト希望の時間帯と、申請中・承認・却下の色分けを確認します。休みの登録も確認します。</li><li>勤務予定と希望が異なるときは、管理担当者へ確認します。打刻後の勤務予定は編集できないため、実績修正の申請手順を使います。</li></ol><p class="note"><b>確認ポイント</b><br>勤務希望の提出だけでは出勤確定ではありません。承認後の勤務予定を確認してください。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 21</p>
+ </section><section class="manual-page" id="shift-request" data-search="勤務・カレンダー 複数日のシフト希望を提出する 出勤予定 → 希望提出（パート職員） シフト希望で自分の希望時間の初期値を設定します。カレンダーで希望する複数日を選択します。 選択日の一覧で、その日だけの開始・終了時刻を変更し、必要な連絡事項をメモに記入します。 選択日数を確認してまとめて提出します。その後は自分の予定のカレンダーで申請状態と時間帯を確認します。 初期値は提出済みの希望を自動で書き換えません。既に希望を提出した日の状態を確認してから操作します。">
+ <div class="eyebrow">勤務・カレンダー <span>20 / 45</span></div>
+ <h2>複数日のシフト希望を提出する</h2><p class="route">開く場所：出勤予定 → 希望提出（パート職員）</p>
+ <figure><button class="image-zoom" aria-label="複数日のシフト希望を提出するの画面例を拡大"><img src="images/shift-request.png" alt="複数日のシフト希望を提出するの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>希望日を選ぶ</div><span aria-hidden="true">→</span><div><b>2</b>時刻・メモを調整</div><span aria-hidden="true">→</span><div><b>3</b>まとめて提出</div></div>
+ <ol class="steps"><li>シフト希望で自分の希望時間の初期値を設定します。カレンダーで希望する複数日を選択します。</li><li>選択日の一覧で、その日だけの開始・終了時刻を変更し、必要な連絡事項をメモに記入します。</li><li>選択日数を確認してまとめて提出します。その後は自分の予定のカレンダーで申請状態と時間帯を確認します。</li></ol><p class="note"><b>確認ポイント</b><br>初期値は提出済みの希望を自動で書き換えません。既に希望を提出した日の状態を確認してから操作します。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 22</p>
+ </section><section class="manual-page" id="shift-create" data-search="勤務・カレンダー シフトを作成・承認・削除する 出勤予定 → シフト作成（権限がある職員） 月別・週別・日別を切り替え、利用人数と正職・パートの勤務を確認します。申請中の希望にカーソルを合わせると希望時間を確認できます。 承認する希望を選択して一括承認します。個別に内容を確認して承認・却下することもできます。 勤務テンプレートは対象職員・日を選んで1日または月全体に反映します。未打刻の勤務予定や確認済み希望を削除するときは、削除対象を確認します。 承認済み希望の削除は関連する未打刻の勤務予定にも影響します。人員表示は確認の補助であり、法令適合の自動保証ではありません。">
+ <div class="eyebrow">勤務・カレンダー <span>21 / 45</span></div>
+ <h2>シフトを作成・承認・削除する</h2><p class="route">開く場所：出勤予定 → シフト作成（権限がある職員）</p>
+ <figure><button class="image-zoom" aria-label="シフトを作成・承認・削除するの画面例を拡大"><img src="images/shift-create.png" alt="シフトを作成・承認・削除するの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>月・週・日で確認</div><span aria-hidden="true">→</span><div><b>2</b>希望を選んで承認</div><span aria-hidden="true">→</span><div><b>3</b>勤務予定を確認</div></div>
+ <ol class="steps"><li>月別・週別・日別を切り替え、利用人数と正職・パートの勤務を確認します。申請中の希望にカーソルを合わせると希望時間を確認できます。</li><li>承認する希望を選択して一括承認します。個別に内容を確認して承認・却下することもできます。</li><li>勤務テンプレートは対象職員・日を選んで1日または月全体に反映します。未打刻の勤務予定や確認済み希望を削除するときは、削除対象を確認します。</li></ol><p class="note"><b>確認ポイント</b><br>承認済み希望の削除は関連する未打刻の勤務予定にも影響します。人員表示は確認の補助であり、法令適合の自動保証ではありません。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 23</p>
+ </section><section class="manual-page" id="qr-punch" data-search="勤務・カレンダー 本人用QRで出退勤を打刻する 個人端末で本人用QR表示 → 事業所端末で読み取り 個人端末に自分のアカウントでログインし、本人用QRを表示します。表示職員名と有効期限を確認します。 事業所端末でQR打刻画面を開き、「出勤を読み取る」または「退勤を読み取る」を選び、カメラで本人用QRを読み取ります。 職員名・出勤／退勤・記録時刻が表示されたことを確認します。間違えた場合は勤務実績を確認し、修正を申請します。 画面の時計は端末時計、打刻はサーバー時刻です。事業所側端末の承認・カメラ許可・本人のアカウント紐づけが必要です。">
+ <div class="eyebrow">勤務・カレンダー <span>22 / 45</span></div>
+ <h2>本人用QRで出退勤を打刻する</h2><p class="route">開く場所：個人端末で本人用QR表示 → 事業所端末で読み取り</p>
+ <figure><button class="image-zoom" aria-label="本人用QRで出退勤を打刻するの画面例を拡大"><img src="images/qr.png" alt="本人用QRで出退勤を打刻するの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>本人用QRを表示</div><span aria-hidden="true">→</span><div><b>2</b>事業所側で出退勤選択</div><span aria-hidden="true">→</span><div><b>3</b>打刻結果を確認</div></div>
+ <ol class="steps"><li>個人端末に自分のアカウントでログインし、本人用QRを表示します。表示職員名と有効期限を確認します。</li><li>事業所端末でQR打刻画面を開き、「出勤を読み取る」または「退勤を読み取る」を選び、カメラで本人用QRを読み取ります。</li><li>職員名・出勤／退勤・記録時刻が表示されたことを確認します。間違えた場合は勤務実績を確認し、修正を申請します。</li></ol><p class="note"><b>確認ポイント</b><br>画面の時計は端末時計、打刻はサーバー時刻です。事業所側端末の承認・カメラ許可・本人のアカウント紐づけが必要です。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 24</p>
+ </section><section class="manual-page" id="attendance-correct" data-search="勤務・カレンダー 打刻実績と打刻修正 出勤予定 → 打刻・実績 打刻・実績で、対象日の出勤・退勤の記録を確認します。勤務予定と実際の打刻は別の情報として確認します。 打刻忘れや誤りがある場合は、正しい時刻と理由を入力して修正を申請します。必要な本人確認を行います。 管理者が申請内容を確認し、承認または却下します。処理後は修正済みの実績と結果を確認します。 打刻修正の承認は管理者のみです。予定の編集だけでは打刻実績は修正されません。">
+ <div class="eyebrow">勤務・カレンダー <span>23 / 45</span></div>
+ <h2>打刻実績と打刻修正</h2><p class="route">開く場所：出勤予定 → 打刻・実績</p>
+ <figure><button class="image-zoom" aria-label="打刻実績と打刻修正の画面例を拡大"><img src="images/attendance-actual.png" alt="打刻実績と打刻修正の操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>実績を選ぶ</div><span aria-hidden="true">→</span><div><b>2</b>修正を申請</div><span aria-hidden="true">→</span><div><b>3</b>管理者が承認</div></div>
+ <ol class="steps"><li>打刻・実績で、対象日の出勤・退勤の記録を確認します。勤務予定と実際の打刻は別の情報として確認します。</li><li>打刻忘れや誤りがある場合は、正しい時刻と理由を入力して修正を申請します。必要な本人確認を行います。</li><li>管理者が申請内容を確認し、承認または却下します。処理後は修正済みの実績と結果を確認します。</li></ol><p class="note"><b>確認ポイント</b><br>打刻修正の承認は管理者のみです。予定の編集だけでは打刻実績は修正されません。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 25</p>
+ </section><section class="manual-page" id="calendar" data-search="勤務・カレンダー 業務カレンダーと職員の休み ホーム → 業務カレンダー 月・週・日を切り替え、職員を検索・複数選択して、その職員が参加する予定を絞り込みます。今日と選択日を区別します。 会議・外出・研修・面談などを登録し、日時、対象職員・児童、色、場所、メモ、通知の設定を確認します。日をまたぐ予定は終了日も登録します。 職員の休みは該当する種別と対象職員で登録します。出勤予定・職員配置側にも反映を確認します。勤務予定そのものは業務カレンダーに表示しません。 予定前の自動通知は設定と端末許可が必要です。休みの登録後は既存の送迎担当への影響も確認します。">
+ <div class="eyebrow">勤務・カレンダー <span>24 / 45</span></div>
+ <h2>業務カレンダーと職員の休み</h2><p class="route">開く場所：ホーム → 業務カレンダー</p>
+ <figure><button class="image-zoom" aria-label="業務カレンダーと職員の休みの画面例を拡大"><img src="images/calendar.png" alt="業務カレンダーと職員の休みの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>表示期間・職員を絞る</div><span aria-hidden="true">→</span><div><b>2</b>予定を登録</div><span aria-hidden="true">→</span><div><b>3</b>時間の重なりを確認</div></div>
+ <ol class="steps"><li>月・週・日を切り替え、職員を検索・複数選択して、その職員が参加する予定を絞り込みます。今日と選択日を区別します。</li><li>会議・外出・研修・面談などを登録し、日時、対象職員・児童、色、場所、メモ、通知の設定を確認します。日をまたぐ予定は終了日も登録します。</li><li>職員の休みは該当する種別と対象職員で登録します。出勤予定・職員配置側にも反映を確認します。勤務予定そのものは業務カレンダーに表示しません。</li></ol><p class="note"><b>確認ポイント</b><br>予定前の自動通知は設定と端末許可が必要です。休みの登録後は既存の送迎担当への影響も確認します。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 26</p>
+ </section><section class="manual-page" id="announcements" data-search="共有・連絡 お知らせを共有・確認する ホーム → 共有・連絡 → お知らせ 共有・連絡のお知らせで、事業所内に共有された連絡を確認します。対象・掲載期間・重要度を確認します。 管理する権限がある場合は、内容を作成・編集し、掲載期間や対象を確認して保存します。 読んだお知らせを確認済みにします。更新された場合は変更点を読み直し、必要な対応を行います。 確認済みは内容を読んだことを表します。必要な作業が完了したかは別途確認してください。">
+ <div class="eyebrow">共有・連絡 <span>25 / 45</span></div>
+ <h2>お知らせを共有・確認する</h2><p class="route">開く場所：ホーム → 共有・連絡 → お知らせ</p>
+ <figure><button class="image-zoom" aria-label="お知らせを共有・確認するの画面例を拡大"><img src="images/communication.png" alt="お知らせを共有・確認するの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>お知らせを開く</div><span aria-hidden="true">→</span><div><b>2</b>内容を確認</div><span aria-hidden="true">→</span><div><b>3</b>確認済みにする</div></div>
+ <ol class="steps"><li>共有・連絡のお知らせで、事業所内に共有された連絡を確認します。対象・掲載期間・重要度を確認します。</li><li>管理する権限がある場合は、内容を作成・編集し、掲載期間や対象を確認して保存します。</li><li>読んだお知らせを確認済みにします。更新された場合は変更点を読み直し、必要な対応を行います。</li></ol><p class="note"><b>確認ポイント</b><br>確認済みは内容を読んだことを表します。必要な作業が完了したかは別途確認してください。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 27</p>
+ </section><section class="manual-page" id="morning" data-search="共有・連絡 朝礼記録を共同編集する 共有・連絡 → 朝礼 朝礼記録の対象日を確認し、必要に応じてひな形を使って入力を始めます。実際の当日情報に合わせて変更します。 共同編集中の職員や反映状況を確認し、他の職員と同じ内容を二重に修正しないよう分担します。 保存状態を確認してから、確認済みの操作を行います。前日の内容を使う場合は、児童・担当・時刻を必ず更新します。 入力中表示だけで保存完了とは判断しません。通信が不安定な場合は、自分の入力を控えてから状態を確認します。">
+ <div class="eyebrow">共有・連絡 <span>26 / 45</span></div>
+ <h2>朝礼記録を共同編集する</h2><p class="route">開く場所：共有・連絡 → 朝礼</p>
+ <figure><button class="image-zoom" aria-label="朝礼記録を共同編集するの画面例を拡大"><img src="images/morning.png" alt="朝礼記録を共同編集するの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>日付・ひな形を選ぶ</div><span aria-hidden="true">→</span><div><b>2</b>共同で入力</div><span aria-hidden="true">→</span><div><b>3</b>保存・確認</div></div>
+ <ol class="steps"><li>朝礼記録の対象日を確認し、必要に応じてひな形を使って入力を始めます。実際の当日情報に合わせて変更します。</li><li>共同編集中の職員や反映状況を確認し、他の職員と同じ内容を二重に修正しないよう分担します。</li><li>保存状態を確認してから、確認済みの操作を行います。前日の内容を使う場合は、児童・担当・時刻を必ず更新します。</li></ol><p class="note"><b>確認ポイント</b><br>入力中表示だけで保存完了とは判断しません。通信が不安定な場合は、自分の入力を控えてから状態を確認します。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 28</p>
+ </section><section class="manual-page" id="handover" data-search="共有・連絡 児童別・全体の申し送り 共有・連絡 → 申し送り 児童宛てか事業所全体かを選び、区分・重要度・内容を入力して登録します。保護者連絡やけが・事故なども区分を確認します。 内容を読み、確認済みにします。必要に応じて「未対応・対応中・完了」の対応状況を更新します。 児童の支援記録入力時は、申し送りボタンから児童宛てと事業所全体の情報を確認できます。必要な文章はコピーして参照します。 完了にする前に、実際の対応・連絡が終わったことを確認します。緊急連絡は申し送りだけに頼らないでください。">
+ <div class="eyebrow">共有・連絡 <span>27 / 45</span></div>
+ <h2>児童別・全体の申し送り</h2><p class="route">開く場所：共有・連絡 → 申し送り</p>
+ <figure><button class="image-zoom" aria-label="児童別・全体の申し送りの画面例を拡大"><img src="images/handover.png" alt="児童別・全体の申し送りの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>対象・重要度を指定</div><span aria-hidden="true">→</span><div><b>2</b>内容を登録</div><span aria-hidden="true">→</span><div><b>3</b>確認・対応状況を更新</div></div>
+ <ol class="steps"><li>児童宛てか事業所全体かを選び、区分・重要度・内容を入力して登録します。保護者連絡やけが・事故なども区分を確認します。</li><li>内容を読み、確認済みにします。必要に応じて「未対応・対応中・完了」の対応状況を更新します。</li><li>児童の支援記録入力時は、申し送りボタンから児童宛てと事業所全体の情報を確認できます。必要な文章はコピーして参照します。</li></ol><p class="note"><b>確認ポイント</b><br>完了にする前に、実際の対応・連絡が終わったことを確認します。緊急連絡は申し送りだけに頼らないでください。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 29</p>
+ </section><section class="manual-page" id="activity" data-search="活動・施設業務 活動・指導案を作る ホーム → 活動・指導案 工作・運動・調理・外出のひな形、または空白から作成を選びます。活動名・種類・実施日・状態を入力します。 基本・流れで、支援項目、概要、職員人数、児童人数、往復時間、ねらい、場所、担当、開始時刻、段階ごとの内容・時間・配慮を入力します。 準備・安全で準備物・数量・担当・確認済み、役割分担、安全対応を入力し保存します。実施後は振り返り・次回改善を入力します。 準備完了にするには、ねらい・流れ・安全確認の入力と準備物の確認が必要です。ひな形だけで安全確認が完了するわけではありません。">
+ <div class="eyebrow">活動・施設業務 <span>28 / 45</span></div>
+ <h2>活動・指導案を作る</h2><p class="route">開く場所：ホーム → 活動・指導案</p>
+ <figure><button class="image-zoom" aria-label="活動・指導案を作るの画面例を拡大"><img src="images/activityPlans.png" alt="活動・指導案を作るの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>ひな形を選ぶ</div><span aria-hidden="true">→</span><div><b>2</b>流れ・準備を入力</div><span aria-hidden="true">→</span><div><b>3</b>保存</div></div>
+ <ol class="steps"><li>工作・運動・調理・外出のひな形、または空白から作成を選びます。活動名・種類・実施日・状態を入力します。</li><li>基本・流れで、支援項目、概要、職員人数、児童人数、往復時間、ねらい、場所、担当、開始時刻、段階ごとの内容・時間・配慮を入力します。</li><li>準備・安全で準備物・数量・担当・確認済み、役割分担、安全対応を入力し保存します。実施後は振り返り・次回改善を入力します。</li></ol><p class="note"><b>確認ポイント</b><br>準備完了にするには、ねらい・流れ・安全確認の入力と準備物の確認が必要です。ひな形だけで安全確認が完了するわけではありません。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 30</p>
+ </section><section class="manual-page" id="activity-print" data-search="活動・施設業務 原本に合わせた表で指導案を出力する 活動・指導案 → プレビュー・印刷 プレビュー・印刷を開き、企画名、支援項目、講師、人数、時間、ねらい、準備物を確認します。段階・指導内容・留意点は表で表示されます。 「印刷・PDF保存」を選び、ブラウザの印刷画面でA4縦・PDF保存を指定します。黄色の評価欄を出す場合は背景の印刷を有効にします。 PDFを開き、ページ数・内容・末尾の自己評価と改善案を確認します。補足・安全確認や長い内容は続きのページに表示されます。 今回変更した出力形式です。未保存のプレビューには未保存の入力内容の表示が付きます。配布前に案を保存してください。">
+ <div class="eyebrow">活動・施設業務 <span>29 / 45</span></div>
+ <h2>原本に合わせた表で指導案を出力する</h2><p class="route">開く場所：活動・指導案 → プレビュー・印刷</p>
+ <figure><button class="image-zoom" aria-label="原本に合わせた表で指導案を出力するの画面例を拡大"><img src="images/activity-sheet.png" alt="原本に合わせた表で指導案を出力するの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>表を確認</div><span aria-hidden="true">→</span><div><b>2</b>印刷・PDF保存</div><span aria-hidden="true">→</span><div><b>3</b>保存したPDFを確認</div></div>
+ <ol class="steps"><li>プレビュー・印刷を開き、企画名、支援項目、講師、人数、時間、ねらい、準備物を確認します。段階・指導内容・留意点は表で表示されます。</li><li>「印刷・PDF保存」を選び、ブラウザの印刷画面でA4縦・PDF保存を指定します。黄色の評価欄を出す場合は背景の印刷を有効にします。</li><li>PDFを開き、ページ数・内容・末尾の自己評価と改善案を確認します。補足・安全確認や長い内容は続きのページに表示されます。</li></ol><p class="note"><b>確認ポイント</b><br>今回変更した出力形式です。未保存のプレビューには未保存の入力内容の表示が付きます。配布前に案を保存してください。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 31</p>
+ </section><section class="manual-page" id="traffic" data-search="活動・施設業務 交通費・児童1人あたりの金額を計算する ホーム → 交通費計算 距離、片道／往復、ガソリン単価、利用児童数を入力します。Googleマップで距離を手動確認する場合は「距離の調べ方（図解）」を開きます。 使用車両と燃費を確認し、高速・駐車場代などを入力します。追加費用が全車合計か1台あたりかを間違えないよう確認します。 画面下の総費用・1人あたりの計算額・集金目安・差額を確認します。必要に応じて文章コピーや印刷・PDF保存を使います。 Googleマップとの自動連携はありません。計算額と集金時の丸めを区別し、人数0などのエラーを解消してから使います。">
+ <div class="eyebrow">活動・施設業務 <span>30 / 45</span></div>
+ <h2>交通費・児童1人あたりの金額を計算する</h2><p class="route">開く場所：ホーム → 交通費計算</p>
+ <figure><button class="image-zoom" aria-label="交通費・児童1人あたりの金額を計算するの画面例を拡大"><img src="images/trafficCost.png" alt="交通費・児童1人あたりの金額を計算するの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>距離・人数を入力</div><span aria-hidden="true">→</span><div><b>2</b>車両・費用を選ぶ</div><span aria-hidden="true">→</span><div><b>3</b>画面下の結果を確認</div></div>
+ <ol class="steps"><li>距離、片道／往復、ガソリン単価、利用児童数を入力します。Googleマップで距離を手動確認する場合は「距離の調べ方（図解）」を開きます。</li><li>使用車両と燃費を確認し、高速・駐車場代などを入力します。追加費用が全車合計か1台あたりかを間違えないよう確認します。</li><li>画面下の総費用・1人あたりの計算額・集金目安・差額を確認します。必要に応じて文章コピーや印刷・PDF保存を使います。</li></ol><p class="note"><b>確認ポイント</b><br>Googleマップとの自動連携はありません。計算額と集金時の丸めを区別し、人数0などのエラーを解消してから使います。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 32</p>
+ </section><section class="manual-page" id="inspection" data-search="活動・施設業務 日常点検を記録する ホーム → 施設業務 → 日常点検 今日の点検を作成し、日付・点検名・担当を確認します。点検項目を事業所の運用に合わせて確認します。 各項目の結果と、問題がある場合の対応・メモを入力します。未確認のまま完了にしないよう確認します。 保存し、必要に応じてプレビュー・印刷を使います。定期的に使う内容は、その他メニューから複製・ひな形として再利用します。 アプリの点検項目だけで法定点検がすべて完了するものではありません。事業所で定めたチェックと合わせて使います。">
+ <div class="eyebrow">活動・施設業務 <span>31 / 45</span></div>
+ <h2>日常点検を記録する</h2><p class="route">開く場所：ホーム → 施設業務 → 日常点検</p>
+ <figure><button class="image-zoom" aria-label="日常点検を記録するの画面例を拡大"><img src="images/facilityWork.png" alt="日常点検を記録するの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>今日の点検を作る</div><span aria-hidden="true">→</span><div><b>2</b>結果・対応を入力</div><span aria-hidden="true">→</span><div><b>3</b>保存・出力</div></div>
+ <ol class="steps"><li>今日の点検を作成し、日付・点検名・担当を確認します。点検項目を事業所の運用に合わせて確認します。</li><li>各項目の結果と、問題がある場合の対応・メモを入力します。未確認のまま完了にしないよう確認します。</li><li>保存し、必要に応じてプレビュー・印刷を使います。定期的に使う内容は、その他メニューから複製・ひな形として再利用します。</li></ol><p class="note"><b>確認ポイント</b><br>アプリの点検項目だけで法定点検がすべて完了するものではありません。事業所で定めたチェックと合わせて使います。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 33</p>
+ </section><section class="manual-page" id="supplies" data-search="活動・施設業務 備品の在庫と補充を管理する 施設業務 → 備品・補充 備品名、単位、保管場所、補充の目安などを登録します。既存品は検索して編集します。 使用・補充した数量を入出庫として記録します。数量と理由を確認し、在庫を更新します。 補充が必要な品と履歴を確認し、実際の発注・補充を行います。現物との数が違う場合は確認して調整します。 在庫の登録だけで自動発注はされません。個人情報を備品名やメモに書かないでください。">
+ <div class="eyebrow">活動・施設業務 <span>32 / 45</span></div>
+ <h2>備品の在庫と補充を管理する</h2><p class="route">開く場所：施設業務 → 備品・補充</p>
+ <figure><button class="image-zoom" aria-label="備品の在庫と補充を管理するの画面例を拡大"><img src="images/supplies.png" alt="備品の在庫と補充を管理するの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>備品を登録</div><span aria-hidden="true">→</span><div><b>2</b>入出庫を記録</div><span aria-hidden="true">→</span><div><b>3</b>補充対象を確認</div></div>
+ <ol class="steps"><li>備品名、単位、保管場所、補充の目安などを登録します。既存品は検索して編集します。</li><li>使用・補充した数量を入出庫として記録します。数量と理由を確認し、在庫を更新します。</li><li>補充が必要な品と履歴を確認し、実際の発注・補充を行います。現物との数が違う場合は確認して調整します。</li></ol><p class="note"><b>確認ポイント</b><br>在庫の登録だけで自動発注はされません。個人情報を備品名やメモに書かないでください。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 34</p>
+ </section><section class="manual-page" id="newsletter" data-search="活動・施設業務 保護者向けおたよりを作る 施設業務 → おたより 新しいおたよりまたは文例から作成を選び、題名・日付・作成者を入力します。 挨拶、活動の紹介、次の予定、連絡事項を入力します。複製する場合は古い日付や予定を更新します。 プレビューで文面を読み直し、保存します。文章コピーや印刷・PDF保存で配布用に出力します。 児童の写真・実名・個別の事情など、外部配布で配慮が必要な情報は事業所の同意・確認手順に従います。">
+ <div class="eyebrow">活動・施設業務 <span>33 / 45</span></div>
+ <h2>保護者向けおたよりを作る</h2><p class="route">開く場所：施設業務 → おたより</p>
+ <figure><button class="image-zoom" aria-label="保護者向けおたよりを作るの画面例を拡大"><img src="images/newsletter.png" alt="保護者向けおたよりを作るの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>新規・文例を選ぶ</div><span aria-hidden="true">→</span><div><b>2</b>文章を入力</div><span aria-hidden="true">→</span><div><b>3</b>確認・保存・出力</div></div>
+ <ol class="steps"><li>新しいおたよりまたは文例から作成を選び、題名・日付・作成者を入力します。</li><li>挨拶、活動の紹介、次の予定、連絡事項を入力します。複製する場合は古い日付や予定を更新します。</li><li>プレビューで文面を読み直し、保存します。文章コピーや印刷・PDF保存で配布用に出力します。</li></ol><p class="note"><b>確認ポイント</b><br>児童の写真・実名・個別の事情など、外部配布で配慮が必要な情報は事業所の同意・確認手順に従います。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 35</p>
+ </section><section class="manual-page" id="meeting" data-search="会議・学習 複数児童の会議支援とTiro連携 ホーム → 会議支援 対象児童を複数選択し、会議案件を作成します。会議日、種類、参加者、議題、用語、背景情報を準備します。 Tiroへ渡す画面で必要な内容をコピー・出力し、事業所の手順でTiroに登録します。会議後の文字起こし・スクリプトをDサポートへ取り込みます。 結果確認で事実・提案・決定事項を読み直し、対象児童を確認して支援経過を作成します。必要な確認・承認を行います。 Tiroとの受け渡しは手動です。外部サービスへ渡す情報は、説明・同意・閲覧範囲・保存期間を事業所で確認してください。">
+ <div class="eyebrow">会議・学習 <span>34 / 45</span></div>
+ <h2>複数児童の会議支援とTiro連携</h2><p class="route">開く場所：ホーム → 会議支援</p>
+ <figure><button class="image-zoom" aria-label="複数児童の会議支援とTiro連携の画面例を拡大"><img src="images/meetings.png" alt="複数児童の会議支援とTiro連携の操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>対象児童・案件を作る</div><span aria-hidden="true">→</span><div><b>2</b>Tiroへ渡す・結果を戻す</div><span aria-hidden="true">→</span><div><b>3</b>内容確認・支援経過</div></div>
+ <ol class="steps"><li>対象児童を複数選択し、会議案件を作成します。会議日、種類、参加者、議題、用語、背景情報を準備します。</li><li>Tiroへ渡す画面で必要な内容をコピー・出力し、事業所の手順でTiroに登録します。会議後の文字起こし・スクリプトをDサポートへ取り込みます。</li><li>結果確認で事実・提案・決定事項を読み直し、対象児童を確認して支援経過を作成します。必要な確認・承認を行います。</li></ol><p class="note"><b>確認ポイント</b><br>Tiroとの受け渡しは手動です。外部サービスへ渡す情報は、説明・同意・閲覧範囲・保存期間を事業所で確認してください。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 36</p>
+ </section><section class="manual-page" id="learning" data-search="会議・学習 Dレッスン連携・学習管理 ホーム → 学習管理 Dサポートの児童とDレッスンの児童の対応を確認します。既存の学習アカウントがある場合は、そのアカウントを使って紐づけます。 学習履歴・課題・提出作品など、表示される項目で対象児童を選んで内容を確認します。児童ごとの課題を指定する場合は対象と内容を確認します。 作品の確認・差し戻しなど、権限に応じた操作を行います。取り込みを使う場合は、対象児童・日付・取り込み内容を確認します。 連携設定と利用可能な機能は運用環境によって異なります。既存のログインや学習履歴を削除・作り直して紐づけないでください。">
+ <div class="eyebrow">会議・学習 <span>35 / 45</span></div>
+ <h2>Dレッスン連携・学習管理</h2><p class="route">開く場所：ホーム → 学習管理</p>
+ <figure><button class="image-zoom" aria-label="Dレッスン連携・学習管理の画面例を拡大"><img src="images/learning.png" alt="Dレッスン連携・学習管理の操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>児童との紐づきを確認</div><span aria-hidden="true">→</span><div><b>2</b>履歴・課題を確認</div><span aria-hidden="true">→</span><div><b>3</b>対象・内容を確認して操作</div></div>
+ <ol class="steps"><li>Dサポートの児童とDレッスンの児童の対応を確認します。既存の学習アカウントがある場合は、そのアカウントを使って紐づけます。</li><li>学習履歴・課題・提出作品など、表示される項目で対象児童を選んで内容を確認します。児童ごとの課題を指定する場合は対象と内容を確認します。</li><li>作品の確認・差し戻しなど、権限に応じた操作を行います。取り込みを使う場合は、対象児童・日付・取り込み内容を確認します。</li></ol><p class="note"><b>確認ポイント</b><br>連携設定と利用可能な機能は運用環境によって異なります。既存のログインや学習履歴を削除・作り直して紐づけないでください。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 37</p>
+ </section><section class="manual-page" id="assistant" data-search="会議・学習 AIアシスタントの実行案を確認する ホーム → AIアシスタント 対象児童を選び、曜日変更・留意点の更新・記録を開くなど、行いたい操作を具体的に入力します。 実行案を作成し、対象児童・変更前後の内容を確認します。意図と異なるときは確定せずに指示を修正します。 実行後の結果を確認し、児童名簿や記録などの該当画面でも反映を確認します。 AIの案は人が確認してください。削除・権限・承認・テンプレートの操作は管理画面から行います。">
+ <div class="eyebrow">会議・学習 <span>36 / 45</span></div>
+ <h2>AIアシスタントの実行案を確認する</h2><p class="route">開く場所：ホーム → AIアシスタント</p>
+ <figure><button class="image-zoom" aria-label="AIアシスタントの実行案を確認するの画面例を拡大"><img src="images/assistant.png" alt="AIアシスタントの実行案を確認するの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>対象と指示を入力</div><span aria-hidden="true">→</span><div><b>2</b>実行案を確認</div><span aria-hidden="true">→</span><div><b>3</b>確定して結果を確認</div></div>
+ <ol class="steps"><li>対象児童を選び、曜日変更・留意点の更新・記録を開くなど、行いたい操作を具体的に入力します。</li><li>実行案を作成し、対象児童・変更前後の内容を確認します。意図と異なるときは確定せずに指示を修正します。</li><li>実行後の結果を確認し、児童名簿や記録などの該当画面でも反映を確認します。</li></ol><p class="note"><b>確認ポイント</b><br>AIの案は人が確認してください。削除・権限・承認・テンプレートの操作は管理画面から行います。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 38</p>
+ </section><section class="manual-page" id="schools" data-search="管理者・設定 学校台帳・長期休暇・下校時刻表 設定 → 学校台帳 学校名・住所を登録します。児童名簿で所属学校を選べば、同じ学校の住所を繰り返し入力せずに使えます。 長期休暇の名称・開始日・終了日を登録します。共通期間は複数学校を選択して一括登録します。未登録の色分けも確認します。 対象月の下校時刻表を把握した学校を確認済みにします。利用予定の基本反映で、各学校の休暇期間が所属児童へ適用されたか確認します。 期限を過ぎた休暇期間は整理されます。必要な過去情報は日ごとの保存済み予定等で確認してください。">
+ <div class="eyebrow">管理者・設定 <span>37 / 45</span></div>
+ <h2>学校台帳・長期休暇・下校時刻表</h2><p class="route">開く場所：設定 → 学校台帳</p>
+ <figure><button class="image-zoom" aria-label="学校台帳・長期休暇・下校時刻表の画面例を拡大"><img src="images/schools.png" alt="学校台帳・長期休暇・下校時刻表の操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>学校を登録</div><span aria-hidden="true">→</span><div><b>2</b>期間・確認状態を登録</div><span aria-hidden="true">→</span><div><b>3</b>児童への反映を確認</div></div>
+ <ol class="steps"><li>学校名・住所を登録します。児童名簿で所属学校を選べば、同じ学校の住所を繰り返し入力せずに使えます。</li><li>長期休暇の名称・開始日・終了日を登録します。共通期間は複数学校を選択して一括登録します。未登録の色分けも確認します。</li><li>対象月の下校時刻表を把握した学校を確認済みにします。利用予定の基本反映で、各学校の休暇期間が所属児童へ適用されたか確認します。</li></ol><p class="note"><b>確認ポイント</b><br>期限を過ぎた休暇期間は整理されます。必要な過去情報は日ごとの保存済み予定等で確認してください。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 39</p>
+ </section><section class="manual-page" id="transport-settings" data-search="管理者・設定 基本時刻・地点・エリア・ピン色 設定 → 送迎の基本時刻・地点・エリア 基本退所時刻、小学部・キャリアズの設定、停車時間、同じ地点を強調する時間差などを確認・変更して保存します。 学校・児童宅などの住所から地点を反映し、位置が違う場合は手動配置・位置修正を使います。各地点へ送迎エリアを割り当てます。 事業所・自宅等の既定ピン色とエリア色を設定します。エリアがある地点はエリア色が優先されることを地図で確認します。 住所からの配置にはGoogle側の利用設定が必要です。出発前には住所・ピン・地図の実際の行き先を照合してください。">
+ <div class="eyebrow">管理者・設定 <span>38 / 45</span></div>
+ <h2>基本時刻・地点・エリア・ピン色</h2><p class="route">開く場所：設定 → 送迎の基本時刻・地点・エリア</p>
+ <figure><button class="image-zoom" aria-label="基本時刻・地点・エリア・ピン色の画面例を拡大"><img src="images/transport-settings.png" alt="基本時刻・地点・エリア・ピン色の操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>基本時刻を設定</div><span aria-hidden="true">→</span><div><b>2</b>地点・エリアを登録</div><span aria-hidden="true">→</span><div><b>3</b>色と位置を確認</div></div>
+ <ol class="steps"><li>基本退所時刻、小学部・キャリアズの設定、停車時間、同じ地点を強調する時間差などを確認・変更して保存します。</li><li>学校・児童宅などの住所から地点を反映し、位置が違う場合は手動配置・位置修正を使います。各地点へ送迎エリアを割り当てます。</li><li>事業所・自宅等の既定ピン色とエリア色を設定します。エリアがある地点はエリア色が優先されることを地図で確認します。</li></ol><p class="note"><b>確認ポイント</b><br>住所からの配置にはGoogle側の利用設定が必要です。出発前には住所・ピン・地図の実際の行き先を照合してください。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 40</p>
+ </section><section class="manual-page" id="vehicles" data-search="管理者・設定 車両台帳を管理する 設定 → 車両台帳（管理者） 車両名・ナンバー・使用可否などを登録します。実際に使う車両が識別できる名称にします。 総乗車定員、車椅子対応、点検・保険期限、車両区分など、表示される項目を実車に合わせて設定します。 保存後、配車編集で表示される車両と児童の乗車可能人数を確認します。使わない車両は使用可否を見直します。 総乗車定員には運転者・添乗員を含めます。必要なチャイルドシートや荷物も考慮して実際の座席を確認してください。">
+ <div class="eyebrow">管理者・設定 <span>39 / 45</span></div>
+ <h2>車両台帳を管理する</h2><p class="route">開く場所：設定 → 車両台帳（管理者）</p>
+ <figure><button class="image-zoom" aria-label="車両台帳を管理するの画面例を拡大"><img src="images/vehicles.png" alt="車両台帳を管理するの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>車両を登録</div><span aria-hidden="true">→</span><div><b>2</b>定員・設備を確認</div><span aria-hidden="true">→</span><div><b>3</b>保存</div></div>
+ <ol class="steps"><li>車両名・ナンバー・使用可否などを登録します。実際に使う車両が識別できる名称にします。</li><li>総乗車定員、車椅子対応、点検・保険期限、車両区分など、表示される項目を実車に合わせて設定します。</li><li>保存後、配車編集で表示される車両と児童の乗車可能人数を確認します。使わない車両は使用可否を見直します。</li></ol><p class="note"><b>確認ポイント</b><br>総乗車定員には運転者・添乗員を含めます。必要なチャイルドシートや荷物も考慮して実際の座席を確認してください。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 41</p>
+ </section><section class="manual-page" id="shift-template" data-search="管理者・設定 勤務テンプレートを管理する 設定 → 勤務テンプレート（管理者） 平日・休日など、再利用する勤務パターンを作成します。名称、勤務曜日、開始・終了時刻などを設定します。 パート職員固有の初期パターンは、記録者名簿の正職・パート設定と平日／休日の曜日・時間帯を確認します。 シフト作成でテンプレート・対象職員・反映日を選び、1日または月全体へ反映します。打刻済みの予定は変更できません。 テンプレートの変更だけで、反映済みの勤務予定がすべて変更されるわけではありません。対象日で結果を確認します。">
+ <div class="eyebrow">管理者・設定 <span>40 / 45</span></div>
+ <h2>勤務テンプレートを管理する</h2><p class="route">開く場所：設定 → 勤務テンプレート（管理者）</p>
+ <figure><button class="image-zoom" aria-label="勤務テンプレートを管理するの画面例を拡大"><img src="images/shift-template.png" alt="勤務テンプレートを管理するの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>パターンを作る</div><span aria-hidden="true">→</span><div><b>2</b>曜日・時間を設定</div><span aria-hidden="true">→</span><div><b>3</b>シフトへ反映</div></div>
+ <ol class="steps"><li>平日・休日など、再利用する勤務パターンを作成します。名称、勤務曜日、開始・終了時刻などを設定します。</li><li>パート職員固有の初期パターンは、記録者名簿の正職・パート設定と平日／休日の曜日・時間帯を確認します。</li><li>シフト作成でテンプレート・対象職員・反映日を選び、1日または月全体へ反映します。打刻済みの予定は変更できません。</li></ol><p class="note"><b>確認ポイント</b><br>テンプレートの変更だけで、反映済みの勤務予定がすべて変更されるわけではありません。対象日で結果を確認します。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 42</p>
+ </section><section class="manual-page" id="permissions" data-search="管理者・設定 児発管・教室長の権限割り振り 設定 → 権限割り振り（管理者） 管理者として権限割り振りを開き、児発管または教室長を選びます。 記録確認、児童管理、シフト、業務カレンダー、送迎、共有連絡など、役職に追加する機能を選びます。 保存し、対象職員のアカウントで利用できる画面を確認します。権限変更後に再ログインが必要な場合は案内します。 管理者専用操作や個人端末の制限は、メニュー表示の変更で解除できません。必要最小限の権限にしてください。">
+ <div class="eyebrow">管理者・設定 <span>41 / 45</span></div>
+ <h2>児発管・教室長の権限割り振り</h2><p class="route">開く場所：設定 → 権限割り振り（管理者）</p>
+ <figure><button class="image-zoom" aria-label="児発管・教室長の権限割り振りの画面例を拡大"><img src="images/permissions.png" alt="児発管・教室長の権限割り振りの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>役職を選ぶ</div><span aria-hidden="true">→</span><div><b>2</b>使用機能を指定</div><span aria-hidden="true">→</span><div><b>3</b>保存・確認</div></div>
+ <ol class="steps"><li>管理者として権限割り振りを開き、児発管または教室長を選びます。</li><li>記録確認、児童管理、シフト、業務カレンダー、送迎、共有連絡など、役職に追加する機能を選びます。</li><li>保存し、対象職員のアカウントで利用できる画面を確認します。権限変更後に再ログインが必要な場合は案内します。</li></ol><p class="note"><b>確認ポイント</b><br>管理者専用操作や個人端末の制限は、メニュー表示の変更で解除できません。必要最小限の権限にしてください。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 43</p>
+ </section><section class="manual-page" id="record-settings" data-search="管理者・設定 記録の質問・テンプレートとAI文章設定 設定 → 質問・テンプレート編集／AI文章設定 質問・テンプレート編集で対象を選び、セクション・質問・選択肢・入力形式などを編集します。既存記録との関係を確認して変更します。 AI文章設定では、口調・追加指示・要約の長さなどの共通ルールを調整します。 保存後、実際の記録入力と出力を確認します。選択肢を減らした結果、必要な記録が残せなくならないか確認します。 設定の変更は、過去の保存済み文章を書き直す操作ではありません。変更前の内容を控えてから調整してください。">
+ <div class="eyebrow">管理者・設定 <span>42 / 45</span></div>
+ <h2>記録の質問・テンプレートとAI文章設定</h2><p class="route">開く場所：設定 → 質問・テンプレート編集／AI文章設定</p>
+ <figure><button class="image-zoom" aria-label="記録の質問・テンプレートとAI文章設定の画面例を拡大"><img src="images/record-settings.png" alt="記録の質問・テンプレートとAI文章設定の操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>対象設定を選ぶ</div><span aria-hidden="true">→</span><div><b>2</b>項目・文章ルールを編集</div><span aria-hidden="true">→</span><div><b>3</b>保存・入力画面で確認</div></div>
+ <ol class="steps"><li>質問・テンプレート編集で対象を選び、セクション・質問・選択肢・入力形式などを編集します。既存記録との関係を確認して変更します。</li><li>AI文章設定では、口調・追加指示・要約の長さなどの共通ルールを調整します。</li><li>保存後、実際の記録入力と出力を確認します。選択肢を減らした結果、必要な記録が残せなくならないか確認します。</li></ol><p class="note"><b>確認ポイント</b><br>設定の変更は、過去の保存済み文章を書き直す操作ではありません。変更前の内容を控えてから調整してください。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 44</p>
+ </section><section class="manual-page" id="staff" data-search="管理者・設定 職員名簿・個人ログイン・紐づけ 職員 → 記録者名簿／ログイン職員 記録者名簿で職員名・職員ID・役職・正職／パートを登録します。パートは平日・休日の既定出勤曜日と時間帯も設定します。 個人ログインを有効にし、指導員・児発管・教室長などの役職と必要な本人確認情報を設定します。 メールで登録したアカウントを使う場合も、ログイン職員と名簿の同じ職員へ紐づけます。本人名・送迎担当・出退勤が一致するか確認します。 同じ職員を重複作成せず、既存情報を確認します。職員IDやパスワードの案内は本人に安全に渡してください。">
+ <div class="eyebrow">管理者・設定 <span>43 / 45</span></div>
+ <h2>職員名簿・個人ログイン・紐づけ</h2><p class="route">開く場所：職員 → 記録者名簿／ログイン職員</p>
+ <figure><button class="image-zoom" aria-label="職員名簿・個人ログイン・紐づけの画面例を拡大"><img src="images/staff.png" alt="職員名簿・個人ログイン・紐づけの操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>職員情報を登録</div><span aria-hidden="true">→</span><div><b>2</b>個人ログインを設定</div><span aria-hidden="true">→</span><div><b>3</b>同じ職員へ紐づけ</div></div>
+ <ol class="steps"><li>記録者名簿で職員名・職員ID・役職・正職／パートを登録します。パートは平日・休日の既定出勤曜日と時間帯も設定します。</li><li>個人ログインを有効にし、指導員・児発管・教室長などの役職と必要な本人確認情報を設定します。</li><li>メールで登録したアカウントを使う場合も、ログイン職員と名簿の同じ職員へ紐づけます。本人名・送迎担当・出退勤が一致するか確認します。</li></ol><p class="note"><b>確認ポイント</b><br>同じ職員を重複作成せず、既存情報を確認します。職員IDやパスワードの案内は本人に安全に渡してください。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 45</p>
+ </section><section class="manual-page" id="devices" data-search="管理者・設定 登録端末とアクセス管理 職員 → 端末・アクセス（管理者） 端末・アクセスを開き、「この端末」などの表示で、現在使っている端末が登録済みのどれかを確認します。 端末名を識別しやすく変更し、施設共用／個人の種別と承認状態を確認します。同じ名称が重複しないよう設定します。 使わなくなった端末は取消・削除の内容を確認して操作します。アクセス時間などの事業所方針も設定します。 ブラウザや端末の入れ替え時は登録を再確認します。共用端末のQR読み取りには、施設共用としての承認が必要です。">
+ <div class="eyebrow">管理者・設定 <span>44 / 45</span></div>
+ <h2>登録端末とアクセス管理</h2><p class="route">開く場所：職員 → 端末・アクセス（管理者）</p>
+ <figure><button class="image-zoom" aria-label="登録端末とアクセス管理の画面例を拡大"><img src="images/devices.png" alt="登録端末とアクセス管理の操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>使用中端末を確認</div><span aria-hidden="true">→</span><div><b>2</b>種別・名称・承認を設定</div><span aria-hidden="true">→</span><div><b>3</b>不要端末を無効化</div></div>
+ <ol class="steps"><li>端末・アクセスを開き、「この端末」などの表示で、現在使っている端末が登録済みのどれかを確認します。</li><li>端末名を識別しやすく変更し、施設共用／個人の種別と承認状態を確認します。同じ名称が重複しないよう設定します。</li><li>使わなくなった端末は取消・削除の内容を確認して操作します。アクセス時間などの事業所方針も設定します。</li></ol><p class="note"><b>確認ポイント</b><br>ブラウザや端末の入れ替え時は登録を再確認します。共用端末のQR読み取りには、施設共用としての承認が必要です。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 46</p>
+ </section><section class="manual-page" id="invitation-audit" data-search="管理者・設定 メール招待・利用停止・監査履歴 職員 → メール招待／ログイン職員／監査履歴 メールでのログインを使う職員は、メール招待でアドレスと役職を確認して招待します。招待中の一覧で受諾状況を確認します。 退職・異動などでは、ログイン職員の利用停止・削除を慎重に行います。本人の名簿との紐づけや、自分のアカウントを誤って操作していないか確認します。 監査履歴で登録・更新・削除などの操作を確認します。問題がある場合は日時・機能・対象・画面のエラーメッセージを管理者へ伝えます。 ログイン停止・端末取消・名簿の状態はそれぞれ別です。過去記録の帰属を保つため、削除前に影響を確認してください。">
+ <div class="eyebrow">管理者・設定 <span>45 / 45</span></div>
+ <h2>メール招待・利用停止・監査履歴</h2><p class="route">開く場所：職員 → メール招待／ログイン職員／監査履歴</p>
+ <figure><button class="image-zoom" aria-label="メール招待・利用停止・監査履歴の画面例を拡大"><img src="images/team.png" alt="メール招待・利用停止・監査履歴の操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
+ <div class="flow" aria-label="操作の流れ"><div><b>1</b>招待・アカウントを選ぶ</div><span aria-hidden="true">→</span><div><b>2</b>対象と操作を確認</div><span aria-hidden="true">→</span><div><b>3</b>結果・履歴を確認</div></div>
+ <ol class="steps"><li>メールでのログインを使う職員は、メール招待でアドレスと役職を確認して招待します。招待中の一覧で受諾状況を確認します。</li><li>退職・異動などでは、ログイン職員の利用停止・削除を慎重に行います。本人の名簿との紐づけや、自分のアカウントを誤って操作していないか確認します。</li><li>監査履歴で登録・更新・削除などの操作を確認します。問題がある場合は日時・機能・対象・画面のエラーメッセージを管理者へ伝えます。</li></ol><p class="note"><b>確認ポイント</b><br>ログイン停止・端末取消・名簿の状態はそれぞれ別です。過去記録の帰属を保つため、削除前に影響を確認してください。</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · 47</p>
+ </section></main>
+ <dialog id="zoom"><button id="close-zoom" aria-label="画像の拡大を閉じる">閉じる</button><img alt="拡大した操作画面例"></dialog><script src="manual.js"></script></body></html>

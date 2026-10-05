@@ -1,6 +1,23 @@
 @import "tailwindcss";
 
 .activity-print-only { display: none; }
+.activity-sheet { width: 100%; min-width: 620px; max-width: 900px; margin: auto; color: #000; background: #fff; font-family: "Yu Gothic", "Meiryo", sans-serif; font-size: 12px; line-height: 1.45; }
+.activity-sheet-meta { font-size: 11px; margin-bottom: 4px; }
+.activity-sheet table { border-collapse: collapse; table-layout: fixed; width: 100%; }
+.activity-sheet th, .activity-sheet td { border: 1px solid #000; padding: 5px 7px; white-space: pre-wrap; overflow-wrap: anywhere; vertical-align: top; }
+.activity-sheet th { font-weight: 500; text-align: center; vertical-align: middle; }
+.activity-sheet .activity-sheet-title { font-weight: 700; font-size: 20px; text-decoration: underline; padding: 10px; }
+.activity-sheet-counts { text-align: center; }
+.activity-sheet .activity-sheet-preparations { height: 70px; }
+.activity-sheet-flow, .activity-sheet-reflection { margin-top: -1px; }
+.activity-sheet-flow td { height: 36px; }
+.activity-sheet-flow small { display: block; font-size: 10px; margin-top: 2px; }
+.activity-sheet-reflection { background: #ffff00; }
+.activity-sheet-reflection th { width: 11%; }
+.activity-sheet-reflection td { height: 50px; }
+.activity-sheet-notes { margin-top: 10px; }
+.activity-sheet-notes caption { text-align: left; font-weight: bold; margin-bottom: 3px; }
+.activity-sheet-notes th { width: 22%; }
 .facility-print-only { display: none; }
 @media print {
   html:has(.facility-workspace), body:has(.facility-workspace) { background: white !important; }
@@ -17,15 +34,24 @@
   .facility-print-only p { orphans: 3; widows: 3; }
 }
 @media print {
+  html:has(.activity-workspace), body:has(.activity-workspace) { background: white !important; }
   body:has(.activity-workspace) #root > div > header,
   body:has(.activity-workspace) [role="banner"],
-  body:has(.activity-workspace) main > :not(:has(.activity-workspace)),
+  body:has(.activity-workspace) main > :not(:has(.activity-workspace)):not(.activity-workspace),
   .activity-no-print { display: none !important; }
   .activity-workspace, .activity-print-only, .activity-print-only * { visibility: visible !important; }
   .activity-workspace { position: absolute; inset: 0; width: 100%; padding: 0; margin: 0; background: white; }
-  .activity-print-only { display: block; color: black; padding: 8mm; }
-  .activity-print-only h1 { font-size: 18pt; margin-bottom: 4mm; }
-  .activity-print-only pre { font-family: sans-serif; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 10pt; line-height: 1.6; }
+  .activity-print-only { display: block; color: black; padding: 0; }
+  .activity-print-only .activity-sheet { min-width: 0; max-width: none; font-size: 10pt; print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  .activity-print-only .activity-sheet-title { font-size: 16pt; }
+  .activity-print-only .activity-sheet th, .activity-print-only .activity-sheet td { padding: 1.5mm 2mm; }
+  .activity-print-only .activity-sheet-flow td { height: 13mm; }
+  .activity-print-only .activity-sheet-preparations { height: 20mm; }
+  .activity-print-only .activity-sheet-reflection td { height: 16mm; }
+  .activity-print-only .activity-sheet-flow small { font-size: 8pt; }
+  .activity-sheet thead { display: table-header-group; }
+  .activity-sheet tr { break-inside: avoid; }
+  .activity-sheet caption { break-after: avoid; }
 }
 
 @media print {
