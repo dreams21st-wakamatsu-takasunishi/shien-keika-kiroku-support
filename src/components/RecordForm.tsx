@@ -113,6 +113,8 @@ import { generateStructuredHolidaySummary } from '../utils/holidayRecordSummary'
 import { generateUnifiedRecordSummary } from '../utils/unifiedRecordSummary';
 import {LessonHistoryImport} from './LessonHistoryImport';
 import {evidenceScopeIssue,formatPcActivities,IMPORT_KEY,lessonEventText,readLessonEvidence} from '../learning/recordImport';
+import {applyAutomaticLessonHistory,type LessonImportTarget} from '../learning/automaticRecordImport';
+import {useLessonAutoHistory} from '../services/useLessonAutoHistory';
 
 interface RecordFormProps {
   templates: Template[];
@@ -1337,7 +1339,7 @@ function PcActivitiesInput({
           </div>
         );
       })}
-      {(() => {try {const events=readLessonEvidence(details);return events.length>0&&<div className="border-l-4 border-teal-500 px-3 text-sm text-slate-700"><p className="font-bold">確認済みの取り込み実績</p><ul className="mt-2 space-y-2">{events.map(event=><li key={`${event.studentId}:${event.id}`} className="break-words">{event.date} / {lessonEventText(event)}</li>)}</ul></div>;} catch {return <p role="alert" className="text-sm text-rose-800">取り込み済み実績の形式を確認できません。</p>;}})()}
+      {(() => {try {const events=readLessonEvidence(details);return events.length>0&&<div className="border-l-4 border-teal-500 px-3 text-sm text-slate-700"><p className="font-bold">Dレッスンから取り込んだ実績</p><ul className="mt-2 space-y-2">{events.map(event=><li key={`${event.studentId}:${event.id}`} className="break-words">{event.importMode==='automatic'?'自動反映：':'確認して追加：'}{event.date} / {lessonEventText(event)}</li>)}</ul></div>;} catch {return <p role="alert" className="text-sm text-rose-800">取り込み済み実績の形式を確認できません。</p>;}})()}
     </div>
   );
 }
@@ -1987,6 +1989,85 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const wizardQuestions = getWizardQuestions(activeTemplate);
   const activeChild = childrenList.find((child) => child.id === wizard.activeChildId);
   const activeChildDraft = wizard.childDrafts[wizard.activeChildId];
+  const [automaticLessonEnabled,setAutomaticLessonEnabled]=useState(!initialRecord);
+  const lessonTargets=wizard.selectedChildIds.filter(id=>!wizard.childDrafts[id]?.attendance.includes('欠席'));
+  const lessonAuto=useLessonAutoHistory({childIds:lessonTargets,date:wizard.date,organizationId:organizationId||'',actorId:userId||'',
+    enabled:lessonImportEnabled&&automaticLessonEnabled&&draftReady&&!editingDisabled&&!isSaving&&!savingChildId});
+  const appliedLessonRequests=useRef(new Set<string>());
+  const latestLessonGuard=useRef({editingDisabled,isSaving,savingChildId,automaticLessonEnabled});
+  latestLessonGuard.current={editingDisabled,isSaving,savingChildId,automaticLessonEnabled};
+  const lessonTargetFor=(draft:ChildDraft,template:Template|undefined,candidate:RecordModuleDraft):{target:LessonImportTarget;module?:RecordModuleDraft}|null=>{
+    if(isUnifiedTemplate(template)){
+      const module=draft.recordModules.find(item=>item.type==='pc')||candidate;
+      const section=draft.sectionAnswers[moduleSectionId(module.id)]||createModuleSection(module);
+      return {target:{section,fieldId:'module_pc_content'},...(!draft.recordModules.includes(module)?{module}:{})};
+    }
+    const fields=(template?.sections||[]).flatMap(section=>section.fields.filter(field=>field.type==='pc_activities').map(field=>({section,field})));
+    const available=fields.find(({section,field})=>{
+      const conditions=field.visibleWhen?(Array.isArray(field.visibleWhen)?field.visibleWhen:[field.visibleWhen]):[];
+      return conditions.every(condition=>{
+        const value=draft.sectionAnswers[section.id]?.answers[condition.fieldId]?.value||'';
+        return value?(Array.isArray(condition.equals)?condition.equals.includes(value):condition.equals===value)
+          :(Array.isArray(condition.equals)?condition.equals.includes('パソコン'):condition.equals==='パソコン');
+      });
+    });
+    if(!available)return null;
+    const section=draft.sectionAnswers[available.section.id]||{sectionId:available.section.id,sectionTitle:available.section.title,answers:{}};
+    return {target:{section,fieldId:available.field.id}};
+  };
+  useEffect(()=>{
+    if(editingDisabled||isSaving||savingChildId||!automaticLessonEnabled||!draftReady)return;
+    const pending=Object.values(lessonAuto.results).filter(row=>row.status==='ready'&&row.history&&row.link
+      &&row.date===wizard.date&&row.organizationId===organizationId&&row.actorId===userId
+      &&!appliedLessonRequests.current.has(`${row.requestId}:${row.childId}`));
+    if(!pending.length)return;
+    const candidates=new Map(pending.map(row=>[row.childId,createRecordModule('pc')]));
+    for(const row of pending)appliedLessonRequests.current.add(`${row.requestId}:${row.childId}`);
+    setWizard(previous=>{
+      const guard=latestLessonGuard.current;
+      if(guard.editingDisabled||guard.isSaving||guard.savingChildId||!guard.automaticLessonEnabled)return previous;
+      let childDrafts=previous.childDrafts;
+      for(const row of pending){
+        const draft=childDrafts[row.childId];
+        if(!draft||!previous.selectedChildIds.includes(row.childId)||previous.date!==row.date||draft.attendance.includes('欠席'))continue;
+        const id=draft.templateId||previous.childTemplateIds[row.childId]||previous.selectedTemplateId;
+        const template=initialRecord?initialTemplate:id===UNIFIED_TEMPLATE_ID?UNIFIED_TEMPLATE:templates.find(item=>item.id===id);
+        const destination=lessonTargetFor(draft,template,candidates.get(row.childId)!);if(!destination)continue;
+        const merged=applyAutomaticLessonHistory(draft.sectionAnswers,destination.target,row.history!,row.link!,{
+          childId:row.childId,date:row.date,organizationId:row.organizationId,actorId:row.actorId,confirmedAt:row.history!.fetchedAt,
+        });
+        if(!merged.added)continue;
+        const sections=merged.sections;
+        // Legacy period templates need their PC selector, but existing choices
+        // are never changed to a different activity.
+        if(!isUnifiedTemplate(template)){
+          const field=template?.sections.find(s=>s.id===destination.target.section.sectionId)?.fields.find(f=>f.id===destination.target.fieldId);
+          const conditions=field?.visibleWhen?(Array.isArray(field.visibleWhen)?field.visibleWhen:[field.visibleWhen]):[];
+          for(const condition of conditions){
+            const section=sections[destination.target.section.sectionId];
+            const answer=section.answers[condition.fieldId];
+            if(!answer?.value&&(Array.isArray(condition.equals)?condition.equals.includes('パソコン'):condition.equals==='パソコン'))sections[section.sectionId]={...section,answers:{...section.answers,[condition.fieldId]:{...answer,value:'パソコン',note:answer?.note||''}}};
+          }
+        }
+        childDrafts={...childDrafts,[row.childId]:{...draft,sectionAnswers:sections,
+          recordModules:destination.module?[...draft.recordModules,destination.module]:draft.recordModules,
+          skippedQuestionIds:draft.skippedQuestionIds.filter(id=>!id.includes(destination.target.fieldId)),
+        }};
+      }
+      return childDrafts===previous.childDrafts?previous:{...previous,childDrafts};
+    });
+  },[lessonAuto.results,editingDisabled,isSaving,savingChildId,automaticLessonEnabled,draftReady,organizationId,userId,wizard.date]);
+  const lessonAutoIssues=Object.values(lessonAuto.results).flatMap(row=>{
+    if(row.status==='error')return [{childId:row.childId,message:row.message}];
+    if(row.status!=='ready'||!row.history||!row.link)return [];
+    const draft=wizard.childDrafts[row.childId];if(!draft)return [];
+    const destination=lessonTargetFor(draft,templateForChild(row.childId),{id:'pc-auto-preview',type:'pc'});
+    if(!destination)return [{childId:row.childId,message:'自動反映できるパソコン欄がありません。パソコンの入力欄から実績を追加してください。'}];
+    const result=applyAutomaticLessonHistory(draft.sectionAnswers,destination.target,row.history,row.link,{
+      childId:row.childId,date:wizard.date,organizationId:organizationId||'',actorId:userId||'',confirmedAt:row.history.fetchedAt,
+    });
+    return result.issue?[{childId:row.childId,message:result.issue}]:[];
+  });
   const takeoverTarget = readOnlyDrafts
     .filter((draft) => draft.takenOverFromDraftKeys?.includes(draftKey))
     .sort((left, right) => (right.takenOverAt || right.updatedAt).localeCompare(left.takenOverAt || left.updatedAt))
@@ -4963,6 +5044,18 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           </DndContext>
         </div>
       )}
+
+      {lessonImportEnabled&&organizationId&&userId&&!readOnly&&wizard.selectedChildIds.length>0&&<section aria-label="Dレッスンの自動反映" className="rounded-xl border border-teal-200 bg-teal-50 p-3 text-sm text-teal-950">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <label className="flex min-h-10 items-center gap-2 font-bold"><input type="checkbox" checked={automaticLessonEnabled} disabled={editingDisabled||isSaving||Boolean(savingChildId)} onChange={event=>setAutomaticLessonEnabled(event.target.checked)} className="h-4 w-4 accent-teal-700"/>Dレッスンの実績を自動反映</label>
+          <button type="button" disabled={!automaticLessonEnabled||editingDisabled||isSaving||Boolean(savingChildId)||Object.values(lessonAuto.results).some(row=>row.status==='loading')} onClick={lessonAuto.refresh} className="min-h-10 rounded-lg border border-teal-400 bg-white px-3 font-bold disabled:opacity-50">最新の実績を再取得</button>
+        </div>
+        <p className="text-xs leading-relaxed">選択した児童の{wizard.date}の練習内容を「パソコン」に追加します。手入力・観察は保持し、記録の確定保存は職員が行います。{initialRecord&&!automaticLessonEnabled?'保存済み記録は自動変更しません。必要な場合のみオンにしてください。':''}</p>
+        {automaticLessonEnabled&&<details className="mt-2"><summary className="cursor-pointer py-1 text-xs font-bold">取得状況：{Object.values(lessonAuto.results).filter(row=>row.status==='ready').length}名の実績あり{lessonAutoIssues.length>0?`・要確認 ${lessonAutoIssues.length}名`:''}{Object.values(lessonAuto.results).some(row=>row.status==='loading')?'・取得中':''}</summary>
+          <ul className="mt-1 space-y-1 text-xs">{Object.values(lessonAuto.results).map(row=><li key={row.childId} className="break-words">{childrenList.find(child=>child.id===row.childId)?.name||'児童'}：{lessonAutoIssues.find(issue=>issue.childId===row.childId)?.message||row.message}</li>)}</ul>
+        </details>}
+        {lessonAutoIssues.length>0&&<p role="alert" className="mt-2 text-xs font-bold text-rose-800">一部の実績は自動反映できませんでした。取得状況を確認し、必要に応じて再取得してください。手入力は続けられます。</p>}
+      </section>}
 
       <section className="w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="p-5 sm:p-7 border-b border-slate-100">

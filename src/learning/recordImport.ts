@@ -8,6 +8,7 @@ type Details=Record<string,string|string[]>;
 export interface ImportedLessonEvent extends LessonEvent {
  childId:string;date:string;organizationId:string;sourceProjectRef:string;sourceTable:string;
  studentId:string;campusId:string;linkId:string;linkRevision:number;confirmedBy:string;confirmedAt:string;
+ importMode?:'manual'|'automatic';
 }
 const nonempty=(v:unknown,max=160):v is string=>typeof v==='string'&&v.trim().length>0&&v.length<=max;
 export const evidenceKey=(event:ImportedLessonEvent)=>JSON.stringify([event.sourceProjectRef,event.sourceTable,event.studentId,event.id]);
@@ -22,12 +23,13 @@ export function readLessonEvidence(details?:Details):ImportedLessonEvent[]{
    if(!nonempty(e.childId)||!nonempty(e.organizationId)||!nonempty(e.confirmedBy)||!nonempty(e.linkId)
     ||!isServiceDate(e.date)||!Number.isSafeInteger(e.linkRevision)||e.linkRevision<1
     ||typeof e.confirmedAt!=='string'||!Number.isFinite(Date.parse(e.confirmedAt)))throw Error();
+   if(e.importMode!==undefined&&!['manual','automatic'].includes(e.importMode))throw Error();
    const link={source_project_ref:e.sourceProjectRef,source_table:e.sourceTable,source_student_id:e.studentId,source_campus_id:e.campusId};
    const event=parseHistory({schemaVersion:1,date:e.date,historyComplete:false,events:[e],identity:{
     sourceProjectRef:e.sourceProjectRef,dataTable:e.sourceTable,studentId:e.studentId,campusId:e.campusId,displayName:'学習アカウント',birthDate:'',
    }},link,e.date).events[0];
    const item={...event,childId:e.childId,date:e.date,organizationId:e.organizationId,sourceProjectRef:e.sourceProjectRef,
-    sourceTable:e.sourceTable,studentId:e.studentId,campusId:e.campusId,linkId:e.linkId,linkRevision:e.linkRevision,confirmedBy:e.confirmedBy,confirmedAt:e.confirmedAt};
+    sourceTable:e.sourceTable,studentId:e.studentId,campusId:e.campusId,linkId:e.linkId,linkRevision:e.linkRevision,confirmedBy:e.confirmedBy,confirmedAt:e.confirmedAt,...(e.importMode?{importMode:e.importMode}:{})};
    const key=evidenceKey(item);if(seen.has(key))throw Error();seen.add(key);return item;
   });
  }catch{throw Error('取り込み済み実績の形式を確認できません。実績を除いて再取得してください。');}
@@ -61,7 +63,8 @@ export function formatPcActivities(details:Details):string{
  });
  return [typeof details.pcManualValue==='string'?details.pcManualValue:'',...parts].filter(Boolean).join('、');
 }
-export function importLessonEvents(answer:SectionFieldAnswer,history:LessonHistory,link:LessonLink,selectedIds:string[],context:{childId:string;date:string;organizationId:string;actorId:string;confirmedAt:string}):SectionFieldAnswer{
+export interface LessonImportContext {childId:string;date:string;organizationId:string;actorId:string;confirmedAt:string;importMode?:'manual'|'automatic'}
+export function importLessonEvents(answer:SectionFieldAnswer,history:LessonHistory,link:LessonLink,selectedIds:string[],context:LessonImportContext):SectionFieldAnswer{
  if(context.childId!==link.child_id||!nonempty(context.organizationId)||!nonempty(context.actorId)
   ||!nonempty(context.confirmedAt)||!Number.isFinite(Date.parse(context.confirmedAt))||!link.active||context.organizationId!==link.organization_id
   ||!selectedIds.length||new Set(selectedIds).size!==selectedIds.length)throw Error('取り込み対象と確認職員を確認してください。');
@@ -72,7 +75,7 @@ export function importLessonEvents(answer:SectionFieldAnswer,history:LessonHisto
  const existing=readLessonEvidence(details),seen=new Set(existing.map(evidenceKey));
  const added:ImportedLessonEvent[]=selected.map(event=>({...event,childId:context.childId,date:context.date,organizationId:context.organizationId,
   sourceProjectRef:link.source_project_ref,sourceTable:link.source_table,studentId:link.source_student_id,campusId:link.source_campus_id,
-  linkId:link.id,linkRevision:link.revision,confirmedBy:context.actorId,confirmedAt:context.confirmedAt})).filter(e=>!seen.has(evidenceKey(e)));
+  linkId:link.id,linkRevision:link.revision,confirmedBy:context.actorId,confirmedAt:context.confirmedAt,...(context.importMode?{importMode:context.importMode}:{})})).filter(e=>!seen.has(evidenceKey(e)));
  if(existing.length+added.length>MAX_IMPORTED_EVENTS)throw Error(`実績は1項目につき${MAX_IMPORTED_EVENTS}件まで取り込めます。`);
  if(!added.length)return answer;
  if(!strings(details,'selections').length&&answer.value.trim())details.pcManualValue=answer.value;
