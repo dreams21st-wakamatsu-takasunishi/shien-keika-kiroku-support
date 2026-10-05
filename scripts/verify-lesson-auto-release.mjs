@@ -18,7 +18,9 @@ if(!entry)throw Error('Entry module not found');
 const js=await (await read(entry)).text();
 for(const text of ['Dレッスンの実績を自動反映','最新の実績を再取得','保存済み記録は自動変更しません。',
  '取り込み済みの実績がDレッスン側で変更されています。','学習連携が変更されました。再取得してください。',
- 'Dレッスンから取り込んだ実績','自動反映：','dLessonHistoryEvidence']){
+ 'Dレッスンの記録への書き出し','自動反映：','dLessonHistoryEvidence',
+ '要点にまとめる','実績をすべて記載','取り込んだ実績の詳細（',
+ 'dLessonSummaryMode','終了分','文字数確認分']){
  if(!js.includes(text))throw Error(`Feature absent: ${text}`);
 }
 let assets=0;
@@ -26,4 +28,4 @@ for(const path of manifest.assets.filter(path=>/\.(js|css|mjs)$/.test(path))){
  if(!/^\.\/assets\/[A-Za-z0-9_.-]+$/.test(path))throw Error('Unexpected asset path');
  await read(path);assets++;
 }
-console.log(JSON.stringify({version:version.version,automaticLessonImportIncluded:true,runtimeAssetsResponding:assets}));
+console.log(JSON.stringify({version:version.version,automaticLessonImportIncluded:true,conciseLessonSummaryIncluded:true,runtimeAssetsResponding:assets}));

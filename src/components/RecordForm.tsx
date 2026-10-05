@@ -1273,7 +1273,7 @@ function PcActivitiesInput({
         const selected = selections.includes(selection);
         const isExpanded = selected && expanded === selection;
         const summary = selection === 'Dレッスン'
-          ? [...detailArray(details, 'dLessonActivities'), ...(importedEvents.length ? [`実績 ${importedEvents.length}件確認済み`] : [])].join('・')
+          ? [...detailArray(details, 'dLessonActivities'), ...(importedEvents.length ? [`取り込み実績 ${importedEvents.length}件`] : [])].join('・')
           : selection === '文章入力模擬試験'
             ? getMockExamAttempts(details).map((attempt, index) => {
                 const values = [
@@ -1339,7 +1339,16 @@ function PcActivitiesInput({
           </div>
         );
       })}
-      {(() => {try {const events=readLessonEvidence(details);return events.length>0&&<div className="border-l-4 border-teal-500 px-3 text-sm text-slate-700"><p className="font-bold">Dレッスンから取り込んだ実績</p><ul className="mt-2 space-y-2">{events.map(event=><li key={`${event.studentId}:${event.id}`} className="break-words">{event.importMode==='automatic'?'自動反映：':'確認して追加：'}{event.date} / {lessonEventText(event)}</li>)}</ul></div>;} catch {return <p role="alert" className="text-sm text-rose-800">取り込み済み実績の形式を確認できません。</p>;}})()}
+      {(() => {try {const events=readLessonEvidence(details);return events.length>0&&<div className="space-y-3 rounded-xl border border-teal-200 bg-white p-3 text-sm text-slate-700">
+        <p className="font-bold">Dレッスンの記録への書き出し</p>
+        <p className="text-xs">新規取り込みは要点表示です。「要点にまとめる」を押すと現在の記録を短縮できます。元実績は下の詳細から確認できます。</p>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={()=>commit({...details,dLessonSummaryMode:'concise'})} className="min-h-11 rounded-lg bg-teal-700 px-3 font-bold text-white">要点にまとめる</button>
+          <button type="button" onClick={()=>commit({...details,dLessonSummaryMode:'detailed'})} className="min-h-11 rounded-lg border border-slate-300 px-3 font-bold">実績をすべて記載</button>
+        </div>
+        <p className="break-words whitespace-pre-wrap" aria-label="パソコン取り組み内容の書き出し">{answer.value}</p>
+        <details><summary className="cursor-pointer py-2 font-bold text-teal-800">取り込んだ実績の詳細（{events.length}件）</summary><ul className="mt-2 max-h-72 space-y-2 overflow-y-auto">{events.map(event=><li key={`${event.studentId}:${event.id}`} className="break-words">{event.importMode==='automatic'?'自動反映：':'確認して追加：'}{event.date} / {lessonEventText(event)}</li>)}</ul></details>
+      </div>;} catch {return <p role="alert" className="text-sm text-rose-800">取り込み済み実績の形式を確認できません。</p>;}})()}
     </div>
   );
 }

@@ -1,6 +1,7 @@
 import type {SectionFieldAnswer} from '../types';
 import {getMockExamAttempts} from '../utils/recordIncompleteDetails';
 import {isServiceDate,parseHistory,type LessonEvent,type LessonHistory,type LessonLink} from './contracts';
+import {summarizeLessonEvents} from './lessonSummary';
 
 export const IMPORT_KEY='dLessonHistoryEvidence';
 export const MAX_IMPORTED_EVENTS=50;
@@ -49,7 +50,10 @@ export function formatPcActivities(details:Details):string{
  const parts=strings(details,'selections').map(selection=>{
   if(selection==='Dレッスン'){
    const evidence=readLessonEvidence(details);
-   const content=[...strings(details,'dLessonActivities'),...evidence.map(e=>`実績：${lessonEventText(e)}`)];
+   const imported=details.dLessonSummaryMode==='detailed'
+    ?evidence.map(e=>`実績：${lessonEventText(e)}`)
+    :evidence.length?[summarizeLessonEvents(evidence)]:[];
+   const content=[...strings(details,'dLessonActivities'),...imported];
    return content.length?`Dレッスン（${content.join('・')}）`:'Dレッスン';
   }
   if(selection==='文章入力模擬試験'){

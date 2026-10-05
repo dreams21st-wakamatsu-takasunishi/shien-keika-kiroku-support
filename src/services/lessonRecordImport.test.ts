@@ -13,7 +13,7 @@ const context={childId:link.child_id,date:history.date,organizationId:link.organ
 const empty:SectionFieldAnswer={value:'',note:''};
 test('confirmed lesson import keeps only selected facts and bounded source metadata',()=>{
  const result=importLessonEvents(empty,history,link,['mouse-1'],context);
- assert.match(result.value,/09:00.*M-1.*クリア/);assert.doesNotMatch(result.value,/120文字|自力|姿勢|支援/);
+ assert.match(result.value,/マウス練習1回.*M-1.*クリア1回/);assert.doesNotMatch(result.value,/09:00|120文字|自力|姿勢|支援/);
  const evidence=readLessonEvidence(result.nestedDetails);assert.equal(evidence.length,1);assert.equal(evidence[0].confirmedBy,context.actorId);
  assert.equal(evidence[0].linkRevision,1);assert.equal(evidence[0].studentId,link.source_student_id);
  assert.ok(!result.nestedDetails?.[IMPORT_KEY].includes('2018-01-01'));assert.ok(!result.nestedDetails?.[IMPORT_KEY].includes('displayName'));

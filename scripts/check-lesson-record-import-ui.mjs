@@ -48,6 +48,18 @@ async function check(page,url){
  assert(answer().value.includes('元の入力')&&answer().value.includes('M-1')&&!answer().value.includes('120文字'),'manual and selected evidence only');
  assert(answer().note==='職員の手入力備考','manual note preserved');
  assert(lastDraft.childDrafts['child-import-a'].sectionAnswers.pc.answers.pc_posture.value==='職員が観察した内容','observation untouched');
+ assert(!answer().value.includes('実績：')&&!answer().value.includes('09:00'),'import defaults to concise output');
+ const originalEvidence=answer().nestedDetails.dLessonHistoryEvidence;
+ await page.getByRole('button',{name:'実績をすべて記載',exact:true}).click();
+ await wait(()=>answer().value.includes('実績：09:00'));
+ await page.getByRole('button',{name:'要点にまとめる',exact:true}).click();
+ await wait(()=>!answer().value.includes('実績：')&&answer().value.includes('マウス練習1回'));
+ assert(answer().nestedDetails.dLessonHistoryEvidence===originalEvidence,'output switches preserve all source evidence');
+ const rawDetails=page.locator('details').filter({has:page.getByText('取り込んだ実績の詳細（1件）',{exact:true})});
+ assert(await rawDetails.getAttribute('open')===null,'raw imported details start collapsed');
+ await rawDetails.locator('summary').click();
+ assert((await rawDetails.textContent()).includes('09:00'),'raw time is available in details');
+ await rawDetails.locator('summary').click();
  await page.setViewportSize({width:1280,height:900});
  await page.evaluate(()=>window.scrollTo(0,0));
  await page.screenshot({path:'output/playwright/import-form-desktop.png',fullPage:true});
@@ -88,6 +100,6 @@ async function check(page,url){
  await page.getByRole('button',{name:'入力を終えて確認',exact:true}).click();
  await page.getByText('Dレッスン実績の確認が必要です',{exact:true}).waitFor();
  assert(errors.length===0,errors.join(','));
- return {passed:true,cases:['full record form integration','confirmed selection','autosaved draft projection','manual content preservation','no inferred observations','duplicate prevention','remove evidence','revoked link','changed source event','child/date switch','empty history','fetch retry','read-only','pre-save date mismatch error','desktop/mobile'],historyCalls:calls.filter(c=>c.action==='history').length};
+ return {passed:true,cases:['full record form integration','confirmed selection','autosaved draft projection','manual content preservation','no inferred observations','concise/detail output switches','collapsed source evidence','duplicate prevention','remove evidence','revoked link','changed source event','child/date switch','empty history','fetch retry','read-only','pre-save date mismatch error','desktop/mobile'],historyCalls:calls.filter(c=>c.action==='history').length};
 }
 try{command('open','about:blank');const output=command('run-code',`async (page)=>{return await (${check.toString()})(page,${JSON.stringify(url.href)});}`);const result=output.match(/### Result\s+([\s\S]*?)\s+### Ran/);if(!result||JSON.parse(result[1]).passed!==true)throw Error(`UI regression did not complete: ${output}`);console.log(result[1]);}finally{command('close');}
