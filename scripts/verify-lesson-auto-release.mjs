@@ -20,7 +20,9 @@ for(const text of ['Dレッスンの実績を自動反映','最新の実績を�
  '取り込み済みの実績がDレッスン側で変更されています。','学習連携が変更されました。再取得してください。',
  'Dレッスンの記録への書き出し','自動反映：','dLessonHistoryEvidence',
  '要点にまとめる','実績をすべて記載','取り込んだ実績の詳細（',
- 'dLessonSummaryMode','正確率未確認','文字数未確認','課題名・完了状況・正確率・文字数をまとめます。',
+ // Unknown-result labels are composed at runtime; literal bundle checks use
+ // their stable metric controls and outcome label instead. Unit tests cover output.
+ 'dLessonSummaryMode','正確率（%）','入力文字数','完了状況未確認','課題名・完了状況・正確率・文字数をまとめます。',
  '実績がない取り組みを手入力','dLessonManualExercises',
  '事業所種別を保存','保育所等訪問支援も利用する','organization_service_settings','visiting_support_enabled']){
  if(!js.includes(text))throw Error(`Feature absent: ${text}`);
