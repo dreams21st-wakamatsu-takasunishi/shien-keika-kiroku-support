@@ -271,6 +271,8 @@ export interface Template {
   wizardQuestions?: Partial<WizardQuestions>;
 }
 
+export type CareType = '児童発達支援' | '放課後等デイサービス' | '保育所等訪問支援';
+
 export interface ChildProfile {
   id: string;
   name: string; // e.g. 田中 太郎
@@ -280,7 +282,9 @@ export interface ChildProfile {
   regularDays?: Weekday[];
   regularDaysEffectiveFrom?: string;
   regularDaySchedules?: RegularDaySchedule[];
-  careType?: '児童発達支援' | '放課後等デイサービス';
+  careType?: CareType;
+  /** Also receives visiting support alongside the primary day-service type. */
+  visitingSupportEnabled?: boolean;
   serviceSuspended?: boolean;
   transportProgram?: '小学部' | 'キャリアズ';
   transportationRequired?: boolean;

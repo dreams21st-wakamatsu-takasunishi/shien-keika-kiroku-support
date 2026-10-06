@@ -1,4 +1,5 @@
 import type { SectionFieldAnswer } from '../types';
+import {manualLessonIssues,readManualLessonExercises} from '../learning/manualLessonPractice';
 import {
   HOMEWORK_ACADEMIC_SUBJECTS,
   HOMEWORK_OTHER_MODES,
@@ -67,12 +68,16 @@ export function getIncompleteStudyExtras(details?: NestedDetails): IncompleteSel
   return issues;
 }
 
-export function getIncompletePcActivities(details?: NestedDetails): IncompleteSelection[] {
+export function getIncompletePcActivities(details?: NestedDetails,hasImportedEvidence=false): IncompleteSelection[] {
   if (!details) return [];
   const selections = detailArray(details, 'selections');
   const issues: IncompleteSelection[] = [];
-  if (selections.includes('Dレッスン') && detailArray(details, 'dLessonActivities').length === 0) {
-    issues.push({ selection: 'Dレッスン', missing: ['練習内容'] });
+  if (selections.includes('Dレッスン')) {
+    let count=0;
+    try{count=readManualLessonExercises(details).length;}catch{/* Reported as a manual format issue below. */}
+    const missing=manualLessonIssues(details);
+    if (!hasImportedEvidence && !count && !missing.length && !detailArray(details,'dLessonActivities').length) missing.unshift('練習内容');
+    if (missing.length) issues.push({selection:'Dレッスン',missing});
   }
   if (selections.includes('文章入力模擬試験')) {
     const incompleteAttempt = getMockExamAttempts(details)

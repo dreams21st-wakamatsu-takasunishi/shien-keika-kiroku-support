@@ -6,7 +6,7 @@ const corsHeaders = {
 };
 
 const WEEKDAYS = ['月', '火', '水', '木', '金', '土', '日'] as const;
-const CARE_TYPES = ['児童発達支援', '放課後等デイサービス'] as const;
+const CARE_TYPES = ['児童発達支援', '放課後等デイサービス', '保育所等訪問支援'] as const;
 const ALLOWED_ACTIONS = [
   'schedule_regular_days',
   'update_child_profile',
@@ -473,7 +473,10 @@ Deno.serve(async (request) => {
         if (Object.hasOwn(changes, 'name')) updateFields.name = String(changes.name).trim();
         if (Object.hasOwn(changes, 'kana')) updateFields.kana = String(changes.kana || '').trim() || null;
         if (Object.hasOwn(changes, 'birthDate')) updateFields.birth_date = normalizeDate(changes.birthDate);
-        if (Object.hasOwn(changes, 'careType')) updateFields.care_type = String(changes.careType);
+        if (Object.hasOwn(changes, 'careType')) {
+          updateFields.care_type = String(changes.careType);
+          if (changes.careType === '保育所等訪問支援') updateFields.visiting_support_enabled = true;
+        }
         if (Object.keys(updateFields).length === 0) return jsonResponse({ error: '変更内容がありません。' }, 400);
 
         const { data: updated, error } = await serviceClient
@@ -482,7 +485,7 @@ Deno.serve(async (request) => {
           .eq('organization_id', profile.organization_id)
           .eq('id', action.child_id)
           .is('deleted_at', null)
-          .select('name, kana, birth_date, care_type, notes')
+          .select('name, kana, birth_date, care_type, visiting_support_enabled, notes')
           .single();
         if (error) throw error;
         const message = `${updated.name}さんの児童基本情報を更新しました。`;
@@ -494,6 +497,7 @@ Deno.serve(async (request) => {
             kana: updated.kana || undefined,
             birthDate: updated.birth_date || undefined,
             careType: updated.care_type || undefined,
+            visitingSupportEnabled: updated.visiting_support_enabled === true || updated.care_type === '保育所等訪問支援',
             notes: updated.notes || undefined,
           },
         });
@@ -746,7 +750,7 @@ ${JSON.stringify(deidentifiedRecords).slice(0, 14000)}`;
    payload: {"effectiveDate":"YYYY-MM-DD","regularDays":["月","火"]}
 2. update_child_profile
    児童氏名・フリガナ・生年月日・サービス種別の修正。
-   payload: {"changes":{"name":"任意","kana":"任意","birthDate":"YYYY-MM-DD","careType":"児童発達支援 または 放課後等デイサービス"}}
+   payload: {"changes":{"name":"任意","kana":"任意","birthDate":"YYYY-MM-DD","careType":"児童発達支援 または 放課後等デイサービス または 保育所等訪問支援"}}
    指示された項目だけchangesへ含める。
 3. update_child_notes
    指導上の留意点の追記または置き換え。

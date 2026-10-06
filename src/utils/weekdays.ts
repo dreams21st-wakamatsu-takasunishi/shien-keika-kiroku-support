@@ -20,6 +20,9 @@ export function getLocalDateString(date = new Date()) {
 }
 
 export function getRegularDaysForDate(child: ChildProfile, targetDate: string): Weekday[] {
+  // Visiting support is not a day-service attendance/transport schedule.
+  // Preserve old values for a future service switch, but never auto-reflect them.
+  if (child.careType === '保育所等訪問支援') return [];
   const baseEffectiveFrom = child.regularDaysEffectiveFrom || '0001-01-01';
   const candidates = [
     {

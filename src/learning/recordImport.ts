@@ -2,6 +2,7 @@ import type {SectionFieldAnswer} from '../types';
 import {getMockExamAttempts} from '../utils/recordIncompleteDetails';
 import {isServiceDate,parseHistory,type LessonEvent,type LessonHistory,type LessonLink} from './contracts';
 import {summarizeLessonEvents} from './lessonSummary';
+import {legacyLessonActivities,summarizeManualLessonExercises} from './manualLessonPractice';
 
 export const IMPORT_KEY='dLessonHistoryEvidence';
 export const MAX_IMPORTED_EVENTS=50;
@@ -53,8 +54,9 @@ export function formatPcActivities(details:Details):string{
    const imported=details.dLessonSummaryMode==='detailed'
     ?evidence.map(e=>`実績：${lessonEventText(e)}`)
     :evidence.length?[summarizeLessonEvents(evidence)]:[];
-   const content=[...strings(details,'dLessonActivities'),...imported];
-   return content.length?`Dレッスン（${content.join('・')}）`:'Dレッスン';
+   const manual=summarizeManualLessonExercises(details);
+   const content=[...legacyLessonActivities(details,evidence),...imported,...(manual?[`手入力：${manual}`]:[])];
+   return content.length?`Dレッスン（${content.join('／')}）`:'Dレッスン';
   }
   if(selection==='文章入力模擬試験'){
    const attempts=getMockExamAttempts(details).map((attempt,index)=>{

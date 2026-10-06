@@ -20,7 +20,9 @@ for(const text of ['Dレッスンの実績を自動反映','最新の実績を�
  '取り込み済みの実績がDレッスン側で変更されています。','学習連携が変更されました。再取得してください。',
  'Dレッスンの記録への書き出し','自動反映：','dLessonHistoryEvidence',
  '要点にまとめる','実績をすべて記載','取り込んだ実績の詳細（',
- 'dLessonSummaryMode','終了分','文字数確認分']){
+ 'dLessonSummaryMode','正確率未確認','文字数未確認','課題名・完了状況・正確率・文字数をまとめます。',
+ '実績がない取り組みを手入力','dLessonManualExercises',
+ '事業所種別を保存','保育所等訪問支援も利用する','organization_service_settings','visiting_support_enabled']){
  if(!js.includes(text))throw Error(`Feature absent: ${text}`);
 }
 let assets=0;
@@ -28,4 +30,4 @@ for(const path of manifest.assets.filter(path=>/\.(js|css|mjs)$/.test(path))){
  if(!/^\.\/assets\/[A-Za-z0-9_.-]+$/.test(path))throw Error('Unexpected asset path');
  await read(path);assets++;
 }
-console.log(JSON.stringify({version:version.version,automaticLessonImportIncluded:true,conciseLessonSummaryIncluded:true,runtimeAssetsResponding:assets}));
+console.log(JSON.stringify({version:version.version,automaticLessonImportIncluded:true,taskResultsIncluded:true,manualLessonIntegrationIncluded:true,visitingServiceSelectionIncluded:true,runtimeAssetsResponding:assets}));

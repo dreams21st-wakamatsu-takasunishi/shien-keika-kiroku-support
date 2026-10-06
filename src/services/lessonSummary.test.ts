@@ -14,29 +14,36 @@ const examples:LessonEvent[]=[
  ...[17,0,0].map(count=>event('text','とちゅうでやめた',`うった数 ${count}文字 / 0分44秒`)),
 ].map((row,index)=>({...row,id:`event-${index}`}));
 
-test('many practice logs become concise facts, with partial and finished counts separated',()=>{
+test('practice summary retains the task, outcome and metrics instead of only category totals',()=>{
  const frozen=structuredClone(examples),summary=summarizeLessonEvents(examples);
- assert.equal(summary,'文章入力練習10回（終了7回、途中終了3回、終了分110文字）、キーボード練習3回（クリア3回）');
- assert.doesNotMatch(summary,/127文字|ミス|スコア|96%|16:00|意欲|自力|姿勢/);
+ assert.equal(summary,'文章入力練習：課題名未登録〔完了・0～34文字・7回／途中終了・0～17文字・3回〕／タイピング練習：課題名未登録〔完了・正確率96%・3回〕');
+ assert.doesNotMatch(summary,/127文字|ミス|スコア|16:00|意欲|自力|姿勢/);
  assert.deepEqual(examples,frozen);
 });
 test('unknown results, missing amounts and partial zero counts are not inferred as completion',()=>{
- assert.equal(summarizeLessonEvents([event('text','練習','スコア 120 / ミス 0か所')]),'文章入力練習1回');
- assert.equal(summarizeLessonEvents([event('text','未完了','120文字')]),'文章入力練習1回（入力120文字（文字数確認分））');
- assert.equal(summarizeLessonEvents([event('text','とちゅうでやめた','うった数 0文字')]),'文章入力練習1回（途中終了1回）');
- assert.equal(summarizeLessonEvents([event('text','おわり','うった数 0文字')]),'文章入力練習1回（終了1回、終了分0文字）');
- assert.equal(summarizeLessonEvents([event('mouse','未クリア','120文字')]),'マウス練習1回');
- assert.equal(summarizeLessonEvents([event('keyboard','クリア','うった数 25回')]),'キーボード練習1回（クリア1回）');
+ assert.equal(summarizeLessonEvents([event('text','練習','スコア 120 / ミス 0か所')]),'文章入力練習：課題名未登録〔完了状況未確認・文字数未確認〕');
+ assert.equal(summarizeLessonEvents([event('text','未完了','120文字')]),'文章入力練習：課題名未登録〔完了状況未確認・120文字〕');
+ assert.equal(summarizeLessonEvents([event('text','とちゅうでやめた','うった数 0文字')]),'文章入力練習：課題名未登録〔途中終了・0文字〕');
+ assert.equal(summarizeLessonEvents([event('text','おわり','うった数 0文字')]),'文章入力練習：課題名未登録〔完了・0文字〕');
+ assert.equal(summarizeLessonEvents([event('mouse','未クリア','120文字')]),'マウス練習：課題名未登録〔完了状況未確認〕');
+ assert.equal(summarizeLessonEvents([event('keyboard','クリア','うった数 25回')]),'タイピング練習：課題名未登録〔完了・正確率未確認〕');
 });
 test('partial known character counts are labeled, scores are never counted as typed text',()=>{
- assert.equal(summarizeLessonEvents([event('text','おわり','うった数 １２文字'),event('text','おわり','スコア 90')]),'文章入力練習2回（終了2回、終了分12文字（文字数確認分））');
- assert.equal(summarizeLessonEvents([event('text','おわり','文字数 1,200文字 / スコア 100')]),'文章入力練習1回（終了1回、終了分1200文字）');
- assert.equal(summarizeLessonEvents([event('text','おわり','-5文字')]),'文章入力練習1回（終了1回）');
+ assert.equal(summarizeLessonEvents([event('text','おわり','うった数 １２文字'),event('text','おわり','スコア 90')]),'文章入力練習：課題名未登録〔完了・12文字（文字数未確認1回）・2回〕');
+ assert.equal(summarizeLessonEvents([event('text','おわり','文字数 1,200文字 / スコア 100')]),'文章入力練習：課題名未登録〔完了・1200文字〕');
+ assert.equal(summarizeLessonEvents([event('text','おわり','-5文字')]),'文章入力練習：課題名未登録〔完了・文字数未確認〕');
+ assert.equal(summarizeLessonEvents([event('text','おわり','文字数 1,,200文字')]),'文章入力練習：課題名未登録〔完了・文字数未確認〕');
 });
-test('many titles, unknown categories and unsupported metrics cannot grow the summary like raw logs',()=>{
- const many=Array.from({length:50},(_,i)=>event('unknown-'+i,'練習','スコア 1',`長い課題名${'x'.repeat(100)}`));
- assert.equal(summarizeLessonEvents(many),'その他の練習50回');
+test('repeated tasks group by task and outcome without truncating different or long titles',()=>{
+ const many=Array.from({length:50},()=>event('unknown','練習','スコア 1',`長い課題名${'x'.repeat(100)}`));
+ assert.equal(summarizeLessonEvents(many),`その他の練習：長い課題名${'x'.repeat(100)}〔完了状況未確認・50回〕`);
  assert.equal(summarizeLessonEvents([]),'');
+ assert.equal(summarizeLessonEvents([event('text','おわり','34文字','ぶんしょう ももたろう'),event('text','とちゅうでやめた','17文字','ぶんしょう ももたろう'),event('text','おわり','12文字','ぶんしょう はじめて')]),'文章入力練習：ももたろう〔完了・34文字／途中終了・17文字〕、はじめて〔完了・12文字〕');
+});
+test('typing topics keep accuracy per task and outcome, without fabricated means',()=>{
+ const summary=summarizeLessonEvents([event('keyboard','クリア','せいかく 96%','キーボード なかゆび(うえ)'),event('keyboard','クリア','正確率 88%','キーボード くすりゆび(ホーム)'),event('keyboard','中断','正確率 ５０.５％','キーボード なかゆび(うえ)'),event('keyboard','クリア','ミス 0回 / スコア 100','キーボード は行(ブラインド)')]);
+ assert.equal(summary,'タイピング練習：なかゆび(うえ)〔完了・正確率96%／途中終了・正確率50.5%〕、くすりゆび(ホーム)〔完了・正確率88%〕、は行(ブラインド)〔完了・正確率未確認〕');
+ assert.match(summarizeLessonEvents([event('keyboard','クリア','正確率 101%','A'),event('keyboard','クリア','正確率 -5%','B')]),/A〔完了・正確率未確認〕、B〔完了・正確率未確認〕/);
 });
 
 const link:LessonLink={id:'fixture-link',organization_id:'fixture-org',child_id:'fixture-child',source_project_ref:'abcdefghijklmnopqrst',source_table:'user_data',source_student_id:'student_fixture',source_campus_id:'main',source_display_name:'架空児童',active:true,revision:1,verified_at:'2026-10-05T07:00:00Z'};
@@ -54,6 +61,6 @@ test('summary/detail switches preserve raw evidence, staff notes, other activiti
  assert.equal(imported.note,'職員が記入した支援');
  assert.match(concise,/タイピング練習/);assert.match(concise,/その他（職員の手入力）/);
  const summary=generateUnifiedRecordSummary({recorderName:'架空職員',attendance:'出席',expressions:[],snack:'',sectionAnswers:{__record_modules:{sectionId:'__record_modules',sectionTitle:'項目',answers:{pc:{value:'pc'}}},'record-module-pc':{sectionId:'record-module-pc',sectionTitle:'パソコン',answers:{module_pc_content:imported,module_pc_posture:{value:'職員が観察した姿勢'}}}}});
- assert.match(summary,/終了分110文字/);assert.match(summary,/職員が観察した姿勢/);assert.match(summary,/職員が記入した支援/);
+ assert.match(summary,/完了・0～34文字・7回/);assert.match(summary,/職員が観察した姿勢/);assert.match(summary,/職員が記入した支援/);
  assert.doesNotMatch(summary,/実績：|スコア/);
 });

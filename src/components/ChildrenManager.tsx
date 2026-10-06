@@ -34,6 +34,8 @@ import { getCanonicalTransportLocations, getDefaultTransportLocation } from '../
 import { resolvedTransportArea } from '../utils/transportArea';
 import { buildSiblingIdsByChild } from '../utils/childSiblings';
 import { ChildTransportSettings } from './ChildTransportSettings';
+import { CARE_TYPES,childCareTypes,childServiceLabel,VISITING_SERVICE } from '../utils/careServices';
+import type { CareType } from '../types';
 
 interface ChildrenManagerProps {
   childrenList: ChildProfile[];
@@ -180,7 +182,8 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   const [birthDate, setBirthDate] = useState('');
   const [grade, setGrade] = useState('小学3年生');
   const [regularDays, setRegularDays] = useState<Weekday[]>([]);
-  const [careType, setCareType] = useState<'児童発達支援' | '放課後等デイサービス'>('放課後等デイサービス');
+  const [careType, setCareType] = useState<CareType>('放課後等デイサービス');
+  const [visitingSupportEnabled,setVisitingSupportEnabled] = useState(false);
   const [serviceSuspended, setServiceSuspended] = useState(false);
   const [transportProgram, setTransportProgram] = useState<'小学部' | 'キャリアズ'>('小学部');
   const [transportationRequired, setTransportationRequired] = useState(false);
@@ -210,6 +213,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setGrade('未就学');
     setRegularDays([]);
     setCareType('放課後等デイサービス');
+    setVisitingSupportEnabled(false);
     setServiceSuspended(false);
     setTransportProgram('小学部');
     setTransportationRequired(false);
@@ -230,8 +234,9 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setKana(child.kana || '');
     setBirthDate(child.birthDate || '');
     setGrade(child.grade || '小学3年生');
-    setRegularDays(getRegularDaysForDate(child, today));
+    setRegularDays(child.careType===VISITING_SERVICE?(child.regularDays||[]):getRegularDaysForDate(child, today));
     setCareType(child.careType || '放課後等デイサービス');
+    setVisitingSupportEnabled(child.visitingSupportEnabled === true || child.careType === VISITING_SERVICE);
     setServiceSuspended(Boolean(child.serviceSuspended));
     setTransportProgram(child.transportProgram || (child.grade?.startsWith('小学') || child.grade === '未就学' ? '小学部' : 'キャリアズ'));
     setTransportationRequired(Boolean(child.transportationRequired));
@@ -309,6 +314,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         regularDays,
         regularDaysEffectiveFrom: today,
         careType,
+        visitingSupportEnabled:visitingSupportEnabled || careType===VISITING_SERVICE,
         serviceSuspended,
         transportProgram,
         transportationRequired,
@@ -335,6 +341,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         regularDays,
         regularDaysEffectiveFrom: today,
         careType,
+        visitingSupportEnabled:visitingSupportEnabled || careType===VISITING_SERVICE,
         serviceSuspended,
         transportProgram,
         transportationRequired,
@@ -443,7 +450,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
           normalizeSearchText(value).includes(normalizedQuery)
         );
       const matchesGrade = gradeFilter === 'all' || gradeLabel === gradeFilter;
-      const matchesCareType = careTypeFilter === 'all' || (child.careType || '放課後等デイサービス') === careTypeFilter;
+      const matchesCareType = careTypeFilter === 'all' || childCareTypes(child).some(type=>type===careTypeFilter);
       const currentDays = getRegularDaysForDate(child, today);
       const matchesWeekday =
         weekdayFilters.length === 0 ||
@@ -714,8 +721,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                   className="w-full rounded-lg border border-slate-300 bg-white p-2.5 text-xs font-medium focus:ring-2 focus:ring-teal-500"
                 >
                   <option value="all">すべてのサービス</option>
-                  <option value="放課後等デイサービス">放課後等デイサービス</option>
-                  <option value="児童発達支援">児童発達支援</option>
+                  {CARE_TYPES.map(type=><option key={type} value={type}>{type}</option>)}
                 </select>
               </label>
             </div>
@@ -965,15 +971,18 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                   事業種別・サービス
                 </label>
                 <select
+                  aria-label="事業種別・サービス"
                   value={careType}
                   onChange={(e) =>
-                    setCareType(e.target.value as '児童発達支援' | '放課後等デイサービス')
+                    setCareType(e.target.value as CareType)
                   }
                   className="w-full bg-slate-50 border border-slate-300 rounded-md p-2"
                 >
-                  <option value="放課後等デイサービス">放課後等デイサービス</option>
-                  <option value="児童発達支援">児童発達支援</option>
+                  {CARE_TYPES.map(type=><option key={type} value={type}>{type}</option>)}
                 </select>
+                {careType!==VISITING_SERVICE&&<label className="mt-3 flex min-h-12 cursor-pointer items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm font-bold text-violet-900"><input type="checkbox" className="h-5 w-5 accent-violet-700" checked={visitingSupportEnabled} onChange={e=>setVisitingSupportEnabled(e.target.checked)}/>保育所等訪問支援も利用する</label>}
+                <p className="mt-2 text-xs leading-relaxed text-slate-500">訪問支援のみの場合は「保育所等訪問支援」を選択します。放デイ・児発との併用は、主な通所サービスを選び「保育所等訪問支援も利用する」をチェックします。同じ児童を二重登録する必要はありません。</p>
+                {careType===VISITING_SERVICE&&<p className="mt-2 rounded-lg bg-violet-50 p-3 text-xs font-bold text-violet-900">保育所等訪問支援のみの登録です。定期利用曜日から通所・送迎予定へは自動反映しません。訪問予定・訪問記録は今回の追加対象外です。</p>}
               </div>
 
               <div>
@@ -1019,12 +1028,12 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                 <p className={`mt-2 text-[10px] leading-relaxed ${serviceSuspended ? 'font-bold text-amber-900' : 'text-emerald-800'}`}>
                   {serviceSuspended
                     ? '保存すると、本日以降の送迎条件・配車から除外されます。児童情報と過去の記録・運行履歴は残ります。'
-                    : '定期利用曜日と当日予定に応じて、記録作成や送迎の候補に表示されます。'}
+                    : careType===VISITING_SERVICE?'訪問支援のみの児童は、定期利用曜日による通所予定の自動反映対象外です。':'定期利用曜日と当日予定に応じて、記録作成や送迎の候補に表示されます。'}
                 </p>
               </fieldset>
 
-              <fieldset>
-                <legend className="font-bold text-slate-700 mb-2">定期利用曜日</legend>
+              <fieldset disabled={careType===VISITING_SERVICE} className={careType===VISITING_SERVICE?'opacity-50':''}>
+                <legend className="font-bold text-slate-700 mb-2">定期利用曜日（通所サービス用）</legend>
                 <div className="grid grid-cols-7 gap-1.5">
                   {WEEKDAYS.map((day) => {
                     const selected = regularDays.includes(day);
@@ -1041,10 +1050,10 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                     );
                   })}
                 </div>
-                <p className="mt-1.5 text-[10px] text-slate-500">複数曜日を選択できます。未設定の児童は全曜日の候補に表示されます。</p>
+                <p className="mt-1.5 text-[10px] text-slate-500">{careType===VISITING_SERVICE?'過去の通所設定は保持しますが、訪問支援の予定としては使いません。':'複数曜日を選択できます。未設定の児童は全曜日の候補に表示されます。'}</p>
               </fieldset>
 
-              <ChildTransportSettings
+              <fieldset disabled={careType===VISITING_SERVICE} className={careType===VISITING_SERVICE?'opacity-50':''}><ChildTransportSettings
                 enabled={transportationRequired}
                 onEnabledChange={handleTransportEnabledChange}
                 regularDays={regularDays}
@@ -1070,7 +1079,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                 }}
                 onSetDefaultLocation={setDefaultTransportLocation}
                 formError={formError}
-              />
+              /></fieldset>
 
               <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
                 <label className="block font-bold text-amber-950">
@@ -1209,7 +1218,7 @@ const ChildGridCard: React.FC<ChildDisplayProps> = ({ child, today, canEdit, onE
           <div className="flex shrink-0 flex-col items-end gap-1">
             {child.serviceSuspended && <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-black text-amber-800">利用休止中</span>}
             <span className="rounded-full border border-teal-200 bg-teal-50 px-2 py-0.5 text-[10px] font-bold text-teal-800">
-              {child.careType === '児童発達支援' ? '児童発達支援' : '放課後等デイ'}
+              {childServiceLabel(child,true)}
             </span>
           </div>
         </div>
@@ -1227,7 +1236,7 @@ const ChildGridCard: React.FC<ChildDisplayProps> = ({ child, today, canEdit, onE
           )}
           <div className="flex items-start gap-2">
             <CalendarDays className="mt-0.5 h-4 w-4 text-slate-400" />
-            <span>現在の定期利用：{formatRegularDays(getRegularDaysForDate(child, today))}</span>
+            <span>{child.careType===VISITING_SERVICE?'訪問支援のみ（通所の定期利用なし）':`現在の定期利用：${formatRegularDays(getRegularDaysForDate(child, today))}`}</span>
           </div>
           {nextSchedule && (
             <div className="ml-6 rounded-md bg-indigo-50 px-2 py-1 text-[10px] font-bold text-indigo-700">
@@ -1250,7 +1259,7 @@ const ChildGridCard: React.FC<ChildDisplayProps> = ({ child, today, canEdit, onE
 
 const ChildListRow: React.FC<ChildDisplayProps> = ({ child, today, canEdit, onEdit, onDelete }) => {
   const nextSchedule = getNextRegularDaySchedule(child, today);
-  const regularDaysLabel = formatRegularDays(getRegularDaysForDate(child, today));
+  const regularDaysLabel = child.careType===VISITING_SERVICE?'通所なし':formatRegularDays(getRegularDaysForDate(child, today));
   return (
     <article className="transition-colors hover:bg-slate-50">
       <div className="flex items-center gap-2.5 px-3 py-3 md:hidden">
@@ -1265,7 +1274,7 @@ const ChildListRow: React.FC<ChildDisplayProps> = ({ child, today, canEdit, onEd
               {regularDaysLabel}
             </span>
             <span className="rounded-md bg-indigo-50 px-2 py-0.5 text-[10px] font-bold text-indigo-700">
-              {child.careType === '児童発達支援' ? '児発' : '放デイ'}
+              {childServiceLabel(child,true)}
             </span>
             {child.serviceSuspended && <span className="rounded-md bg-amber-100 px-2 py-0.5 text-[10px] font-black text-amber-800">利用休止中</span>}
           </div>
@@ -1293,7 +1302,7 @@ const ChildListRow: React.FC<ChildDisplayProps> = ({ child, today, canEdit, onEd
         <p className="text-xs font-semibold text-slate-700">{regularDaysLabel}</p>
 
         <div>
-          <p className="text-xs text-slate-700">{child.careType || '放課後等デイサービス'}</p>
+          <p className="text-xs text-slate-700">{childServiceLabel(child)}</p>
           {nextSchedule && (
             <p className="mt-1 text-[10px] font-bold text-indigo-700">
               {formatJapaneseDate(nextSchedule.effectiveFrom)}から {formatRegularDays(nextSchedule.regularDays)}

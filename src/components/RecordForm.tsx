@@ -112,6 +112,8 @@ import { UNIFIED_TEMPLATE, UNIFIED_TEMPLATE_ID } from '../data/unifiedTemplate';
 import { generateStructuredHolidaySummary } from '../utils/holidayRecordSummary';
 import { generateUnifiedRecordSummary } from '../utils/unifiedRecordSummary';
 import {LessonHistoryImport} from './LessonHistoryImport';
+import {LessonPracticeEditor} from './LessonPracticeEditor';
+import {MANUAL_LESSON_KEY,readManualLessonExercises} from '../learning/manualLessonPractice';
 import {evidenceScopeIssue,formatPcActivities,IMPORT_KEY,lessonEventText,readLessonEvidence} from '../learning/recordImport';
 import {applyAutomaticLessonHistory,type LessonImportTarget} from '../learning/automaticRecordImport';
 import {useLessonAutoHistory} from '../services/useLessonAutoHistory';
@@ -921,7 +923,6 @@ function HomeworkSubjectInput({
 
 const KANKEN_GRADES = ['10級', '9級', '8級', '7級', '6級', '5級', '4級', '3級', '準2級', '2級', '準1級', '1級'];
 const EDISON_OPTIONS = ['練習帳', '確認テスト'];
-const D_LESSON_OPTIONS = ['マウス練習', 'ビジョントレーニング', 'タイピング練習', 'ブラインドタッチ練習', '文章入力練習', 'Word練習'];
 
 function detailArray(details: Record<string, string | string[]> | undefined, key: string) {
   const value = details?.[key];
@@ -1210,17 +1211,21 @@ function PcActivitiesInput({
   onChange,
   focusSelection,
   focusRequestId,
+  importControl,
 }: {
   answer: SectionFieldAnswer;
   onChange: (answer: SectionFieldAnswer) => void;
   focusSelection?: string;
   focusRequestId?: number;
+  importControl?: React.ReactNode;
 }) {
   const details = answer.nestedDetails || {};
   const selections = detailArray(details, 'selections');
   const [expanded, setExpanded] = useState<string | null>(null);
   let importedEvents:ReturnType<typeof readLessonEvidence> = [];
   try { importedEvents = readLessonEvidence(details); } catch { /* Displayed below and checked before saving. */ }
+  let manualCount = 0;
+  try { manualCount = readManualLessonExercises(details).length; } catch { /* The editor displays malformed manual input. */ }
   const focusedSelectionRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     if (!focusSelection || !selections.includes(focusSelection)) return;
@@ -1240,7 +1245,9 @@ function PcActivitiesInput({
   }, [focusSelection, focusRequestId]);
 
   const commit = (nextDetails: Record<string, string | string[]>) => {
-    onChange({ ...answer, value: formatPcActivities(nextDetails), nestedDetails: nextDetails });
+    const preserved = { ...nextDetails };
+    if (!selections.length && answer.value.trim() && typeof details.pcManualValue !== 'string') preserved.pcManualValue = answer.value;
+    onChange({ ...answer, value: formatPcActivities(preserved), nestedDetails: preserved });
   };
 
   const toggleSelection = (selection: string) => {
@@ -1254,7 +1261,7 @@ function PcActivitiesInput({
 
   const removeSelection = (selection: string) => {
     const next: Record<string, string | string[]> = { ...details, selections: selections.filter((item) => item !== selection) };
-    if (selection === 'Dレッスン') { delete next.dLessonActivities; delete next[IMPORT_KEY]; }
+    if (selection === 'Dレッスン') { delete next.dLessonActivities; delete next[IMPORT_KEY]; delete next[MANUAL_LESSON_KEY]; delete next.dLessonSummaryMode; }
     if (selection === '文章入力模擬試験') {
       delete next.mockCharacterCount;
       delete next.mockPastRound;
@@ -1273,7 +1280,7 @@ function PcActivitiesInput({
         const selected = selections.includes(selection);
         const isExpanded = selected && expanded === selection;
         const summary = selection === 'Dレッスン'
-          ? [...detailArray(details, 'dLessonActivities'), ...(importedEvents.length ? [`取り込み実績 ${importedEvents.length}件`] : [])].join('・')
+          ? [...detailArray(details, 'dLessonActivities'), ...(importedEvents.length ? [`取り込み実績 ${importedEvents.length}件`] : []), ...(manualCount ? [`手入力 ${manualCount}件`] : [])].join('・')
           : selection === '文章入力模擬試験'
             ? getMockExamAttempts(details).map((attempt, index) => {
                 const values = [
@@ -1293,10 +1300,7 @@ function PcActivitiesInput({
             {isExpanded && (
               <div className="space-y-3 border-t border-teal-200 bg-white p-4">
                 {selection === 'Dレッスン' && (
-                  <div><p className="mb-2 text-sm font-bold text-slate-700">取り組んだ練習（複数選択可）</p><div className="grid gap-2 sm:grid-cols-2">{D_LESSON_OPTIONS.map((option) => {
-                    const selectedOption = detailArray(details, 'dLessonActivities').includes(option);
-                    return <button key={option} type="button" onClick={() => { const current = detailArray(details, 'dLessonActivities'); commit({ ...details, dLessonActivities: selectedOption ? current.filter((item) => item !== option) : [...current, option] }); }} className={`${choiceClass} text-left ${selectedOption ? 'border-indigo-600 bg-indigo-600 text-white' : 'border-slate-300 bg-white text-slate-700'}`}>{selectedOption && <Check className="mr-1 inline h-4 w-4" />}{option}</button>;
-                  })}</div></div>
+                  <LessonPracticeEditor details={details} events={importedEvents} onChange={commit} importControl={importControl}/>
                 )}
                 {selection === '文章入力模擬試験' && (
                   <div className="space-y-3">
@@ -1339,15 +1343,15 @@ function PcActivitiesInput({
           </div>
         );
       })}
-      {(() => {try {const events=readLessonEvidence(details);return events.length>0&&<div className="space-y-3 rounded-xl border border-teal-200 bg-white p-3 text-sm text-slate-700">
+      {(() => {try {const events=readLessonEvidence(details);return (events.length>0||manualCount>0)&&<div className="space-y-3 rounded-xl border border-teal-200 bg-white p-3 text-sm text-slate-700">
         <p className="font-bold">Dレッスンの記録への書き出し</p>
-        <p className="text-xs">新規取り込みは要点表示です。「要点にまとめる」を押すと現在の記録を短縮できます。元実績は下の詳細から確認できます。</p>
+        <p className="text-xs">課題名・完了状況・正確率・文字数をまとめます。「要点にまとめる」で現在の記録へ反映できます。元実績は下の詳細から確認できます。</p>
         <div className="flex flex-wrap gap-2">
           <button type="button" onClick={()=>commit({...details,dLessonSummaryMode:'concise'})} className="min-h-11 rounded-lg bg-teal-700 px-3 font-bold text-white">要点にまとめる</button>
-          <button type="button" onClick={()=>commit({...details,dLessonSummaryMode:'detailed'})} className="min-h-11 rounded-lg border border-slate-300 px-3 font-bold">実績をすべて記載</button>
+          {events.length>0&&<button type="button" onClick={()=>commit({...details,dLessonSummaryMode:'detailed'})} className="min-h-11 rounded-lg border border-slate-300 px-3 font-bold">実績をすべて記載</button>}
         </div>
         <p className="break-words whitespace-pre-wrap" aria-label="パソコン取り組み内容の書き出し">{answer.value}</p>
-        <details><summary className="cursor-pointer py-2 font-bold text-teal-800">取り込んだ実績の詳細（{events.length}件）</summary><ul className="mt-2 max-h-72 space-y-2 overflow-y-auto">{events.map(event=><li key={`${event.studentId}:${event.id}`} className="break-words">{event.importMode==='automatic'?'自動反映：':'確認して追加：'}{event.date} / {lessonEventText(event)}</li>)}</ul></details>
+        {events.length>0&&<details><summary className="cursor-pointer py-2 font-bold text-teal-800">取り込んだ実績の詳細（{events.length}件）</summary><ul className="mt-2 max-h-72 space-y-2 overflow-y-auto">{events.map(event=><li key={`${event.studentId}:${event.id}`} className="break-words">{event.importMode==='automatic'?'自動反映：':'確認して追加：'}{event.date} / {lessonEventText(event)}</li>)}</ul></details>}
       </div>;} catch {return <p role="alert" className="text-sm text-rose-800">取り込み済み実績の形式を確認できません。</p>;}})()}
     </div>
   );
@@ -3436,7 +3440,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           if (field.type === 'pc_activities' && answer?.nestedDetails) {
             let importedCount = 0;
             try { importedCount = readLessonEvidence(answer.nestedDetails).length; } catch { /* Reported by the evidence validation above. */ }
-            getIncompletePcActivities(answer.nestedDetails).filter(issue=>issue.selection!=='Dレッスン'||importedCount===0).forEach(({ selection, missing }) => {
+            getIncompletePcActivities(answer.nestedDetails,importedCount>0).forEach(({ selection, missing }) => {
               checks.push({
                 id: `${childId}-${stepId}-pc-activities-${selection}`,
                 childId,
@@ -3815,14 +3819,12 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         )}
         {field.type === 'pc_activities' && (
           <>
-          {lessonImportEnabled && organizationId && userId && activeChild && <div key={`${organizationId}:${userId}:${wizard.activeChildId}:${wizard.date}:${sectionId}:${field.id}`}>
-            <LessonHistoryImport childId={wizard.activeChildId} childName={activeChild.name} date={wizard.date} organizationId={organizationId} actorId={userId} answer={answer} disabled={editingDisabled} onChange={next=>updateFieldAnswer(sectionId,field.id,next)}/>
-          </div>}
           <PcActivitiesInput
             answer={answer}
             onChange={(nextAnswer) => updateFieldAnswer(sectionId, field.id, nextAnswer)}
             focusSelection={detailJump?.childId === wizard.activeChildId && detailJump.sectionId === sectionId && detailJump.fieldId === field.id ? detailJump.subject : undefined}
             focusRequestId={jumpRequestId}
+            importControl={lessonImportEnabled && organizationId && userId && activeChild ? <div key={`${organizationId}:${userId}:${wizard.activeChildId}:${wizard.date}:${sectionId}:${field.id}`}><LessonHistoryImport childId={wizard.activeChildId} childName={activeChild.name} date={wizard.date} organizationId={organizationId} actorId={userId} answer={answer} disabled={editingDisabled} onChange={next=>updateFieldAnswer(sectionId,field.id,next)}/></div> : undefined}
           />
           </>
         )}

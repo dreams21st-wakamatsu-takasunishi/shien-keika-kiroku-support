@@ -33,6 +33,11 @@ async function check(page,url){
   ]}});
  });
  await page.goto(url);
+ const openLesson=async()=>{
+  await page.getByRole('button',{name:/^Dレッスン/}).click();
+  await page.locator('summary').filter({hasText:'実績を選んで追加・再取得（必要な場合）'}).click();
+ };
+ await openLesson();
  const get=page.getByRole('button',{name:'実績を取得',exact:true});await get.waitFor();
  await page.screenshot({path:'output/playwright/import-form-before.png',fullPage:true});
  await get.click();
@@ -53,11 +58,24 @@ async function check(page,url){
  await page.getByRole('button',{name:'実績をすべて記載',exact:true}).click();
  await wait(()=>answer().value.includes('実績：09:00'));
  await page.getByRole('button',{name:'要点にまとめる',exact:true}).click();
- await wait(()=>!answer().value.includes('実績：')&&answer().value.includes('マウス練習1回'));
+ await wait(()=>!answer().value.includes('実績：')&&answer().value.includes('マウス練習：M-1〔完了〕'));
  assert(answer().nestedDetails.dLessonHistoryEvidence===originalEvidence,'output switches preserve all source evidence');
  const rawDetails=page.locator('details').filter({has:page.getByText('取り込んだ実績の詳細（1件）',{exact:true})});
  assert(await rawDetails.getAttribute('open')===null,'raw imported details start collapsed');
  await rawDetails.locator('summary').click();
+ await page.getByRole('button',{name:'＋ 実績がない取り組みを手入力',exact:true}).click();
+ const manual=page.getByRole('article',{name:'Dレッスン手入力 1'});
+ await manual.getByLabel('課題名',{exact:true}).fill('手入力のは行');
+ await manual.getByLabel('完了状況',{exact:true}).selectOption('partial');
+ await manual.getByLabel('正確率（%）',{exact:true}).fill('88');
+ await wait(()=>answer().value.includes('手入力のは行〔途中終了・正確率88%〕'));
+ assert(answer().nestedDetails.dLessonHistoryEvidence===originalEvidence,'manual supplement cannot change source evidence');
+ await manual.getByLabel('練習の種類',{exact:true}).selectOption('text');
+ await manual.getByLabel('課題名',{exact:true}).fill('手入力の文章');
+ await manual.getByLabel('入力文字数',{exact:true}).fill('0');
+ await wait(()=>answer().value.includes('手入力の文章〔途中終了・0文字〕'));
+ await manual.getByRole('button',{name:'この取り組みを削除',exact:true}).click();
+ await wait(()=>!answer().value.includes('手入力の文章'));
  assert((await rawDetails.textContent()).includes('09:00'),'raw time is available in details');
  await rawDetails.locator('summary').click();
  await page.setViewportSize({width:1280,height:900});
@@ -73,6 +91,17 @@ async function check(page,url){
  await page.getByRole('button',{name:'取り込み実績を除く',exact:true}).click();
  await wait(()=>answer()?.nestedDetails&&!answer().nestedDetails.dLessonHistoryEvidence);
  assert(answer().value.includes('元の入力')&&!answer().value.includes('M-1'),'removal keeps manual entry');
+ await page.getByRole('button',{name:'＋ 実績がない取り組みを手入力',exact:true}).click();
+ await manual.getByLabel('課題名',{exact:true}).fill('手入力だけの練習');
+ await manual.getByLabel('正確率（%）',{exact:true}).fill('101');
+ await wait(()=>answer().value.includes('正確率未確認'));
+ assert(await page.getByRole('alert').filter({hasText:'正確率（0～100%）'}).count()===1,'invalid manual accuracy shows a warning rather than a fabricated value');
+ await manual.getByLabel('正確率（%）',{exact:true}).fill('90');
+ await manual.getByLabel('完了状況',{exact:true}).selectOption('completed');
+ await wait(()=>answer().value.includes('手入力だけの練習〔完了・正確率90%〕'));
+ assert((await page.getByLabel('パソコン取り組み内容の書き出し',{exact:true}).textContent()).includes('手入力だけの練習'),'manual-only output is visible without source imports');
+ await manual.getByRole('button',{name:'この取り組みを削除',exact:true}).click();
+ await wait(()=>!answer().value.includes('手入力だけの練習'));
  await page.goto(url+'?component=true');await get.click();await pick.waitFor();
  await pick.check();await confirm.check();revoked=true;
  await page.getByRole('button',{name:/選択した実績を追加/}).click();
@@ -96,10 +125,11 @@ async function check(page,url){
  await page.goto(url+'?component=true&readonly=true');
  assert(await get.isDisabled(),'read-only cannot fetch or apply');
  await page.goto(url+'?invalid=true');
+ await openLesson();
  await page.getByText('取り込み実績の児童・日付・事業所が記録と一致していません。',{exact:true}).waitFor();
  await page.getByRole('button',{name:'入力を終えて確認',exact:true}).click();
  await page.getByText('Dレッスン実績の確認が必要です',{exact:true}).waitFor();
  assert(errors.length===0,errors.join(','));
- return {passed:true,cases:['full record form integration','confirmed selection','autosaved draft projection','manual content preservation','no inferred observations','concise/detail output switches','collapsed source evidence','duplicate prevention','remove evidence','revoked link','changed source event','child/date switch','empty history','fetch retry','read-only','pre-save date mismatch error','desktop/mobile'],historyCalls:calls.filter(c=>c.action==='history').length};
+ return {passed:true,cases:['full record form integration','confirmed selection','autosaved draft projection','manual content preservation','no inferred observations','concise/detail output switches','collapsed source evidence','manual typing and text supplement','invalid accuracy warning','manual-only output preview','duplicate prevention','remove evidence','revoked link','changed source event','child/date switch','empty history','fetch retry','read-only','pre-save date mismatch error','desktop/mobile'],historyCalls:calls.filter(c=>c.action==='history').length};
 }
 try{command('open','about:blank');const output=command('run-code',`async (page)=>{return await (${check.toString()})(page,${JSON.stringify(url.href)});}`);const result=output.match(/### Result\s+([\s\S]*?)\s+### Ran/);if(!result||JSON.parse(result[1]).passed!==true)throw Error(`UI regression did not complete: ${output}`);console.log(result[1]);}finally{command('close');}

@@ -10,6 +10,7 @@ import { TransportMapPanel } from './TransportMapPanel';
 import { RolePermissionManager } from './RolePermissionManager';
 import { StaffShiftTemplateSettings } from './StaffShiftTemplateSettings';
 import { VehicleLedger } from './VehicleLedger';
+import { OrganizationServicesSettings } from './OrganizationServicesSettings';
 
 interface SettingsHubProps {
   aiWritingSettings: AiWritingSettings;
@@ -44,7 +45,7 @@ interface SettingsHubProps {
   onDeleteVehicle: (vehicleId: string) => Promise<void> | void;
 }
 
-type SettingsPage = 'menu' | 'ai' | 'templates' | 'schools' | 'transportMap' | 'rolePermissions' | 'shiftTemplates' | 'vehicles';
+type SettingsPage = 'menu' | 'ai' | 'templates' | 'schools' | 'transportMap' | 'rolePermissions' | 'shiftTemplates' | 'vehicles' | 'serviceTypes';
 
 export const SettingsHub: React.FC<SettingsHubProps> = ({
   aiWritingSettings,
@@ -80,6 +81,7 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
 }) => {
   const [page, setPage] = useState<SettingsPage>('menu');
   const [search, setSearch] = useState('');
+  const [serviceTypesDirty,setServiceTypesDirty] = useState(false);
   const groups: {
     title: string; description: string; visible: boolean;
     items: { page: Exclude<SettingsPage, 'menu'>; icon: React.ElementType; title: string; description: string; keywords: string }[];
@@ -89,6 +91,7 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
       { page: 'transportMap', icon: MapPinned, title: '送迎の基本時刻・地点・エリア', description: '基本退所時刻、停車時間、地図の地点・エリア・ピン色を設定します。', keywords: '迎え 送り 開所 小学部 キャリアズ 強調 色' },
     ] },
     { title: '職員・運営', description: '管理者だけが変更できる設定', visible: currentUser?.role === 'admin', items: [
+      { page: 'serviceTypes', icon: Settings, title: '事業所種別', description: '放デイ・児発・保育所等訪問支援を複数選択できます。', keywords: 'サービス 事業種別 併用 訪問 保育所' },
       { page: 'rolePermissions', icon: KeyRound, title: '権限割り振り', description: '児発管・教室長が使える機能を設定します。', keywords: '権限 職員 役職' },
       { page: 'shiftTemplates', icon: CalendarClock, title: '勤務テンプレート', description: `${staffShiftTemplates.length}件の勤務パターン。月間シフトから日・月単位で反映します。`, keywords: 'シフト 出勤 時間 職員' },
       { page: 'vehicles', icon: CarFront, title: '車両台帳', description: `${vehicles.length}台を登録中。総乗車定員、設備、点検期限を管理します。`, keywords: '送迎 車 運転手 席' },
@@ -107,7 +110,7 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
     return (
       <div className="space-y-4">
         <div className="app-sticky-below-header sticky z-20 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur">
-          <button type="button" onClick={() => setPage('menu')} className="flex min-h-10 items-center gap-2 rounded-lg bg-white px-3 text-xs font-bold text-slate-700 shadow-sm">
+          <button type="button" onClick={() => {if(page==='serviceTypes'&&serviceTypesDirty&&!window.confirm('事業所種別の変更が未保存です。設定一覧へ戻りますか？'))return;setPage('menu');}} className="flex min-h-10 items-center gap-2 rounded-lg bg-white px-3 text-xs font-bold text-slate-700 shadow-sm">
             <ArrowLeft className="w-4 h-4" />設定一覧に戻る
           </button>
           <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-slate-400" />
@@ -124,6 +127,7 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
         {page === 'rolePermissions' && <RolePermissionManager settings={rolePermissions} onSave={onSaveRolePermission} />}
         {page === 'shiftTemplates' && <StaffShiftTemplateSettings templates={staffShiftTemplates} onSave={onSaveStaffShiftTemplate} onDelete={onDeleteStaffShiftTemplate} />}
         {page === 'vehicles' && <VehicleLedger vehicles={vehicles} recorderProfiles={recorderProfiles} onSave={onSaveVehicle} onDelete={onDeleteVehicle} />}
+        {page === 'serviceTypes' && currentUser?.role === 'admin' && <OrganizationServicesSettings organizationId={currentUser.organizationId} onDirtyChange={setServiceTypesDirty} />}
       </div>
     );
   }

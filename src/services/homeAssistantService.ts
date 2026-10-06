@@ -126,7 +126,7 @@ function buildLocalProposal(child: ChildProfile, instruction: string): HomeAssis
     };
   }
 
-  if (/生年月日|フリガナ|氏名|サービス種別|児童発達支援|放課後等デイサービス/.test(instruction)) {
+  if (/生年月日|フリガナ|氏名|サービス種別|児童発達支援|放課後等デイサービス|保育所等訪問支援/.test(instruction)) {
     const profileChanges: HomeAssistantProposal['profileChanges'] = {};
     const details: HomeAssistantProposal['details'] = [];
     if (/生年月日/.test(instruction) && targetDate) {
@@ -143,7 +143,9 @@ function buildLocalProposal(child: ChildProfile, instruction: string): HomeAssis
       profileChanges.name = name;
       details.push({ label: '児童氏名', value: `${child.name} → ${name}` });
     }
-    const careType = instruction.includes('児童発達支援')
+    const careType = instruction.includes('保育所等訪問支援')
+      ? '保育所等訪問支援'
+      : instruction.includes('児童発達支援')
       ? '児童発達支援'
       : instruction.includes('放課後等デイサービス')
         ? '放課後等デイサービス'
