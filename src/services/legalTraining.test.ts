@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {canManageTraining,openTrainingResources,remainingTraining,trainingError,trainingTitle,trainingUrl,visibleTraining,type TrainingData} from '../training/model';
+import {canManageTraining,moveTrainingItem,moveTrainingItemTo,openTrainingResources,remainingTraining,trainingError,trainingOrderSnapshot,trainingTitle,trainingUrl,visibleTraining,type TrainingData} from '../training/model';
 import {readFileSync} from 'node:fs';
 
 test('only administrators and child development managers configure legal training',()=>{
@@ -22,6 +22,26 @@ test('external resources open only on request, with no referrer/opener, deduplic
  openTrainingResources({videoUrl:'https://example.invalid/video',materialUrl:'https://example.invalid/material'},open);
  assert.equal(calls.length,2);for(const call of calls)assert.deepEqual(call.slice(1),['_blank','noopener,noreferrer']);
  calls.length=0;openTrainingResources({videoUrl:'https://example.invalid/video',materialUrl:''},open);assert.equal(calls.length,1);
+});
+test('catalog uses the same stored order for learners and management without mutating data',()=>{
+ const categories=[{id:'b',organizationId:'org',title:'二',active:true,revision:1,sortOrder:1},{id:'a',organizationId:'org',title:'一',active:true,revision:1,sortOrder:2}];
+ const videos=['1','2','3'].map((id,index)=>({id,organizationId:'org',categoryId:'a',title:id,videoUrl:'https://example.invalid',materialUrl:'',active:true,revision:1,sortOrder:3-index}));
+ const progress=[{videoId:'1',userId:'self',completedAt:'2026-10-06T00:00:00Z',revision:1}];
+ const data={categories,videos,progress},before=structuredClone(data),visible=visibleTraining(data);
+ assert.deepEqual(visible.categories.map(row=>row.id),['b','a']);assert.deepEqual(visible.videos.map(row=>row.id),['3','2','1']);assert.deepEqual(data,before);
+});
+test('drag and button reordering are immutable and safe at boundaries or missing targets',()=>{
+ const rows=['a','b','c'].map(id=>({id}));
+ assert.deepEqual(moveTrainingItem(rows,'b',-1).map(row=>row.id),['b','a','c']);
+ assert.deepEqual(moveTrainingItem(rows,'c',1),rows);assert.deepEqual(moveTrainingItem(rows,'missing',-1),rows);
+ assert.deepEqual(moveTrainingItemTo(rows,'a','c').map(row=>row.id),['b','c','a']);assert.deepEqual(moveTrainingItemTo(rows,'c','a').map(row=>row.id),['c','a','b']);
+ assert.deepEqual(moveTrainingItemTo(rows,'a','missing'),rows);assert.deepEqual(rows.map(row=>row.id),['a','b','c']);
+});
+test('reorder payloads contain only unique opaque IDs and revisions, never titles or URLs',()=>{
+ const row={id:'11111111-1111-4111-8111-111111111111',revision:2,title:'架空研修',videoUrl:'https://example.invalid/private'};
+ assert.deepEqual(trainingOrderSnapshot([row]),[{id:row.id,revision:2}]);
+ for(const rows of [[row,row],[{...row,id:'bad'}],[{...row,revision:0}],[{...row,revision:1.2}]])assert.throws(()=>trainingOrderSnapshot(rows));
+ assert.match(trainingError(Error('TRAINING_ORDER_INVALID')),/再読込/);
 });
 test('invalid second URL prevents even the first external navigation',()=>{
  const calls:string[]=[];assert.throws(()=>openTrainingResources({videoUrl:'https://example.invalid/video',materialUrl:'javascript:alert(1)'},url=>calls.push(url)));assert.deepEqual(calls,[]);
