@@ -3,9 +3,11 @@ import type {UserRole} from '../types';
 export interface TrainingCategory {id:string;organizationId:string;title:string;active:boolean;revision:number;sortOrder?:number}
 export interface TrainingVideo {id:string;organizationId:string;categoryId:string;title:string;videoUrl:string;materialUrl:string;active:boolean;revision:number;sortOrder?:number}
 export interface TrainingProgress {videoId:string;userId:string;completedAt:string|null;revision:number}
-export interface TrainingData {categories:TrainingCategory[];videos:TrainingVideo[];progress:TrainingProgress[]}
+export interface TrainingSettings {confirmationFormUrl:string;revision:number}
+export interface TrainingData {categories:TrainingCategory[];videos:TrainingVideo[];progress:TrainingProgress[];settings?:TrainingSettings}
 export interface TrainingRepository {
  load():Promise<TrainingData>;
+ saveConfirmationForm(url:string,expectedRevision:number):Promise<void>;
  addCategory(title:string):Promise<void>;
  addVideo(categoryId:string,input:{title:string;videoUrl:string;materialUrl:string}):Promise<void>;
  updateCategory(category:TrainingCategory,title:string):Promise<void>;

@@ -83,8 +83,25 @@ try{
  await deny(`select public.update_legal_training_video('${org}','${v1}',4,'削除済','https://example.invalid',null)`,'40001');
  assert.deepEqual((await db.query(`select * from public.legal_training_progress where video_id='${v1}'`)).rows,completion);
  await db.exec(`reset role`);
+ await db.exec(readFileSync('supabase/migrations/202610060004_legal_training_confirmation_form.sql','utf8'));
+ await db.exec(`set role authenticated;set test.role='manager'`);
+ assert.equal((await db.query('select * from public.legal_training_settings')).rows.length,0);
+ const form=async(url,revision)=>db.exec(`select public.set_legal_training_confirmation_form('${org}',${url===null?'null':`'${url}'`},${revision})`);
+ await form('https://example.invalid/confirmation',0);
+ const saved=(await db.query('select * from public.legal_training_settings')).rows[0];assert.equal(saved.revision,1);assert.equal(saved.confirmation_form_url,'https://example.invalid/confirmation');
+ await form('https://example.invalid/confirmation',1);assert.equal((await db.query('select revision from public.legal_training_settings')).rows[0].revision,1);
+ await deny(`select public.set_legal_training_confirmation_form('${org}','https://example.invalid/stale',0)`,'40001');
+ for(const url of ['javascript:alert(1)','http://example.invalid','https://user:pass@example.invalid','https://example.invalid/ bad'])await deny(`select public.set_legal_training_confirmation_form('${org}','${url}',1)`,'23514');
+ await deny(`update public.legal_training_settings set confirmation_form_url=null`,'42501');
+ for(const role of ['staff','classroom_manager']){await db.exec(`set test.role='${role}'`);assert.equal((await db.query('select * from public.legal_training_settings')).rows[0].confirmation_form_url,saved.confirmation_form_url);await deny(`select public.set_legal_training_confirmation_form('${org}',null,1)`,'42501');}
+ await db.exec(`set test.role='admin'`);await form(null,1);assert.equal((await db.query('select * from public.legal_training_settings')).rows[0].confirmation_form_url,null);
+ await form('https://example.invalid/replacement',2);assert.equal((await db.query('select revision from public.legal_training_settings')).rows[0].revision,3);
+ await db.exec(`set test.org='${foreign}'`);assert.equal((await db.query('select * from public.legal_training_settings')).rows.length,0);await deny(`select public.set_legal_training_confirmation_form('${org}',null,3)`,'42501');
+ await db.exec(`set test.org='${org}'`);assert.deepEqual((await db.query(`select * from public.legal_training_progress where video_id='${v1}'`)).rows,completion);
+ await db.exec('reset role');
  const logs=(await db.query('select new_data,old_data,actor_id from public.audit_logs')).rows;assert.ok(logs.length>=5);assert.ok(!JSON.stringify(logs).includes('https://'));assert.ok(!JSON.stringify(logs).includes('架空'));
  await db.exec(`set role anon`);await deny('select * from public.legal_training_videos','42501');await deny(`select public.set_legal_training_completion('${org}','${video}',true,0)`,'42501');
+ await deny('select * from public.legal_training_settings','42501');await deny(`select public.set_legal_training_confirmation_form('${org}',null,3)`,'42501');
  await deny(`select public.reorder_legal_training_items('${org}','category',null,'[]'::jsonb)`,'42501');await deny(`select public.update_legal_training_category('${org}','${second}',1,'侵入')`,'42501');
- console.log(JSON.stringify({passed:true,cases:30,coverage:['migration','manager/admin catalog','staff/leader denial','URL validation','duplicates','self completion and undo','independent users','server timestamp','revision conflicts','foreign tenant denial','no user spoofing','direct mutations denied','archive retains history','redacted audit','anonymous denial','menu compatibility','migration preserves metadata and progress','category/video order','no-op revision','stale order rejection','missing or duplicate items','invalid ID','new items append','cross-category rejection','editing preserves completion','stale edit rejection','invalid edit URL','editing scope and roles','deletion conflicts','anonymous reorder/edit denial']}));
+ console.log(JSON.stringify({passed:true,cases:40,coverage:['migration','manager/admin catalog','staff/leader denial','URL validation','duplicates','self completion and undo','independent users','server timestamp','revision conflicts','foreign tenant denial','no user spoofing','direct mutations denied','archive retains history','redacted audit','anonymous denial','menu compatibility','migration preserves metadata and progress','category/video order','no-op revision','stale order rejection','missing or duplicate items','invalid ID','new items append','cross-category rejection','editing preserves completion','stale edit rejection','invalid edit URL','editing scope and roles','deletion conflicts','anonymous reorder/edit denial','form initial empty state','form creation and no-op','stale initial form write denied','unsafe form URLs denied','direct form writes denied','staff/leader form read-only','admin clears and replaces form','foreign organization form denied','form preserves completion history','anonymous form denied']}));
 }finally{await db.close();}

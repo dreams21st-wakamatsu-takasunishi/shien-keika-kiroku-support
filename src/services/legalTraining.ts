@@ -25,11 +25,14 @@ export function createTrainingRepository(user:UserProfile):TrainingRepository{
  };
  const manager=()=>{if(!canManageTraining(user.role))throw {code:'42501'};};
  return {
-  async load(){const [categories,videos,progress]=await Promise.all([read('legal_training_categories'),read('legal_training_videos'),read('legal_training_progress')]);
+  async load(){const [categories,videos,progress,settingsResult]=await Promise.all([read('legal_training_categories'),read('legal_training_videos'),read('legal_training_progress'),client.from('legal_training_settings').select('organization_id,confirmation_form_url,revision').eq('organization_id',org).maybeSingle()]);
+   if(settingsResult.error)throw settingsResult.error;
+   const settings=settingsResult.data;if(settings&&settings.organization_id!==org)throw Error('Training scope mismatch');
    return {categories:categories.map(row=>({id:row.id,organizationId:row.organization_id,title:trainingTitle(row.title),active:row.active,revision:row.revision,sortOrder:row.sort_order})),
     videos:videos.map(row=>({id:row.id,organizationId:row.organization_id,categoryId:row.category_id,title:trainingTitle(row.title,180),videoUrl:trainingUrl(row.video_url),materialUrl:trainingUrl(row.material_url||'',true),active:row.active,revision:row.revision,sortOrder:row.sort_order})),
-    progress:progress.map(progressRow)};
+    progress:progress.map(progressRow),settings:{confirmationFormUrl:trainingUrl(settings?.confirmation_form_url||'',true),revision:settings?.revision||0}};
   },
+  async saveConfirmationForm(url,expectedRevision){manager();await rpc('set_legal_training_confirmation_form',{p_url:trainingUrl(url,true)||null,p_expected_revision:expectedRevision});},
   async addCategory(title){manager();await rpc('add_legal_training_category',{p_title:trainingTitle(title)});},
   async addVideo(categoryId,input){manager();await rpc('add_legal_training_video',{p_category_id:categoryId,p_title:trainingTitle(input.title,180),p_video_url:trainingUrl(input.videoUrl),p_material_url:trainingUrl(input.materialUrl,true)||null});},
   async updateCategory(row,title){manager();await rpc('update_legal_training_category',{p_id:row.id,p_expected_revision:row.revision,p_title:trainingTitle(title)});},
@@ -45,10 +48,11 @@ function progressRow(row:Record<string,any>):TrainingProgress{return {videoId:ro
 
 const trials=new Map<string,TrainingData>();
 function localRepository(user:UserProfile):TrainingRepository{
- const org=user.organizationId;const data=trials.get(org)||{categories:[],videos:[],progress:[]};trials.set(org,data);
+ const org=user.organizationId;const data:TrainingData=trials.get(org)||{categories:[],videos:[],progress:[],settings:{confirmationFormUrl:'',revision:0}};trials.set(org,data);
  const manager=()=>{if(!canManageTraining(user.role))throw {code:'42501'};};
  return {
   async load(){return structuredClone({...data,progress:data.progress.filter(row=>row.userId===user.id)});},
+  async saveConfirmationForm(url,expectedRevision){manager();const value=trainingUrl(url,true);if((data.settings?.revision||0)!==expectedRevision)throw {code:'40001'};data.settings={confirmationFormUrl:value,revision:expectedRevision+1};},
   async addCategory(title){manager();data.categories.push({id:crypto.randomUUID(),organizationId:org,title:trainingTitle(title),active:true,revision:1,sortOrder:nextOrder(data.categories)});},
   async addVideo(categoryId,input){manager();if(!data.categories.some(row=>row.id===categoryId&&row.active))throw Error('Invalid category');data.videos.push({id:crypto.randomUUID(),organizationId:org,categoryId,title:trainingTitle(input.title,180),videoUrl:trainingUrl(input.videoUrl),materialUrl:trainingUrl(input.materialUrl,true),active:true,revision:1,sortOrder:nextOrder(data.videos.filter(row=>row.categoryId===categoryId))});},
   async updateCategory(row,title){manager();const changes={title:trainingTitle(title)};updateItem(data.categories,row,changes);},

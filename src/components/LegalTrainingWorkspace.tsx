@@ -23,7 +23,8 @@ export function LegalTrainingWorkspace({user,manage=false,repository,onDirtyChan
  const [addingCategory,setAddingCategory]=useState(false),[categoryTitle,setCategoryTitle]=useState('');
  const [editingCategory,setEditingCategory]=useState<TrainingCategory|null>(null),[editingVideo,setEditingVideo]=useState<TrainingVideo|null>(null);
  const [video,setVideo]=useState({title:'',videoUrl:'',materialUrl:''});
- const dirty=allowed&&Boolean(categoryTitle.trim()||video.title.trim()||video.videoUrl.trim()||video.materialUrl.trim());
+ const [formDraft,setFormDraft]=useState<{url:string;revision:number}|null>(null);
+ const dirty=allowed&&Boolean(formDraft||categoryTitle.trim()||video.title.trim()||video.videoUrl.trim()||video.materialUrl.trim());
  const mounted=useRef(true),sequence=useRef(0);
  const reload=useCallback(async()=>{
   const request=++sequence.current;setLoading(true);setError('');
@@ -57,7 +58,7 @@ export function LegalTrainingWorkspace({user,manage=false,repository,onDirtyChan
   <button type="button" className="min-h-12 w-full rounded-xl bg-teal-700 px-4 font-black text-white" onClick={()=>setConfirmedScope(scope)}>この職員で受講する</button>
   {onSignOut?<button type="button" className={`${buttonClass} w-full`} onClick={onSignOut}>別の職員で受講する（ログアウト）</button>:<p className="text-sm text-slate-600">違う職員の場合は、メニューからログアウトし、本人のアカウントでログインしてください。</p>}
  </section>;
- return <div className="space-y-4" aria-label={manage?'法定研修追加':'法定研修'}>
+ return <div className={manage?'space-y-4':'space-y-4 pb-32'} aria-label={manage?'法定研修追加':'法定研修'}>
   <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
    <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><BookOpenCheck className="h-7 w-7 text-teal-700"/><div><h2 className="text-xl font-black">{manage?'法定研修追加':'法定研修'}</h2><p className="mt-1 text-sm text-slate-600">{manage?'研修カテゴリに動画と資料のリンクを登録します。':`${user.displayName}さん本人の受講状況です。`}</p></div></div>
     <button type="button" className={buttonClass} disabled={busy||loading} onClick={()=>{if(!dirty||window.confirm('未保存の入力を残したまま、一覧を再読込しますか？'))void reload();}}><RefreshCw className="mr-1 inline h-4 w-4"/>再読込</button></div>
@@ -67,6 +68,14 @@ export function LegalTrainingWorkspace({user,manage=false,repository,onDirtyChan
   {loading&&<p role="status" className="text-sm text-slate-600">読み込み中…</p>}
   {error&&<p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
   {message&&<p role="status" className="rounded-xl bg-teal-50 p-3 text-sm text-teal-900">{message}</p>}
+  {allowed&&<section className="rounded-2xl border border-teal-200 bg-white p-4 shadow-sm sm:p-5" aria-label="受講確認フォームの設定">
+   <h3 className="font-black">受講確認フォーム</h3><p className="mt-2 text-sm text-slate-600">事業所共通のリンク先を登録します。職員の受講画面の下部に固定表示します。空欄で保存するとリンクを解除します。</p>
+   <form className="mt-3 space-y-3" onSubmit={e=>{e.preventDefault();if(!formDraft)return;const draft=formDraft;if(!draft.url.trim()&&!window.confirm('受講確認フォームのリンクを解除しますか？'))return;void mutate(async()=>{await repo.saveConfirmationForm(draft.url,draft.revision);if(mounted.current)setFormDraft(null);},'受講確認フォームの設定を保存しました。');}}>
+    <label className="block text-sm font-bold">受講確認フォームURL<input autoComplete="off" type="url" inputMode="url" maxLength={2048} className={inputClass} value={formDraft?.url??data.settings?.confirmationFormUrl??''} disabled={blocked} onChange={e=>setFormDraft(previous=>({url:e.target.value,revision:previous?.revision??data.settings?.revision??0}))}/></label>
+    <div className="flex flex-wrap gap-2"><button className="min-h-11 rounded-xl bg-teal-700 px-4 text-sm font-bold text-white disabled:opacity-40" disabled={blocked||!formDraft}>フォームURLを保存</button>{formDraft&&<button type="button" className={buttonClass} disabled={busy} onClick={()=>{if(window.confirm('フォームURLの未保存の入力を破棄しますか？'))setFormDraft(null);}}>フォームURLの編集をやめる</button>}</div>
+   </form>
+   <p className="mt-2 text-xs text-slate-600">HTTPSのURLのみ登録できます。フォームの送信状況や受講完了とは自動連携しません。</p>
+  </section>}
   <div className="grid items-start gap-4 lg:grid-cols-[minmax(220px,320px)_minmax(0,1fr)]">
    <section className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4"><h3 className="font-black">研修カテゴリ</h3>
     {allowed&&<p className="mt-2 text-xs leading-relaxed text-slate-600">「並び替え」をドラッグ、または「上へ・下へ」でカテゴリと動画の表示順を変更できます。操作ごとに保存し、職員の受講画面にも反映します。</p>}
@@ -105,6 +114,9 @@ export function LegalTrainingWorkspace({user,manage=false,repository,onDirtyChan
     {ready&&selected&&!videos.length&&<p className="mt-4 text-sm text-slate-600">このカテゴリには動画がありません。</p>}
    </section>
   </div>
+  {!manage&&<div aria-label="受講確認フォームへのリンク" className="fixed left-4 right-24 z-30 rounded-2xl border border-teal-200 bg-white p-2 shadow-lg sm:left-1/2 sm:right-auto sm:w-80 sm:-translate-x-1/2" style={{bottom:'calc(1rem + env(safe-area-inset-bottom, 0px))'}}>
+   {ready&&!loading&&data.settings?.confirmationFormUrl?<a href={data.settings.confirmationFormUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-teal-700 px-3 text-sm font-black text-white">受講確認フォーム<ExternalLink className="h-4 w-4 shrink-0"/></a>:<><button type="button" disabled className="min-h-12 w-full rounded-xl bg-slate-100 px-3 text-sm font-black text-slate-500">受講確認フォーム</button><p className="mt-1 text-center text-xs text-slate-600">{loading?'読み込み中…':ready?'リンク先は未登録です':'リンク先を取得できません'}</p></>}
+  </div>}
  </div>;
 }
 function TrainingOrderControls({handle,title,index,count,disabled,onMove}:{handle:ReactNode;title:string;index:number;count:number;disabled:boolean;onMove:(direction:-1|1)=>void}){
