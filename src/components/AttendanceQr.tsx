@@ -2,9 +2,10 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, Camera, CheckCircle2, Clock3, QrCode, RefreshCw, X } from 'lucide-react';
 import type { AttendanceQrChallenge, UserProfile } from '../types';
 import { registerAttendanceKioskDevice } from '../services/dataService';
-import { getPersonalStaffQrStatus, issuePersonalStaffQr, revokePersonalStaffQr, scanPersonalStaffQr, staffQrError } from '../services/staffQrService';
-import type { StaffQrAttendanceResult } from '../services/staffQrService';
+import { getPersonalStaffQrDevice, getPersonalStaffQrStatus, issuePersonalStaffQr, requestPersonalStaffQrDevice, revokePersonalStaffQr, scanPersonalStaffQr, staffQrError } from '../services/staffQrService';
+import type { PersonalStaffQrDevice, StaffQrAttendanceResult } from '../services/staffQrService';
 import { attendanceQrPayload } from '../utils/attendanceQr';
+import { getAccessDeviceLabel } from '../utils/accessDevice';
 import { AttendanceQrScanner } from './AttendanceQrScanner';
 
 const timeLabel = (value: string | number) => new Intl.DateTimeFormat('ja-JP', {
@@ -67,6 +68,10 @@ export function AttendanceQrKiosk({ enabled, canRegister }: { enabled: boolean; 
 }
 
 function PersonalQrDisplay({ onClose }: { onClose: () => void }) {
+  const [device, setDevice] = useState<PersonalStaffQrDevice | null>(null);
+  const [deviceLabel, setDeviceLabel] = useState(getAccessDeviceLabel);
+  const [confirmedOwner, setConfirmedOwner] = useState(false);
+  const deviceBusy = useRef(false);
   const [challenge, setChallenge] = useState<(AttendanceQrChallenge & { displayName: string }) | null>(null);
   const [imageUrl, setImageUrl] = useState('');
   const [loading, setLoading] = useState(false);
@@ -98,15 +103,48 @@ function PersonalQrDisplay({ onClose }: { onClose: () => void }) {
     finally { busy.current = false; if (alive.current) setLoading(false); }
   }, []);
 
+  const prepare = useCallback(async () => {
+    if (deviceBusy.current || busy.current) return;
+    deviceBusy.current = true;
+    const sequence = ++generation.current;
+    if (token.current) void revokePersonalStaffQr(token.current).catch(() => {});
+    token.current = '';
+    setChallenge(null); setImageUrl(''); setReceipt(''); setStatusError('');
+    setLoading(true); setError('');
+    try {
+      const next = await getPersonalStaffQrDevice();
+      if (!alive.current || sequence !== generation.current) return;
+      setDevice(next);
+      if (next.state === 'approved') await issue();
+    } catch (cause) { if (alive.current && sequence === generation.current) setError(staffQrError(cause)); }
+    finally { deviceBusy.current = false; if (alive.current) setLoading(false); }
+  }, [issue]);
+
+  const registerPersonal = async () => {
+    if (deviceBusy.current || busy.current || !confirmedOwner || device?.state !== 'unregistered') return;
+    deviceBusy.current = true;
+    const sequence = ++generation.current;
+    setLoading(true); setError('');
+    try {
+      const next = await requestPersonalStaffQrDevice(deviceLabel);
+      if (!alive.current || sequence !== generation.current) return;
+      setDevice(next);
+      if (next.state === 'approved') await issue();
+    } catch (cause) { if (alive.current && sequence === generation.current) setError(staffQrError(cause)); }
+    finally { deviceBusy.current = false; if (alive.current) setLoading(false); }
+  };
+
   useEffect(() => {
     alive.current = true;
     // Defer so React StrictMode's setup/cleanup probe cannot issue two QRs.
-    const initial = window.setTimeout(() => void issue(), 0);
+    const initial = window.setTimeout(() => void prepare(), 0);
     const hide = () => {
       if (!document.hidden) return;
       generation.current++;
       if (token.current) void revokePersonalStaffQr(token.current).catch(() => {});
-      token.current = ''; setChallenge(null); setImageUrl(''); setError('安全のためQRを非表示にしました。「新しいQRを表示」を押してください。');
+      const hadQr = !!token.current;
+      token.current = ''; setChallenge(null); setImageUrl('');
+      if (hadQr) setError('安全のためQRを非表示にしました。「新しいQRを表示」を押してください。');
     };
     document.addEventListener('visibilitychange', hide);
     const timer = window.setInterval(() => setNow(Date.now() + offset.current), 1000);
@@ -115,7 +153,7 @@ function PersonalQrDisplay({ onClose }: { onClose: () => void }) {
       document.removeEventListener('visibilitychange', hide); clearInterval(timer); clearTimeout(initial);
       if (token.current) void revokePersonalStaffQr(token.current).catch(() => {});
     };
-  }, [issue]);
+  }, [prepare]);
 
   useEffect(() => {
     if (!challenge) return;
@@ -145,7 +183,7 @@ function PersonalQrDisplay({ onClose }: { onClose: () => void }) {
   return <div role="dialog" aria-modal="true" aria-label="本人用QRコード" className="fixed inset-0 z-[180] overflow-y-auto bg-slate-950 p-4 text-white sm:p-6">
     <header className="mx-auto flex max-w-xl items-center justify-between gap-3"><h2 className="text-lg font-black">本人用QRコード</h2><button type="button" onClick={onClose} aria-label="本人用QRを閉じる" className="grid h-11 w-11 place-items-center rounded-xl border border-slate-600"><X /></button></header>
     <section className="mx-auto mt-4 max-w-xl rounded-3xl bg-white p-4 text-center text-slate-950 sm:p-6">
-      <p className="text-lg font-black">{challenge?.displayName || '事業所端末に読み取らせてください'}</p>
+      <p className="text-lg font-black">{challenge?.displayName || device?.displayName || '端末の登録状況を確認します'}</p>
       <p className="mt-2 text-sm leading-relaxed text-slate-600">事業所側で「ログイン・出勤・退勤」を選択します。<br />この端末でのカメラ操作は不要です。</p>
       {loading && <div role="status" className="grid h-48 place-items-center"><RefreshCw className="h-10 w-10 animate-spin text-sky-700" /></div>}
       {!loading && imageUrl && seconds > 0 && <img src={imageUrl} alt="ログイン・出退勤用の本人用QR" className="mx-auto my-3 aspect-square w-full max-w-[min(48dvh,400px)]" />}
@@ -153,7 +191,19 @@ function PersonalQrDisplay({ onClose }: { onClose: () => void }) {
       {receipt && <p role="status" className="my-5 rounded-xl bg-emerald-50 p-4 font-bold text-emerald-800"><CheckCircle2 className="mx-auto mb-2 h-9 w-9" />{receipt}</p>}
       {error && <p role="alert" className="mt-4 rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-800"><AlertTriangle className="mr-1 inline h-5 w-5" />{error}</p>}
       {statusError && <p role="alert" className="mt-3 text-xs text-amber-800">{statusError}</p>}
-      <button type="button" disabled={loading} onClick={() => void issue()} className="mt-4 min-h-12 w-full rounded-xl bg-sky-700 px-3 text-sm font-black text-white disabled:opacity-50"><RefreshCw className="mr-2 inline h-4 w-4" />新しいQRを表示</button>
+      {device?.state === 'unregistered' && <div className="mt-4 space-y-3 rounded-2xl border border-sky-200 bg-sky-50 p-4 text-left">
+        <h3 className="font-black">この個人端末は未登録です</h3>
+        <p className="text-sm leading-relaxed">本人用QRを表示するため、このブラウザーを{device.displayName}さんの個人端末として登録申請します。事業所の共用タブレットでは申請しないでください。</p>
+        <label className="block text-sm font-bold">個人端末の名称<input type="text" maxLength={160} value={deviceLabel} disabled={loading} onChange={(event) => setDeviceLabel(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 px-3 text-slate-950" /></label>
+        <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={confirmedOwner} disabled={loading} onChange={(event) => setConfirmedOwner(event.target.checked)} className="mt-1 h-4 w-4 shrink-0" /><span>私は{device.displayName}本人で、この端末は自分用の個人端末です。</span></label>
+        <button type="button" disabled={loading || !confirmedOwner || !deviceLabel.trim()} onClick={() => void registerPersonal()} className="min-h-12 w-full rounded-xl bg-sky-700 px-3 text-sm font-black text-white disabled:opacity-50">この端末を自分の個人端末として登録申請</button>
+      </div>}
+      {device?.state === 'pending' && <div role="status" className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-4 text-left text-sm text-amber-950"><h3 className="font-black">個人端末の承認待ちです</h3><p className="mt-2">{device.displayName}さん ／ {device.label}</p><p className="mt-2 leading-relaxed">管理者に「職員・権限・端末管理 → 端末・アクセス」で、この名称の端末を承認してもらってください。承認後、下の「承認状況を再確認」を押すと本人用QRが表示されます。</p></div>}
+      {device?.state === 'facility_shared' && <p role="status" className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-950">このブラウザーは施設共用端末（QRを読み取る側）です。ご自身のスマートフォンなどでログインし、本人用QRを表示してください。この画面では端末種別を変更しません。</p>}
+      {device?.state === 'other_owner' && <p role="status" className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-950">このブラウザーは他の職員の個人端末として登録されています。所有者は変更できません。ご自身の端末を使用するか、管理者に確認してください。</p>}
+      {device?.state === 'revoked' && <p role="status" className="mt-4 rounded-xl bg-rose-50 p-4 text-sm text-rose-950">この個人端末は利用停止中です。管理者に「端末・アクセス」での再承認を依頼してください。</p>}
+      {!device && error && <p className="mt-3 text-left text-sm text-slate-600">紐づけのエラーの場合は、管理者が「職員・権限・端末管理」でログインアカウントと記録者名簿の紐づけ・利用状態を確認してください。</p>}
+      <button type="button" disabled={loading} onClick={() => void prepare()} className="mt-4 min-h-12 w-full rounded-xl bg-sky-700 px-3 text-sm font-black text-white disabled:opacity-50"><RefreshCw className="mr-2 inline h-4 w-4" />{device?.state === 'approved' ? '新しいQRを表示' : device?.state === 'pending' ? '承認状況を再確認' : '登録状況を再確認'}</button>
       <p className="mt-3 text-xs leading-relaxed text-slate-500">QRは1回限り・2分間有効です。ログインと打刻を続けて行う場合は新しいQRを表示してください。QRの画像を他の人に送らないでください。</p>
     </section>
   </div>;
