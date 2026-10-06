@@ -3,6 +3,7 @@ import {createRoot} from 'react-dom/client';
 import {ActivityPlanWorkspace} from '../../src/components/ActivityPlanWorkspace';
 import {TrafficCostCalculator} from '../../src/components/TrafficCostCalculator';
 import {FacilityWorkspace} from '../../src/components/FacilityWorkspace';
+import {InputFieldAppearance} from '../../src/components/InputFieldAppearance';
 import '../../src/index.css';
 const noop=()=>{};
 const basic='min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 py-2 text-slate-950';
@@ -24,4 +25,4 @@ function Fixture(){
   </section>}
  </main>;
 }
-createRoot(document.getElementById('root')!).render(<Fixture/>);
+createRoot(document.getElementById('root')!).render(<React.StrictMode><InputFieldAppearance/><Fixture/></React.StrictMode>);

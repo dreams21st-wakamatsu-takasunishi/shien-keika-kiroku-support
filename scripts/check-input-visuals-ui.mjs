@@ -31,11 +31,16 @@ async function check(page,url){
  await page.goto(url);await page.getByRole('heading',{name:'活動・指導案',exact:true}).waitFor();await page.setViewportSize({width:1440,height:1000});
  assert(await page.getByRole('button',{name:'保存した案を開く',exact:true}).getAttribute('aria-expanded')==='false','saved library starts closed');
  assert(await page.getByRole('tab').count()===4,'four workflow steps');assert(await page.getByRole('tab',{name:'1 基本情報',exact:true}).getAttribute('aria-selected')==='true','basic step starts selected');
- const blue='rgb(237, 245, 255)',bg=async locator=>locator.evaluate(el=>getComputedStyle(el).backgroundColor);
- assert(await bg(page.getByLabel('活動名（必須）',{exact:true}))===blue,'activity field highlighted');
+ const blue='rgb(237, 245, 255)',yellow='rgb(255, 248, 223)',bg=async locator=>locator.evaluate(el=>getComputedStyle(el).backgroundColor);
+ const expectFill=async(locator,state)=>{await page.waitForFunction(({label,state})=>document.querySelector(`[aria-label="${label}"]`)?.dataset.inputFill===state,{label:await locator.getAttribute('aria-label'),state});};
+ assert(await bg(page.getByLabel('活動名（必須）',{exact:true}))===yellow,'empty activity field highlighted yellow');
+ assert(await bg(page.getByLabel('実施日（必須）',{exact:true}))===blue,'default date is filled');
  const editorWidth=await page.getByLabel('活動名（必須）',{exact:true}).evaluate(el=>el.closest('fieldset').getBoundingClientRect().width);assert(editorWidth>1200,'full-width editor without side library');
  coverage.push('collapsed saved library','four numbered workflow steps','full-width editor','activity input color');
  await page.getByRole('button',{name:'工作のひな形',exact:true}).click();await page.getByLabel('活動名（必須）',{exact:true}).fill('架空の工作活動');await page.getByLabel('活動のねらい',{exact:true}).fill('架空のねらい');await page.getByLabel('職員人数（名）',{exact:true}).fill('2');await page.getByLabel('児童人数（名）',{exact:true}).fill('8');
+ assert(await bg(page.getByLabel('活動名（必須）',{exact:true}))===blue,'typed activity field filled blue');
+ assert(await bg(page.getByRole('tabpanel').getByRole('combobox').first())===blue,'template selected value filled blue');
+ coverage.push('empty and default activity colors','template and typed values filled blue');
  const names=await page.getByRole('tabpanel').locator('label').allTextContents();assert(names.findIndex(t=>t.startsWith('活動のねらい'))<names.findIndex(t=>t.startsWith('職員人数')),'goal precedes implementation conditions');
  await page.evaluate(()=>scrollTo(0,0));await page.screenshot({path:'output/playwright/activity-workflow-desktop.png',fullPage:true});
  await page.getByRole('button',{name:'次へ：活動の流れ',exact:true}).click();await page.getByRole('tabpanel',{name:'2 活動の流れ',exact:true}).waitFor();await page.getByLabel('1番目の活動内容',{exact:true}).fill('架空の手順');await page.getByLabel('開始時刻',{exact:true}).fill('15:00');await page.getByLabel('所要時間（分）',{exact:true}).first().fill('7');
@@ -56,17 +61,40 @@ async function check(page,url){
  await page.evaluate(()=>window.removeFixtureExitGuards());
  await page.reload();await page.getByLabel('活動名（必須）',{exact:true}).waitFor();assert(await page.getByLabel('活動名（必須）',{exact:true}).inputValue()==='架空の未保存案','session draft survives reload');coverage.push('cancel replacement retains draft','save failure retains draft','dirty exit protection','reload restores existing draft');
  for(const [width,height,name] of [[768,1024,'tablet'],[390,844,'mobile']]){await page.setViewportSize({width,height});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'activity no overflow '+name);await page.screenshot({path:'output/playwright/activity-workflow-'+name+'.png',fullPage:true});}coverage.push('activity tablet/mobile layout');
- await page.getByRole('button',{name:'試験：交通費',exact:true}).click();const distance=page.getByLabel('距離（km）',{exact:true});assert(await bg(distance)===blue,'traffic input highlighted');await distance.fill('8.5');await page.getByLabel('利用児童数（名）').fill('8');
+ await page.getByRole('button',{name:'試験：交通費',exact:true}).click();const distance=page.getByLabel('距離（km）',{exact:true});assert(await bg(distance)===yellow,'empty traffic input yellow');await distance.fill('8.5');await page.getByLabel('利用児童数（名）').fill('8');assert(await bg(distance)===blue,'filled traffic input blue');
  assert(await page.getByRole('button',{name:'結果をコピー',exact:true}).isEnabled(),'calculator still works');assert(await bg(page.getByLabel('フリードの燃費（km/L）',{exact:true}))===blue,'enabled efficiency field highlighted');assert(await bg(page.getByLabel('ムーヴの燃費（km/L）',{exact:true}))!==blue,'disabled efficiency preserved');
  const positions=await page.locator('.traffic-cost-page').evaluate(el=>{const input=el.querySelector('input'),result=el.querySelector('[aria-live]');return {input:input.getBoundingClientRect().top,result:result.getBoundingClientRect().top};});assert(positions.result>positions.input,'results remain below fields');
  await page.screenshot({path:'output/playwright/traffic-inputs-mobile.png',fullPage:true});coverage.push('traffic field colors','disabled vehicle fields preserved','calculator behavior','result ordering preserved');
- await page.getByRole('button',{name:'試験：施設業務',exact:true}).click();await page.getByRole('heading',{name:'施設業務',exact:true}).waitFor();assert(await bg(page.locator('.facility-workspace input:not([type])').first())===blue,'facility fields share cue');coverage.push('facility field consistency');
+ await page.getByRole('button',{name:'試験：施設業務',exact:true}).click();await page.getByRole('heading',{name:'施設業務',exact:true}).waitFor();assert(await bg(page.locator('.facility-workspace input:not([type])').first())===yellow,'empty facility fields share cue');coverage.push('facility field consistency');
  await page.getByRole('button',{name:'試験：各入力部品',exact:true}).click();
- for(const type of ['text','number','date','time','datetime-local','month','week','email','tel','url','password','textarea','select'])assert(await bg(page.getByLabel('試験：'+type,{exact:true}))===blue,'color for '+type);coverage.push('all ordinary field types');
- for(const type of ['readonly','disabled','disabled-fieldset','error','error-border','warning','plain','search','checkbox','radio','range','color','file'])assert(await bg(page.getByLabel('試験：'+type,{exact:true}))!==blue,'preserve '+type);coverage.push('readonly/disabled preservation','semantic warning/error preservation','search and opt-out preservation','non-text controls untouched');
+ const values={text:'架空の入力',number:'0',date:'2026-10-06',time:'09:00','datetime-local':'2026-10-06T09:00',month:'2026-10',week:'2026-W41',email:'staff@example.invalid',tel:'000',url:'https://example.invalid/',password:'synthetic-only',textarea:'架空の文章'};
+ for(const [type,value] of Object.entries(values)){
+  const locator=page.getByLabel('試験：'+type,{exact:true});await expectFill(locator,'empty');assert(await bg(locator)===yellow,'empty color for '+type);
+  await locator.fill(value);assert(await bg(locator)===blue,'filled color for '+type);
+  await locator.fill('');assert(await bg(locator)===yellow,'cleared color for '+type);
+ }
+ const choice=page.getByLabel('試験：select',{exact:true});assert(await bg(choice)===blue,'default selected option filled');
+ await choice.evaluate(el=>{el.insertAdjacentHTML('afterbegin','<option value="">選択してください</option>');});await choice.selectOption('');assert(await bg(choice)===yellow,'empty selected option yellow');await choice.selectOption('項目A');assert(await bg(choice)===blue,'chosen option blue');
+ const observed=page.getByLabel('試験：textarea',{exact:true});await observed.evaluate(el=>{el.value='外部から復元された架空の文章';});await expectFill(observed,'filled');assert(await bg(observed)===blue,'property-only restored textarea blue');
+ await observed.fill('　\n ');assert(await bg(observed)===yellow,'whitespace only remains empty');
+ await page.getByLabel('試験：number',{exact:true}).fill('0');assert(await bg(page.getByLabel('試験：number',{exact:true}))===blue,'zero is valid content');
+ coverage.push('all ordinary empty/filled/cleared field types','select placeholder transitions','property-only restored values','whitespace handling','zero counts as filled');
+ assert(await page.evaluate(async()=>{
+  const {watchInputFillState}=await import('/src/utils/inputFillState.ts');
+  const host=document.createElement('div');host.innerHTML='<form><input value="復元値"><textarea></textarea></form>';document.body.append(host);
+  const stop=watchInputFillState(host),field=host.querySelector('input'),form=host.querySelector('form');
+  if(field.dataset.inputFill!=='filled')throw Error('Initial restored value');
+  field.value='';field.dispatchEvent(new Event('input',{bubbles:true}));if(field.dataset.inputFill!=='empty')throw Error('Input event');
+  form.reset();await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));if(field.dataset.inputFill!=='filled')throw Error('Native form reset');
+  const extra=document.createElement('input');host.append(extra);await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));if(extra.dataset.inputFill!=='empty')throw Error('New dynamic field');
+  extra.remove();await new Promise(resolve=>setTimeout(resolve,550));if(extra.dataset.inputFill)throw Error('Detached control retention');
+  stop();field.value='';field.dispatchEvent(new Event('input',{bubbles:true}));await new Promise(resolve=>setTimeout(resolve,550));
+  if(host.querySelector('[data-input-fill]'))throw Error('Cleanup must stop observers, timer and listeners');host.remove();return true;
+ }),'watcher lifecycle');coverage.push('native form reset','dynamic and removed fields','watcher cleanup');
+ for(const type of ['readonly','disabled','disabled-fieldset','error','error-border','warning','plain','search','checkbox','radio','range','color','file'])assert(![blue,yellow].includes(await bg(page.getByLabel('試験：'+type,{exact:true}))),'preserve '+type);coverage.push('readonly/disabled preservation','semantic warning/error preservation','search and opt-out preservation','non-text controls untouched');
  const textField=page.getByLabel('試験：text',{exact:true});await textField.focus();assert(await textField.evaluate(el=>getComputedStyle(el).outlineWidth)==='2px','strong focus outline');
  const contrast=await textField.evaluate(el=>{const css=getComputedStyle(el),context=document.createElement('canvas').getContext('2d'),rgb=s=>{context.fillStyle=s;context.fillRect(0,0,1,1);return [...context.getImageData(0,0,1,1).data].slice(0,3);},l=s=>rgb(s).map(c=>{c/=255;return c<=.04045?c/12.92:((c+.055)/1.055)**2.4;}).reduce((sum,c,i)=>sum+c*[.2126,.7152,.0722][i],0),ratio=(a,b)=>(Math.max(l(a),l(b))+.05)/(Math.min(l(a),l(b))+.05);return {text:ratio(css.color,css.backgroundColor),border:ratio(css.borderColor,css.backgroundColor),placeholder:ratio(getComputedStyle(el,'::placeholder').color,css.backgroundColor)};});assert(contrast.text>=4.5&&contrast.placeholder>=4.5&&contrast.border>=3,'readable contrast');coverage.push('focus visibility','text/placeholder/border contrast');
- await page.emulateMedia({media:'print'});assert(await bg(textField)!==blue,'no print input tint');await page.emulateMedia({media:'screen',forcedColors:'active'});assert(await bg(textField)!==blue,'forced color settings respected');await page.emulateMedia({media:'screen',forcedColors:'none'});coverage.push('print unaffected','system high contrast respected');
+ await page.emulateMedia({media:'print'});assert(![blue,yellow].includes(await bg(textField)),'no print input tint');await page.emulateMedia({media:'screen',forcedColors:'active'});assert(![blue,yellow].includes(await bg(textField)),'forced color settings respected');await page.emulateMedia({media:'screen',forcedColors:'none'});coverage.push('print unaffected','system high contrast respected');
  await page.setViewportSize({width:768,height:1024});await page.screenshot({path:'output/playwright/input-controls-tablet.png',fullPage:true});assert(errors.length===0,errors.join('\n'));
  return {passed:true,cases:coverage.length,coverage,syntheticDataOnly:true,activityWrites:writes,contrast};
 }

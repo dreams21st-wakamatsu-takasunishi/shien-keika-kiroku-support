@@ -197,6 +197,11 @@ textarea {
     background-color: #edf5ff;
     border-color: #6484a3;
 
+    &[data-input-fill="empty"] {
+      background-color: #fff8df;
+      border-color: #947b39;
+    }
+
     &::placeholder {
       color: #52657a;
       opacity: 1;

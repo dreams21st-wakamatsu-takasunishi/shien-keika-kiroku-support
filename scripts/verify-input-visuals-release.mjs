@@ -17,12 +17,12 @@ const entry=html.match(/<script[^>]+src="(\.\/assets\/[^"?#]+\.js)"/)?.[1];
 if(!entry)throw Error('Entry module not found');
 const js=await (await read(entry)).text();
 for(const marker of ['作成する案を選ぶ','指導案の作成手順','activity-step-','activity-panel-',
- 'ねらいと内容','実施条件・担当','前の手順','次へ：','全体をプレビューで確認','保存した案を']){
+ 'ねらいと内容','実施条件・担当','前の手順','次へ：','全体をプレビューで確認','保存した案を','inputFill']){
  if(!js.includes(marker))throw Error(`Workflow absent: ${marker}`);
 }
 const cssPaths=manifest.assets.filter(path=>path.endsWith('.css'));
 const css=(await Promise.all(cssPaths.map(async path=>(await read(path)).text()))).join('\n');
-for(const marker of ['#edf5ff','#6484a3','#52657a','data-input-appearance','forced-colors:none']){
+for(const marker of ['#edf5ff','#6484a3','#52657a','#fff8df','#947b39','data-input-fill','data-input-appearance','forced-colors:none']){
  if(!css.includes(marker))throw Error(`Input styling absent: ${marker}`);
 }
 let assets=0;
@@ -30,4 +30,4 @@ for(const path of manifest.assets.filter(path=>/\.(js|css|mjs)$/.test(path))){
  if(!/^\.\/assets\/[A-Za-z0-9_.-]+$/.test(path))throw Error('Unexpected asset path');
  await (await read(path)).arrayBuffer();assets++;
 }
-console.log(JSON.stringify({version:version.version,inputFieldColorsIncluded:true,activityWorkflowIncluded:true,runtimeAssetsResponding:assets,readsPrivateData:false}));
+console.log(JSON.stringify({version:version.version,inputFieldColorsIncluded:true,emptyAndFilledColorsIncluded:true,activityWorkflowIncluded:true,runtimeAssetsResponding:assets,readsPrivateData:false}));
