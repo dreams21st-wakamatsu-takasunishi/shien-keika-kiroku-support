@@ -184,6 +184,32 @@ textarea {
   word-break: break-word;
 }
 
+/* Shared editable-field cue: screen only, with no changes to layout or data.
+   Keep semantic warning colors, read-only/disabled fields and non-text controls.
+   data-input-appearance="plain" is an escape hatch for display-only widgets. */
+@media screen and (forced-colors: none) {
+  #root :where(
+    input:not([type]), input[type=""], input[type="text"], input[type="number"],
+    input[type="date"], input[type="time"], input[type="datetime-local"],
+    input[type="month"], input[type="week"], input[type="email"],
+    input[type="tel"], input[type="url"], input[type="password"], textarea, select
+  ):not(:disabled):not([readonly]):not([aria-readonly="true"]):not([data-input-appearance="plain"]):not([aria-invalid="true"]):not([class*="border-red-"]):not([class*="border-rose-"]):not([class*="border-amber-"]):not([class*="border-orange-"]):not([class*="text-white"]):is(:not([class*="bg-"]),[class*="bg-white"],[class*="bg-transparent"],[class*="bg-slate-50"],[class*="bg-slate-100"],[class*="bg-gray-50"],[class*="bg-gray-100"]):not([class*="bg-red-"]):not([class*="bg-rose-"]):not([class*="bg-amber-"]):not([class*="bg-orange-"]) {
+    background-color: #edf5ff;
+    border-color: #6484a3;
+
+    &::placeholder {
+      color: #52657a;
+      opacity: 1;
+    }
+
+    &:focus {
+      border-color: #0369a1;
+      outline: 2px solid #0284c7;
+      outline-offset: 2px;
+    }
+  }
+}
+
 button:focus-visible,
 a:focus-visible,
 input:focus-visible,
