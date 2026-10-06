@@ -268,6 +268,7 @@ function mapRecorderProfile(row: any): RecorderProfile {
     'trafficCost',
     'activityPlans',
     'facilityWork',
+    'legalTraining',
     'operations',
     'communication',
     'assistant',

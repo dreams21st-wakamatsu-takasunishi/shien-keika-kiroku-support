@@ -422,6 +422,7 @@ export type RecorderMenuItemId =
   | 'trafficCost'
   | 'activityPlans'
   | 'facilityWork'
+  | 'legalTraining'
   | 'operations'
   | 'communication'
   | 'assistant'

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { MenuSearch } from './MenuSearch';
 import { matchesMenuSearch } from '../utils/navigation';
 import { ArrowLeft, BrainCircuit, CalendarClock, CarFront, ChevronRight, KeyRound, ListChecks, MapPinned, School, Settings } from 'lucide-react';
@@ -11,8 +11,11 @@ import { RolePermissionManager } from './RolePermissionManager';
 import { StaffShiftTemplateSettings } from './StaffShiftTemplateSettings';
 import { VehicleLedger } from './VehicleLedger';
 import { OrganizationServicesSettings } from './OrganizationServicesSettings';
+import { LegalTrainingWorkspace } from './LegalTrainingWorkspace';
+import {canManageTraining} from '../training/model';
 
 interface SettingsHubProps {
+  onTrainingDirtyChange?: (dirty:boolean) => void;
   aiWritingSettings: AiWritingSettings;
   templates: Template[];
   childrenList: ChildProfile[];
@@ -45,9 +48,10 @@ interface SettingsHubProps {
   onDeleteVehicle: (vehicleId: string) => Promise<void> | void;
 }
 
-type SettingsPage = 'menu' | 'ai' | 'templates' | 'schools' | 'transportMap' | 'rolePermissions' | 'shiftTemplates' | 'vehicles' | 'serviceTypes';
+type SettingsPage = 'menu' | 'ai' | 'templates' | 'schools' | 'transportMap' | 'rolePermissions' | 'shiftTemplates' | 'vehicles' | 'serviceTypes' | 'legalTraining';
 
 export const SettingsHub: React.FC<SettingsHubProps> = ({
+  onTrainingDirtyChange,
   aiWritingSettings,
   templates,
   childrenList,
@@ -82,10 +86,15 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
   const [page, setPage] = useState<SettingsPage>('menu');
   const [search, setSearch] = useState('');
   const [serviceTypesDirty,setServiceTypesDirty] = useState(false);
+  const [trainingDirty,setTrainingDirty] = useState(false);
+  const trainingChanged=useCallback((dirty:boolean)=>{setTrainingDirty(dirty);onTrainingDirtyChange?.(dirty);},[onTrainingDirtyChange]);
   const groups: {
     title: string; description: string; visible: boolean;
     items: { page: Exclude<SettingsPage, 'menu'>; icon: React.ElementType; title: string; description: string; keywords: string }[];
   }[] = [
+    { title: '職員研修', description: '管理者・児発管が登録する研修', visible: canManageTraining(currentUser?.role), items: [
+      { page: 'legalTraining', icon: ListChecks, title: '法定研修追加', description: '研修カテゴリ、動画タイトル、動画・資料のURLを登録します。', keywords: '研修 受講 動画 法定 資料' },
+    ] },
     { title: '事業所・送迎', description: '日々の利用・送迎に使う共通情報', visible: currentUser?.role === 'admin' || canManageChildren || canManageTransport, items: [
       { page: 'schools', icon: School, title: '学校台帳', description: `${schools.filter((school) => school.active).length}校を登録中。住所・長期休暇・下校時刻表を管理します。`, keywords: '学校 住所 夏休み 冬休み 春休み' },
       { page: 'transportMap', icon: MapPinned, title: '送迎の基本時刻・地点・エリア', description: '基本退所時刻、停車時間、地図の地点・エリア・ピン色を設定します。', keywords: '迎え 送り 開所 小学部 キャリアズ 強調 色' },
@@ -110,7 +119,7 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
     return (
       <div className="space-y-4">
         <div className="app-sticky-below-header sticky z-20 flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur">
-          <button type="button" onClick={() => {if(page==='serviceTypes'&&serviceTypesDirty&&!window.confirm('事業所種別の変更が未保存です。設定一覧へ戻りますか？'))return;setPage('menu');}} className="flex min-h-10 items-center gap-2 rounded-lg bg-white px-3 text-xs font-bold text-slate-700 shadow-sm">
+          <button type="button" onClick={() => {if(page==='legalTraining'&&trainingDirty&&!window.confirm('法定研修の入力が未保存です。設定一覧へ戻りますか？'))return;if(page==='serviceTypes'&&serviceTypesDirty&&!window.confirm('事業所種別の変更が未保存です。設定一覧へ戻りますか？'))return;setPage('menu');}} className="flex min-h-10 items-center gap-2 rounded-lg bg-white px-3 text-xs font-bold text-slate-700 shadow-sm">
             <ArrowLeft className="w-4 h-4" />設定一覧に戻る
           </button>
           <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-slate-400" />
@@ -128,6 +137,7 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
         {page === 'shiftTemplates' && <StaffShiftTemplateSettings templates={staffShiftTemplates} onSave={onSaveStaffShiftTemplate} onDelete={onDeleteStaffShiftTemplate} />}
         {page === 'vehicles' && <VehicleLedger vehicles={vehicles} recorderProfiles={recorderProfiles} onSave={onSaveVehicle} onDelete={onDeleteVehicle} />}
         {page === 'serviceTypes' && currentUser?.role === 'admin' && <OrganizationServicesSettings organizationId={currentUser.organizationId} onDirtyChange={setServiceTypesDirty} />}
+        {page === 'legalTraining' && currentUser && canManageTraining(currentUser.role) && <LegalTrainingWorkspace key={`${currentUser.organizationId}:${currentUser.id}`} user={currentUser} manage onDirtyChange={trainingChanged} />}
       </div>
     );
   }

@@ -14,9 +14,9 @@ test('home and drawer use the same unique menu IDs and names', () => {
 
 test('all registered menu IDs survive profile loading and database preference validation', () => {
   const service = readFileSync(new URL('../src/services/dataService.ts', import.meta.url), 'utf8');
-  const sql = readFileSync(new URL('../supabase/migrations/202610040002_facility_work.sql', import.meta.url), 'utf8');
+  const sql = readFileSync(new URL('../supabase/migrations/202610060002_legal_training.sql', import.meta.url), 'utf8');
   const allowed = service.match(/const allowedMenuItems[^=]*=\s*new Set<RecorderMenuItemId>\(\[([\s\S]*?)\]/)?.[1];
-  const databaseAllowed = sql.match(/v_allowed constant text\[\] := array\[([\s\S]*?)\]/)?.[1];
+  const databaseAllowed = sql.match(/v_allowed constant text\[\]\s*:=\s*array\[([\s\S]*?)\]/)?.[1];
   assert.ok(allowed);
   assert.ok(databaseAllowed);
   for (const item of navigationItems) {
@@ -68,7 +68,7 @@ test('purpose groups retain every authorized item once and keep order within a g
   assert.equal(grouped.length, customized.length);
   assert.deepEqual(new Set(grouped.map((item) => item.id)), new Set(customized.map((item) => item.id)));
   assert.deepEqual(groups.find((group) => group.label === '記録・児童').items.slice(0, 2).map((item) => item.id), ['records', 'children']);
-  assert.deepEqual(groups.find((group) => group.label === '活動・運営').items.map((item) => item.id), ['facilityWork', 'trafficCost', 'activityPlans']);
+  assert.deepEqual(groups.find((group) => group.label === '活動・運営').items.map((item) => item.id), ['facilityWork', 'trafficCost', 'activityPlans','legalTraining']);
   assert.ok(!grouped.some((item) => item.id === 'attendance' || item.managerOnly));
 });
 

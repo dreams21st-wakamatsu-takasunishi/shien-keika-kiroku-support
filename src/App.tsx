@@ -61,6 +61,7 @@ import { SettingsHub } from './components/SettingsHub';
 import { TrafficCostCalculator } from './components/TrafficCostCalculator';
 import { ActivityPlanWorkspace } from './components/ActivityPlanWorkspace';
 import { FacilityWorkspace } from './components/FacilityWorkspace';
+import { LegalTrainingWorkspace } from './components/LegalTrainingWorkspace';
 import { HomeScreen, type HomeWorkspace } from './components/HomeScreen';
 import type { DraftTakeoverSelection } from './components/DailyOperationsPanel';
 import { AuthScreen } from './components/AuthScreen';
@@ -182,6 +183,7 @@ export default function App() {
   const [meetingDirty, setMeetingDirty] = useState(false);
   const [activityDirty, setActivityDirty] = useState(false);
   const [facilityDirty, setFacilityDirty] = useState(false);
+  const [trainingDirty,setTrainingDirty] = useState(false);
   const [homeWorkspace, setHomeWorkspace] = useState<HomeWorkspace>('menu');
   const [announcementFocusToken, setAnnouncementFocusToken] = useState(0);
   const [recordStatusDate, setRecordStatusDate] = useState(getLocalDateString());
@@ -1847,6 +1849,7 @@ export default function App() {
   };
 
   const handleNewRecordClick = () => {
+    if (trainingDirty && !window.confirm('法定研修の入力が保存されていません。画面を移動しますか？')) return;
     if (activeTab === 'facilityWork' && facilityDirty && !window.confirm('施設業務の変更が保存されていません。画面を移動しますか？')) return;
     if (activeTab === 'activityPlans' && activityDirty && !window.confirm('活動・指導案の変更が保存されていません。画面を移動しますか？')) return;
     setCurrentRecord(null);
@@ -2137,6 +2140,7 @@ export default function App() {
   };
 
   const returnToHomeMenu = () => {
+    if (trainingDirty && !window.confirm('法定研修の入力が未保存です。画面を移動しますか？')) return;
     if (activeTab === 'facilityWork' && facilityDirty && !window.confirm('施設業務の変更が保存されていません。画面を移動しますか？')) return;
     if (activeTab === 'activityPlans' && activityDirty && !window.confirm('活動・指導案の変更が保存されていません。画面を移動しますか？')) return;
     if (activeTab === 'meetings' && meetingDirty && !window.confirm('会議の変更が保存されていません。画面を移動しますか？')) return;
@@ -2163,6 +2167,7 @@ export default function App() {
         activeTab={activeTab === 'preview' ? 'records' : activeTab}
         activeHomeWorkspace={homeWorkspace}
         setActiveTab={(tab) => {
+          if (trainingDirty && !window.confirm('法定研修の入力が未保存です。画面を移動しますか？')) return;
           if (activeTab === 'facilityWork' && tab !== 'facilityWork' && tab !== 'home' && facilityDirty && !window.confirm('施設業務の変更が保存されていません。画面を移動しますか？')) return;
           if (activeTab === 'activityPlans' && tab !== 'activityPlans' && tab !== 'home' && activityDirty && !window.confirm('活動・指導案の変更が保存されていません。画面を移動しますか？')) return;
           if (activeTab === 'meetings' && tab !== 'meetings' && tab !== 'home' && meetingDirty
@@ -2189,6 +2194,7 @@ export default function App() {
         activeRecorder={activeRecorder}
         onSaveMenuPreferences={handleSaveRecorderMenuPreferences}
         onOpenHomeWorkspace={(workspace) => {
+          if (trainingDirty && !window.confirm('法定研修の入力が未保存です。画面を移動しますか？')) return;
           if (activeTab === 'facilityWork' && facilityDirty && !window.confirm('施設業務の変更が保存されていません。画面を移動しますか？')) return;
           if (activeTab === 'activityPlans' && activityDirty && !window.confirm('活動・指導案の変更が保存されていません。画面を移動しますか？')) return;
           if (activeTab === 'meetings' && meetingDirty
@@ -2196,12 +2202,12 @@ export default function App() {
           setHomeWorkspace(workspace);
           setActiveTab('home');
         }}
-        onOpenFieldOperations={auth.profile?.recorderProfileId ? () => setFieldOperationsOpen(true) : undefined}
+        onOpenFieldOperations={auth.profile?.recorderProfileId ? () => {if(trainingDirty&&!window.confirm('法定研修の入力が未保存です。送迎画面へ移動しますか？'))return;setFieldOperationsOpen(true);} : undefined}
         onSignOut={remoteMode ? async () => {
           sessionStorage.removeItem('support-record-list-view-v1');
           await auth.signOut();
         } : undefined}
-        canOpenSettings={canManageRecordSettings || canManageChildren || canManageTransport || auth.profile?.role === 'admin'}
+        canOpenSettings={canManageRecordSettings || canManageChildren || canManageTransport || auth.profile?.role === 'admin' || auth.profile?.role === 'manager'}
         canOpenTeam={!remoteMode || auth.profile?.role === 'admin'}
       />
 
@@ -2463,11 +2469,13 @@ export default function App() {
         {activeTab === 'learning' && !auth.profile?.fieldModeOnly && (
           <LessonLearningManager scopeKey={`${organizationId || 'local'}:${auth.profile?.id || 'local'}:${auth.profile?.role || 'local'}`} childrenList={childrenList} remoteMode={remoteMode} reviewFocus={learningReviewFocus}/>
         )}
+        {activeTab === 'legalTraining' && <LegalTrainingWorkspace key={`${organizationId||'local'}:${auth.profile?.id||'local-demo'}`} user={auth.profile||{id:'local-demo',organizationId:'local',displayName:'試用者',role:'admin'}} onSignOut={remoteMode?auth.signOut:undefined} />}
         {FEATURE_FLAGS.supportPlansAndFiveDomains && activeTab === 'plans' && (
           <SupportPlanManager childrenList={childrenList} supportPlans={supportPlans} canEdit={canManageRecordSettings} onSavePlan={handleSavePlan} onClosePlan={handleClosePlan} />
         )}
-        {activeTab === 'templates' && (canManageRecordSettings || canManageChildren || canManageTransport || auth.profile?.role === 'admin') && (
+        {activeTab === 'templates' && (canManageRecordSettings || canManageChildren || canManageTransport || auth.profile?.role === 'admin' || auth.profile?.role === 'manager') && (
           <SettingsHub
+            onTrainingDirtyChange={setTrainingDirty}
             aiWritingSettings={aiWritingSettings}
             templates={templates}
             childrenList={childrenList}
@@ -2606,6 +2614,7 @@ function ScreenContextBar({
     trafficCost: { title: '交通費計算', description: '外出活動の費用をかんたんに計算' },
     activityPlans: { title: '活動・指導案', description: 'ひな形から作成・準備確認・振り返り・印刷' },
     facilityWork: { title: '施設業務', description: '日常点検・備品補充・おたより作成' },
+    legalTraining: { title: '法定研修', description: '研修動画・資料と本人の受講状況' },
     plans: { title: '個別支援計画', description: '現在は機能凍結中' },
     templates: { title: '設定', description: 'AI・記録フォーマットの管理' },
     team: { title: '職員管理', description: '記録者・ログイン職員の管理' },

@@ -38,6 +38,7 @@ import { enableDeviceNotifications } from '../utils/deviceNotifications';
 import { getLocalDateString } from '../utils/weekdays';
 import { PersonalStaffQr } from './AttendanceQr';
 import { TransportScheduleBoard } from './TransportScheduleBoard';
+import {LegalTrainingWorkspace} from './LegalTrainingWorkspace';
 
 interface PersonalTransportModeProps {
   currentUser: UserProfile;
@@ -141,6 +142,7 @@ function groupPlannedTime(group: TransportStopGroup) {
 }
 
 export const PersonalTransportMode: React.FC<PersonalTransportModeProps> = ({ currentUser, onSignOut, onExit }) => {
+  const [trainingOpen,setTrainingOpen]=useState(false);
   const [serviceDate, setServiceDate] = useState(getLocalDateString());
   const [view, setView] = useState<'mine' | 'all'>('mine');
   const [dashboard, setDashboard] = useState<TransportFieldDashboard | null>(null);
@@ -352,6 +354,7 @@ export const PersonalTransportMode: React.FC<PersonalTransportModeProps> = ({ cu
     }
   };
 
+  if(trainingOpen)return <div className="min-h-dvh bg-slate-100 p-3 pt-[max(1rem,env(safe-area-inset-top))]"><main className="mx-auto max-w-5xl space-y-3"><button type="button" className="min-h-11 rounded-xl border border-slate-300 bg-white px-4 font-bold" onClick={()=>setTrainingOpen(false)}>出退勤・送迎へ戻る</button><LegalTrainingWorkspace key={`${currentUser.organizationId}:${currentUser.id}`} user={currentUser} onSignOut={onSignOut}/></main></div>;
   return (
     <div className="min-h-dvh bg-slate-100 pb-[max(1.5rem,env(safe-area-inset-bottom))] text-slate-900">
       <header className="app-safe-top sticky top-0 z-40 border-b border-slate-800 bg-slate-950 text-white shadow-lg">
@@ -383,6 +386,7 @@ export const PersonalTransportMode: React.FC<PersonalTransportModeProps> = ({ cu
         )}
 
         <PersonalStaffQr currentUser={currentUser} />
+        <button type="button" onClick={()=>setTrainingOpen(true)} className="min-h-12 w-full rounded-xl border border-teal-200 bg-white px-4 text-left font-black text-teal-800">法定研修・自分の受講状況を確認</button>
 
         <section className="rounded-2xl bg-white p-3 shadow-sm">
           <div className="flex items-center justify-between gap-2">
