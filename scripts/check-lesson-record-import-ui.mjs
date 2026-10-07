@@ -5,13 +5,14 @@ const args=process.argv.slice(2),cli=args[args.indexOf('--cli')+1];
 const url=new URL(args.includes('--url')?args[args.indexOf('--url')+1]:'http://localhost:3014/tests/fixtures/lesson-record-import.html');
 if(!args.includes('--cli')||!['localhost','127.0.0.1'].includes(url.hostname)||url.pathname!=='/tests/fixtures/lesson-record-import.html')throw Error('Local fixture URL and --cli entry point are required');
 mkdirSync('output/playwright',{recursive:true});
-function command(...args){const result=spawnSync(process.execPath,[resolve(cli),'-s=lesson-import-regression',...args],{encoding:'utf8',timeout:180000,maxBuffer:4194304});if(result.status!==0||result.stdout.includes('### Error'))throw Error(result.stdout+result.stderr);return result.stdout;}
+const session=`lesson-import-${process.pid}-${Date.now()}`;
+function command(...args){const result=spawnSync(process.execPath,[resolve(cli),`-s=${session}`,...args],{encoding:'utf8',timeout:180000,maxBuffer:4194304});if(result.status!==0||result.stdout.includes('### Error'))throw Error(result.stdout+result.stderr);return result.stdout;}
 async function check(page,url){
  const assert=(ok,label)=>{if(!ok)throw Error(label);};
  const wait=async condition=>{for(let i=0;i<50;i++){if(condition())return;await new Promise(r=>setTimeout(r,100));}throw Error('Fixture draft did not update');};
  const org='22222222-2222-4222-8222-222222222222';
  const link={id:'11111111-1111-4111-8111-111111111111',organization_id:org,source_project_ref:'abcdefghijklmnopqrst',source_table:'user_data',source_student_id:'student_ui_a',source_campus_id:'main',source_display_name:'架空児童',active:true,revision:1,verified_at:'2026-10-01T00:00:00Z'};
- let revoked=false,changed=false,historyDelay=0,historyFails=false,empty=false,lastDraft=null;
+ let revoked=false,changed=false,historyDelay=0,historyFails=false,empty=false,largeHistory=false,lastDraft=null;
  const calls=[],errors=[];
  page.on('pageerror',e=>errors.push(e.message));
  await page.context().route('https://*.supabase.co/**',route=>route.abort());
@@ -27,7 +28,7 @@ async function check(page,url){
   if(body.action!=='history')throw Error(`Unexpected fixture action ${body.action}`);
   if(historyDelay)await new Promise(r=>setTimeout(r,historyDelay));
   if(revoked||historyFails)return route.fulfill({status:403,json:{error:'試験用：実績の閲覧権限がありません。'}});
-  await route.fulfill({json:{schemaVersion:1,identity:{sourceProjectRef:link.source_project_ref,dataTable:'user_data',studentId:link.source_student_id,campusId:'main',displayName:'架空児童',birthDate:''},date:body.date,historyComplete:false,historyNotice:'保存されている履歴のみです。未実施とは判断できません。',fetchedAt:'2026-10-01T01:00:00Z',events:empty?[]:[
+  await route.fulfill({json:{schemaVersion:1,identity:{sourceProjectRef:link.source_project_ref,dataTable:'user_data',studentId:link.source_student_id,campusId:'main',displayName:'架空児童',birthDate:''},date:body.date,historyComplete:false,historyNotice:'保存されている履歴のみです。未実施とは判断できません。',fetchedAt:'2026-10-01T01:00:00Z',events:empty?[]:largeHistory?Array.from({length:51},(_,i)=>({id:`large-${i}`,at:`${body.date}T00:00:00Z`,category:'mouse',title:`上限テスト${i}`,detail:'クリア',amount:'ステージをクリア'})):[
    {id:'mouse-ui',at:`${body.date}T00:00:00Z`,category:'mouse',title:'M-1',detail:changed?'更新された実績':'クリア',amount:'ステージをクリア'},
    {id:'text-ui',at:`${body.date}T00:10:00Z`,category:'text',title:'文章入力',detail:'練習',amount:'120文字'},
   ]}});
@@ -44,6 +45,11 @@ async function check(page,url){
  const pick=page.getByRole('checkbox',{name:/取り込み対象 .*M-1/});await pick.waitFor();
  const confirm=page.getByRole('checkbox',{name:'選択した実績の児童・日付・内容を確認',exact:true});
  assert(await confirm.isDisabled(),'confirmation before selection disabled');
+ await page.getByRole('button',{name:'実績を全件選択',exact:true}).click();
+ assert(await page.getByRole('checkbox',{name:/取り込み対象 /}).evaluateAll(items=>items.every(item=>item.checked)),'bulk selects all shown results');
+ await confirm.check();await page.getByRole('button',{name:'実績の選択を解除',exact:true}).click();
+ assert(await confirm.isDisabled()&&!await confirm.isChecked(),'clearing selection resets identity confirmation');
+ assert(await page.getByRole('checkbox',{name:/取り込み対象 /}).evaluateAll(items=>items.every(item=>!item.checked)),'bulk clears all results');
  await pick.check();assert(await page.getByRole('button',{name:/選択した実績を追加/}).isDisabled(),'unconfirmed import disabled');
  await confirm.check();await page.getByRole('button',{name:/選択した実績を追加/}).click();
  await page.getByText('確認した実績を入力中の記録へ追加しました。記録は未保存です。',{exact:true}).waitFor();
@@ -122,6 +128,11 @@ async function check(page,url){
  assert(await page.getByText(/未実施とは判断できません/).count()===1,'empty is unknown');
  empty=false;historyFails=true;await get.click();await page.getByText('試験用：実績の閲覧権限がありません。',{exact:true}).waitFor();
  historyFails=false;await get.click();await pick.waitFor();
+ largeHistory=true;await get.click();await page.getByText('全件選択は50件までです。必要な実績を個別に選んでください。',{exact:true}).waitFor();
+ assert(await page.getByRole('button',{name:'実績を全件選択',exact:true}).isDisabled(),'oversized history disables bulk select');
+ await page.getByRole('checkbox',{name:/取り込み対象 .*上限テスト0/}).check();
+ assert(await confirm.isEnabled(),'oversized history still allows individual selection');
+ largeHistory=false;
  await page.goto(url+'?component=true&readonly=true');
  assert(await get.isDisabled(),'read-only cannot fetch or apply');
  await page.goto(url+'?invalid=true');
@@ -130,6 +141,6 @@ async function check(page,url){
  await page.getByRole('button',{name:'入力を終えて確認',exact:true}).click();
  await page.getByText('Dレッスン実績の確認が必要です',{exact:true}).waitFor();
  assert(errors.length===0,errors.join(','));
- return {passed:true,cases:['full record form integration','confirmed selection','autosaved draft projection','manual content preservation','no inferred observations','concise/detail output switches','collapsed source evidence','manual typing and text supplement','invalid accuracy warning','manual-only output preview','duplicate prevention','remove evidence','revoked link','changed source event','child/date switch','empty history','fetch retry','read-only','pre-save date mismatch error','desktop/mobile'],historyCalls:calls.filter(c=>c.action==='history').length};
+ return {passed:true,cases:['full record form integration','bulk select all','bulk clear resets confirmation','oversized bulk limit with individual selection','confirmed selection','autosaved draft projection','manual content preservation','no inferred observations','concise/detail output switches','collapsed source evidence','manual typing and text supplement','invalid accuracy warning','manual-only output preview','duplicate prevention','remove evidence','revoked link','changed source event','child/date switch','empty history','fetch retry','read-only','pre-save date mismatch error','desktop/mobile'],historyCalls:calls.filter(c=>c.action==='history').length};
 }
-try{command('open','about:blank');const output=command('run-code',`async (page)=>{return await (${check.toString()})(page,${JSON.stringify(url.href)});}`);const result=output.match(/### Result\s+([\s\S]*?)\s+### Ran/);if(!result||JSON.parse(result[1]).passed!==true)throw Error(`UI regression did not complete: ${output}`);console.log(result[1]);}finally{command('close');}
+try{command('open',url.href);command('snapshot');const output=command('run-code',`async (page)=>{return await (${check.toString()})(page,${JSON.stringify(url.href)});}`);const result=output.match(/### Result\s+([\s\S]*?)\s+### Ran/);if(!result||JSON.parse(result[1]).passed!==true)throw Error(`UI regression did not complete: ${output}`);console.log(result[1]);}finally{command('close');}

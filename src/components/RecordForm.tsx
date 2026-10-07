@@ -117,6 +117,7 @@ import {MANUAL_LESSON_KEY,readManualLessonExercises} from '../learning/manualLes
 import {evidenceScopeIssue,formatPcActivities,IMPORT_KEY,lessonEventText,readLessonEvidence} from '../learning/recordImport';
 import {applyAutomaticLessonHistory,type LessonImportTarget} from '../learning/automaticRecordImport';
 import {useLessonAutoHistory} from '../services/useLessonAutoHistory';
+import {LessonAutoStatus} from './LessonAutoStatus';
 
 interface RecordFormProps {
   templates: Template[];
@@ -5059,13 +5060,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       {lessonImportEnabled&&organizationId&&userId&&!readOnly&&wizard.selectedChildIds.length>0&&<section aria-label="Dレッスンの自動反映" className="rounded-xl border border-teal-200 bg-teal-50 p-3 text-sm text-teal-950">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <label className="flex min-h-10 items-center gap-2 font-bold"><input type="checkbox" checked={automaticLessonEnabled} disabled={editingDisabled||isSaving||Boolean(savingChildId)} onChange={event=>setAutomaticLessonEnabled(event.target.checked)} className="h-4 w-4 accent-teal-700"/>Dレッスンの実績を自動反映</label>
-          <button type="button" disabled={!automaticLessonEnabled||editingDisabled||isSaving||Boolean(savingChildId)||Object.values(lessonAuto.results).some(row=>row.status==='loading')} onClick={lessonAuto.refresh} className="min-h-10 rounded-lg border border-teal-400 bg-white px-3 font-bold disabled:opacity-50">最新の実績を再取得</button>
+          <button type="button" disabled={!automaticLessonEnabled||editingDisabled||isSaving||Boolean(savingChildId)||Object.values(lessonAuto.results).some(row=>row.status==='loading')} onClick={()=>lessonAuto.refresh()} className="min-h-10 rounded-lg border border-teal-400 bg-white px-3 font-bold disabled:opacity-50">最新の実績を再取得</button>
         </div>
         <p className="text-xs leading-relaxed">選択した児童の{wizard.date}の練習内容を「パソコン」に追加します。手入力・観察は保持し、記録の確定保存は職員が行います。{initialRecord&&!automaticLessonEnabled?'保存済み記録は自動変更しません。必要な場合のみオンにしてください。':''}</p>
-        {automaticLessonEnabled&&<details className="mt-2"><summary className="cursor-pointer py-1 text-xs font-bold">取得状況：{Object.values(lessonAuto.results).filter(row=>row.status==='ready').length}名の実績あり{lessonAutoIssues.length>0?`・要確認 ${lessonAutoIssues.length}名`:''}{Object.values(lessonAuto.results).some(row=>row.status==='loading')?'・取得中':''}</summary>
-          <ul className="mt-1 space-y-1 text-xs">{Object.values(lessonAuto.results).map(row=><li key={row.childId} className="break-words">{childrenList.find(child=>child.id===row.childId)?.name||'児童'}：{lessonAutoIssues.find(issue=>issue.childId===row.childId)?.message||row.message}</li>)}</ul>
-        </details>}
-        {lessonAutoIssues.length>0&&<p role="alert" className="mt-2 text-xs font-bold text-rose-800">一部の実績は自動反映できませんでした。取得状況を確認し、必要に応じて再取得してください。手入力は続けられます。</p>}
+        {automaticLessonEnabled&&<LessonAutoStatus results={lessonAuto.results} issues={lessonAutoIssues} childrenList={childrenList} disabled={editingDisabled||isSaving||Boolean(savingChildId)} onRefresh={lessonAuto.refresh}/>}
       </section>}
 
       <section className="w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">

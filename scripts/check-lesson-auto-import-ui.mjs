@@ -5,7 +5,8 @@ const args=process.argv.slice(2),cli=args[args.indexOf('--cli')+1];
 const url=new URL(args.includes('--url')?args[args.indexOf('--url')+1]:'http://127.0.0.1:3014/tests/fixtures/lesson-record-import.html');
 if(!args.includes('--cli')||!['localhost','127.0.0.1'].includes(url.hostname)||url.pathname!=='/tests/fixtures/lesson-record-import.html')throw Error('Local fixture and --cli required');
 mkdirSync('output/playwright',{recursive:true});
-function command(...args){const result=spawnSync(process.execPath,[resolve(cli),'-s=lesson-auto-regression',...args],{encoding:'utf8',timeout:180000,maxBuffer:4194304});if(result.status!==0||result.stdout.includes('### Error'))throw Error(result.stdout+result.stderr);return result.stdout;}
+const session='lesson-auto-regression-'+Date.now();
+function command(...args){const result=spawnSync(process.execPath,[resolve(cli),'-s='+session,...args],{encoding:'utf8',timeout:180000,maxBuffer:4194304});if(result.status!==0||result.stdout.includes('### Error'))throw Error(result.stdout+result.stderr);return result.stdout;}
 async function check(page,url){
  const assert=(ok,label)=>{if(!ok)throw Error(label);};
  const wait=async condition=>{for(let i=0;i<100;i++){if(condition())return;await new Promise(r=>setTimeout(r,100));}throw Error('Automatic draft did not update');};
@@ -55,12 +56,20 @@ async function check(page,url){
  assert(evidence('child-import-b').every(event=>event.studentId==='student_ui_b'),'B evidence isolated');
  assert(latestDraft.childDrafts['child-import-b'].recordModules.filter(module=>module.type==='pc').length===1,'new PC module created once');
  await panel.locator('summary').click();
+ await panel.screenshot({path:'output/playwright/manual-lesson-auto.png'});
  await page.setViewportSize({width:1280,height:900});await panel.scrollIntoViewIfNeeded();
  await page.screenshot({path:'output/playwright/lesson-auto-desktop.png',fullPage:true});
  await page.setViewportSize({width:390,height:844});
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no mobile overflow');
  await page.screenshot({path:'output/playwright/lesson-auto-mobile.png',fullPage:true});
  const refresh=page.getByRole('button',{name:'最新の実績を再取得',exact:true});
+ const beforeSingle=calls.filter(call=>call.action==='history').length;
+ await panel.getByRole('button',{name:'架空児童 あおいの実績を再取得',exact:true}).click();
+ await wait(()=>calls.filter(call=>call.action==='history').length===beforeSingle+1);
+ await page.getByText('取得状況：2名の実績あり',{exact:true}).waitFor();
+ assert(calls.filter(call=>call.action==='history').slice(beforeSingle).every(call=>call.childId==='child-import-a'),'single-child retry does not refetch another child');
+ assert(evidence('child-import-a').length===2&&evidence('child-import-b').length===2,'targeted retry preserves all evidence');
+ assert(await panel.getByText(/確認時刻（端末時計）：/).count()===2,'check time displayed for each child');
  let count=calls.filter(call=>call.action==='history').length;
  await refresh.click();await wait(()=>calls.filter(call=>call.action==='history').length>=count+2);
  await page.getByText('取得状況：2名の実績あり',{exact:true}).waitFor();
@@ -110,11 +119,12 @@ async function check(page,url){
  await manual.getByLabel('正確率（%）',{exact:true}).fill('72');
  await wait(()=>legacyAnswer().value.includes('自動実績がない練習〔途中終了・正確率72%〕'));
  await page.setViewportSize({width:1280,height:900});await practice.scrollIntoViewIfNeeded();
+ await practice.screenshot({path:'output/playwright/manual-lesson-details.png'});
  await page.screenshot({path:'output/playwright/lesson-topics-desktop.png',fullPage:true});
  await page.setViewportSize({width:390,height:844});await practice.scrollIntoViewIfNeeded();
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'task editor has no mobile overflow');
  await page.screenshot({path:'output/playwright/lesson-topics-mobile.png',fullPage:true});
  assert(errors.length===0,errors.join('\n'));
- return {passed:true,cases:['automatic multiple children','source isolation','PC module creation','manual preservation','guarded draft autosave','no inferred observations','duplicate prevention','new practice retry','changed source','permission failure','empty history','revoked link','saved record opt-in','legacy template integration','read-only','late-response cancellation','mobile layout','task names and accuracy','completed and stopped text separation','manual supplement with source preserved','task editor desktop/mobile']};
+ return {passed:true,cases:['automatic multiple children','source isolation','PC module creation','manual preservation','guarded draft autosave','no inferred observations','duplicate prevention','single-child retry without other reads','check time per child','new practice retry','changed source','permission failure','empty history','revoked link','saved record opt-in','legacy template integration','read-only','late-response cancellation','mobile layout','task names and accuracy','completed and stopped text separation','manual supplement with source preserved','task editor desktop/mobile']};
 }
-try{command('open','about:blank');const output=command('run-code',`async(page)=>await (${check.toString()})(page,${JSON.stringify(url.href)})`);const result=output.match(/### Result\s+([\s\S]*?)\s+### Ran/);if(!result||JSON.parse(result[1]).passed!==true)throw Error(`Regression incomplete: ${output}`);console.log(result[1]);}finally{command('close');}
+try{command('open',url.href);command('snapshot');const output=command('run-code',`async(page)=>await (${check.toString()})(page,${JSON.stringify(url.href)})`);const result=output.match(/### Result\s+([\s\S]*?)\s+### Ran/);if(!result||JSON.parse(result[1]).passed!==true)throw Error(`Regression incomplete: ${output}`);console.log(result[1]);}finally{command('close');}

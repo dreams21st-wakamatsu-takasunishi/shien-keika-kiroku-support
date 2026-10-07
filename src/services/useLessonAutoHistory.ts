@@ -6,12 +6,14 @@ export interface AutomaticLessonResult {
  childId:string;date:string;organizationId:string;actorId:string;requestId:number;
  status:'loading'|'ready'|'empty'|'unlinked'|'error';message:string;
  history?:LessonHistory;link?:LessonLink;
+ checkedAt?:string;
 }
 export function useLessonAutoHistory({childIds,date,organizationId,actorId,enabled}:{
  childIds:string[];date:string;organizationId:string;actorId:string;enabled:boolean;
-}):{results:Record<string,AutomaticLessonResult>;refresh:()=>void}{
+}):{results:Record<string,AutomaticLessonResult>;refresh:(childId?:string)=>void}{
  const [results,setResults]=useState<Record<string,AutomaticLessonResult>>({});
  const [refreshToken,setRefreshToken]=useState(0);
+ const [childRetryToken,setChildRetryToken]=useState(0);
  const generation=useRef(0),cache=useRef(new Map<string,AutomaticLessonResult>());
  const scope=JSON.stringify([organizationId,actorId,date,refreshToken]);
  const childSignature=JSON.stringify([...childIds].sort());
@@ -27,8 +29,9 @@ export function useLessonAutoHistory({childIds,date,organizationId,actorId,enabl
   if(!pending.length)return;
   const publish=(result:AutomaticLessonResult)=>{
    if(requestId!==generation.current)return;
-   cache.current.set(`${scope}:${result.childId}`,result);
-   setResults(previous=>({...previous,[result.childId]:result}));
+   const checked={...result,checkedAt:new Date().toISOString()};
+   cache.current.set(`${scope}:${result.childId}`,checked);
+   setResults(previous=>({...previous,[result.childId]:checked}));
   };
   void (async()=>{
    try{
@@ -56,8 +59,14 @@ export function useLessonAutoHistory({childIds,date,organizationId,actorId,enabl
    }catch(error){for(const childId of pending)publish({childId,date,organizationId,actorId,requestId,status:'error',message:error instanceof Error?error.message:'実績を取得できませんでした。'});}
   })();
   return()=>{generation.current++;};
- },[scope,childSignature,enabled,organizationId,actorId,date]);
+ },[scope,childSignature,childRetryToken,enabled,organizationId,actorId,date]);
  // A new date/account or an explicit retry gets fresh data, never a cross-scope cache.
  useEffect(()=>{cache.current.clear();},[scope]);
- return {results,refresh:()=>setRefreshToken(value=>value+1)};
+ return {results,refresh:(childId?:string)=>{
+  if(childId){
+   if(!childIds.includes(childId))return;
+   cache.current.delete(`${scope}:${childId}`);
+   setChildRetryToken(value=>value+1);
+  }else setRefreshToken(value=>value+1);
+ }};
 }

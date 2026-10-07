@@ -8,12 +8,15 @@ mkdirSync(path.join(out, 'images'), { recursive: true });
 const escape = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const groups = [...new Set(sections.map(s => s.group))];
 const ids = new Set();
+const screenshotSources={'personal-qr-register':'personal-qr-device-registration-tablet.png','legal-training':'legal-training-form-mobile.png','activityPlans':'activity-workflow-desktop.png'};
 for (const s of sections) {
   if (ids.has(s.id) || s.steps.length !== 3 || s.flow.length !== 3) throw Error('Invalid manual section: ' + s.id);
   ids.add(s.id);
-  const source = path.join(root, 'output/playwright', s.image === 'activity-sheet' ? 'activity-sheet.png' : `manual-${s.image}.png`);
+  let source = path.join(root, 'output/playwright', screenshotSources[s.image] || (s.image === 'activity-sheet' ? 'activity-sheet.png' : `manual-${s.image}.png`));
+  if (!existsSync(source)) source = path.join(out,'images',s.image+'.png');
   if (!existsSync(source)) throw Error('Missing verified screenshot: ' + source);
-  copyFileSync(source, path.join(out, 'images', s.image + '.png'));
+  const target=path.join(out, 'images', s.image + '.png');
+  if(source!==target)copyFileSync(source,target);
 }
 const contents = groups.map(group => `<div class="toc-group"><h3>${escape(group)}</h3><ul>${sections.filter(s => s.group === group).map(s => `<li><a href="#${s.id}">${sections.indexOf(s) + 1}. ${escape(s.title)}</a></li>`).join('')}</ul></div>`).join('');
 const pages = sections.map((s, i) => `<section class="manual-page" id="${s.id}" data-search="${escape([s.group,s.title,s.route,...s.steps,s.note].join(' '))}">
@@ -22,11 +25,11 @@ const pages = sections.map((s, i) => `<section class="manual-page" id="${s.id}" 
  <figure><button class="image-zoom" aria-label="${escape(s.title)}の画面例を拡大"><img src="images/${s.image}.png" alt="${escape(s.title)}の操作画面例" loading="lazy"></button><figcaption>画面例：サンプルデータ使用。端末・権限により表示が異なります。画像を選ぶと拡大できます。</figcaption></figure>
  <div class="flow" aria-label="操作の流れ">${s.flow.map((f,n)=>`<div><b>${n+1}</b>${escape(f)}</div>${n<2?'<span aria-hidden="true">→</span>':''}`).join('')}</div>
  <ol class="steps">${s.steps.map(step=>`<li>${escape(step)}</li>`).join('')}</ol><p class="note"><b>確認ポイント</b><br>${escape(s.note)}</p>
- <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-05 · ${i+3}</p>
+ <p class="page-footer">Dサポート 図解操作マニュアル · 2026-10-06 · ${i+3}</p>
  </section>`).join('');
 const html=`<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dサポート 図解操作マニュアル</title><link rel="stylesheet" href="manual.css"></head><body>
  <header class="toolbar"><a href="#top">Dサポート 図解操作マニュアル</a><label>操作を検索<input type="search" id="search" placeholder="例：配車、宿題、シフト、QR"></label><button id="reset">すべて表示</button><a href="Dサポート_図解操作マニュアル.pdf" download>PDFを保存</a><button id="print">印刷</button></header>
- <main><section id="top" class="cover"><p class="eyebrow">D SUPPORT / FIELD GUIDE</p><h1>Dサポート<br>図解操作マニュアル</h1><p class="subtitle">迷ったときは、目的の操作から。</p><div class="cover-flow"><div>探す</div><span>→</span><div>入力・確認</div><span>→</span><div>保存・共有</div></div><p>記録・児童／利用予定・送迎／勤務・カレンダー<br>共有・連絡／活動・施設業務／会議・学習／管理者設定</p><div class="cover-notice"><b>このマニュアルについて</b><p>2026年10月5日時点のソースと操作画面をもとに作成しました。指導案の表形式に対応した版です。画面が異なる場合は、編集中の内容を保存してからアプリを最新版に更新してください。</p><p>画面例には実在の児童・職員の情報を使用していません。事業所の権限、端末種別、連携設定によって使用できる機能が異なります。登録・共有ができたかは、保存完了の表示と保存後の再表示で確認してください。</p><p>この冊子は職員向けの主な操作手順です。管理者による導入設定、障害時の技術作業、法令や事業所規程の確認を置き換えるものではありません。</p></div><p class="version">対象：2026-10-05 指導案表形式対応版／作成日：2026-10-05</p></section>
+ <main><section id="top" class="cover"><p class="eyebrow">D SUPPORT / FIELD GUIDE</p><h1>Dサポート<br>図解操作マニュアル</h1><p class="subtitle">迷ったときは、目的の操作から。</p><div class="cover-flow"><div>探す</div><span>→</span><div>入力・確認</div><span>→</span><div>保存・共有</div></div><p>記録・児童／利用予定・送迎／勤務・カレンダー<br>共有・連絡／活動・施設業務／会議・学習／管理者設定</p><div class="cover-notice"><b>このマニュアルについて</b><p>2026年10月6日時点のソースと操作画面をもとに作成しました。Dレッスンの要点反映、本人用QRの個人端末登録、法定研修、指導案の入力手順に対応しています。画面が異なる場合は、編集中の内容を保存してからアプリを最新版に更新してください。</p><p>画面例には実在の児童・職員の情報を使用していません。事業所の権限、端末種別、連携設定によって使用できる機能が異なります。登録・共有ができたかは、保存完了の表示と保存後の再表示で確認してください。</p><p>この冊子は職員向けの主な操作手順です。管理者による導入設定、障害時の技術作業、法令や事業所規程の確認を置き換えるものではありません。</p></div><p class="version">対象：2026-10-06 機能更新対応版／作成日：2026-10-06</p></section>
  <nav class="contents" aria-label="目次"><p class="eyebrow">CONTENTS</p><h2>目的から探す</h2><p>見出しを選ぶと、該当する操作へ移動します。</p><div class="toc-columns">${contents}</div><div class="tips"><b>まず確認すること</b><p>① 自分の職員名　② 対象の日付　③ 対象の児童・職員・便　④ 保存結果</p><p>メニューが表示されない場合は、非表示設定・アカウント権限・個人端末モードを確認します。入力を消してから調べる必要はありません。</p></div></nav>
  <p id="search-status" class="screen-only" role="status"></p>${pages}</main>
  <dialog id="zoom"><button id="close-zoom" aria-label="画像の拡大を閉じる">閉じる</button><img alt="拡大した操作画面例"></dialog><script src="manual.js"></script></body></html>`;

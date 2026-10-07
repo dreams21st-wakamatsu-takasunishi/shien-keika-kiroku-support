@@ -1,6 +1,6 @@
 # Dサポート 図解操作マニュアル
 
-更新日：2026-10-05。対象は指導案の表形式に対応した版。
+更新日：2026-10-06。Dレッスンの自動反映・要点表示・児童別再取得・手入力、本人用QRの個人端末登録、法定研修、指導案の4手順に対応した版。
 
 ## 構成
 
@@ -17,9 +17,9 @@
 
 1. 変更された機能の画面をサンプルデータで再撮影する。実在児童・住所・QRトークンを含めない。
 2. `sections.json` のボタン名・手順をソースと照合して修正する。
-3. `node scripts/build-illustrated-manual.mjs` でブラウザ版を生成する。撮影画像は `output/playwright/manual-*.png` を使用する。
-4. ブラウザ版を開き、検索・目次・拡大を確認する。全画像の読み込みを確認してA4縦のPDFへ出力する。
-5. PDFの全ページを画像化し、文字・図の切れ、白紙、目次と本文の不一致を確認する。
+3. `node scripts/build-illustrated-manual.mjs` でブラウザ版を生成する。撮影画像は `output/playwright/manual-*.png` 等を使用する。再撮影画像がない既存項目は、配布済みの画像を再利用できる。
+4. `node scripts/check-illustrated-manual-ui.mjs --cli <playwright-cli.js>` でローカルのブラウザ版の検索・目次・拡大・画像読み込みを確認し、A4縦のPDFへ出力する（開発サーバーは3014番）。
+5. `pdftoppm -r 65 -png public/manuals/d-support/Dサポート_図解操作マニュアル.pdf output/pdf/manual-current/page` で全ページを画像化する（出力フォルダは事前に作成）。`python scripts/check-illustrated-manual-pdf.py` で本文の照合と確認用一覧画像を作り、文字・図の切れ、白紙、目次と本文の不一致を目視確認する。PythonにはpypdfとPillowが必要。
 6. 本番反映の承認を得てから、アプリ更新と一緒に公開する。
 
 ## 指導案の互換性

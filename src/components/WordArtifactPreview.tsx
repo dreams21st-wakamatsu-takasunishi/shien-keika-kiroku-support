@@ -1,8 +1,7 @@
 import React,{useEffect,useRef,useState} from 'react';
 import {ChevronLeft,ChevronRight,LoaderCircle} from 'lucide-react';
-import {getDocument,GlobalWorkerOptions,type PDFDocumentProxy} from 'pdfjs-dist';
+import type {PDFDocumentLoadingTask,PDFDocumentProxy} from 'pdfjs-dist';
 import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
-GlobalWorkerOptions.workerSrc=workerUrl;
 const cMaps=import.meta.glob<string>('/node_modules/pdfjs-dist/cmaps/*.bcmap',{query:'?url',import:'default',eager:true});
 const fonts=import.meta.glob<string>('/node_modules/pdfjs-dist/standard_fonts/*',{query:'?url',import:'default',eager:true});
 async function readAsset(url:string|undefined){if(!url)throw Error('PDF resource unavailable');const response=await fetch(url);if(!response.ok)throw Error('PDF resource unavailable');return new Uint8Array(await response.arrayBuffer());}
@@ -20,9 +19,15 @@ export function WordArtifactPreview({url,fileType,onReady}:{url:string;fileType:
     if(fileType!=='application/pdf')return;
     let disposed=false;
     // Render only page pixels: no document scripts, forms, links or embedded actions.
-    const task=getDocument({url,enableXfa:false,useWasm:false,withCredentials:false,maxImageSize:16777216,BinaryDataFactory:LocalPdfResources,useWorkerFetch:false});
-    void task.promise.then(pdf=>{if(!disposed)setDocument(pdf);}).catch(()=>{if(!disposed){setFailed(true);setBusy(false);ready.current(false);}});
-    return()=>{disposed=true;void task.destroy().catch(()=>{});};
+    let task:PDFDocumentLoadingTask|undefined;
+    // The renderer is large. Image previews and normal record entry do not need it.
+    void import('pdfjs-dist').then(({getDocument,GlobalWorkerOptions})=>{
+      if(disposed)return;
+      GlobalWorkerOptions.workerSrc=workerUrl;
+      task=getDocument({url,enableXfa:false,useWasm:false,withCredentials:false,maxImageSize:16777216,BinaryDataFactory:LocalPdfResources,useWorkerFetch:false});
+      return task.promise;
+    }).then(pdf=>{if(pdf&&!disposed)setDocument(pdf);}).catch(()=>{if(!disposed){setFailed(true);setBusy(false);ready.current(false);}});
+    return()=>{disposed=true;void task?.destroy().catch(()=>{});};
   },[url,fileType]);
   useEffect(()=>{
     if(!document||!canvas.current)return;
