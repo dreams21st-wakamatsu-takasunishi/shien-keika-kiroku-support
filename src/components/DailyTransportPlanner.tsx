@@ -67,7 +67,7 @@ import {
   DailyTransportMiniMap,
   type CalculatedTransportRunRoute,
   type DailyTransportMiniMapPoint,
-} from './DailyTransportMiniMap';
+} from './DeferredTransportMaps';
 
 interface DailyTransportPlannerProps {
   date: string;

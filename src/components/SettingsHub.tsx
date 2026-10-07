@@ -6,7 +6,7 @@ import type { AiWritingSettings, ChildProfile, OrganizationRolePermission, Recor
 import { AISettingsEditor } from './AISettingsEditor';
 import { SchoolManager } from './SchoolManager';
 import { TemplateEditor } from './TemplateEditor';
-import { TransportMapPanel } from './TransportMapPanel';
+import { TransportMapPanel } from './DeferredTransportMaps';
 import { RolePermissionManager } from './RolePermissionManager';
 import { StaffShiftTemplateSettings } from './StaffShiftTemplateSettings';
 import { VehicleLedger } from './VehicleLedger';

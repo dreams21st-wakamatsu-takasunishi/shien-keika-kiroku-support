@@ -52,7 +52,7 @@ import {
 } from "../utils/transportLocations";
 import { DailyTransportPlanner } from "./DailyTransportPlanner";
 import { inferTransportArea, resolvedTransportArea } from "../utils/transportArea";
-import { TransportMapPanel } from "./TransportMapPanel";
+import { TransportMapPanel } from "./DeferredTransportMaps";
 import { TransportScheduleBoard } from "./TransportScheduleBoard";
 import { TransportOperationLog } from "./TransportOperationLog";
 import { getTransportProgram } from "../utils/transportDeparture";

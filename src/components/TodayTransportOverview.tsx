@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, MapPinned } from 'lucide-react';
 import type { TransportAreaZone, TransportDirection, TransportMapLocation, TransportRouteSettings, TransportRun } from '../types';
-import { DailyTransportMiniMap, type DailyTransportMiniMapPoint } from './DailyTransportMiniMap';
+import { DailyTransportMiniMap, type DailyTransportMiniMapPoint } from './DeferredTransportMaps';
 import { TransportScheduleBoard } from './TransportScheduleBoard';
 
 export function TodayTransportOverview({ date, runs, locations, zones, routeSettings }: { date: string; runs: TransportRun[]; locations: TransportMapLocation[]; zones: TransportAreaZone[]; routeSettings: TransportRouteSettings }) {
