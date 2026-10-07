@@ -64,13 +64,15 @@ async function check(page,url){
  assert(await page.getByLabel('配車メモ',{exact:true}).inputValue()==='通信失敗でも保持','map can close after failure');
  // Repeat isolation against the actual dispatch screen, not only a probe form.
  await page.goto(url+'?planner=true');navigations=0;
+ await page.getByRole('button',{name:'便を選択：迎え1便・試験車両',exact:true}).click();
  const time=page.locator('input[type=time]').first(),driver=page.locator('select').filter({has:page.locator('option[value="fictional-driver"]')}).first();
  await time.fill('15:25');await driver.selectOption('fictional-driver');
  await page.getByRole('button',{name:'ミニマップを表示',exact:true}).click();
  await page.getByRole('alert').filter({hasText:'ミニマップを読み込めませんでした'}).waitFor();
  assert(await time.inputValue()==='15:25'&&await driver.inputValue()==='fictional-driver','actual dispatch time and driver survive failed map');
+ await page.getByRole('complementary',{name:'ミニマップの小窓',exact:true}).getByRole('button',{name:'収納',exact:true}).click();
+ await page.getByRole('complementary',{name:'ミニマップの小窓',exact:true}).waitFor({state:'hidden'});
  await time.fill('15:35');
- await page.getByRole('button',{name:'ミニマップを収納',exact:true}).click();
  assert(await time.inputValue()==='15:35'&&await driver.inputValue()==='fictional-driver','actual dispatch stays editable after map failure');
  assert(navigations===0,'actual dispatch never refreshes automatically');
  await page.setViewportSize({width:1280,height:900});

@@ -21,6 +21,7 @@ import type {
   TransportRun,
 } from '../types';
 import { getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
+import {OperationsDayTimeline} from './OperationsDayTimeline';
 
 interface StaffShiftManagerProps {
   templates: StaffShiftTemplate[];
@@ -97,7 +98,6 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
   const [reviewRequest, setReviewRequest] = useState<StaffShiftRequest | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
-  const [childTimelineExpanded, setChildTimelineExpanded] = useState(false);
   const [selectedRequestIds, setSelectedRequestIds] = useState<string[]>([]);
 
   useEffect(() => {
@@ -181,18 +181,6 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
     .filter((request) => request.status === '申請中')
     .sort((left, right) => left.requestedDate.localeCompare(right.requestedDate) || left.recorderName.localeCompare(right.recorderName, 'ja')), [monthRequests]);
   const dayRequests = useMemo(() => shiftRequests.filter((request) => request.requestedDate === dayDate), [dayDate, shiftRequests]);
-  const dayEvents = useMemo(() => calendarEvents.filter((event) => event.date <= dayDate && (event.endDate || event.date) >= dayDate && !event.allDay && event.startTime && event.endTime), [calendarEvents, dayDate]);
-  const childTimelineRows = useMemo(() => {
-    const childIds = new Set<string>();
-    dailyChildPlans.filter((plan) => plan.date === dayDate && plan.attendancePlan !== '欠席').forEach((plan) => childIds.add(plan.childId));
-    dailyTransportRequirements.filter((item) => item.date === dayDate).forEach((item) => childIds.add(item.childId));
-    return [...childIds].map((childId) => ({
-      child: childrenList.find((child) => child.id === childId),
-      plan: dailyChildPlans.find((plan) => plan.date === dayDate && plan.childId === childId),
-      requirement: dailyTransportRequirements.find((item) => item.date === dayDate && item.childId === childId),
-    })).filter((row) => row.child).sort((left, right) => (left.child?.name || '').localeCompare(right.child?.name || '', 'ja'));
-  }, [childrenList, dailyChildPlans, dailyTransportRequirements, dayDate]);
-  const dayRuns = useMemo(() => transportRuns.filter((run) => run.date === dayDate), [dayDate, transportRuns]);
   const selectedTemplate = templates.find((template) => template.id === selectedTemplateId);
   const partTimePattern = selectedTemplateId === PART_TIME_WEEKDAY_DEFAULT
     ? 'weekday'
@@ -573,32 +561,7 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
           </div>
         </div>}
 
-        {viewMode === 'day' && <div className="overflow-x-auto rounded-xl border border-slate-300 bg-white shadow-sm">
-          <div className="min-w-[850px]">
-            <div className="grid border-b border-slate-300 bg-slate-100" style={{ gridTemplateColumns: '120px minmax(700px, 1fr)' }}>
-              <div className="px-3 py-2 text-[10px] font-black text-slate-700">職員・運営情報</div>
-              <TimelineHeader />
-            </div>
-            {visibleProfiles.map((profile) => {
-              const record = dayRecords.find((candidate) => candidate.recorderProfileId === profile.id);
-              const request = dayRequests.find((candidate) => candidate.recorderProfileId === profile.id);
-              const profileEvents = profile.employmentType !== 'part_time' ? dayEvents.filter((event) => event.recorderProfileIds.includes(profile.id)) : [];
-              const leave = findStaffLeave(calendarEvents, profile.id, dayDate);
-              const bar = ganttBarStyle(record);
-               return <div key={profile.id} className="grid border-b border-slate-200 text-left hover:bg-indigo-50/40" style={{ gridTemplateColumns: '120px minmax(700px, 1fr)' }}><button type="button" onClick={() => openDay(profile, dayDate)} className="min-w-0 px-2 py-2 text-left"><strong className="block truncate text-[11px] text-slate-950">{profile.displayName}</strong><span className="block truncate text-[8px] text-slate-500">{profile.employmentType === 'part_time' ? 'パート' : '正職'}{leave ? '・休み' : request ? `・希望${request.status}` : ''}</span></button><div className="relative min-h-12 overflow-hidden" style={timelineGridStyle()}>{leave ? <span className="absolute inset-x-1 top-1.5 flex h-8 items-center justify-center rounded-lg bg-rose-100 text-[9px] font-black text-rose-800 ring-1 ring-rose-200">休み：{leave.title}</span> : bar ? <span className={`absolute top-1.5 flex h-7 items-center overflow-hidden rounded-lg px-2 text-[9px] font-black shadow-sm ${cellTone(record)}`} style={bar}>{record?.scheduledStartTime}〜{record?.scheduledEndTime}</span> : record ? <span className={`absolute inset-x-2 top-1.5 flex h-7 items-center justify-center rounded-lg text-[9px] font-black ${cellTone(record)}`}>{cellLabel(record)}</span> : <span className="absolute left-2 top-2.5 text-[9px] text-slate-300">未登録</span>}{!leave && request?.requestedStartTime && request.requestedEndTime && <span className="absolute bottom-1 h-1.5 rounded-full bg-violet-500" style={timeRangeBarStyle(request.requestedStartTime, request.requestedEndTime)} title={`シフト希望 ${request.requestedStartTime}〜${request.requestedEndTime}`} />}{!leave && profileEvents.map((event) => <span key={event.id} className="absolute bottom-0.5 h-2.5 overflow-hidden rounded-sm bg-amber-400 px-1 text-[7px] font-black text-amber-950" style={timeRangeBarStyle(event.startTime!, event.endTime!)} title={`${event.title} ${event.startTime}〜${event.endTime}`}>{event.title}</span>)}</div></div>;
-            })}
-            {dayRuns.length > 0 && <div className="border-y border-sky-200 bg-sky-50 px-3 py-1 text-[9px] font-black text-sky-800">送迎便</div>}
-            {dayRuns.map((run) => <div key={run.id} className="grid border-b border-sky-100 bg-sky-50/30" style={{ gridTemplateColumns: '120px minmax(700px, 1fr)' }}><div className="min-w-0 px-2 py-1.5"><strong className="block truncate text-[10px] text-slate-900">{run.name}</strong><span className="block truncate text-[8px] text-slate-500">{run.direction}・{run.driverName || '担当未定'}</span></div><div className="relative min-h-9" style={timelineGridStyle()}><span className="absolute top-1.5 flex h-6 items-center overflow-hidden rounded-md bg-sky-500 px-2 text-[8px] font-black text-white" style={timeRangeBarStyle(run.startTime, run.endTime)}>{run.startTime}〜{run.endTime}</span></div></div>)}
-            {childTimelineRows.length > 0 && <button type="button" aria-expanded={childTimelineExpanded} onClick={() => setChildTimelineExpanded((expanded) => !expanded)} className="flex min-h-9 w-full items-center justify-between border-y border-teal-200 bg-teal-50 px-3 text-[9px] font-black text-teal-800"><span>児童の下校・送迎・在所見込み　{childTimelineRows.length}名</span><span className="rounded-md bg-white px-2 py-1">{childTimelineExpanded ? '詳細を閉じる' : '児童別に表示'}</span></button>}
-            {childTimelineExpanded && childTimelineRows.map(({ child, plan, requirement }) => {
-              if (!child) return null;
-              const dismissal = plan?.schoolEndTime || requirement?.pickupTargetTime;
-              const arrival = plan?.arrivalTime || requirement?.pickupPlannedTime || (requirement?.pickupTimeMode !== 'fixed' ? requirement?.pickupTargetTime : undefined);
-              const departure = plan?.departureTime || requirement?.dropoffTargetTime;
-              return <div key={child.id} className="grid border-b border-teal-100" style={{ gridTemplateColumns: '120px minmax(700px, 1fr)' }}><div className="min-w-0 px-2 py-1"><strong className="block truncate text-[10px] text-slate-900">{child.name}</strong><span className="block truncate text-[7px] text-slate-500">下校 {dismissal || '未設定'}・退所 {departure || '未設定'}</span></div><div className="relative min-h-8" style={timelineGridStyle()}>{arrival && departure && <span className="absolute top-1 flex h-6 items-center overflow-hidden rounded-md bg-teal-100 px-2 text-[8px] font-black text-teal-900" style={timeRangeBarStyle(arrival, departure)} title={`在所見込み ${arrival}〜${departure}`}>在所 {arrival}〜{departure}</span>}{dismissal && <span className="absolute top-0 h-full w-0.5 bg-indigo-600" style={{ left: timePointPosition(dismissal) }} title={`下校・迎え ${dismissal}`}><span className="absolute left-1 top-0 whitespace-nowrap text-[7px] font-black text-indigo-700">下校 {dismissal}</span></span>}</div></div>;
-            })}
-          </div>
-        </div>}
+        {viewMode === 'day' && <OperationsDayTimeline date={dayDate} records={records} profiles={visibleProfiles} events={calendarEvents} childrenList={childrenList} plans={dailyChildPlans} requirements={dailyTransportRequirements} runs={transportRuns} requests={shiftRequests} onEditStaff={profile => { if (!findStaffLeave(calendarEvents, profile.id, dayDate)) openDay(profile, dayDate); }} />}
 
         {viewMode === 'week' && <div className="overflow-x-auto rounded-xl border border-slate-300 bg-white shadow-sm">
           <div className="min-w-[760px]">
@@ -714,46 +677,6 @@ function monthCellLabel(record?: AttendanceRecord) {
   return '○';
 }
 
-const TIMELINE_START_MINUTES = 7 * 60;
-const TIMELINE_END_MINUTES = 21 * 60;
-const TIMELINE_TOTAL_MINUTES = TIMELINE_END_MINUTES - TIMELINE_START_MINUTES;
-
-const TimelineHeader = () => <div className="relative h-9" style={timelineGridStyle()}>{Array.from({ length: 15 }, (_, index) => {
-  const position = (index / 14) * 100;
-  return <span key={index} className="absolute top-2 text-[9px] font-black text-slate-600" style={{ left: `${position}%`, transform: index === 0 ? 'none' : index === 14 ? 'translateX(-100%)' : 'translateX(-50%)' }}>{7 + index}</span>;
-})}</div>;
-
-function timelineGridStyle(): React.CSSProperties {
-  return {
-    backgroundImage: 'linear-gradient(to right, rgb(203 213 225) 1px, transparent 1px)',
-    backgroundSize: `${100 / 14}% 100%`,
-    backgroundPosition: '0 0',
-  };
-}
-
-function toTimelineMinutes(value: string) {
-  const [hours, minutes] = value.slice(0, 5).split(':').map(Number);
-  return hours * 60 + minutes;
-}
-
-function timePointPosition(value: string) {
-  const minutes = Math.max(TIMELINE_START_MINUTES, Math.min(TIMELINE_END_MINUTES, toTimelineMinutes(value)));
-  return `${((minutes - TIMELINE_START_MINUTES) / TIMELINE_TOTAL_MINUTES) * 100}%`;
-}
-
-function timeRangeBarStyle(startValue: string, endValue: string): React.CSSProperties {
-  const start = Math.max(TIMELINE_START_MINUTES, Math.min(TIMELINE_END_MINUTES, toTimelineMinutes(startValue)));
-  const end = Math.max(start, Math.min(TIMELINE_END_MINUTES, toTimelineMinutes(endValue)));
-  return {
-    left: `${((start - TIMELINE_START_MINUTES) / TIMELINE_TOTAL_MINUTES) * 100}%`,
-    width: `${Math.max(1.5, ((end - start) / TIMELINE_TOTAL_MINUTES) * 100)}%`,
-  };
-}
-
-function ganttBarStyle(record?: AttendanceRecord): React.CSSProperties | undefined {
-  if (!record?.scheduledStartTime || !record.scheduledEndTime || NO_TIME_STATUSES.includes(record.status)) return undefined;
-  return timeRangeBarStyle(record.scheduledStartTime, record.scheduledEndTime);
-}
 
 function cellLabel(record?: AttendanceRecord) {
   if (!record) return '－';

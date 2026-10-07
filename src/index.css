@@ -1,5 +1,28 @@
 @import "tailwindcss";
 
+/* The editor floats within the workspace, never over its save/close controls. */
+.operations-timeline-row { display: grid; grid-template-columns: 132px minmax(0, 1fr); }
+.operations-timeline-row > :last-child { min-width: 0; }
+.operations-timeline-row > :first-child { position: sticky; left: 0; z-index: 2; background: inherit; }
+.operations-timeline-grid { padding-right: 8px; }
+.transport-editor-panel { display: flex; flex-direction: column; min-width: 0; overflow: hidden; border: 1px solid #94a3b8; border-radius: 12px; background: white; box-shadow: 0 8px 32px #0f172a30; }
+.transport-editor-panel[hidden] { display: none; }
+.transport-editor-panel.is-floating { position: absolute; z-index: 20; }
+.transport-editor-panel.is-docked { position: relative; z-index: 20; width: clamp(320px, 32vw, 480px); flex-shrink: 0; }
+.transport-editor-panel.is-maximized { position: absolute; z-index: 20; inset: 8px 8px 64px; }
+.transport-window-dock { position: absolute; bottom: 5px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; max-width: calc(100% - 16px); padding: 4px; border: 1px solid #cbd5e1; border-radius: 16px; background: #fffffff5; box-shadow: 0 3px 16px #0f172a25; z-index: 60; }
+.transport-editor-panel { transform-origin: center; }
+.transport-editor-panel[data-mode="minimized"] { pointer-events: none; }
+.transport-editor-panel label { font-size: 12px; }
+.transport-editor-panel input, .transport-editor-panel select { font-size: 13px; }
+@media (max-width: 767px) {
+  .operations-overview { overflow-y: auto; }
+  .operations-overview > .operations-timeline { flex: none; min-height: 360px; height: 440px; }
+  .transport-editor-panel.is-floating, .transport-editor-panel.is-docked { position: absolute; inset: 8px 8px 64px !important; width: auto !important; height: auto !important; }
+  .transport-window-dock { width: max-content; gap: 3px; }
+  .transport-window-dock button { padding-left: 8px; padding-right: 8px; }
+}
+
 .activity-print-only { display: none; }
 .activity-sheet { width: 100%; min-width: 620px; max-width: 900px; margin: auto; color: #000; background: #fff; font-family: "Yu Gothic", "Meiryo", sans-serif; font-size: 12px; line-height: 1.45; }
 .activity-sheet-meta { font-size: 11px; margin-bottom: 4px; }

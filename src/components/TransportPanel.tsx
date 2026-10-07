@@ -1571,6 +1571,8 @@ export const TransportPanel: React.FC<TransportPanelProps> = ({
           runs={dayRuns}
           vehicles={vehicles}
           recorderProfiles={recorderProfiles}
+          attendanceRecords={attendanceRecords}
+          calendarEvents={calendarEvents}
           childrenList={childrenList}
           dailyChildPlans={dailyChildPlans}
           transportPlanDay={transportPlanDays.find((day) => day.date === selectedDate)}

@@ -8,12 +8,15 @@ interface DraftStopTimeBoardProps {
   drafts: TransportRun[];
   childrenList: ChildProfile[];
   sameLocationTimeWindowMinutes: number;
+  startAtFirstStop?: boolean;
 }
 
-export const DraftStopTimeBoard: React.FC<DraftStopTimeBoardProps> = ({ direction, drafts, childrenList, sameLocationTimeWindowMinutes }) => {
+export const DraftStopTimeBoard: React.FC<DraftStopTimeBoardProps> = ({ direction, drafts, childrenList, sameLocationTimeWindowMinutes, startAtFirstStop=false }) => {
   const windowMinutes = timeBoardWindowMinutes(sameLocationTimeWindowMinutes);
   const groups = useMemo(() => groupDraftTimeBoardStops(drafts, direction, windowMinutes), [drafts, direction, windowMinutes]);
   const rows = useMemo(() => draftTimeBoardRows(groups), [groups]);
+  const firstOccupied=rows.findIndex(row=>row.groups.length>0);
+  const visibleRows=startAtFirstStop&&firstOccupied>0?rows.slice(firstOccupied-1):rows;
   const childrenById = useMemo(() => new Map(childrenList.map((child) => [child.id, child])), [childrenList]);
   const unscheduled = groups.filter((group) => group.firstMinute === undefined);
 
@@ -53,7 +56,7 @@ export const DraftStopTimeBoard: React.FC<DraftStopTimeBoardProps> = ({ directio
       </header>
       <div className="ui-scrollbar min-h-0 flex-1 overflow-y-auto bg-slate-50/60 p-2">
         {groups.length === 0 ? <p className="rounded-xl border-2 border-dashed border-slate-200 bg-white p-5 text-center text-[10px] font-bold text-slate-400">児童を便へ配置すると表示されます。</p> : <>
-          {rows.map((row) => <div key={row.time} data-time={row.time} className="grid grid-cols-[2.8rem_minmax(0,1fr)] border-t border-slate-200 first:border-t-0">
+          {visibleRows.map((row) => <div key={row.time} data-time={row.time} className="grid grid-cols-[2.8rem_minmax(0,1fr)] border-t border-slate-200 first:border-t-0">
             <time className={`py-2 pr-1 text-[9px] font-black tabular-nums ${row.groups.length ? 'text-teal-800' : 'text-slate-500'}`}>{row.time}</time>
             <div className="space-y-1 border-l border-slate-200 py-1.5 pl-2">{row.groups.map(renderGroup)}</div>
           </div>)}

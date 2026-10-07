@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
   DndContext,
@@ -26,6 +26,10 @@ import {
   ChevronUp,
   Clock3,
   GripVertical,
+  Map as MapIcon,
+  CalendarClock,
+  PanelBottomOpen,
+  Bus,
   LoaderCircle,
   Plus,
   Save,
@@ -38,6 +42,8 @@ import {
 } from 'lucide-react';
 import type {
   ChildProfile,
+  AttendanceRecord,
+  CalendarEvent,
   DailyChildPlan,
   DailyTransportRequirement,
   RecorderProfile,
@@ -63,6 +69,12 @@ import { buildSiblingGroupByChild } from '../utils/childSiblings';
 import { findTransportMapLocation, findTransportZones, normalizeMapAddress } from '../utils/transportMap';
 import { getVehicleChildCapacity, getVehicleStaffSeatCount } from '../utils/vehicleCapacity';
 import { DraftStopTimeBoard } from './DraftStopTimeBoard';
+import {OperationsDayTimeline} from './OperationsDayTimeline';
+import {TransportEditorPanel,type EditorPanelMode} from './TransportEditorPanel';
+import {TransportAssignmentWizard,type AssignmentChoice} from './TransportAssignmentWizard';
+import {applyTransportAssignment,sameStopCandidate} from '../utils/transportAssignment';
+import {operationsWarnings} from '../utils/operationsTimeline';
+import {OperationsAlerts} from './OperationsAlerts';
 import {
   DailyTransportMiniMap,
   type CalculatedTransportRunRoute,
@@ -74,6 +86,8 @@ interface DailyTransportPlannerProps {
   runs: TransportRun[];
   vehicles: Vehicle[];
   recorderProfiles: RecorderProfile[];
+  attendanceRecords?: AttendanceRecord[];
+  calendarEvents?: CalendarEvent[];
   childrenList: ChildProfile[];
   dailyChildPlans: DailyChildPlan[];
   transportPlanDay?: TransportPlanDay;
@@ -91,6 +105,16 @@ interface DragChildData {
   childId: string;
   sourceRunId?: string;
   sourceStopId?: string;
+}
+
+const RunSummary:React.FC<{run:TransportRun;selected:boolean;driver?:string;onSelect:()=>void}> = ({run,selected,driver,onSelect}) => {
+  const {setNodeRef,isOver}=useDroppable({id:`summary-run-${run.id}`,data:{runId:run.id}});
+  return <button ref={setNodeRef} type="button" onClick={onSelect} aria-pressed={selected} aria-label={`便を選択：${run.name}`}
+    className={`min-w-44 rounded-xl border p-2 text-left ${isOver?'border-teal-600 bg-teal-100 ring-2 ring-teal-500':selected?'border-teal-600 bg-teal-50':'border-slate-200 bg-white hover:bg-slate-50'}`}>
+    <strong className="block truncate text-xs text-slate-950">{run.name}</strong>
+    <span className="block text-xs text-slate-700">{run.startTime}〜{run.endTime}・{run.stops.length}名</span>
+    <span className="block text-[11px] text-slate-600">{driver||'運転者未設定'}{isOver?'・ここに配置':''}</span>
+  </button>;
 }
 
 const transportCollisionDetection: CollisionDetection = (args) => {
@@ -684,7 +708,7 @@ const TransportRunLane: React.FC<{
     <article className={`overflow-hidden rounded-xl border bg-white shadow-sm ${overCapacity ? 'border-rose-400' : routeSelected ? 'border-teal-500 ring-2 ring-teal-100' : 'border-slate-200'}`}>
       <header className={`p-2 ${run.direction === '迎え' ? 'bg-sky-50' : 'bg-violet-50'}`}>
         <div className="flex items-center gap-1.5">
-          <input aria-label="便名" value={run.name} onChange={(event) => onUpdateRun(run.id, { name: event.target.value })} className="min-h-9 min-w-0 flex-1 rounded-lg border border-white bg-white px-2 text-[11px] font-black" />
+          <strong className="min-h-9 min-w-0 flex-1 rounded-lg bg-white px-2 py-2 text-sm font-black">{run.name}</strong>
           <span title={vehicle ? `総定員${vehicle.capacity}名から運転者1名・添乗${getVehicleStaffSeatCount(run) - 1}名を除いた児童枠` : '車両未設定'} className={`shrink-0 rounded-full px-2 py-1 text-[9px] font-black ${overCapacity ? 'bg-rose-600 text-white' : 'bg-white text-slate-600'}`}>児童 {run.stops.length}/{capacity}名</span>
           <button type="button" onClick={onToggleCollapsed} aria-expanded={!collapsed} aria-label={`${run.name}を${collapsed ? '展開' : '収納'}`} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-slate-700">{collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}</button>
           <button type="button" onClick={() => onRemoveRun(run)} aria-label={`${run.name}を削除`} className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white text-rose-600"><Trash2 className="h-4 w-4" /></button>
@@ -753,6 +777,8 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
   runs,
   vehicles,
   recorderProfiles,
+  attendanceRecords = [],
+  calendarEvents = [],
   childrenList,
   dailyChildPlans,
   transportPlanDay,
@@ -848,6 +874,44 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
   const [selectedRouteRunId, setSelectedRouteRunId] = useState<string>();
   const [calculatingRouteRunId, setCalculatingRouteRunId] = useState<string>();
   const [saving, setSaving] = useState(false);
+  const [editorMode,setEditorMode]=useState<EditorPanelMode>('minimized');
+  const [timeMode,setTimeMode]=useState<EditorPanelMode>('minimized');
+  const [mapMode,setMapMode]=useState<EditorPanelMode>('minimized');
+  const [activeWindow,setActiveWindow]=useState('editor');
+  const restoreModes=useRef<Record<string,EditorPanelMode>>({editor:'floating',time:'floating',map:'floating'});
+  const changeWindow=(name:string,mode:EditorPanelMode)=>{
+    if(mode!=='minimized'){restoreModes.current[name]=mode;setActiveWindow(name);}
+    if(name==='editor')setEditorMode(mode);
+    if(name==='time')setTimeMode(mode);
+    if(name==='map'){setMapMode(mode);if(mode!=='minimized')setMapOpen(true);}
+  };
+  const showWindow=(name:string,currentMode:EditorPanelMode)=>changeWindow(name,currentMode==='minimized'?restoreModes.current[name]:currentMode);
+  const [assignmentChildId,setAssignmentChildId]=useState<string>();
+  const [assignmentRevision,setAssignmentRevision]=useState(0);
+  const abandonAssignment=()=>!assignmentChildId||window.confirm('確定前の配車入力があります。入力を破棄して切り替えますか？');
+  const changeDirection=(direction:TransportDirection)=>{if(direction===activeDirection)return;if(!abandonAssignment())return;setAssignmentChildId(undefined);setActiveDirection(direction);};
+  const openChildAssignment=(childId:string,direction:TransportDirection)=>{
+    if(assignmentChildId===childId&&activeDirection===direction){showWindow('editor',editorMode);return;}
+    if(!abandonAssignment())return;
+    const requirement=dailyTransportRequirements.find(item=>item.date===date&&item.childId===childId);
+    if(requirement&&!(direction==='迎え'?requirement.pickupEnabled:requirement.dropoffEnabled)){setError('この児童の送迎は保護者対応です。利用予定の送迎条件を確認してください。');return;}
+    const current=drafts.find(run=>run.direction===direction&&run.stops.some(stop=>stop.childId===childId));
+    setSelectedEditorRunId(current?.id||'');setActiveDirection(direction);setAssignmentChildId(childId);
+    setAssignmentRevision(value=>value+1);changeWindow('editor',restoreModes.current.editor);
+  };
+  const [selectedEditorRunId,setSelectedEditorRunId]=useState<string>(()=>drafts.find(run=>run.direction==='迎え')?.id||'');
+  const [childListOpen,setChildListOpen]=useState(true);
+  const initialDrafts=useRef(JSON.stringify(drafts));
+  const dirty=initialDrafts.current!==JSON.stringify(drafts)||deletedIds.length>0||additionalChildIds.length>0;
+  const selectedEditorRun=drafts.find(run=>run.id===selectedEditorRunId&&run.direction===activeDirection)
+    ||drafts.find(run=>run.direction===activeDirection);
+  const warnings=useMemo(()=>operationsWarnings(date,drafts,attendanceRecords,calendarEvents,vehicles),[date,drafts,attendanceRecords,calendarEvents,vehicles]);
+  const selectEditorRun=(runId:string)=>{
+    const run=drafts.find(candidate=>candidate.id===runId);if(!run||!abandonAssignment())return;
+    setSelectedEditorRunId(runId);setActiveDirection(run.direction);setAssignmentChildId(undefined);
+    changeWindow('editor',restoreModes.current.editor);
+  };
+  const requestClose=()=>{if((!dirty&&!assignmentChildId)||window.confirm('未保存の配車変更があります。変更を破棄して閉じますか？'))onClose();};
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 120, tolerance: 10 } }),
@@ -1140,8 +1204,11 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
   };
 
   const addRun = (direction: TransportDirection, vehicle?: Vehicle) => {
+    if(!abandonAssignment())return;
     const sequence = drafts.filter((run) => run.direction === direction && run.vehicleId === vehicle?.id).length + 1;
-    setDrafts((current) => [...current, createRun(date, direction, sequence, vehicle)]);
+    const added=createRun(date,direction,sequence,vehicle);
+    setDrafts((current) => [...current, added]);
+    setSelectedEditorRunId(added.id);setAssignmentChildId(undefined);changeWindow('editor',restoreModes.current.editor);
   };
 
   const removeRun = (run: TransportRun) => {
@@ -1197,9 +1264,51 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
             .map((child) => child.id)
         : [data.childId];
       childIds.forEach((childId) => assignChild(childId, targetRunId));
+      selectEditorRun(targetRunId);
     }
   };
 
+  const assignmentChild=childrenList.find(child=>child.id===assignmentChildId);
+  const buildAssignmentStop=(child:ChildProfile)=>childStop(child,activeDirection,date,dayPlansByChild.get(child.id),requirementByChild.get(child.id),routeSettings,transportPlanDay?.pickupMode,siblingGroupByChild.get(child.id),resolvedPlanningArea(child,activeDirection,date,requirementByChild.get(child.id),undefined,transportMapLocations,transportAreaZones));
+  const assignmentCurrentRun=assignmentChild?drafts.find(run=>run.direction===activeDirection&&run.stops.some(stop=>stop.childId===assignmentChild.id)):undefined;
+  const assignmentStop=assignmentChild?(assignmentCurrentRun?.stops.find(stop=>stop.childId===assignmentChild.id)||buildAssignmentStop(assignmentChild)):undefined;
+  const assignmentCandidates=assignmentStop?directionChildren.flatMap(child=>{
+    const run=drafts.find(item=>item.direction===activeDirection&&item.stops.some(stop=>stop.childId===child.id));
+    const stop=run?.stops.find(item=>item.childId===child.id)||buildAssignmentStop(child);
+    return sameStopCandidate(assignmentStop,stop,routeSettings.sameLocationTimeWindowMinutes)?[{child,stop,run}]:[];
+  }):[];
+  const assignmentDayChildren=poolChildren.filter(child=>
+    child.careType!=='保育所等訪問支援'&&dayPlansByChild.get(child.id)?.attendancePlan!=='欠席'&&
+    (scheduledChildren.some(item=>item.id===child.id)||additionalChildIds.includes(child.id))
+  ).map(child=>{
+    const requirement=requirementByChild.get(child.id);
+    const run=drafts.find(item=>item.direction===activeDirection&&item.stops.some(stop=>stop.childId===child.id));
+    const stop=run?.stops.find(item=>item.childId===child.id)||buildAssignmentStop(child);
+    const pickup=resolvedPlanningLocation(child,'迎え',date,requirement,drafts.find(item=>item.direction==='迎え'&&item.stops.some(s=>s.childId===child.id))?.stops.find(s=>s.childId===child.id));
+    return {child,stop,run,pickupName:pickup.locationName||pickup.locationType,
+      dismissal:dayPlansByChild.get(child.id)?.schoolEndTime||(requirement?.pickupTimeMode==='fixed'?requirement.pickupTargetTime:undefined)||(!requirement||requirement.pickupTimeMode==='fixed'?getTransportTargetTime(child,date,'迎え'):undefined),
+      unavailable:requirement&&(activeDirection==='迎え'?!requirement.pickupEnabled:!requirement.dropoffEnabled)?'保護者送迎（施設送迎なし）':undefined};
+  }).sort((a,b)=>(a.dismissal||'99:99').localeCompare(b.dismissal||'99:99')||a.child.name.localeCompare(b.child.name,'ja'));
+  const cancelEditor=()=>{setAssignmentChildId(undefined);changeWindow('editor','minimized');};
+  const confirmAssignment=(choice:AssignmentChoice)=>{
+    if(!assignmentChild)return;
+    const vehicle=vehicles.find(item=>item.id===choice.vehicleId);
+    if(!vehicle)return;
+    let target=choice.targetRunId?drafts.find(run=>run.id===choice.targetRunId):undefined;
+    if(target&&(target.direction!==activeDirection||target.vehicleId!==vehicle.id)){setError('配車先が変わりました。もう一度選択してください。');return;}
+    if(!target)target=drafts.find(run=>run.direction===activeDirection&&run.vehicleId===vehicle.id&&run.stops.length===0)
+      ||createRun(date,activeDirection,Math.max(0,...drafts.filter(run=>run.direction===activeDirection&&run.vehicleId===vehicle.id).map(run=>Number(run.name.match(/(\\d+)便/)?.[1])||1))+1,vehicle);
+    const targetId=target.id;
+    const selectedStops=choice.childIds.flatMap(id=>{const child=directionChildren.find(item=>item.id===id);if(!child)return [];const previous=drafts.find(run=>run.direction===activeDirection&&run.stops.some(stop=>stop.childId===id))?.stops.find(stop=>stop.childId===id);return [previous||buildAssignmentStop(child)];});
+    const updatedTarget={...target,driverRecorderProfileId:choice.driverId,driverName:activeRecorders.find(profile=>profile.id===choice.driverId)?.displayName,assistantRecorderProfileIds:choice.assistantIds};
+    const updated=applyTransportAssignment(drafts,updatedTarget,selectedStops).map(run=>run.id===targetId&&!run.routeOptimizedAt?finalizeRunTimes(run,transportPlanDay,routeSettings):run);
+    const targetRun=updated.find(run=>run.id===targetId)!;
+    if(targetRun.stops.length>getVehicleChildCapacity(vehicle,targetRun)){setError('乗車枠を超えています。配車条件を見直してください。');return;}
+    const changedIds=updated.filter(run=>run.routeOptimizedAt===undefined&&drafts.find(old=>old.id===run.id)?.routeOptimizedAt).map(run=>run.id);
+    clearRouteCalculations(changedIds);
+    setDrafts(updated);setSelectedEditorRunId(targetId);setAssignmentChildId(undefined);setError('');
+    setRoutingNotice('配車内容を編集中の一覧へ反映しました。時間計算・確認後に「配車を保存」を押してください。');
+  };
 
   const calculateRunTime = async (runId: string) => {
     const run = drafts.find((candidate) => candidate.id === runId);
@@ -1400,46 +1509,24 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
     }
   };
 
-  const renderDirection = (direction: TransportDirection) => (
-    <section className={`flex h-full min-h-0 min-w-0 flex-col rounded-2xl border p-2 ${direction === '迎え' ? 'border-sky-300 bg-sky-50/60' : 'border-violet-300 bg-violet-50/60'}`}>
-      <header className="mb-2 flex shrink-0 items-center justify-between gap-2 px-1">
-        <div><p className={`text-[10px] font-black uppercase tracking-[0.14em] ${direction === '迎え' ? 'text-sky-700' : 'text-violet-700'}`}>{direction}配車</p><h3 className="text-base font-black text-slate-950">{direction}便</h3></div>
-        <span className="rounded-full bg-white px-2 py-1 text-[9px] font-black text-slate-600">{drafts.filter((run) => run.direction === direction && run.stops.length > 0).length}便使用</span>
-      </header>
-      <div className="space-y-2 lg:grid lg:min-h-0 lg:flex-1 lg:auto-cols-[minmax(15rem,1fr)] lg:grid-flow-col lg:gap-2 lg:space-y-0 lg:overflow-x-auto lg:pb-1">
-        {vehicleSlots.map((vehicle) => {
-          const vehicleRuns = drafts.filter((run) => run.direction === direction && run.vehicleId === vehicle?.id);
-          return (
-            <section key={vehicle?.id || 'unassigned'} className="rounded-xl border border-slate-200 bg-white/80 p-2 lg:flex lg:h-full lg:min-h-0 lg:flex-col">
-              <div className="mb-2 flex shrink-0 items-center justify-between gap-2">
-                <span className="flex min-w-0 items-center gap-1.5 text-xs font-black text-slate-800"><BusFront className={`h-4 w-4 ${direction === '迎え' ? 'text-sky-600' : 'text-violet-600'}`} /><span className="truncate">{vehicle?.name || '車両未設定'}</span>{vehicle && <span className="text-[9px] font-bold text-slate-400">総定員{vehicle.capacity}名</span>}</span>
-                <button type="button" onClick={() => addRun(direction, vehicle)} className={`min-h-9 shrink-0 rounded-lg px-2 text-[10px] font-black text-white ${direction === '迎え' ? 'bg-sky-600' : 'bg-violet-600'}`}><Plus className="mr-0.5 inline h-3.5 w-3.5" />便を追加</button>
-              </div>
-              <div className="space-y-2 lg:min-h-0 lg:flex-1 lg:overflow-y-auto lg:pr-1">
-                {vehicleRuns.length === 0 && <button type="button" onClick={() => addRun(direction, vehicle)} className="min-h-20 w-full rounded-xl border-2 border-dashed border-slate-300 bg-white text-[10px] font-bold text-slate-400">この車両に{direction}便を追加</button>}
-                {vehicleRuns.map((run) => <TransportRunLane key={run.id} run={run} vehicle={vehicle} childrenList={childrenList} date={date} activeRecorders={activeRecorders} requirementByChild={requirementByChild} sharedLocationByChild={sharedLocationByChild} routeCalculation={calculatedRoutes[run.id]} routeSelected={selectedRouteRunId === run.id} calculatingRoute={calculatingRouteRunId === run.id} needsRecalculation={recalculationRequiredRunIds.has(run.id)} collapsed={collapsedRunIds.has(run.id)} expandedStopId={expandedStopId} holidayOpeningTime={direction === '迎え' && transportPlanDay?.pickupMode === 'home' ? routeSettings.holidayOpeningTime : undefined} onExpandStop={setExpandedStopId} onToggleCollapsed={() => setCollapsedRunIds((current) => { const next = new Set(current); if (next.has(run.id)) next.delete(run.id); else next.add(run.id); return next; })} onUpdateRun={updateRun} onUpdateStop={updateStop} onAdjustPlannedTime={adjustCalculatedStopTime} onMoveStop={moveStop} onRemoveStop={removeStop} onRemoveRun={removeRun} onCalculateTime={(runId) => void calculateRunTime(runId)} onSelectRoute={setSelectedRouteRunId} />)}
-              </div>
-            </section>
-          );
-        })}
-      </div>
-    </section>
-  );
+  const renderEditorRun = (run:TransportRun) => <TransportRunLane key={run.id} run={run} vehicle={vehicles.find(vehicle=>vehicle.id===run.vehicleId)} childrenList={childrenList} date={date} activeRecorders={activeRecorders} requirementByChild={requirementByChild} sharedLocationByChild={sharedLocationByChild} routeCalculation={calculatedRoutes[run.id]} routeSelected={selectedRouteRunId === run.id} calculatingRoute={calculatingRouteRunId === run.id} needsRecalculation={recalculationRequiredRunIds.has(run.id)} collapsed={collapsedRunIds.has(run.id)} expandedStopId={expandedStopId} holidayOpeningTime={run.direction === '迎え' && transportPlanDay?.pickupMode === 'home' ? routeSettings.holidayOpeningTime : undefined} onExpandStop={setExpandedStopId} onToggleCollapsed={() => setCollapsedRunIds((current) => { const next = new Set(current); if (next.has(run.id)) next.delete(run.id); else next.add(run.id); return next; })} onUpdateRun={updateRun} onUpdateStop={updateStop} onAdjustPlannedTime={adjustCalculatedStopTime} onMoveStop={moveStop} onRemoveStop={removeStop} onRemoveRun={removeRun} onCalculateTime={(runId) => void calculateRunTime(runId)} onSelectRoute={setSelectedRouteRunId} />;
 
   return createPortal((
     <div className="app-safe-block ui-fade-in fixed inset-0 z-[100] flex min-h-[100dvh] flex-col bg-slate-100" role="dialog" aria-modal="true" aria-label={`${date}の全送迎を編集`}>
       <header className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-3 py-2.5 shadow-sm sm:px-5">
         <div className="min-w-0"><p className="text-[10px] font-black uppercase tracking-[0.15em] text-teal-700">一日配車ボード・{weekday}曜日</p><h2 className="truncate text-base font-black text-slate-950 sm:text-xl">{date} の全送迎を組む</h2></div>
-        <button type="button" onClick={onClose} aria-label="閉じる" className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-100"><X className="h-5 w-5" /></button>
+        <button type="button" onClick={requestClose} aria-label="閉じる" className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-slate-100"><X className="h-5 w-5" /></button>
       </header>
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-3 py-2">
         <div className="grid min-w-52 grid-cols-2 rounded-xl bg-slate-100 p-1">
-          {(['迎え', '送り'] as TransportDirection[]).map((direction) => <button key={direction} type="button" onClick={() => setActiveDirection(direction)} className={`min-h-9 rounded-lg text-xs font-black ${activeDirection === direction ? direction === '迎え' ? 'bg-sky-600 text-white shadow-sm' : 'bg-violet-600 text-white shadow-sm' : 'text-slate-500'}`}>{direction}配車</button>)}
+          {(['迎え', '送り'] as TransportDirection[]).map((direction) => <button key={direction} type="button" onClick={() => changeDirection(direction)} className={`min-h-9 rounded-lg text-xs font-black ${activeDirection === direction ? direction === '迎え' ? 'bg-sky-600 text-white shadow-sm' : 'bg-violet-600 text-white shadow-sm' : 'text-slate-500'}`}>{direction}配車</button>)}
         </div>
         <button type="button" onClick={() => setChildPickerOpen(true)} className="flex min-h-10 items-center gap-1 rounded-xl border border-teal-300 bg-teal-50 px-3 text-xs font-black text-teal-800"><UserPlus className="h-4 w-4" />児童を追加</button>
-        <button type="button" onClick={() => setMapOpen((current) => !current)} className={`min-h-10 rounded-xl border px-3 text-xs font-black ${mapOpen ? 'border-sky-600 bg-sky-600 text-white' : 'border-sky-300 bg-white text-sky-800'}`}>{mapOpen ? 'ミニマップを収納' : 'ミニマップを表示'}</button>
+        <button type="button" onClick={()=>showWindow('map',mapMode)} className="flex min-h-10 items-center gap-2 rounded-xl border border-sky-300 bg-white px-3 text-xs font-bold text-sky-800"><MapIcon size={16}/>ミニマップ</button>
+        <button type="button" onClick={()=>showWindow('time',timeMode)} className="flex min-h-10 items-center gap-2 rounded-xl border border-violet-300 bg-white px-3 text-xs font-bold text-violet-800"><CalendarClock size={16}/>時間表</button>
+        <button type="button" onClick={()=>showWindow('editor',editorMode)} className="flex min-h-10 items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-xs font-bold"><Bus size={16}/>送迎編集</button>
         <label className="flex min-h-10 items-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 text-[10px] font-black text-emerald-900"><input type="checkbox" checked={groupDragEnabled} onChange={(event) => setGroupDragEnabled(event.target.checked)} className="h-4 w-4 accent-emerald-600" />同じ場所・近い時刻をまとめて移動</label>
-        <p className="w-full flex-none text-[10px] font-bold leading-relaxed text-slate-500 lg:min-w-48 lg:w-auto lg:flex-1">{routingNotice || 'ミニマップで送迎先を確認し、児童カードを車両の便へドラッグします。配置後、各便の「時間計算」を押してください。'}</p>
+        <p className="w-full flex-none text-[10px] font-bold leading-relaxed text-slate-500 lg:min-w-48 lg:w-auto lg:flex-1">{routingNotice || '児童の下校／迎え・送り時刻マーカーを押して配車します。便の時間計算・確認後に「配車を保存」を押してください。'}</p>
       </div>
       <DndContext
         sensors={sensors}
@@ -1448,22 +1535,40 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         onDragCancel={() => setActiveDragData(undefined)}
         onDragEnd={handleDragEnd}
       >
-        <div className="ui-scrollbar min-h-0 flex-1 overflow-y-auto p-2 sm:p-3 lg:overflow-auto">
-          <div className={`mx-auto grid max-w-[2200px] items-start gap-2 lg:h-full lg:min-h-0 lg:grid-rows-1 lg:items-stretch ${mapOpen ? 'lg:grid-cols-[220px_minmax(0,1fr)_300px_minmax(320px,0.72fr)]' : 'lg:grid-cols-[220px_minmax(0,1fr)_300px]'}`}>
-            <aside className="min-w-0 rounded-2xl border border-emerald-300 bg-emerald-50/70 p-2 lg:col-start-1 lg:flex lg:h-full lg:min-h-0 lg:flex-col">
+        <div className="operations-workspace relative flex min-h-0 flex-1 gap-2 overflow-hidden p-2 pb-16" data-testid="operations-workspace">
+          <div className="operations-overview ui-scrollbar flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            <div className="mb-2 flex shrink-0 gap-2 overflow-x-auto pb-1" aria-label="送迎便の要約">
+              {drafts.filter(run=>run.direction===activeDirection).map(run=><RunSummary key={run.id} run={run} selected={selectedEditorRun?.id===run.id} driver={activeRecorders.find(profile=>profile.id===run.driverRecorderProfileId)?.displayName} onSelect={()=>selectEditorRun(run.id)}/>)}
+              <details className="min-w-40 rounded-xl border border-slate-200 bg-white p-2"><summary className="cursor-pointer text-xs font-bold">車両に便を追加</summary>{vehicleSlots.map(vehicle=><button key={vehicle?.id||'none'} type="button" onClick={()=>addRun(activeDirection,vehicle)} className="mt-1 block min-h-9 w-full rounded border border-sky-200 px-2 text-left text-xs text-sky-800">＋ {vehicle?.name||'車両未設定'}</button>)}</details>
+            </div>
+            <OperationsAlerts warnings={warnings} onSelectRun={selectEditorRun}/>
+            <OperationsDayTimeline date={date} records={attendanceRecords} profiles={recorderProfiles} events={calendarEvents} childrenList={childrenList} plans={dailyChildPlans} requirements={dailyTransportRequirements} runs={drafts} selectedRunId={selectedEditorRun?.id} draft fillHeight markerDirection={activeDirection} onSelectChild={openChildAssignment} onSelectRun={selectEditorRun}/>
+          </div>
+          <TransportEditorPanel mode={editorMode} onCancel={cancelEditor} onModeChange={mode=>changeWindow('editor',mode)} zIndex={activeWindow==='editor'?40:20} onActivate={()=>setActiveWindow('editor')} contentKey={assignmentChildId?`child:${assignmentChildId}:${activeDirection}:${assignmentRevision}`:`run:${selectedEditorRun?.id}`}>
+            {assignmentChild&&assignmentStop?<TransportAssignmentWizard key={`${assignmentChild.id}:${activeDirection}:${assignmentRevision}`} child={assignmentChild} direction={activeDirection} stop={assignmentStop} currentRun={assignmentCurrentRun} vehicles={vehicles} profiles={activeRecorders} candidates={assignmentCandidates} dayChildren={assignmentDayChildren} onConfirm={confirmAssignment}/>:<>
+              <p className="mb-2 text-xs font-bold text-teal-900">{dirty?'未保存の変更あり':'保存前の配車プレビュー'}・収納しても入力は残ります</p>
+              {selectedEditorRun&&<p className="mb-2 rounded-lg bg-amber-50 px-2 py-1 text-xs font-bold text-amber-950">{recalculationRequiredRunIds.has(selectedEditorRun.id)?'再計算が必要':selectedEditorRun.routeOptimizedAt?'計算済み':'未確定・時間計算／確認待ち'}</p>}
+              {selectedEditorRun?renderEditorRun(selectedEditorRun):<p className="text-sm text-slate-600">ガント上の児童の時刻マーカーを選択してください。</p>}
+              <details open={childListOpen} onToggle={event=>setChildListOpen(event.currentTarget.open)} className="mt-3"><summary className="cursor-pointer py-2 text-sm font-bold">未配車児童 {unassignedDirectionChildren.length}名</summary>            <aside  className="min-w-0 rounded-xl border border-emerald-300 bg-emerald-50/70 p-2">
               <div className="mb-2 flex shrink-0 items-center justify-between gap-1 px-1"><div><p className="text-[9px] font-black text-emerald-700">{weekday}曜日・{activeDirection}</p><h3 className="text-sm font-black text-slate-950">未配車児童</h3></div><div className="flex items-center gap-1"><button type="button" onClick={() => setSortPanelOpen((current) => !current)} aria-expanded={sortPanelOpen} className={`grid h-8 w-8 place-items-center rounded-lg border ${sortPanelOpen ? 'border-emerald-700 bg-emerald-700 text-white' : 'border-emerald-200 bg-white text-emerald-800'}`} aria-label="児童リストの並べ替え"><SlidersHorizontal className="h-3.5 w-3.5" /></button><span className="rounded-full bg-white px-2 py-1 text-[9px] font-black text-emerald-800">{unassignedDirectionChildren.length}名</span></div></div>
               {sortPanelOpen && <div className="mb-2 shrink-0 space-y-1.5 rounded-xl border border-emerald-200 bg-white p-2"><div className="flex items-center justify-between"><div><p className="text-[9px] font-black text-slate-700">上から優先して並べ替え</p><p className="text-[8px] font-bold text-slate-400">つまみをドラッグして優先順を変更</p></div><button type="button" onClick={() => setSortRules([{ field: 'time', direction: 'asc' }, { field: 'area', direction: 'asc' }, { field: 'grade', direction: 'asc' }])} className="text-[8px] font-black text-emerald-700">初期値へ戻す</button></div><DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={({ active, over }) => { if (!over || active.id === over.id) return; setSortRules((current) => { const oldIndex = current.findIndex((rule) => rule.field === active.id); const newIndex = current.findIndex((rule) => rule.field === over.id); return oldIndex < 0 || newIndex < 0 ? current : arrayMove(current, oldIndex, newIndex); }); }}><SortableContext items={sortRules.map((rule) => rule.field)} strategy={verticalListSortingStrategy}><div className="space-y-1">{sortRules.map((rule, index) => <SortableSortRuleRow key={rule.field} rule={rule} index={index} rules={sortRules} onChange={(nextRule) => setSortRules((current) => current.map((item, itemIndex) => itemIndex === index ? nextRule : item))} />)}</div></SortableContext></DndContext></div>}
-              <div className="space-y-1.5 md:max-h-[calc(100dvh-15rem)] md:overflow-y-auto md:pr-0.5 lg:min-h-0 lg:flex-1 lg:max-h-none">
-                {unassignedDirectionChildren.map((child) => <DraggableChildCard key={child.id} child={child} date={date} direction={activeDirection} requirement={requirementByChild.get(child.id)} data={{ childId: child.id }} sharedLocation={sharedLocationByChild.get(child.id)} />)}
+              <div className="max-h-[60dvh] space-y-1.5 overflow-y-auto">
+                {unassignedDirectionChildren.map((child) => <div key={child.id} className="rounded-lg bg-white"><DraggableChildCard child={child} date={date} direction={activeDirection} requirement={requirementByChild.get(child.id)} data={{ childId: child.id }} sharedLocation={sharedLocationByChild.get(child.id)} /><button type="button" onClick={()=>openChildAssignment(child.id,activeDirection)} aria-label={`${child.name}の配車を開始`} className="min-h-9 w-full rounded-b-lg bg-teal-50 px-2 text-xs font-bold text-teal-900">配車を編集 →</button></div>)}
                 {unassignedDirectionChildren.length === 0 && <div className="rounded-xl border-2 border-dashed border-emerald-200 bg-white p-4 text-center"><Users className="mx-auto h-7 w-7 text-emerald-300" /><p className="mt-1 text-[10px] font-bold text-slate-400">{directionChildren.length ? '全員の配車が完了しています。' : '対象児童がいません。「児童を追加」から追加できます。'}</p></div>}
               </div>
             </aside>
-            <div className="min-w-0 lg:col-start-2 lg:row-start-1 lg:h-full lg:min-h-0">{renderDirection(activeDirection)}</div>
-            <div className="min-w-0 lg:col-start-3 lg:row-start-1 lg:h-full lg:min-h-0"><DraftStopTimeBoard direction={activeDirection} drafts={drafts} childrenList={childrenList} sameLocationTimeWindowMinutes={routeSettings.sameLocationTimeWindowMinutes} /></div>
-            {mapOpen && <div className="ui-panel-enter min-w-0 lg:col-start-4 lg:row-start-1 lg:h-full lg:min-h-0">
-              <DailyTransportMiniMap direction={activeDirection} points={miniMapPoints} facilityPoint={facilityMapPoint} expectedCount={directionChildren.length} activeChildId={activeDragData?.childId} routes={visibleCalculatedRoutes} selectedRouteRunId={selectedRouteRunId} fillHeight onSelectRoute={setSelectedRouteRunId} />
-            </div>}
-          </div>
+</details>
+            </>}
+          </TransportEditorPanel>
+          <TransportEditorPanel title="時間表" panelId="transport-time" anchorId="transport-time-anchor" mode={timeMode} onModeChange={mode=>changeWindow('time',mode)} initialGeometry={{x:720,y:30,width:400,height:500}} zIndex={activeWindow==='time'?40:20} onActivate={()=>setActiveWindow('time')}>
+            <DraftStopTimeBoard direction={activeDirection} drafts={drafts} childrenList={childrenList} sameLocationTimeWindowMinutes={routeSettings.sameLocationTimeWindowMinutes} startAtFirstStop/>
+          </TransportEditorPanel>
+          <TransportEditorPanel title="ミニマップ" panelId="transport-map" anchorId="transport-map-anchor" mode={mapMode} onModeChange={mode=>changeWindow('map',mode)} initialGeometry={{x:40,y:70,width:420,height:440}} zIndex={activeWindow==='map'?40:20} onActivate={()=>setActiveWindow('map')}>
+            {mapOpen&&<div className="min-h-80"><DailyTransportMiniMap direction={activeDirection} points={miniMapPoints} facilityPoint={facilityMapPoint} expectedCount={directionChildren.length} activeChildId={activeDragData?.childId} routes={visibleCalculatedRoutes} selectedRouteRunId={selectedRouteRunId} fillHeight onSelectRoute={setSelectedRouteRunId}/></div>}
+          </TransportEditorPanel>
+          <nav className="transport-window-dock" aria-label="小窓の収納先">
+            {([{id:'editor',title:'送迎編集',Icon:Bus,mode:editorMode},{id:'map',title:'ミニマップ',Icon:MapIcon,mode:mapMode},{id:'time',title:'時間表',Icon:CalendarClock,mode:timeMode}]).map(item=><button id={item.id==='editor'?'transport-editor-anchor':`transport-${item.id}-anchor`} key={item.id} type="button" aria-label={`${item.title}を${item.mode==='minimized'?'表示':'前面に表示'}`} title={`${item.title}：${item.mode==='minimized'?'収納中・クリックで表示':'表示中・クリックで前面に表示'}`} aria-pressed={item.mode!=='minimized'} onClick={()=>showWindow(item.id,item.mode)} className={`flex min-h-11 items-center gap-2 rounded-xl border px-3 text-xs font-bold ${item.mode==='minimized'?'border-slate-300 bg-slate-50 text-slate-700':'border-teal-500 bg-teal-50 text-teal-950'}`}><item.Icon size={18}/><span>{item.title}<small className="block text-[10px] font-normal">{item.mode==='minimized'?'収納中':'表示中'}</small></span>{item.mode==='minimized'&&<PanelBottomOpen size={14}/>}</button>)}
+          </nav>
         </div>
         {createPortal(
           <DragOverlay
@@ -1486,7 +1591,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         )}
       </DndContext>
       <footer className="shrink-0 border-t border-slate-200 bg-white p-3 shadow-[0_-8px_30px_rgba(15,23,42,0.08)]">
-        <div className="mx-auto flex max-w-[1600px] flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between"><div className="min-h-5 text-xs font-bold text-rose-700">{error}</div><div className="grid shrink-0 grid-cols-2 gap-2 sm:flex"><button type="button" onClick={onClose} className="min-h-11 rounded-xl border border-slate-300 px-5 text-sm font-black text-slate-600">キャンセル</button><button type="button" disabled={saving} onClick={() => void saveAll()} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-teal-600 px-6 text-sm font-black text-white disabled:opacity-50">{saving ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" /> : <Save className="h-5 w-5" />}{saving ? '保存中…' : '配車を保存'}</button></div></div>
+        <div className="mx-auto flex max-w-[1600px] flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between"><div className="min-h-5 text-xs font-bold text-rose-700">{error}</div><div className="grid shrink-0 grid-cols-2 gap-2 sm:flex"><button type="button" onClick={requestClose} className="min-h-11 rounded-xl border border-slate-300 px-5 text-sm font-black text-slate-600">キャンセル</button><button type="button" disabled={saving||Boolean(assignmentChildId)} title={assignmentChildId?'小窓の配車内容を先に確定またはキャンセルしてください':undefined} onClick={() => void saveAll()} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-teal-600 px-6 text-sm font-black text-white disabled:opacity-50">{saving ? <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" /> : <Save className="h-5 w-5" />}{saving ? '保存中…' : '配車を保存'}</button></div></div>
       </footer>
       {childPickerOpen && (
         <div className="ui-fade-in fixed inset-0 z-[120] flex items-end justify-center bg-slate-950/50 sm:items-center sm:p-4" role="dialog" aria-modal="true" aria-label="追加利用児童を選択">
