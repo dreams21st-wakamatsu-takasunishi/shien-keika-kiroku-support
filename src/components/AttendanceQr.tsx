@@ -7,6 +7,8 @@ import type { PersonalStaffQrDevice, StaffQrAttendanceResult } from '../services
 import { attendanceQrPayload } from '../utils/attendanceQr';
 import { getAccessDeviceLabel } from '../utils/accessDevice';
 import { AttendanceQrScanner } from './AttendanceQrScanner';
+import { StaffQrReadability } from './StaffQrReadability';
+import { STAFF_QR_IMAGE_OPTIONS } from '../utils/staffQrImage';
 
 const timeLabel = (value: string | number) => new Intl.DateTimeFormat('ja-JP', {
   timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
@@ -95,7 +97,7 @@ function PersonalQrDisplay({ onClose }: { onClose: () => void }) {
       if (!alive.current || sequence !== generation.current) { void revokePersonalStaffQr(next.token).catch(() => {}); return; }
       token.current = next.token;
       const qr = await import('qrcode');
-      const image = await qr.toDataURL(attendanceQrPayload(next.token), { width: 480, margin: 2, errorCorrectionLevel: 'M' });
+      const image = await qr.toDataURL(attendanceQrPayload(next.token), STAFF_QR_IMAGE_OPTIONS);
       if (!alive.current || sequence !== generation.current) return;
       offset.current = Date.parse(next.serverNow) - Date.now();
       setNow(Date.now() + offset.current); setChallenge(next); setImageUrl(image);
@@ -186,7 +188,7 @@ function PersonalQrDisplay({ onClose }: { onClose: () => void }) {
       <p className="text-lg font-black">{challenge?.displayName || device?.displayName || '端末の登録状況を確認します'}</p>
       <p className="mt-2 text-sm leading-relaxed text-slate-600">事業所側で「ログイン・出勤・退勤」を選択します。<br />この端末でのカメラ操作は不要です。</p>
       {loading && <div role="status" className="grid h-48 place-items-center"><RefreshCw className="h-10 w-10 animate-spin text-sky-700" /></div>}
-      {!loading && imageUrl && seconds > 0 && <img src={imageUrl} alt="ログイン・出退勤用の本人用QR" className="mx-auto my-3 aspect-square w-full max-w-[min(48dvh,400px)]" />}
+      <StaffQrReadability imageUrl={imageUrl} seconds={seconds} displayName={challenge?.displayName || device?.displayName || ''} loading={loading} receipt={receipt} error={error} statusError={statusError} onRenew={() => void prepare()} />
       {challenge && <p className="mt-3 text-sm font-bold text-slate-600"><Clock3 className="mr-1 inline h-4 w-4" />{seconds > 0 ? `あと${seconds}秒有効・自動更新` : '有効期限切れです。新しいQRを表示してください。'}</p>}
       {receipt && <p role="status" className="my-5 rounded-xl bg-emerald-50 p-4 font-bold text-emerald-800"><CheckCircle2 className="mx-auto mb-2 h-9 w-9" />{receipt}</p>}
       {error && <p role="alert" className="mt-4 rounded-xl bg-rose-50 p-3 text-sm font-bold text-rose-800"><AlertTriangle className="mr-1 inline h-5 w-5" />{error}</p>}

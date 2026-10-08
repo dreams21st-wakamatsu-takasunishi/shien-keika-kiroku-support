@@ -14,7 +14,7 @@ function command(...args) {
 }
 async function check(page, url) {
   const assert = (ok,label) => { if (!ok) throw Error(label); };
-  const errors = [], coverage = []; let state = 'unregistered', label = '', issueCount = 0, requests = 0, failRequest = '', failStatus = false, delayStatus = 0;
+  const errors = [], coverage = []; let state = 'unregistered', label = '', issueCount = 0, requests = 0, failRequest = '', failStatus = false, delayStatus = 0, expiresIn = 120000, usedStatus = {};
   page.on('pageerror', error => errors.push(error.message));
   await page.context().route('https://*.supabase.co/**', route => route.abort());
   await page.context().route('**/rest/v1/rpc/**', async route => {
@@ -34,9 +34,9 @@ async function check(page, url) {
     }
     if (name === 'issue_personal_staff_qr') {
       assert(state === 'approved', 'QR never issued before approval'); issueCount++;
-      return route.fulfill({json:{token:'f'.repeat(64),displayName:'架空職員',expiresAt:new Date(Date.now()+120000).toISOString(),serverNow:new Date().toISOString(),refreshAfterSeconds:90}});
+      return route.fulfill({json:{token:'0123456789abcdef'.repeat(4),displayName:'架空職員',expiresAt:new Date(Date.now()+expiresIn).toISOString(),serverNow:new Date().toISOString(),refreshAfterSeconds:90}});
     }
-    if (name === 'get_personal_staff_qr_status') return route.fulfill({json:{}});
+    if (name === 'get_personal_staff_qr_status') return route.fulfill({json:usedStatus});
     if (name === 'revoke_personal_staff_qr') return route.fulfill({json:null});
     throw Error('Unexpected RPC '+name);
   });
@@ -63,6 +63,10 @@ async function check(page, url) {
   state = 'approved'; await page.getByRole('button',{name:'承認状況を再確認',exact:true}).click();
   await page.getByAltText('ログイン・出退勤用の本人用QR').waitFor();
   assert(issueCount === 1,'QR issued once after approval even in StrictMode');
+  const originalImage = await page.getByAltText('ログイン・出退勤用の本人用QR').getAttribute('src');
+  await page.getByRole('button',{name:'読み取り用表示（QRを大きく）',exact:true}).click();
+  assert(await page.getByAltText('大きく表示した本人用QR').getAttribute('src') === originalImage && issueCount === 1,'enlarging does not reissue or replace the credential');
+  await page.getByRole('button',{name:'通常表示へ戻る',exact:true}).click();
   await page.screenshot({path:'output/playwright/personal-qr-device-approved-mobile.png',fullPage:true});
   coverage.push('email manager enrollment', 'explicit owner confirmation', 'default editable label', 'duplicate-name error retains input', 'pending prevents QR issuance', 'approval instructions', 'pending reopening', 'approved recheck issues QR', 'mobile layout');
   // Rechecking a revoked device must remove the formerly visible QR.
@@ -83,6 +87,29 @@ async function check(page, url) {
   await page.screenshot({path:'output/playwright/personal-qr-device-registration-tablet.png',fullPage:true});
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'tablet no horizontal overflow');
   coverage.push('revocation clears existing QR', 'shared and other-owner registration blocked', 'revoked registration blocked', 'identity error blocks submission', 'late response after close ignored', 'tablet layout');
+  await close();
+  // Exercise the actual display lifecycle in expanded mode, not just a visual stub.
+  state='approved'; expiresIn=1500; await open(); await page.getByAltText('ログイン・出退勤用の本人用QR').waitFor();
+  await page.getByRole('button',{name:'読み取り用表示（QRを大きく）',exact:true}).click();
+  const reading = page.getByRole('dialog',{name:'本人用QRの読み取り用表示',exact:true});
+  await reading.getByRole('button',{name:'新しいQRを表示',exact:true}).waitFor();
+  assert(await page.locator('img').count() === 0,'server expiry hides both original and enlarged QR');
+  expiresIn=120000;
+  const countBeforeRenewal = issueCount;
+  await reading.getByRole('button',{name:'新しいQRを表示',exact:true}).click();
+  await page.getByAltText('大きく表示した本人用QR').waitFor();
+  assert(issueCount === countBeforeRenewal+1,'explicit renewal rechecks approval and issues exactly once');
+  usedStatus={usedAt:new Date().toISOString(),action:'ログイン'};
+  await reading.getByRole('status').filter({hasText:'ログイン用QRを受け付けました。'}).waitFor();
+  assert(await page.locator('img').count() === 0,'consumed QR disappears from both views');
+  usedStatus={};
+  await reading.getByRole('button',{name:'新しいQRを表示',exact:true}).click();
+  await page.getByAltText('大きく表示した本人用QR').waitFor();
+  await page.evaluate(()=>{Object.defineProperty(document,'hidden',{configurable:true,get:()=>true});document.dispatchEvent(new Event('visibilitychange'));});
+  await reading.getByRole('alert').filter({hasText:'安全のためQRを非表示'}).waitFor();
+  assert(await page.locator('img').count() === 0,'backgrounding hides QR even in expanded view');
+  await page.getByRole('button',{name:'通常表示へ戻る',exact:true}).click(); await close();
+  coverage.push('enlargement preserves credential', 'server expiry clears both views', 'renewal rechecks approval', 'consumed QR clears both views', 'backgrounded QR clears both views');
   assert(errors.length===0,errors.join('\n'));
   return {passed:true,cases:coverage.length,coverage,syntheticDataOnly:true};
 }

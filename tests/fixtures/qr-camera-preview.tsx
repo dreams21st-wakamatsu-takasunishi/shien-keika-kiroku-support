@@ -3,6 +3,7 @@ import {createRoot} from 'react-dom/client';
 import QRCode from 'qrcode';
 import {AttendanceQrScanner} from '../../src/components/AttendanceQrScanner';
 import {attendanceQrPayload} from '../../src/utils/attendanceQr';
+import {STAFF_QR_IMAGE_OPTIONS} from '../../src/utils/staffQrImage';
 import '../../src/index.css';
 
 // Synthetic video only. Never opens the real camera or invokes a production RPC.
@@ -12,7 +13,7 @@ const state={cameraRequests:0,stoppedTracks:0,scans:0,tokenMatches:false,lastAct
 const feed=document.createElement('canvas');feed.width=640;feed.height=480;
 const ctx=feed.getContext('2d')!;
 const code=new Image(),invalidCode=new Image();
-code.src=await QRCode.toDataURL(attendanceQrPayload(token),{width:240,margin:4});
+code.src=await QRCode.toDataURL(attendanceQrPayload(token),{...STAFF_QR_IMAGE_OPTIONS,width:240});
 invalidCode.src=await QRCode.toDataURL('not-a-staff-qr',{width:240,margin:4});
 await Promise.all([code.decode(),invalidCode.decode()]);
 function draw(){

@@ -20,7 +20,11 @@ if (!entry) throw Error('Entry module not found');
 const js = await (await read(entry)).text();
 for (const marker of ['映像の左右反転', '鏡の表示（左右反転中）', '通常の表示',
   'QR読み取り用のカメラ映像', 'd-support:qr-preview-mirror:v1', 'scaleX(-1)',
-  '表示の向きだけが変わります。']) {
+  '表示の向きだけが変わります。', '読み取り用表示（QRを大きく）',
+  '本人用QRの読み取り用表示', '通常表示へ戻る',
+  '読み取れないとき：明るさ・距離・反射を調整',
+  'この画面は端末の明るさ設定を変更しません。',
+  'width:720', 'margin:4', '#000000ff', '#ffffffff']) {
   if (!js.includes(marker)) throw Error(`QR preview feature absent: ${marker}`);
 }
 let assets = 0;
@@ -29,5 +33,6 @@ for (const path of manifest.assets.filter(path => /\.(js|css|mjs)$/.test(path)))
   await (await read(path)).arrayBuffer(); assets++;
 }
 console.log(JSON.stringify({version:version.version,qrPreviewMirrorIncluded:true,
-  displayPreferenceIncluded:true,runtimeAssetsResponding:assets,readsPrivateData:false,
+  displayPreferenceIncluded:true,readingViewIncluded:true,brightnessGuidanceIncluded:true,
+  runtimeAssetsResponding:assets,readsPrivateData:false,
   writesDatabase:false,realCameraVerified:false}));
