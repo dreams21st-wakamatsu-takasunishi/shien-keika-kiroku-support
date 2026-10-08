@@ -1,0 +1,63 @@
+import assert from 'node:assert/strict';
+import { randomUUID, randomBytes } from 'node:crypto';
+import { createClient } from '@supabase/supabase-js';
+import { clients, cli, sql, lessonRoot, lessonRef, supportRef, orgId } from './lesson-operation-client.mjs';
+import { parseFetchedLessonProgress } from '../src/learning/progress.ts';
+if (!process.argv.includes('--run-fictional-test')) throw Error('Use --run-fictional-test for isolated, temporary fixtures');
+const { support, lesson } = clients(), run = randomUUID(), childId = `child-progress-${run}`, studentId = `student_progress_${run}`;
+const check = result => { if (result.error) throw Error('Live progress fixture operation failed; sensitive response withheld'); return result.data; };
+const anon = JSON.parse(cli(['projects', 'api-keys', '--project-ref', supportRef, '--reveal', '-o', 'json'])).find(key => key.name === 'anon').api_key;
+const staff = createClient(`https://${supportRef}.supabase.co`, anon, { auth: { persistSession: false, autoRefreshToken: false } });
+let staffId, recorderId, invitationId;
+const hash = () => sql("select md5(string_agg(id||md5(data::text),'|' order by id)) as hash from public.user_data;", lessonRoot).rows[0].hash;
+const before = hash();
+const call = body => staff.functions.invoke('lesson-learning', { body });
+try {
+  const scope = check(await lesson.from('lesson_support_scopes').select('enabled').eq('support_project_ref', supportRef).eq('organization_id', orgId).eq('campus_id', 'main').eq('data_table', 'user_data').single());
+  assert(scope.enabled, 'Existing authorized campus is required; test does not enable scopes');
+  const email = `progress-check-${run}@example.com`, password = randomBytes(24).toString('hex');
+  invitationId = check(await support.from('member_invitations').insert({ id: randomUUID(), organization_id: orgId, email, role: 'admin' }).select('id').single()).id;
+  staffId = check(await support.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { display_name: '進捗・架空試験職員' } })).user.id;
+  check(await support.from('profiles').upsert({ id: staffId, organization_id: orgId, display_name: '進捗・架空試験職員', email, role: 'admin', active: true }));
+  recorderId = check(await support.from('profiles').select('recorder_profile_id').eq('id', staffId).single()).recorder_profile_id;
+  check(await staff.auth.signInWithPassword({ email, password }));
+  check(await support.from('children').insert({ id: childId, organization_id: orgId, name: `架空児童・進捗試験-${run}`, birth_date: '2018-01-01' }));
+  const data = { displayName: `架空児童・進捗試験-${run}`, campusId: 'main', birthdate: '2018-01-01', mouseLevel: 0, keyboardSequence: 0,
+    visionCleared: ['v1', 'v1_easy'], wordProgress: { w_b1_1: { status: 'cleared' } }, loginNumber: '998', coins: 19, email: 'SECRET_EMAIL', passcode: 'SECRET_PASSCODE',
+    globalMistakes: { a: 7 }, examRecords: { 1: 12.5 }, practiceLogs: [{ id: randomUUID(), at: new Date().toISOString(), category: 'mouse', title: 'M-1', detail: '練習', amount: '1回' }] };
+  check(await lesson.from('user_data').insert({ id: studentId, data }));
+  check(await lesson.from('lesson_support_students').insert({ support_project_ref: supportRef, organization_id: orgId, data_table: 'user_data', campus_id: 'main', student_id: studentId, enabled: true }));
+  const inspected = check(await call({ action: 'inspect', childId, studentId }));
+  const { link } = check(await call({ action: 'link', childId, studentId, fingerprint: inspected.fingerprint, confirmed: true }));
+  const response = check(await call({ action: 'progress', childId }));
+  const result = parseFetchedLessonProgress(response, link);
+  assert.equal(result.courses[0].completed, 0); assert.equal(result.courses[0].next.id, '1');
+  assert.equal(result.courses[2].completed, 2); assert.equal(result.courses[3].completed, 1);
+  assert.equal(result.weakKeys[0].count, 7); assert.equal(result.recentEvents.length, 1);
+  assert(!JSON.stringify(response).includes('SECRET')); assert.equal(result.account.loginVerified, false);
+  assert.deepEqual(check(await lesson.from('user_data').select('data').eq('id', studentId).single()).data, data);
+  assert.equal((await call({ action: 'progress', childId: `not-enrolled-${run}` })).error?.context.status, 403);
+  check(await support.from('profiles').update({ active: false }).eq('id', staffId));
+  assert.equal((await call({ action: 'progress', childId })).error?.context.status, 403);
+  check(await support.from('profiles').update({ active: true }).eq('id', staffId));
+  check(await lesson.from('lesson_support_students').update({ enabled: false }).eq('student_id', studentId).eq('organization_id', orgId).eq('support_project_ref', supportRef));
+  assert.equal((await call({ action: 'progress', childId })).error?.context.status, 403);
+  const denied = await fetch(`https://${lessonRef}.supabase.co/functions/v1/support-learning-read`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'progress' }), signal: AbortSignal.timeout(30000) });
+  assert.equal(denied.status, 401);
+  console.log('PASS: deployed progress, real JWT/RLS, scoped binding, projection, new student M-1, no credentials, inactive staff and revocation denial; no operational account mutation');
+} finally {
+  const errors = [], clean = async (fn, label) => { try { await fn(); } catch { errors.push(label); } };
+  const links = await support.from('lesson_child_links').select('id').eq('organization_id', orgId).eq('child_id', childId);
+  if (links.error) errors.push('link-read');
+  for (const link of links.data || []) await clean(async () => check(await support.from('lesson_link_audit').delete().eq('organization_id', orgId).eq('link_id', link.id)), 'audit');
+  await clean(async () => check(await support.from('lesson_child_links').delete().eq('organization_id', orgId).eq('child_id', childId)), 'link');
+  await clean(async () => check(await lesson.from('lesson_support_students').delete().eq('student_id', studentId).eq('organization_id', orgId).eq('support_project_ref', supportRef)), 'permission');
+  await clean(async () => check(await lesson.from('user_data').delete().eq('id', studentId)), 'learning-data');
+  await clean(async () => check(await support.from('children').delete().eq('id', childId).eq('organization_id', orgId)), 'child');
+  if (staffId) await clean(async () => check(await support.auth.admin.deleteUser(staffId)), 'staff-auth');
+  if (recorderId) await clean(async () => check(await support.from('recorder_profiles').delete().eq('id', recorderId).eq('organization_id', orgId)), 'recorder');
+  if (invitationId) await clean(async () => check(await support.from('member_invitations').delete().eq('id', invitationId).eq('organization_id', orgId)), 'invitation');
+  if (errors.length) throw Error(`Fictional fixture cleanup requires attention: ${errors.join(', ')}; test ${run}`);
+  assert.equal(hash(), before, 'Operational learning data changed during test; never restores or overwrites operational changes');
+  console.log('PASS: fictional fixtures removed; operational learning data hash unchanged');
+}

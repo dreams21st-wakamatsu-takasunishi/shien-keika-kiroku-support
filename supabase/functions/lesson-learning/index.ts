@@ -2,6 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 import { identityFingerprint, isServiceDate, isStudentId, parseHistory, parseIdentity } from '../../../src/learning/contracts.ts';
 import {parseWordInbox} from '../../../src/learning/wordReviews.ts';
 import {parseLearningTask,parseLearningTasks} from '../../../src/learning/tasks.ts';
+import { parseLessonProgress } from '../../../src/learning/progress.ts';
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-support-device-token', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status,
@@ -34,7 +35,7 @@ Deno.serve(async request => {
     let body;
     try { body = JSON.parse(raw); } catch { return reply({ error: '送信内容を確認してください。' }, 400); }
     const action = body?.action;
-    if (!['list', 'inspect', 'link', 'disable', 'history','word-inbox','word-artifact','word-decide','tasks-list','tasks-save'].includes(action)) return reply({ error: '操作内容を確認してください。' }, 400);
+    if (!['list', 'inspect', 'link', 'disable', 'history','progress','word-inbox','word-artifact','word-decide','tasks-list','tasks-save'].includes(action)) return reply({ error: '操作内容を確認してください。' }, 400);
     const sourceProject = Deno.env.get('D_LESSON_PROJECT_REF') || '';
     const secret = Deno.env.get('D_LESSON_BRIDGE_SECRET') || '';
     const configured = /^[a-z0-9]{20}$/.test(sourceProject) && secret.length >= 32;
@@ -71,12 +72,12 @@ Deno.serve(async request => {
       .eq('id', body.childId).is('deleted_at', null).maybeSingle();
     if (childError || !child) return reply({ error: '対象児童を確認できません。' }, 403);
     if (['inspect', 'link', 'disable'].includes(action) && context.canManageLinks !== true) return reply({ error: '学習連携の管理権限が必要です。' }, 403);
-    const readSource = async (studentId: string, mode: 'inspect' | 'history') => {
+    const readSource = async (studentId: string, mode: 'inspect' | 'history' | 'progress', binding?: { childId: string; linkId: string }) => {
       if (!configured) throw failure('学習連携のサーバー設定が未完了です。', 503);
       const result = await fetch(`https://${sourceProject}.supabase.co/functions/v1/support-learning-read`, {
         method: 'POST', headers: { 'Content-Type': 'application/json', 'x-lesson-bridge-key': secret },
         body: JSON.stringify({ action: mode, studentId, supportProjectRef: new URL(url).hostname.split('.')[0], organizationId: context.organizationId,
-          ...(mode === 'history' ? { date: body.date } : {}) }), signal: AbortSignal.timeout(15000), redirect: 'error',
+          ...(mode === 'history' ? { date: body.date } : {}), ...(mode === 'progress' ? binding : {}) }), signal: AbortSignal.timeout(15000), redirect: 'error',
       });
       const payload = await result.json().catch(() => null);
       if (!result.ok) throw failure(typeof payload?.error === 'string' ? payload.error : '学習側の連携設定を確認してください。', result.status === 403 ? 403 : 503);
@@ -109,6 +110,18 @@ Deno.serve(async request => {
     const { data: link, error: linkError } = await user.from('lesson_child_links').select('*').eq('organization_id', context.organizationId)
       .eq('child_id', body.childId).eq('active', true).maybeSingle();
     if (linkError || !link) return reply({ error: '有効な学習連携がありません。更新して確認してください。' }, 409);
+    if (action === 'progress') {
+      if (link.source_project_ref !== sourceProject) return reply({ error: '学習連携先を確認してください。' }, 409);
+      const progress = parseLessonProgress(await readSource(link.source_student_id, 'progress', { childId: link.child_id, linkId: link.id }), link);
+      const current = await getContext();
+      if (current.organizationId !== context.organizationId || current.actorId !== context.actorId) return reply({ error: '職員の所属が変更されました。再取得してください。' }, 409);
+      const { data: stillLinked, error: stillError } = await user.from('lesson_child_links').select('id')
+        .eq('organization_id', context.organizationId).eq('child_id', body.childId).eq('id', link.id).eq('active', true).eq('revision', link.revision).maybeSingle();
+      const { data: stillChild, error: stillChildError } = await user.from('children').select('id')
+        .eq('organization_id', context.organizationId).eq('id', body.childId).is('deleted_at', null).maybeSingle();
+      if (stillError || !stillLinked || stillChildError || !stillChild) return reply({ error: '児童または連携状態が変更されました。更新してください。' }, 409);
+      return reply({ ...progress, fetchedAt: new Date().toISOString() });
+    }
     if(action==='tasks-list'||action==='tasks-save'){
       const current=await getContext();
       if(action==='tasks-save'&&current.canManageLinks!==true)return reply({error:'課題の指定には学習連携の管理権限が必要です。'},403);
