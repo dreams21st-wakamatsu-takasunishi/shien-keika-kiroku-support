@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, FlipHorizontal2, RefreshCw, X } from 'lucide-react';
 import { parseAttendanceQrToken } from '../utils/attendanceQr';
+import { qrPreviewMirrored, readQrPreviewMirrorPreference, saveQrPreviewMirrorPreference } from '../utils/qrCameraPreview';
 
 export function AttendanceQrScanner({ action, onClose, onScanned }: {
   action: '出勤' | '退勤' | 'ログイン';
@@ -13,6 +14,14 @@ export function AttendanceQrScanner({ action, onClose, onScanned }: {
   const [error, setError] = useState('');
   const [processing, setProcessing] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
+  const [cameraFacingMode, setCameraFacingMode] = useState<string>();
+  const [mirrorOverride, setMirrorOverride] = useState(readQrPreviewMirrorPreference);
+  const mirrored = qrPreviewMirrored(cameraFacingMode, mirrorOverride);
+  const toggleMirror = () => {
+    const next = !mirrored;
+    setMirrorOverride(next);
+    saveQrPreviewMirrorPreference(next);
+  };
   onScannedRef.current = onScanned;
   const login = action === 'ログイン';
 
@@ -50,7 +59,13 @@ export function AttendanceQrScanner({ action, onClose, onScanned }: {
           },
         );
         if (!active) started.stop();
-        else controls = started;
+        else {
+          controls = started;
+          const stream = video.srcObject;
+          if (typeof MediaStream !== 'undefined' && stream instanceof MediaStream) {
+            setCameraFacingMode(stream.getVideoTracks()[0]?.getSettings().facingMode);
+          }
+        }
       } catch (cause) {
         if (active) setError(cause instanceof Error ? cause.message : 'カメラを起動できませんでした。');
       }
@@ -71,8 +86,13 @@ export function AttendanceQrScanner({ action, onClose, onScanned }: {
         <button type="button" disabled={processing} onClick={onClose} className="grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-slate-700 disabled:opacity-40" aria-label="カメラを閉じる"><X className="h-6 w-6" /></button>
       </header>
       <p className="px-4 pb-3 text-xs leading-relaxed text-slate-300">{login ? 'QRを表示した職員として、この事業所端末にログインします。出退勤は打刻しません。' : `QRを表示した職員の${action}をサーバー時刻で記録します。ログイン中の職員は切り替わりません。`}</p>
+      <div className="flex shrink-0 flex-wrap items-center gap-3 px-4 pb-3">
+        <button type="button" onClick={toggleMirror} disabled={processing} aria-pressed={mirrored} className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-600 bg-slate-800 px-3 text-sm font-bold disabled:opacity-40"><FlipHorizontal2 className="h-5 w-5"/>映像の左右反転</button>
+        <p className="text-xs text-slate-300"><span className="block font-bold text-white">{mirrored ? '鏡の表示（左右反転中）' : '通常の表示'}</span>動きが合わないときに切り替えます。表示の向きだけが変わります。</p>
+      </div>
       <main className="relative min-h-0 flex-1 overflow-hidden bg-black">
-        <video ref={videoRef} muted playsInline className="h-full w-full object-cover" />
+        {/* CSS changes presentation only; ZXing still reads the original media pixels. */}
+        <video ref={videoRef} muted playsInline aria-label="QR読み取り用のカメラ映像" className="h-full w-full object-cover" style={{ transform: mirrored ? 'scaleX(-1)' : 'none' }} />
         <div className="pointer-events-none absolute inset-0 grid place-items-center bg-slate-950/25"><div className="aspect-square w-[min(72vw,420px)] rounded-3xl border-4 border-white shadow-[0_0_0_999px_rgba(2,6,23,.38)]" /></div>
         {processing && <div role="status" className="absolute inset-x-4 bottom-5 rounded-xl bg-sky-700 p-3 text-center text-sm font-black"><RefreshCw className="mr-2 inline h-5 w-5 animate-spin" />{login ? 'ログインしています…' : `${action}を記録しています…`}</div>}
         {error && <div role="alert" className="absolute inset-x-4 bottom-5 rounded-xl bg-rose-800 p-4 text-center text-sm font-black">
