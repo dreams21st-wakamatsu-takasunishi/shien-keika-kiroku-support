@@ -1,0 +1,54 @@
+import {spawnSync} from 'node:child_process';
+import {mkdirSync} from 'node:fs';
+import {resolve} from 'node:path';
+const args=process.argv.slice(2),cli=args[args.indexOf('--cli')+1];
+const url=new URL(args.includes('--url')?args[args.indexOf('--url')+1]:'http://localhost:3014/tests/fixtures/morning-support-recap.html');
+if(!args.includes('--cli')||!['localhost','127.0.0.1'].includes(url.hostname)||url.pathname!=='/tests/fixtures/morning-support-recap.html')throw Error('Local fixture URL and --cli entry point are required');
+mkdirSync('output/playwright',{recursive:true});
+const session=`morning-recap-${process.pid}-${Date.now()}`;
+function command(...args){const result=spawnSync(process.execPath,[resolve(cli),`-s=${session}`,...args],{encoding:'utf8',timeout:180000,maxBuffer:4194304});if(result.status!==0||result.stdout.includes('### Error'))throw Error(result.stdout+result.stderr);return result.stdout;}
+async function check(page,url){
+ const assert=(ok,label)=>{if(!ok)throw Error(label);};
+ const errors=[];page.on('pageerror',e=>errors.push(e.message));
+ await page.context().route('https://*.supabase.co/**',route=>route.abort());
+ await page.goto(url);
+ const editor=page.getByRole('textbox',{name:'朝礼記録の入力',exact:true});
+ const recap=page.getByRole('complementary',{name:'前回の支援の振り返り',exact:true});
+ await editor.waitFor();await recap.waitFor();
+ await editor.fill('【児童対応】\n・来所時の体調を確認する。');
+ const original=await editor.inputValue();
+ assert((await recap.textContent()).includes('記録あり 2名'),'two recorded children');
+ assert((await recap.textContent()).includes('自力で課題を完了していない。'),'preserve negation in summary');
+ assert((await recap.textContent()).includes('未確認'),'unreviewed source is labeled');
+ assert((await recap.textContent()).includes('この日の支援記録はありません。'),'missing source is explicit');
+ await recap.locator('summary').first().click();
+ await recap.getByText('パソコン取り組み内容：Dレッスン（マウス練習）',{exact:true}).waitFor();
+ assert(await editor.inputValue()===original,'opening original does not change morning notes');
+ await recap.getByRole('searchbox',{name:'振り返りの児童を検索'}).fill('ひなた');
+ assert(await recap.getByRole('region').count()===1,'child name filter');
+ assert((await recap.textContent()).includes('友だちと順番を確認'),'selected child observations');
+ assert(await editor.inputValue()===original,'filter does not replace notes');
+ await recap.getByRole('searchbox').fill('');
+ await page.setViewportSize({width:1280,height:900});
+ const a=await editor.boundingBox(),b=await recap.boundingBox();
+ assert(a&&b&&a.x+a.width<=b.x,'desktop recap beside input without overlap');
+ await page.screenshot({path:'output/playwright/morning-recap-desktop.png',fullPage:true});
+ await page.setViewportSize({width:390,height:844});
+ assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no mobile overflow');
+ const mobileA=await editor.boundingBox(),mobileB=await recap.boundingBox();
+ assert(mobileA&&mobileB&&mobileA.y+mobileA.height<=mobileB.y,'mobile recap stacks below editor');
+ await page.screenshot({path:'output/playwright/morning-recap-mobile.png',fullPage:true});
+ const meetingDate=page.getByLabel('朝礼日',{exact:true});
+ const originalDate=await meetingDate.inputValue();
+ await meetingDate.fill('');
+ assert(await meetingDate.inputValue()===originalDate,'empty meeting date cannot discard content or crash recap');
+ assert(await editor.inputValue()===original,'invalid meeting date leaves editing notes untouched');
+ await meetingDate.fill('2026-10-05');
+ await recap.getByText(/2026-10-02 \/ 記録あり/).waitFor();
+ await meetingDate.fill('2026-10-06');
+ await recap.getByText('2026-10-05 / 記録あり 0名',{exact:true}).waitFor();
+ assert(await recap.getByText('この日の支援記録はありません。',{exact:true}).count()===3,'no silent fallback to other record dates');
+ assert(errors.length===0,errors.join('\n'));
+ return {passed:true,cases:['previous day defaults','child source excerpts','negation preserved','approval labels','missing records','source expansion preserves notes','search while editing','invalid meeting date preserves input','Monday to Friday','no silent date fallback','desktop side-by-side','mobile stacked without overflow','no backend writes']};
+}
+try{command('open',url.href);command('snapshot');const output=command('run-code',`async(page)=>await (${check.toString()})(page,${JSON.stringify(url.href)})`);const result=output.match(/### Result\s+([\s\S]*?)\s+### Ran/);if(!result||JSON.parse(result[1]).passed!==true)throw Error(`Regression incomplete: ${output}`);console.log(result[1]);}finally{command('close');}

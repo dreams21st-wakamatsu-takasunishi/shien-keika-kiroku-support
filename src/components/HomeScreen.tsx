@@ -641,6 +641,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               {communicationView === 'morning' && (
                 <MorningMeetingPanel
                   records={morningMeetingRecords}
+                  supportRecords={records}
+                  childrenList={childrenList}
                   templates={morningMeetingTemplates}
                   confirmations={morningMeetingConfirmations}
                   recorderProfiles={recorderProfiles}

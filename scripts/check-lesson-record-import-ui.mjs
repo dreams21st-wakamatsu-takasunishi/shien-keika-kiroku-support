@@ -29,14 +29,14 @@ async function check(page,url){
   if(historyDelay)await new Promise(r=>setTimeout(r,historyDelay));
   if(revoked||historyFails)return route.fulfill({status:403,json:{error:'試験用：実績の閲覧権限がありません。'}});
   await route.fulfill({json:{schemaVersion:1,identity:{sourceProjectRef:link.source_project_ref,dataTable:'user_data',studentId:link.source_student_id,campusId:'main',displayName:'架空児童',birthDate:''},date:body.date,historyComplete:false,historyNotice:'保存されている履歴のみです。未実施とは判断できません。',fetchedAt:'2026-10-01T01:00:00Z',events:empty?[]:largeHistory?Array.from({length:51},(_,i)=>({id:`large-${i}`,at:`${body.date}T00:00:00Z`,category:'mouse',title:`上限テスト${i}`,detail:'クリア',amount:'ステージをクリア'})):[
-   {id:'mouse-ui',at:`${body.date}T00:00:00Z`,category:'mouse',title:'M-1',detail:changed?'更新された実績':'クリア',amount:'ステージをクリア'},
-   {id:'text-ui',at:`${body.date}T00:10:00Z`,category:'text',title:'文章入力',detail:'練習',amount:'120文字'},
+   {id:body.date==='2026-10-01'?'mouse-ui':`mouse-ui-${body.date}`,at:`${body.date}T00:00:00Z`,category:'mouse',title:'M-1',detail:changed?'更新された実績':'クリア',amount:'ステージをクリア'},
+   {id:body.date==='2026-10-01'?'text-ui':`text-ui-${body.date}`,at:`${body.date}T00:10:00Z`,category:'text',title:'文章入力',detail:'練習',amount:'120文字'},
   ]}});
  });
  await page.goto(url);
  const openLesson=async()=>{
   await page.getByRole('button',{name:/^Dレッスン/}).click();
-  await page.locator('summary').filter({hasText:'実績を選んで追加・再取得（必要な場合）'}).click();
+  await page.locator('summary').filter({hasText:'日付を選んで実績を取得・追加'}).click();
  };
  await openLesson();
  const get=page.getByRole('button',{name:'実績を取得',exact:true});await get.waitFor();
@@ -69,19 +69,14 @@ async function check(page,url){
  const rawDetails=page.locator('details').filter({has:page.getByText('取り込んだ実績の詳細（1件）',{exact:true})});
  assert(await rawDetails.getAttribute('open')===null,'raw imported details start collapsed');
  await rawDetails.locator('summary').click();
- await page.getByRole('button',{name:'＋ 実績がない取り組みを手入力',exact:true}).click();
- const manual=page.getByRole('article',{name:'Dレッスン手入力 1'});
- await manual.getByLabel('課題名',{exact:true}).fill('手入力のは行');
- await manual.getByLabel('完了状況',{exact:true}).selectOption('partial');
- await manual.getByLabel('正確率（%）',{exact:true}).fill('88');
- await wait(()=>answer().value.includes('手入力のは行〔途中終了・正確率88%〕'));
+ const manual=page.getByRole('checkbox',{name:'Word練習',exact:true});
+ await manual.check();
+ await wait(()=>answer().value.includes('Word練習'));
  assert(answer().nestedDetails.dLessonHistoryEvidence===originalEvidence,'manual supplement cannot change source evidence');
- await manual.getByLabel('練習の種類',{exact:true}).selectOption('text');
- await manual.getByLabel('課題名',{exact:true}).fill('手入力の文章');
- await manual.getByLabel('入力文字数',{exact:true}).fill('0');
- await wait(()=>answer().value.includes('手入力の文章〔途中終了・0文字〕'));
- await manual.getByRole('button',{name:'この取り組みを削除',exact:true}).click();
- await wait(()=>!answer().value.includes('手入力の文章'));
+ await page.getByRole('checkbox',{name:'ブラインドタッチ練習',exact:true}).check();
+ await wait(()=>answer().value.includes('ブラインドタッチ練習'));
+ await page.getByRole('checkbox',{name:'ブラインドタッチ練習',exact:true}).uncheck();
+ await wait(()=>!answer().value.includes('ブラインドタッチ練習'));
  assert((await rawDetails.textContent()).includes('09:00'),'raw time is available in details');
  await rawDetails.locator('summary').click();
  await page.setViewportSize({width:1280,height:900});
@@ -97,18 +92,31 @@ async function check(page,url){
  await page.getByRole('button',{name:'取り込み実績を除く',exact:true}).click();
  await wait(()=>answer()?.nestedDetails&&!answer().nestedDetails.dLessonHistoryEvidence);
  assert(answer().value.includes('元の入力')&&!answer().value.includes('M-1'),'removal keeps manual entry');
- await page.getByRole('button',{name:'＋ 実績がない取り組みを手入力',exact:true}).click();
- await manual.getByLabel('課題名',{exact:true}).fill('手入力だけの練習');
- await manual.getByLabel('正確率（%）',{exact:true}).fill('101');
- await wait(()=>answer().value.includes('正確率未確認'));
- assert(await page.getByRole('alert').filter({hasText:'正確率（0～100%）'}).count()===1,'invalid manual accuracy shows a warning rather than a fabricated value');
- await manual.getByLabel('正確率（%）',{exact:true}).fill('90');
- await manual.getByLabel('完了状況',{exact:true}).selectOption('completed');
- await wait(()=>answer().value.includes('手入力だけの練習〔完了・正確率90%〕'));
- assert((await page.getByLabel('パソコン取り組み内容の書き出し',{exact:true}).textContent()).includes('手入力だけの練習'),'manual-only output is visible without source imports');
- await manual.getByRole('button',{name:'この取り組みを削除',exact:true}).click();
- await wait(()=>!answer().value.includes('手入力だけの練習'));
- await page.goto(url+'?component=true');await get.click();await pick.waitFor();
+ assert(await manual.isChecked(),'manual selection survives removal of evidence');
+ await manual.uncheck();
+ await wait(()=>!answer().value.includes('Word練習'));
+ await page.getByRole('checkbox',{name:'マウス練習',exact:true}).check();
+ await wait(()=>answer().value.includes('Dレッスン（マウス練習）'));
+ await page.getByRole('checkbox',{name:'マウス練習',exact:true}).uncheck();
+ const sourceDate=page.getByLabel('実績の取得日',{exact:true});
+ assert(await sourceDate.getAttribute('min')==='2026-09-28'&&await sourceDate.getAttribute('max')==='2026-10-01','record-relative three-day picker');
+ await sourceDate.fill('2026-09-28');await get.click();await pick.waitFor();
+ await pick.check();await confirm.check();await page.getByRole('button',{name:/選択した実績を追加/}).click();
+ await wait(()=>answer()?.value.includes('2026-09-28実施の実績：'));
+ const pastEvidence=JSON.parse(answer().nestedDetails.dLessonHistoryEvidence).events[0];
+ assert(pastEvidence.date==='2026-09-28'&&pastEvidence.recordDate==='2026-10-01','actual and destination dates persist separately');
+ await sourceDate.fill('2026-09-30');
+ assert(await page.getByRole('checkbox',{name:/取り込み対象/}).count()===0,'changing source date clears selection and history');
+ await page.getByRole('button',{name:'取り込み実績を除く',exact:true}).click();
+ await page.goto(url+'?component=true');
+ await sourceDate.fill('2026-09-27');assert(await get.isDisabled(),'older than three days cannot fetch');
+ await sourceDate.fill('2026-10-02');assert(await get.isDisabled(),'future date cannot fetch');
+ await sourceDate.fill('');assert(await get.isDisabled(),'blank source date cannot fetch');
+ await sourceDate.fill('2026-10-01');historyDelay=500;
+ await get.click();await sourceDate.fill('2026-09-30');
+ await new Promise(r=>setTimeout(r,650));
+ assert(await page.getByRole('checkbox',{name:/取り込み対象/}).count()===0,'late source-date response discarded');
+ historyDelay=0;await sourceDate.fill('2026-10-01');await get.click();await pick.waitFor();
  await pick.check();await confirm.check();revoked=true;
  await page.getByRole('button',{name:/選択した実績を追加/}).click();
  await page.getByText('連携状態が変更されました。実績を再取得してください。',{exact:true}).waitFor();
@@ -133,14 +141,25 @@ async function check(page,url){
  await page.getByRole('checkbox',{name:/取り込み対象 .*上限テスト0/}).check();
  assert(await confirm.isEnabled(),'oversized history still allows individual selection');
  largeHistory=false;
+ await page.getByRole('button',{name:'試験用：日付を空にする'}).click();
+ assert(await sourceDate.isDisabled()&&await get.isDisabled(),'blank record date disables import without crashing');
+ await page.goto(url+'?manual-details=true');
+ await page.getByRole('button',{name:/^Dレッスン/}).click();
+ await page.locator('summary').filter({hasText:'保存済みの詳細手入力（1件）'}).click();
+ const retained=page.getByRole('article',{name:'Dレッスン手入力 1'});
+ assert(await retained.getByLabel('課題名',{exact:true}).inputValue()==='保存済み課題','existing structured manual rows remain editable');
+ assert(await retained.getByLabel('正確率（%）',{exact:true}).inputValue()==='88','existing measured values retained');
+ await retained.getByLabel('課題名',{exact:true}).fill('編集後の保存済み課題');
+ await wait(()=>lastDraft?.childDrafts['child-import-a']?.sectionAnswers.pc.answers.pc_content.value.includes('編集後の保存済み課題'));
  await page.goto(url+'?component=true&readonly=true');
  assert(await get.isDisabled(),'read-only cannot fetch or apply');
+ assert(await sourceDate.isDisabled(),'read-only cannot change source date');
  await page.goto(url+'?invalid=true');
  await openLesson();
  await page.getByText('取り込み実績の児童・日付・事業所が記録と一致していません。',{exact:true}).waitFor();
  await page.getByRole('button',{name:'入力を終えて確認',exact:true}).click();
  await page.getByText('Dレッスン実績の確認が必要です',{exact:true}).waitFor();
  assert(errors.length===0,errors.join(','));
- return {passed:true,cases:['full record form integration','bulk select all','bulk clear resets confirmation','oversized bulk limit with individual selection','confirmed selection','autosaved draft projection','manual content preservation','no inferred observations','concise/detail output switches','collapsed source evidence','manual typing and text supplement','invalid accuracy warning','manual-only output preview','duplicate prevention','remove evidence','revoked link','changed source event','child/date switch','empty history','fetch retry','read-only','pre-save date mismatch error','desktop/mobile'],historyCalls:calls.filter(c=>c.action==='history').length};
+ return {passed:true,cases:['full record form integration','bulk select all','bulk clear resets confirmation','oversized bulk limit with individual selection','confirmed selection','autosaved draft projection','manual content preservation','no inferred observations','concise/detail output switches','collapsed source evidence','legacy multiple-choice manual input','duplicate prevention','remove evidence preserves manual selections','three-day source picker','historical source and destination persistence','source date change clears confirmation','revoked link','changed source event','child/date switch','empty history','fetch retry','read-only','pre-save date mismatch error','desktop/mobile'],historyCalls:calls.filter(c=>c.action==='history').length};
 }
 try{command('open',url.href);command('snapshot');const output=command('run-code',`async (page)=>{return await (${check.toString()})(page,${JSON.stringify(url.href)});}`);const result=output.match(/### Result\s+([\s\S]*?)\s+### Ran/);if(!result||JSON.parse(result[1]).passed!==true)throw Error(`UI regression did not complete: ${output}`);console.log(result[1]);}finally{command('close');}

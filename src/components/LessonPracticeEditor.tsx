@@ -1,10 +1,11 @@
 import type {ReactNode} from 'react';
-import type {LessonEvent} from '../learning/contracts';
-import {lessonCategories,lessonEventFact,summarizeLessonEvents,type LessonCategory,type LessonOutcome} from '../learning/lessonSummary';
-import {MANUAL_LESSON_KEY,MAX_MANUAL_LESSON_EXERCISES,manualLessonIssues,readManualLessonExercises,writeManualLessonExercises,type LessonDetails,type ManualLessonExercise} from '../learning/manualLessonPractice';
+import {summarizeImportedLessonEvents,type ImportedLessonEvent} from '../learning/recordImport';
+import {lessonCategories,lessonEventFact,type LessonCategory,type LessonOutcome} from '../learning/lessonSummary';
+import {MANUAL_LESSON_KEY,manualLessonIssues,readManualLessonExercises,writeManualLessonExercises,type LessonDetails,type ManualLessonExercise} from '../learning/manualLessonPractice';
 
 const inputClass='mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900';
-export function LessonPracticeEditor({details,events,onChange,importControl}:{details:LessonDetails;events:LessonEvent[];onChange:(details:LessonDetails)=>void;importControl?:ReactNode}){
+const manualOptions=['マウス練習','ビジョントレーニング','タイピング練習','ブラインドタッチ練習','文章入力練習','Word練習'];
+export function LessonPracticeEditor({details,events,onChange,importControl}:{details:LessonDetails;events:ImportedLessonEvent[];onChange:(details:LessonDetails)=>void;importControl?:ReactNode}){
  let rows:ManualLessonExercise[]=[];
  try{rows=readManualLessonExercises(details);}catch(error){return <div role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-900">
   <p>{(error as Error).message}</p><button type="button" onClick={()=>{const next={...details};delete next[MANUAL_LESSON_KEY];onChange(next);}} className="mt-2 min-h-11 rounded-lg border border-rose-300 px-3">形式を確認できない手入力だけを除く</button>
@@ -16,15 +17,13 @@ export function LessonPracticeEditor({details,events,onChange,importControl}:{de
  return <section aria-label="Dレッスンの取り組み内容" className="space-y-4">
   {events.length>0&&<div className="rounded-xl bg-teal-50 p-3">
    <p className="text-sm font-bold text-teal-900">取り込み実績 {events.length}件（重ねて選択する必要はありません）</p>
-   <p className="mt-2 break-words text-sm leading-relaxed text-slate-800">{summarizeLessonEvents(events)}</p>
+   <p className="mt-2 break-words text-sm leading-relaxed text-slate-800">{summarizeImportedLessonEvents(events).join('／')}</p>
   </div>}
-  {importControl&&<details className="rounded-xl border border-slate-200 px-3"><summary className="cursor-pointer py-3 text-sm font-bold text-teal-800">実績を選んで追加・再取得（必要な場合）</summary>{importControl}</details>}
-  {legacy.length>0&&<details className="rounded-xl border border-slate-200 px-3"><summary className="cursor-pointer py-3 text-sm font-bold text-slate-700">以前の取り組み選択を確認（{legacy.length}項目）</summary>
-   <p className="mb-2 text-xs text-slate-600">旧入力は保持しています。同じ分類の自動実績があれば、書き出しでは重複させません。</p>
-   <div className="mb-3 flex flex-wrap gap-2">{legacy.map(label=><button key={label} type="button" aria-label={`以前の選択を解除 ${label}`} onClick={()=>onChange({...details,dLessonActivities:legacy.filter(item=>item!==label)})} className="min-h-10 rounded-lg border border-slate-300 bg-white px-3 text-sm">{label} ×</button>)}</div>
-  </details>}
-  <div className="space-y-3">
-   <div><h4 className="text-sm font-bold text-slate-900">実績がない取り組みを手入力</h4><p className="mt-1 text-xs text-slate-600">未連携・履歴がない練習などを補います。空欄の結果は未確認として扱います。</p></div>
+  {importControl&&<details className="rounded-xl border border-slate-200 px-3"><summary className="cursor-pointer py-3 text-sm font-bold text-teal-800">日付を選んで実績を取得・追加</summary>{importControl}</details>}
+  <fieldset className="space-y-2"><legend className="text-sm font-bold text-slate-900">取り組んだ練習（複数選択可）</legend>
+   <div className="grid gap-2 sm:grid-cols-2">{Array.from(new Set([...manualOptions,...legacy])).map(label=><label key={label} className={`flex min-h-11 items-center gap-2 rounded-lg border px-3 py-2 text-sm ${legacy.includes(label)?'border-teal-500 bg-teal-50 text-teal-950':'border-slate-300 bg-white text-slate-800'}`}><input type="checkbox" checked={legacy.includes(label)} onChange={e=>onChange({...details,dLessonActivities:e.target.checked?[...legacy,label]:legacy.filter(item=>item!==label)})} className="h-4 w-4 shrink-0 accent-teal-700"/>{label}</label>)}</div>
+  </fieldset>
+  {rows.length>0&&<details className="space-y-3"><summary className="cursor-pointer py-2 text-sm font-bold text-slate-700">保存済みの詳細手入力（{rows.length}件）</summary>
    {rows.map((row,index)=><article key={row.id} aria-label={`Dレッスン手入力 ${index+1}`} className="space-y-3 rounded-xl border border-slate-200 bg-slate-50 p-3">
     <div className="flex items-center justify-between gap-2"><strong className="text-sm">手入力 {index+1}</strong><button type="button" onClick={()=>onChange(writeManualLessonExercises(details,rows.filter(item=>item.id!==row.id)))} className="min-h-10 rounded-lg border border-rose-200 bg-white px-3 text-xs font-bold text-rose-700">この取り組みを削除</button></div>
     <div className="grid gap-3 sm:grid-cols-2">
@@ -37,7 +36,6 @@ export function LessonPracticeEditor({details,events,onChange,importControl}:{de
     {facts.some(fact=>fact.category===row.category&&fact.title===row.title.trim())&&<p className="rounded-lg bg-amber-50 p-2 text-xs text-amber-900">同じ課題の取り込み実績があります。別の取り組み分か確認してください。手入力は自動実績とは分けて記載します。</p>}
    </article>)}
    {issues.length>0&&<p role="alert" className="text-sm text-rose-800">{issues.join('、')}を確認してください。</p>}
-   <button type="button" disabled={rows.length>=MAX_MANUAL_LESSON_EXERCISES} onClick={()=>onChange(writeManualLessonExercises(details,[...rows,{id:crypto.randomUUID(),category:'keyboard',title:'',outcome:'unknown',accuracy:'',characters:''}]))} className="min-h-12 w-full rounded-xl border-2 border-dashed border-teal-400 bg-white px-3 text-sm font-bold text-teal-800 disabled:opacity-50">＋ 実績がない取り組みを手入力</button>
-  </div>
+  </details>}
  </section>;
 }

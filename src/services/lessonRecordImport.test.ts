@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {evidenceScopeIssue,formatPcActivities,IMPORT_KEY,importLessonEvents,MAX_IMPORTED_EVENTS,readLessonEvidence,removeLessonEvidence} from '../learning/recordImport';
 import type {LessonHistory,LessonLink} from '../learning/contracts';
 import type {SectionFieldAnswer} from '../types';
+import {isLessonSourceDate,shiftServiceDate} from '../learning/lessonHistoryDates';
+import {applyAutomaticLessonHistory} from '../learning/automaticRecordImport';
 
 const link:LessonLink={id:'link-fixture',organization_id:'org-fixture',child_id:'child-fixture',source_project_ref:'abcdefghijklmnopqrst',source_table:'user_data',source_student_id:'student_fixture',source_campus_id:'main',source_display_name:'架空児童',active:true,revision:1,verified_at:'2026-10-01T00:00:00Z'};
 const history:LessonHistory={schemaVersion:1,identity:{sourceProjectRef:link.source_project_ref,dataTable:'user_data',studentId:link.source_student_id,campusId:'main',displayName:'架空児童',birthDate:'2018-01-01'},date:'2026-10-01',historyComplete:false,historyNotice:'保存された履歴のみ',fetchedAt:'2026-10-01T01:00:00Z',events:[
@@ -67,4 +69,36 @@ test('event count and payload limits prevent unbounded record growth',()=>{
 test('existing PC formatter retains legacy and repeated mock exam semantics',()=>{
  assert.equal(formatPcActivities({selections:['Dレッスン','文章入力模擬試験','その他'],dLessonActivities:['マウス練習'],mockCharacterCounts:['10','20'],mockPastRounds:['1','2'],otherNote:'補足'}),'Dレッスン（マウス練習）、文章入力模擬試験（1回目：10文字・第1回過去問／2回目：20文字・第2回過去問）、その他（補足）');
  assert.equal(formatPcActivities({selections:['文章入力模擬試験'],mockCharacterCount:'50',mockPastRound:'3'}),'文章入力模擬試験（1回目：50文字・第3回過去問）');
+});
+test('history window is record-relative across month year and leap day boundaries',()=>{
+ assert.equal(shiftServiceDate('2026-10-01',-3),'2026-09-28');
+ assert.equal(shiftServiceDate('2026-01-01',-3),'2025-12-29');
+ assert.equal(shiftServiceDate('2024-03-01',-1),'2024-02-29');
+ for(const date of ['2026-09-28','2026-09-29','2026-09-30','2026-10-01'])assert.ok(isLessonSourceDate(date,'2026-10-01'));
+ for(const date of ['2026-09-27','2026-10-02','2026-02-30',''])assert.equal(isLessonSourceDate(date,'2026-10-01'),false);
+});
+test('past import retains source date and pins evidence to the destination record date',()=>{
+ const pastContext={...context,date:'2026-10-04',sourceDate:history.date,importMode:'manual' as const};
+ const imported=importLessonEvents(empty,history,link,['mouse-1'],pastContext);
+ const event=readLessonEvidence(imported.nestedDetails)[0];
+ assert.equal(event.date,'2026-10-01');assert.equal(event.recordDate,'2026-10-04');
+ assert.equal(evidenceScopeIssue(imported.nestedDetails,context.childId,'2026-10-04',context.organizationId),'');
+ assert.match(evidenceScopeIssue(imported.nestedDetails,context.childId,'2026-10-03',context.organizationId),/一致していません/);
+ assert.match(imported.value,/2026-10-01実施の実績：/);
+ assert.match(formatPcActivities({...imported.nestedDetails,dLessonSummaryMode:'detailed'}),/2026-10-01実施の実績：09:00/);
+ assert.equal(importLessonEvents(imported,history,link,['mouse-1'],pastContext),imported);
+ for(const changed of [{date:'2026-10-05'},{date:'2026-09-30'},{importMode:'automatic' as const}])assert.throws(()=>importLessonEvents(empty,history,link,['mouse-1'],{...pastContext,...changed}));
+ const corrupt=JSON.parse(String(imported.nestedDetails?.[IMPORT_KEY]));corrupt.events[0].recordDate='2026-10-05';
+ assert.throws(()=>readLessonEvidence({[IMPORT_KEY]:JSON.stringify(corrupt)}));
+});
+test('same-day auto import coexists with anchored historical evidence and keeps manual selections',()=>{
+ const imported=importLessonEvents({value:'Dレッスン',nestedDetails:{selections:['Dレッスン'],dLessonActivities:['Word練習']}},history,link,['mouse-1'],{...context,date:'2026-10-02',sourceDate:history.date});
+ const section={sectionId:'pc',sectionTitle:'PC',answers:{content:imported}};
+ const currentHistory={...history,date:'2026-10-02',events:[{...history.events[1],id:'today',at:'2026-10-02T00:00:00Z'}]};
+ const result=applyAutomaticLessonHistory({pc:section},{section,fieldId:'content'},currentHistory,link,{...context,date:'2026-10-02'});
+ assert.equal(result.issue,'');assert.equal(result.added,1);
+ assert.equal(readLessonEvidence(result.sections.pc.answers.content.nestedDetails).length,2);
+ assert.match(result.sections.pc.answers.content.value,/2026-10-01実施の実績：.*M-1/);
+ assert.match(result.sections.pc.answers.content.value,/文章入力練習：文章入力/);
+ assert.deepEqual(result.sections.pc.answers.content.nestedDetails?.dLessonActivities,['Word練習']);
 });

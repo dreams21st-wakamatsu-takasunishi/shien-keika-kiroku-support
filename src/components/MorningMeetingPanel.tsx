@@ -26,6 +26,8 @@ import { supabase } from '../lib/supabase';
 import { MorningMeetingConflictError } from '../services/dataService';
 import { createMorningMeetingRealtime } from '../services/morningMeetingRealtime';
 import type {
+  ChildProfile,
+  SupportRecord,
   MorningMeetingConfirmation,
   MorningMeetingRecord,
   MorningMeetingTemplate,
@@ -33,8 +35,12 @@ import type {
   UserProfile,
 } from '../types';
 import { getLocalDateString } from '../utils/weekdays';
+import { PreviousSupportRecap } from './PreviousSupportRecap';
+import { isServiceDate } from '../learning/contracts';
 
 interface MorningMeetingPanelProps {
+  supportRecords?: SupportRecord[];
+  childrenList?: ChildProfile[];
   records: MorningMeetingRecord[];
   templates: MorningMeetingTemplate[];
   confirmations: MorningMeetingConfirmation[];
@@ -249,6 +255,8 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
   currentUser,
   canManageTemplates,
   dailySummary = [],
+  supportRecords = [],
+  childrenList = [],
   onSave,
   onSaveTemplate,
   onArchiveTemplate,
@@ -1093,7 +1101,7 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
   };
 
   const changeDate = async (nextDate: string) => {
-    if (nextDate === targetDateRef.current) return;
+    if (!isServiceDate(nextDate) || nextDate === targetDateRef.current) return;
     if (conflictRef.current) {
       window.alert('同時更新の確認を完了してから朝礼日を変更してください。');
       return;
@@ -1639,7 +1647,8 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
           )}
         </div>
 
-        <div className="relative order-4">
+        <div className="order-4 grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.85fr)]">
+        <div className="relative order-4 min-w-0 self-start">
           <textarea
             value={content}
             onChange={(event) => {
@@ -1665,6 +1674,8 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
             scrollTop={editorScroll.top}
             scrollLeft={editorScroll.left}
           />
+        </div>
+        <div className="order-5 min-w-0"><PreviousSupportRecap meetingDate={targetDate} childrenList={childrenList} records={supportRecords}/></div>
         </div>
 
         <div className="order-5 flex flex-wrap items-center justify-between gap-2">

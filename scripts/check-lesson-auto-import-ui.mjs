@@ -112,12 +112,8 @@ async function check(page,url){
  await page.getByRole('button',{name:/^Dレッスン/}).click();
  const practice=page.getByRole('region',{name:'Dレッスンの取り組み内容'});
  await practice.getByText(/ももたろう〔完了・34文字／途中終了・17文字〕/).waitFor();
- await page.getByRole('button',{name:'＋ 実績がない取り組みを手入力',exact:true}).click();
- const manual=page.getByRole('article',{name:'Dレッスン手入力 1'});
- await manual.getByLabel('課題名',{exact:true}).fill('自動実績がない練習');
- await manual.getByLabel('完了状況',{exact:true}).selectOption('partial');
- await manual.getByLabel('正確率（%）',{exact:true}).fill('72');
- await wait(()=>legacyAnswer().value.includes('自動実績がない練習〔途中終了・正確率72%〕'));
+ await practice.getByRole('checkbox',{name:'Word練習',exact:true}).check();
+ await wait(()=>legacyAnswer().value.includes('Word練習'));
  await page.setViewportSize({width:1280,height:900});await practice.scrollIntoViewIfNeeded();
  await practice.screenshot({path:'output/playwright/manual-lesson-details.png'});
  await page.screenshot({path:'output/playwright/lesson-topics-desktop.png',fullPage:true});
