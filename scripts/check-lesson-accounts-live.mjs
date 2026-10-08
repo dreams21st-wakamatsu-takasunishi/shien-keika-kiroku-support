@@ -3,12 +3,14 @@ import { randomUUID, randomBytes } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { clients, cli, sql, lessonRoot, lessonRef, supportRef, orgId } from './lesson-operation-client.mjs';
 import { parseTimedAccountCheck } from '../src/learning/accounts.ts';
+import { runCredentialChecks } from './lesson-credential-live-checks.mjs';
 if (!process.argv.includes('--run-fictional-test')) throw Error('Use --run-fictional-test to create/remove isolated account verification fixtures');
 const { support, lesson } = clients(), run = randomUUID(), childId = `child-account-${run}`, studentId = `student_account_${run}`;
 const check = result => { if (result.error) throw Error('Live account test operation failed; sensitive output withheld'); return result.data; };
 const keys = ref => JSON.parse(cli(['projects', 'api-keys', '--project-ref', ref, '--reveal', '-o', 'json'])).find(row => row.name === 'anon').api_key;
 const staff = createClient(`https://${supportRef}.supabase.co`, keys(supportRef), { auth: { persistSession: false, autoRefreshToken: false } });
 let staffId, recorderId, invitationId, studentAuthId;
+const fixtureAuthIds = new Set();
 const snapshot = () => sql("select id,md5(data::text) as hash,(select jsonb_object_agg(key,md5(value::text)) from jsonb_each(data)) as fields from public.user_data;", lessonRoot).rows;
 const before = snapshot(), call = body => staff.functions.invoke('lesson-accounts', { body });
 try {
@@ -33,6 +35,10 @@ try {
   check(await lesson.from('lesson_support_students').insert({ support_project_ref: supportRef, organization_id: orgId, data_table: 'user_data', campus_id: 'main', student_id: studentId, enabled: true }));
   const inspected = check(await staff.functions.invoke('lesson-learning', { body: { action: 'inspect', childId, studentId } }));
   const { link } = check(await staff.functions.invoke('lesson-learning', { body: { action: 'link', childId, studentId, fingerprint: inspected.fingerprint, confirmed: true } }));
+  if (process.argv.includes('--credential-mutations')) {
+    const student = createClient(`https://${lessonRef}.supabase.co`, keys(lessonRef), { auth: { persistSession: false, autoRefreshToken: false } });
+    await runCredentialChecks({ staff, support, lesson, student, link, data, email: studentEmail, passcode, authId: studentAuthId, staffId, check, rememberAuth: id => fixtureAuthIds.add(id) });
+  } else {
   const initial = parseTimedAccountCheck(check(await call({ action: 'inspect', childId })), link); assert.equal(initial.account.status, 'ready'); assert.equal(initial.card, null);
   const verified = check(await call({ action: 'verify-card', childId, passcode, confirmed: true }));
   const card = parseTimedAccountCheck(verified, link); assert(card.card?.verified); assert.equal(card.card.loginNumber, String(number)); assert.equal(new URL(card.card.loginUrl).searchParams.get('campus'), 'main');
@@ -57,8 +63,11 @@ try {
   check(await lesson.from('lesson_support_students').update({ enabled: false }).eq('student_id', studentId).eq('organization_id', orgId).eq('support_project_ref', supportRef));
   assert.equal((await call({ action: 'inspect', childId })).error?.context.status, 403);
   console.log('PASS: deployed Auth diagnosis, verified card, wrong-passphrase denial, five-attempt cap, dedicated permission, inactive/foreign/revoked denial, no persisted secret and unchanged password/learning record');
+  }
 } finally {
   const errors = [], clean = async (fn, label) => { try { await fn(); } catch { errors.push(label); } };
+  await clean(async () => check(await support.from('lesson_credential_operations').delete().eq('organization_id', orgId).eq('child_id', childId)), 'support-credential-receipts');
+  await clean(async () => check(await lesson.from('lesson_support_account_operations').delete().eq('support_project_ref', supportRef).eq('organization_id', orgId).eq('student_id', studentId)), 'source-credential-receipts');
   await clean(async () => check(await support.from('lesson_account_audit').delete().eq('organization_id', orgId).eq('child_id', childId)), 'support-audit');
   await clean(async () => check(await lesson.from('lesson_support_account_checks').delete().eq('support_project_ref', supportRef).eq('organization_id', orgId).eq('student_id', studentId)), 'source-audit');
   const links = await support.from('lesson_child_links').select('id').eq('organization_id', orgId).eq('child_id', childId);
@@ -66,7 +75,20 @@ try {
   for (const link of links.data || []) await clean(async () => check(await support.from('lesson_link_audit').delete().eq('organization_id', orgId).eq('link_id', link.id)), 'link-audit');
   await clean(async () => check(await support.from('lesson_child_links').delete().eq('organization_id', orgId).eq('child_id', childId)), 'link');
   await clean(async () => check(await lesson.from('lesson_support_students').delete().eq('student_id', studentId).eq('organization_id', orgId).eq('support_project_ref', supportRef)), 'permission');
-  if (studentAuthId) await clean(async () => check(await lesson.auth.admin.deleteUser(studentAuthId)), 'student-auth');
+  const remaining = await lesson.from('lesson_user_access').select('auth_user_id').eq('user_data_id', studentId);
+  if (remaining.error) errors.push('fixture-auth-read');
+  for (const row of remaining.data || []) fixtureAuthIds.add(row.auth_user_id);
+  await clean(async () => {
+    const rows = sql(`select id from auth.users where raw_user_meta_data->>'user_data_id'='${studentId}';`, lessonRoot).rows;
+    for (const row of rows) fixtureAuthIds.add(row.id);
+  }, 'fixture-orphan-auth-read');
+  if (studentAuthId) fixtureAuthIds.add(studentAuthId);
+  for (const id of fixtureAuthIds) await clean(async () => {
+    const found = await lesson.auth.admin.getUserById(id);
+    if (found.error?.status === 404) return;
+    if (found.error || found.data.user?.user_metadata?.user_data_id !== studentId) throw Error('Fixture Auth identity mismatch');
+    check(await lesson.auth.admin.deleteUser(id));
+  }, 'student-auth');
   await clean(async () => check(await lesson.from('user_data').delete().eq('id', studentId)), 'learning-data');
   await clean(async () => check(await support.from('children').delete().eq('id', childId).eq('organization_id', orgId)), 'child');
   if (staffId) await clean(async () => check(await support.auth.admin.deleteUser(staffId)), 'staff-auth');

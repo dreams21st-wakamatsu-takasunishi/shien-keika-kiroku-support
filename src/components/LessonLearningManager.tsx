@@ -9,6 +9,7 @@ import {WordReviewInbox} from './WordReviewInbox';
 import {LearningTaskManager} from './LearningTaskManager';
 import { LessonProgressPanel } from './LessonProgressPanel';
 import { LessonAccountPanel } from './LessonAccountPanel';
+import { LessonCredentialPanel } from './LessonCredentialPanel';
 
 export function LessonLearningManager({ childrenList, remoteMode, scopeKey,reviewFocus=0 }: { childrenList: ChildProfile[]; remoteMode: boolean; scopeKey: string;reviewFocus?:number }) {
   const [tab, setTab] = useState<'history' | 'links'|'reviews'|'tasks'|'progress'>('history');
@@ -17,6 +18,7 @@ export function LessonLearningManager({ childrenList, remoteMode, scopeKey,revie
   const [loaded, setLoaded] = useState(false);
   const [canManage, setCanManage] = useState(false);
   const [canManageAccounts, setCanManageAccounts] = useState(false);
+  const [canIssueAccounts, setCanIssueAccounts] = useState(false);
   const [configured, setConfigured] = useState(false);
   const [childId, setChildId] = useState('');
   const [search, setSearch] = useState('');
@@ -38,12 +40,12 @@ export function LessonLearningManager({ childrenList, remoteMode, scopeKey,revie
 
   const refresh = useCallback(async () => {
     const version = ++listVersion.current;
-    setListBusy(remoteMode); setListError(''); setLoaded(false); setLinks([]); setCanManage(false); setCanManageAccounts(false); setConfigured(false); setHistory(null); setCandidate(null); setConfirmed(false);
+    setListBusy(remoteMode); setListError(''); setLoaded(false); setLinks([]); setCanManage(false); setCanManageAccounts(false); setCanIssueAccounts(false); setConfigured(false); setHistory(null); setCandidate(null); setConfirmed(false);
     if (!remoteMode) return;
     try {
       const result = await loadLessonLinks();
       if (version !== listVersion.current) return;
-      setLinks(result.links); setCanManage(result.canManageLinks); setCanManageAccounts(result.canManageAccounts === true); setConfigured(result.configured); setLoaded(true);
+      setLinks(result.links); setCanManage(result.canManageLinks); setCanManageAccounts(result.canManageAccounts === true); setCanIssueAccounts(result.canIssueAccounts === true); setConfigured(result.configured); setLoaded(true);
     } catch (error) {
       if (version === listVersion.current) setListError(error instanceof Error ? error.message : '連携一覧を取得できませんでした。');
     } finally { if (version === listVersion.current) setListBusy(false); }
@@ -134,6 +136,7 @@ export function LessonLearningManager({ childrenList, remoteMode, scopeKey,revie
           </> : selectedLink ? <>
             <dl className="grid gap-2 border-y border-slate-200 py-4 text-sm sm:grid-cols-[120px_minmax(0,1fr)]"><dt className="text-slate-600">学習ID</dt><dd className="break-all font-mono">{selectedLink.source_student_id}</dd><dt className="text-slate-600">校舎ID</dt><dd className="break-all">{selectedLink.source_campus_id}</dd><dt className="text-slate-600">確認日時</dt><dd>{new Date(selectedLink.verified_at).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })}</dd></dl>
             {canManageAccounts && remoteMode && configured && loaded && <div key={`${scopeKey}:${childId}:${selectedLink.id}:${selectedLink.revision}`}><LessonAccountPanel link={selectedLink} name={selectedChild.name} /></div>}
+            {canIssueAccounts && remoteMode && configured && loaded && <div key={`credential:${scopeKey}:${childId}:${selectedLink.id}:${selectedLink.revision}`}><LessonCredentialPanel link={selectedLink} name={selectedChild.name} /></div>}
             {canManage && <button type="button" disabled={busy} onClick={() => void run(disable)} className="flex min-h-10 items-center gap-2 rounded-lg border border-rose-300 px-3 text-sm text-rose-800 disabled:opacity-50"><Unlink className="h-4 w-4" />連携を解除</button>}
           </> : loaded && canManage ? <>
             <div className="flex flex-wrap items-end gap-3"><label className="flex min-w-0 flex-1 flex-col gap-1 text-xs font-bold text-slate-700">Dレッスンの学習ID<input value={studentId} disabled={busy} onChange={event => { setStudentId(event.target.value); setCandidate(null); setConfirmed(false); }} placeholder="student_..." className="min-h-10 w-full rounded-lg border border-slate-300 bg-white px-3 font-mono text-sm" /></label><button type="button" disabled={busy || !configured || !isStudentId(studentId.trim())} onClick={() => void run(verify)} className="flex min-h-10 items-center gap-2 rounded-lg border border-teal-600 px-4 text-sm font-bold text-teal-800 disabled:opacity-50"><Search className="h-4 w-4" />本人情報を確認</button></div>

@@ -5,6 +5,7 @@ import type {WordReviewRequest,WordReviewInbox} from '../learning/wordReviews';
 import {parseLearningTask,parseLearningTasks,type LearningTask} from '../learning/tasks';
 import { parseFetchedLessonProgress } from '../learning/progress';
 import { parseTimedAccountCheck, parseAccountAudits } from '../learning/accounts';
+import { parseCredentialOperations, parseCredentialResult, type CredentialAction } from '../learning/accountCredentials';
 
 async function invoke<T>(body: Record<string, unknown>, endpoint = 'lesson-learning'): Promise<T> {
   if (!supabase) throw new Error('学習連携には職員ログインとクラウド接続が必要です。');
@@ -20,7 +21,13 @@ async function invoke<T>(body: Record<string, unknown>, endpoint = 'lesson-learn
   return data as T;
 }
 
-export const loadLessonLinks = () => invoke<{ links: LessonLink[]; canManageLinks: boolean; canManageAccounts?: boolean; configured: boolean }>({ action: 'list' });
+export const loadLessonLinks = () => invoke<{ links: LessonLink[]; canManageLinks: boolean; canManageAccounts?: boolean; canIssueAccounts?: boolean; configured: boolean }>({ action: 'list' });
+export const loadCredentialOperations = async (link: LessonLink) => {
+  const result = await invoke<{ operations: unknown }>({ action: 'operations', childId: link.child_id }, 'lesson-account-credentials');
+  return parseCredentialOperations(result.operations);
+};
+export const issueLessonCredentials = async (link: LessonLink, operationId: string, action: CredentialAction) => parseCredentialResult(
+  await invoke({ action, operationId, childId: link.child_id, revision: link.revision, confirmed: true }, 'lesson-account-credentials'), link, operationId, action);
 export const inspectLessonStudent = (childId: string, studentId: string) => invoke<{ identity: LessonIdentity; fingerprint: string }>({ action: 'inspect', childId, studentId });
 export const linkLessonStudent = (childId: string, studentId: string, fingerprint: string) => invoke<{ link: LessonLink }>({ action: 'link', childId, studentId, fingerprint, confirmed: true });
 export const disableLessonLink = (link: LessonLink) => invoke<{ link: LessonLink }>({ action: 'disable', childId: link.child_id, revision: link.revision });

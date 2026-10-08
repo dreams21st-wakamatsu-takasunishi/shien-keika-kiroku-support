@@ -382,6 +382,7 @@ export type RolePermissionKey =
   | 'manage_children'
   | 'manage_learning_links'
   | 'manage_learning_accounts'
+  | 'manage_learning_account_credentials'
   | 'review_learning_work'
   | 'manage_record_settings'
   | 'manage_shifts'

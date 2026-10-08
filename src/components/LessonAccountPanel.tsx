@@ -9,9 +9,9 @@ import { checkLessonAccount, loadLessonAccountAudits, verifyLessonLoginCard } fr
 const labels: Record<LessonAccountStatus, string> = { ready: '教室ログインの設定を確認済み', missing: 'Auth連携がありません', 'email-only': 'メールログインのみ・教室ログイン設定は要確認', review: 'Authと児童の対応を要確認', disabled: '教室ログインのAuthが停止中', unconfigured: '教室ログインのサーバー設定が未完了' };
 const outcomes: Record<LessonAccountAudit['outcome'], string> = { started: '確認中・結果未確定', checked: '設定を確認', verified: '合言葉一致', denied: '確認不可', failed: '処理失敗' };
 const stamp = (value: string) => new Date(value).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' });
-type Card = { loginNumber: string; loginUrl: string; passcode: string; expiresAt: string };
+export type Card = { loginNumber: string; loginUrl: string; passcode: string; expiresAt: string };
 
-function LoginCard({ card, name, close }: { card: Card; name: string; close: () => void }) {
+export function LoginCard({ card, name, close }: { card: Card; name: string; close: () => void }) {
   const [qr, setQr] = useState('');
   const [hideName, setHideName] = useState(true);
   const button = useRef<HTMLButtonElement>(null);
