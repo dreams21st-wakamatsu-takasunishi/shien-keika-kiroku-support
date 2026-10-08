@@ -2,7 +2,7 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {dayMinute,dayRange,dayChildren,eventDayTimes,operationsWarnings} from './operationsTimeline';
 import {constrainPanel} from './editorPanelGeometry';
-import type {AttendanceRecord,CalendarEvent,ChildProfile,DailyChildPlan,TransportRun,Vehicle} from '../types';
+import type {AttendanceRecord,CalendarEvent,ChildProfile,DailyChildPlan,DailyTransportRequirement,TransportRun,Vehicle} from '../types';
 const date='2026-10-07';
 test('timeline uses one 7–21 scale and clips ranges without accepting invalid or overnight times',()=>{
   assert.deepEqual(dayRange('07:00','21:00'),{left:0,width:100});
@@ -24,6 +24,39 @@ test('a pickup time is not counted as facility arrival and absences/visiting-onl
   const rows=dayChildren(date,children,plans,[],[run]);assert.equal(rows.length,1);assert.equal(rows[0].arrival,'16:00');
   assert.equal(dayChildren(date,children,plans,[],[{...run,routeOptimizedAt:'confirmed'}])[0].arrival,'15:00');
 });
+test('child transport ends at facility arrival and presence ends at dropoff departure, not child stop time',()=>{
+  const children=[{id:'a'}] as ChildProfile[];
+  const plans=[{date,childId:'a',schoolEndTime:'14:00',arrivalTime:'16:00',departureTime:'18:00'}] as DailyChildPlan[];
+  const pickup={date,direction:'迎え',startTime:'13:30',endTime:'15:10',routeOptimizedAt:'confirmed',stops:[{childId:'a',plannedTime:'14:20'}]} as TransportRun;
+  const dropoff={date,direction:'送り',startTime:'17:20',endTime:'18:30',routeOptimizedAt:'confirmed',stops:[{childId:'a',plannedTime:'17:50'}]} as TransportRun;
+  const row=dayChildren(date,children,plans,[],[pickup,dropoff])[0];
+  assert.equal(row.arrival,'15:10');assert.equal(row.departure,'17:20');
+  assert.deepEqual(row.transportRange,dayRange('14:00','15:10'));assert.deepEqual(row.range,dayRange('15:10','17:20'));
+  assert.ok(Math.abs(row.transportRange!.left+row.transportRange!.width-row.range!.left)<1e-9);
+  const pending=dayChildren(date,children,plans,[],[{...pickup,routeOptimizedAt:undefined},{...dropoff,routeOptimizedAt:undefined}])[0];
+  assert.equal(pending.arrival,'16:00');assert.equal(pending.departure,'18:00');
+});
+
+test('unknown child times are not guessed and reversed/zero-length intervals are not drawn',()=>{
+  const children=[{id:'a'}] as ChildProfile[];
+  const row=(schoolEndTime?:string,arrivalTime?:string,departureTime?:string)=>dayChildren(date,children,[{date,childId:'a',schoolEndTime,arrivalTime,departureTime}] as DailyChildPlan[],[],[])[0];
+  assert.equal(row('14:00',undefined,'17:00').transportRange,undefined);assert.equal(row('14:00',undefined,'17:00').range,undefined);
+  assert.equal(row(undefined,'15:00','17:00').transportRange,undefined);assert.ok(row(undefined,'15:00','17:00').range);
+  assert.equal(row('16:00','15:00','17:00').transportRange,undefined);assert.equal(row('16:00','15:00','17:00').timeOrderInvalid,true);
+  assert.equal(row('14:00','17:00','16:00').range,undefined);assert.equal(row('14:00','17:00','16:00').timeOrderInvalid,true);
+  assert.equal(row('14:00','14:00','14:00').transportRange,undefined);assert.equal(row('14:00','14:00','14:00').timeOrderInvalid,false);
+  assert.deepEqual(row('06:00','08:00','22:00').transportRange,dayRange('07:00','08:00'));
+});
+
+test('parent transport does not create a facility transport interval or use stale assigned runs',()=>{
+  const children=[{id:'a'}] as ChildProfile[];
+  const plans=[{date,childId:'a',schoolEndTime:'14:00',arrivalTime:'15:00',departureTime:'17:00'}] as DailyChildPlan[];
+  const requirements=[{date,childId:'a',pickupEnabled:false,dropoffEnabled:false}] as DailyTransportRequirement[];
+  const runs=[{date,direction:'迎え',endTime:'16:00',routeOptimizedAt:'confirmed',stops:[{childId:'a'}]},{date,direction:'送り',startTime:'18:00',routeOptimizedAt:'confirmed',stops:[{childId:'a'}]}] as TransportRun[];
+  const row=dayChildren(date,children,plans,requirements,runs)[0];
+  assert.equal(row.pickupEnabled,false);assert.equal(row.transportRange,undefined);assert.equal(row.arrival,'15:00');assert.equal(row.departure,'17:00');assert.ok(row.range);
+});
+
 test('warnings cover driver/assistant clashes, shifts, events and vehicles without modifying inputs',()=>{
   const first={id:'r1',date,name:'便1',startTime:'14:00',endTime:'15:00',driverRecorderProfileId:'staff',assistantRecorderProfileIds:['assistant'],vehicleId:'v',stops:[{childId:'a'}]} as TransportRun;
   const second={...first,id:'r2',name:'便2',startTime:'14:30',endTime:'16:00',driverRecorderProfileId:'other',assistantRecorderProfileIds:['assistant']};

@@ -18,15 +18,15 @@ const html=await(await read(`?verify=${stamp}`)).text();
 const entry=html.match(/<script[^>]+src="(\.\/assets\/[^"?#]+\.js)"/)?.[1];
 if(!entry)throw Error('Entry module absent');
 const js=await(await read(entry)).text();
-for(const marker of ['送迎を組む児童','同便児童を追加','キャンセルして閉じる','小窓の収納先','勤務・児童・送迎の一日ガント','配車アラート','要対応','要確認','同じ時間帯に担当職員が重複しています','同じ時間帯に車両が重複しています']){
+for(const marker of ['送迎を組む児童','同便児童を追加','キャンセルして閉じる','小窓の収納先','勤務・児童・送迎の一日ガント','配車アラート','要対応','要確認','同じ時間帯に担当職員が重複しています','同じ時間帯に車両が重複しています','送迎時間','在所時間','送迎：下校〜事業所到着','在所：事業所到着〜送り開始','時刻の前後を確認']){
   if(!js.includes(marker))throw Error(`Workspace feature absent: ${marker}`);
 }
 const cssPath=html.match(/<link[^>]+href="(\.\/assets\/index-[^"?#]+\.css)"/)?.[1];
 if(!cssPath)throw Error('Entry CSS absent');
 const css=await(await read(cssPath)).text();
-for(const selector of ['.bg-red-100','.bg-yellow-100','.transport-editor-panel','.operations-overview']){
+for(const selector of ['.bg-red-100','.bg-yellow-100','.transport-editor-panel','.operations-overview','.bg-sky-200','.bg-teal-200']){
   if(!css.includes(selector))throw Error(`Workspace styling absent: ${selector}`);
 }
 let runtimeAssets=0;
 for(const path of manifest.assets.filter(path=>/\.(js|css)$/.test(path))){await(await read(path)).arrayBuffer();runtimeAssets++;}
-console.log(JSON.stringify({version:version.version,workspaceIncluded:true,anchoredPickerIncluded:true,headerCancelIncluded:true,dayChildAdditionIncluded:true,criticalRedAndCautionYellowIncluded:true,runtimeAssets,readsPrivateData:false}));
+console.log(JSON.stringify({version:version.version,workspaceIncluded:true,anchoredPickerIncluded:true,headerCancelIncluded:true,dayChildAdditionIncluded:true,criticalRedAndCautionYellowIncluded:true,childTransportAndPresenceIntervalsIncluded:true,runtimeAssets,readsPrivateData:false}));

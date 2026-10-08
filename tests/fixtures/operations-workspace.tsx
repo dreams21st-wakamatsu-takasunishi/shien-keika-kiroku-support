@@ -2,6 +2,7 @@ import {useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {DailyTransportPlanner} from '../../src/components/DailyTransportPlanner';
 import {StaffShiftManager} from '../../src/components/StaffShiftManager';
+import {resolvedTransportArea} from '../../src/utils/transportArea';
 import {DEFAULT_TRANSPORT_ROUTE_SETTINGS,type AttendanceRecord,type CalendarEvent,type ChildProfile,type DailyChildPlan,type DailyTransportRequirement,type RecorderProfile,type StaffShiftRequest,type TransportRun,type Vehicle} from '../../src/types';
 import '../../src/index.css';
 
@@ -24,6 +25,25 @@ if(new URLSearchParams(location.search).get('warnings')==='severity'){
   other.driverRecorderProfileId=profiles[1].id;other.driverName=profiles[1].displayName;
 }
 const requests=[{id:'demo-request',recorderProfileId:profiles[4].id,recorderName:profiles[4].displayName,requestedDate:date,requestedStartTime:'13:00',requestedEndTime:'18:00',status:'申請中',createdAt:now,updatedAt:now}] as StaffShiftRequest[];
+
+// Separate opt-in data for dismissal → facility arrival → dropoff start checks.
+if(new URLSearchParams(location.search).get('timeline')==='segments'){
+  const pickup=startingRuns.find(run=>run.direction==='迎え'&&run.vehicleId===vehicles[0].id)!;
+  const dropoff=startingRuns.find(run=>run.direction==='送り'&&run.vehicleId===vehicles[0].id)!;
+  pickup.routeOptimizedAt=now;pickup.endTime='15:10';
+  dropoff.routeOptimizedAt=now;dropoff.startTime='17:20';
+  for(const run of [pickup,dropoff])for(const stop of run.stops){
+    const child=children.find(item=>item.id===stop.childId)!;
+    const requirement=requirements.find(item=>item.childId===child.id)!;
+    stop.timeMode=run.direction==='迎え'?requirement.pickupTimeMode:requirement.dropoffTimeMode;
+    stop.timeAnchorTime=run.direction==='迎え'?requirement.pickupTargetTime:requirement.dropoffTargetTime;
+    stop.permanentNote=child.transportPermanentNote;
+    stop.area=resolvedTransportArea(stop.location);
+  }
+  plans[9].arrivalTime=undefined;plans[9].departureTime=undefined;
+  requirements[10].pickupEnabled=false;
+  plans[11].schoolEndTime='18:30'; // invalid chronological order remains visible for review
+}
 
 function Preview(){
   const [page,setPage]=useState<'transport'|'shift'|'closed'>('transport');

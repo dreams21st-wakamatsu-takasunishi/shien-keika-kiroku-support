@@ -35,10 +35,14 @@ export function dayChildren(date:string,children:ChildProfile[],plans:DailyChild
     const dropoff=runs.find(r=>r.date===date&&r.direction==='送り'&&r.stops.some(s=>s.childId===child.id));
     // A pickup stop is NOT a facility arrival. Use the run's return time, only
     // after calculation; otherwise retain the explicitly entered arrival.
-    const arrival=pickup?.routeOptimizedAt?pickup.endTime:plan?.arrivalTime;
-    const departure=dropoff?.routeOptimizedAt?dropoff.startTime:plan?.departureTime;
+    const pickupEnabled=requirement?.pickupEnabled!==false;
+    const arrival=pickupEnabled&&pickup?.routeOptimizedAt?pickup.endTime:plan?.arrivalTime;
+    const departure=requirement?.dropoffEnabled!==false&&dropoff?.routeOptimizedAt?dropoff.startTime:plan?.departureTime;
     const dismissal=plan?.schoolEndTime||(requirement?.pickupTimeMode==='fixed'?requirement.pickupTargetTime:undefined);
-    return {child,arrival,departure,dismissal,pickup,dropoff,range:dayRange(arrival,departure)};
+    const a=dayMinute(dismissal),b=dayMinute(arrival),c=dayMinute(departure);
+    const timeOrderInvalid=(pickupEnabled&&a!==undefined&&b!==undefined&&a>b)||(b!==undefined&&c!==undefined&&b>c);
+    return {child,arrival,departure,dismissal,pickup,dropoff,pickupEnabled,timeOrderInvalid,
+      transportRange:pickupEnabled?dayRange(dismissal,arrival):undefined,range:dayRange(arrival,departure)};
   });
 }
 export interface OperationsWarning {key:string;runId:string;message:string;severity:'critical'|'warning';}
