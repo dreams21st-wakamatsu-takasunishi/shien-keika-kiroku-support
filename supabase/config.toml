@@ -395,6 +395,10 @@ verify_jwt = false
 [functions.lesson-learning]
 verify_jwt = false
 
+# Staff JWT, dedicated permission, device and child link are checked in-handler.
+[functions.lesson-accounts]
+verify_jwt = false
+
 # [edge_runtime.secrets]
 # secret_key = "env(SECRET_VALUE)"
 

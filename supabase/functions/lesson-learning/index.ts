@@ -27,7 +27,7 @@ Deno.serve(async request => {
       if (error || !data || data.actorId !== auth.user!.id || typeof data.organizationId !== 'string') {
         throw failure(error?.code === '42501' ? 'この端末または権限では学習管理を利用できません。' : '学習連携のDB設定を確認してください。', error?.code === '42501' ? 403 : 503);
       }
-      return data as { organizationId: string; actorId: string; actorName:string; canManageLinks: boolean;canReviewWord:boolean };
+      return data as { organizationId: string; actorId: string; actorName:string; canManageLinks: boolean;canReviewWord:boolean;canManageAccounts:boolean };
     };
     const context = await getContext();
     const raw = await request.text();
@@ -65,7 +65,7 @@ Deno.serve(async request => {
     if (action === 'list') {
       const { data, error } = await user.from('lesson_child_links').select('*').eq('organization_id', context.organizationId).eq('active', true);
       if (error) throw failure('連携一覧を取得できませんでした。', 503);
-      return reply({ links: data || [], canManageLinks: context.canManageLinks === true, configured });
+      return reply({ links: data || [], canManageLinks: context.canManageLinks === true, canManageAccounts: context.canManageAccounts === true, configured });
     }
     if (typeof body.childId !== 'string' || !body.childId || body.childId.length > 160) return reply({ error: '対象児童を選択してください。' }, 400);
     const { data: child, error: childError } = await user.from('children').select('id').eq('organization_id', context.organizationId)

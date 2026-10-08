@@ -6,6 +6,7 @@ const PERMISSIONS: Array<{ key: RolePermissionKey; label: string; description: s
   { key: 'review_records', label: '記録の確認・承認', description: '未確認記録の確認、要修正の登録を行えます。' },
   { key: 'manage_children', label: '児童情報の管理', description: '児童名簿、利用曜日、送迎先を編集できます。' },
   { key: 'manage_learning_links', label: '学習連携・課題管理', description: 'Dレッスンの児童との連携・解除と、課題の分野・内容・期間の指定、編集、停止を行えます。' },
+  { key: 'manage_learning_accounts', label: '学習アカウント確認・ログインカード', description: 'Authの連携状態を確認し、合言葉を検証してログインカードを表示・印刷できます。合言葉の変更は行いません。' },
   { key: 'review_learning_work', label: 'Word作品の確認・承認', description: '連携児童の提出作品を確認し、承認・差し戻しを行えます。' },
   { key: 'manage_record_settings', label: '記録・AI設定', description: '質問テンプレートとAI文章設定を変更できます。' },
   { key: 'manage_shifts', label: '月間シフト・休日管理', description: '職員の勤務予定とパート職員の希望を確定できます。' },
