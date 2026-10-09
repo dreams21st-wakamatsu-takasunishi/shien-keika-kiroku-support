@@ -4,6 +4,7 @@ import type { LessonHistory, LessonIdentity, LessonLink } from '../learning/cont
 import type {WordReviewRequest,WordReviewInbox} from '../learning/wordReviews';
 import {parseLearningTask,parseLearningTasks,parseTaskDetails,type LearningTask} from '../learning/tasks';
 import { parseFetchedLessonProgress } from '../learning/progress';
+import {parseBatchConfiguration,parseTaskBatch,parseTaskTemplate,type TaskTemplate,type TaskTarget} from '../learning/taskBatches';
 import { parseTimedAccountCheck, parseAccountAudits } from '../learning/accounts';
 import { parseCredentialOperations, parseCredentialResult, type CredentialAction } from '../learning/accountCredentials';
 import { parseHandoffResult, parseRegistrationConfig, parseRegistrationResult, type HandoffReason, type RegistrationConfig, type RegistrationOperation } from '../learning/studentRegistration';
@@ -30,6 +31,16 @@ async function invoke<T>(body: Record<string, unknown>, endpoint = 'lesson-learn
 }
 
 export const loadLessonLinks = () => invoke<{ links: LessonLink[]; canManageLinks: boolean; canManageAccounts?: boolean; canIssueAccounts?: boolean; configured: boolean }>({ action: 'list' });
+export const loadTaskBatchConfiguration=async()=>parseBatchConfiguration(await invoke({action:'configuration'},'lesson-task-batches'));
+export const prepareTaskBatch=async(operationId:string,template:TaskTemplate,targets:TaskTarget[])=>{
+ const normalized=parseTaskTemplate(template);
+ const response=await invoke<{batch:unknown}>({action:'prepare',operationId,template:normalized,targets},'lesson-task-batches');
+ const batch=parseTaskBatch(response.batch,operationId);
+ if(JSON.stringify(batch.template)!==JSON.stringify(normalized)||batch.items.length!==targets.length||!targets.every(target=>batch.items.some(item=>item.childId===target.childId&&item.linkId===target.linkId&&item.revision===target.revision&&item.group===target.group&&item.campusId===target.campusId)))throw Error('指定内容が一致しません。再取得してください。');
+ return batch;
+};
+export const loadTaskBatch=async(operationId:string)=>parseTaskBatch((await invoke<{batch:unknown}>({action:'load',operationId},'lesson-task-batches')).batch,operationId);
+export const applyTaskBatch=async(operationId:string,childId:string)=>parseTaskBatch((await invoke<{batch:unknown}>({action:'apply',operationId,childId,confirmed:true},'lesson-task-batches')).batch,operationId);
 export const loadCredentialOperations = async (link: LessonLink) => {
   const result = await invoke<{ operations: unknown }>({ action: 'operations', childId: link.child_id }, 'lesson-account-credentials');
   return parseCredentialOperations(result.operations);
