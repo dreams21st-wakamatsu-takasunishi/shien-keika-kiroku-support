@@ -2,7 +2,7 @@ import { supabase } from '../lib/supabase';
 import { getAccessDeviceToken } from '../utils/accessDevice';
 import type { LessonHistory, LessonIdentity, LessonLink } from '../learning/contracts';
 import type {WordReviewRequest,WordReviewInbox} from '../learning/wordReviews';
-import {parseLearningTask,parseLearningTasks,type LearningTask} from '../learning/tasks';
+import {parseLearningTask,parseLearningTasks,parseTaskDetails,type LearningTask} from '../learning/tasks';
 import { parseFetchedLessonProgress } from '../learning/progress';
 import { parseTimedAccountCheck, parseAccountAudits } from '../learning/accounts';
 import { parseCredentialOperations, parseCredentialResult, type CredentialAction } from '../learning/accountCredentials';
@@ -52,10 +52,14 @@ export const loadLessonAccountAudits = async (link: LessonLink) => {
   return parseAccountAudits(result.audits);
 };
 export const loadLearningTasks=async(childId:string)=>parseLearningTasks(await invoke({action:'tasks-list',childId}));
+export const loadLearningTaskDetails=async(childId:string)=>parseTaskDetails(await invoke({action:'tasks-list',childId}));
 export const saveLearningTask=async(childId:string,task:Omit<LearningTask,'updatedAt'>)=>{
   const result=await invoke<{schemaVersion:number;task:unknown}>({action:'tasks-save',childId,task});
   if(result.schemaVersion!==1)throw Error('課題の保存結果を確認できません。');
-  const saved=parseLearningTask(result.task);if(saved.id!==task.id)throw Error('課題の保存結果を確認できません。');return saved;
+  const saved=parseLearningTask(result.task);
+  if(saved.id!==task.id||saved.revision!==task.revision+1||saved.category!==task.category||saved.stageId!==task.stageId
+   ||saved.title!==task.title.trim()||saved.instructions!==task.instructions||saved.startsOn!==task.startsOn||saved.endsOn!==task.endsOn||saved.active!==task.active)throw Error('課題の保存結果を確認できません。再取得してください。');
+  return saved;
 };
 export const loadWordReviewInbox=()=>invoke<WordReviewInbox>({action:'word-inbox'});
 export interface WordArtifact {url:string;fileType:string;requestId:string;revision:number;fileHash:string}

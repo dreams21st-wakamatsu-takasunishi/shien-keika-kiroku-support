@@ -32,11 +32,22 @@ try{
  const ok=async body=>check(await call(body));
  const inspect=await ok({action:'inspect',childId,studentId});
  const linked=await ok({action:'link',childId,studentId,fingerprint:inspect.fingerprint,confirmed:true});linkId=linked.link.id;
- const task={id:randomUUID(),revision:0,category:'mouse',title:'架空試験・M-1',instructions:'クリックを5回',startsOn:new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'}),endsOn:new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'}),active:true};
+ const task={id:randomUUID(),revision:0,category:'mouse',stageId:'1',title:'架空試験・M-1',instructions:'クリックを5回',startsOn:new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'}),endsOn:new Date().toLocaleDateString('sv-SE',{timeZone:'Asia/Tokyo'}),active:true};
  const saved=await ok({action:'tasks-save',childId,task});assert.equal(saved.task.revision,1);
  assert.equal((await ok({action:'tasks-save',childId,task})).task.revision,1);
  assert.equal((await ok({action:'tasks-list',childId})).tasks.length,1);
- const visible=check(await pupil.functions.invoke('student-learning-tasks',{body:{studentId}}));assert.equal(visible.tasks[0].id,task.id);
+ const details=await ok({action:'tasks-list',childId});assert(details.catalog.some(stage=>stage.category==='keyboard'&&stage.stageId==='4301'));assert.equal(details.tasks[0].stageId,'1');assert.equal(details.results[0].count,0);
+ assert.equal((await call({action:'tasks-save',childId,task:{...task,id:randomUUID(),stageId:'v1_easy'}})).error?.context.status,400);
+ assert.equal((await call({action:'tasks-save',childId,task:{...task,id:randomUUID(),category:'keyboard',stageId:'2001'}})).error?.context.status,400);
+ assert.equal((await call({action:'tasks-save',childId,task:{...task,stageId:'2'}})).error?.context.status,409,'changed stage is not an identical retry');
+ const log={id:`event-${run}`,category:'mouse',stageId:'1',at:task.startsOn+'T00:00:00Z',title:'M-1',detail:'クリア',amount:'5回'};
+ const legacyLog={id:`old-${run}`,category:'mouse',at:log.at,title:'M-1',detail:'クリア',amount:'5回'};
+ const evidenceData={...sourceData,practiceLogs:[log,log,legacyLog,{...log,id:`other-${run}`,stageId:'2'},{...log,id:`outside-${run}`,at:task.startsOn+'T15:00:00Z'}]};
+ check(await lesson.from('user_data').update({data:evidenceData}).eq('id',studentId));
+ const evidence=(await ok({action:'tasks-list',childId})).results[0];assert.equal(evidence.count,1);assert.equal(evidence.unidentifiedCount,1);assert.equal(evidence.historyComplete,false);assert.equal(evidence.latest[0].id,log.id);
+ assert.deepEqual(check(await source()).data,evidenceData,'task reads do not change learner data');
+ check(await lesson.from('user_data').update({data:sourceData}).eq('id',studentId));
+ const visible=check(await pupil.functions.invoke('student-learning-tasks',{body:{studentId}}));assert.equal(visible.tasks[0].id,task.id);assert.equal(visible.tasks[0].stageId,'1');assert(!('results' in visible),'child response cannot expose staff evidence');
  const offset=days=>new Date(Date.parse(task.startsOn+'T00:00:00Z')+days*86400000).toISOString().slice(0,10);
  await ok({action:'tasks-save',childId,task:{...task,id:randomUUID(),startsOn:offset(1),endsOn:offset(2)}});
  await ok({action:'tasks-save',childId,task:{...task,id:randomUUID(),startsOn:offset(-2),endsOn:offset(-1)}});
@@ -57,6 +68,7 @@ try{
  await ok({action:'disable',childId,revision:linked.link.revision});
  assert.equal(check(await pupil.functions.invoke('student-learning-tasks',{body:{studentId}})).tasks.length,0);
  assert.equal((await call({action:'tasks-save',childId,task:{...task,revision:3}})).error?.context.status,409);
+ assert.equal((await call({action:'tasks-list',childId})).error?.context.status,409,'revoked link cannot read task evidence');
  console.log('PASS: live staff task creation/read, retry idempotency, own student display, other student denial, version conflict, shared-device staff read-only, stop and unlink, unchanged fictional progress');
 }finally{
  const errors=[];const clean=async(fn,label)=>{try{await fn();}catch{errors.push(label);}};

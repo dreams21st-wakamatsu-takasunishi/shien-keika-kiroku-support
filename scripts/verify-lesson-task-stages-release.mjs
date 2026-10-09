@@ -1,0 +1,13 @@
+import './verify-lesson-recovery-release.mjs';
+const base='https://dreams21st-wakamatsu-takasunishi.github.io/shien-keika-kiroku-support/';
+const read=async url=>{const response=await fetch(url,{headers:{'Cache-Control':'no-cache'},signal:AbortSignal.timeout(30000)});if(!response.ok)throw Error(`Task asset failed: ${response.status}`);return response.text();};
+const html=await read(base+'?verifyTaskStages='+Date.now()),entry=html.match(/<script[^>]+src="(\.\/assets\/[^"?#]+\.js)"/)?.[1];
+if(!entry)throw Error('Public entry not found');
+const js=await read(new URL(entry,base));
+for(const text of ['課題のステージ','分野全体（ステージ指定なし）','期間内に確認できた取り組み','ステージを特定できない旧形式の記録','unidentifiedCount'])if(!js.includes(text))throw Error(`Published task feature missing: ${text}`);
+const lessonBase='https://dreams21st-wakamatsu-takasunishi.github.io/d-lesson-v4/';
+const lessonHtml=await read(lessonBase+'?verifyTaskStages='+Date.now()),lessonEntry=lessonHtml.match(/<script[^>]+src="([^"?#]+\.js)"/)?.[1];
+if(!lessonEntry)throw Error('Lesson entry not found');
+const lessonJs=await read(new URL(lessonEntry,lessonBase));
+for(const text of ['student-learning-tasks','stageId','このステージは、まだじゅんび中だよ','あ〜さのことば'])if(!lessonJs.includes(text))throw Error(`Published lesson task feature missing: ${text}`);
+console.log('PASS: both published stage-task UIs, period evidence and lock-preserving route; no private data read');

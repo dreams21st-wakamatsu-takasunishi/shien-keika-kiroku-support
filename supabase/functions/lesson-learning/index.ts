@@ -1,7 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import { identityFingerprint, isServiceDate, isStudentId, parseHistory, parseIdentity } from '../../../src/learning/contracts.ts';
 import {parseWordInbox} from '../../../src/learning/wordReviews.ts';
-import {parseLearningTask,parseLearningTasks} from '../../../src/learning/tasks.ts';
+import {parseLearningTask,parseTaskDetails} from '../../../src/learning/tasks.ts';
 import { parseLessonProgress } from '../../../src/learning/progress.ts';
 
 const cors = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-support-device-token', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
@@ -130,7 +130,9 @@ Deno.serve(async request => {
       await getContext();
       const {data:stillLinked,error:stillError}=await user.from('lesson_child_links').select('id').eq('id',link.id).eq('active',true).eq('revision',link.revision).maybeSingle();
       if(stillError||!stillLinked)throw failure('連携状態が変更されました。更新してください。',409);
-      return reply(action==='tasks-list'?{schemaVersion:1,tasks:parseLearningTasks(payload)}:{schemaVersion:1,task:parseLearningTask(payload?.task)});
+      const {data:stillChild,error:stillChildError}=await user.from('children').select('id').eq('id',body.childId).eq('organization_id',context.organizationId).is('deleted_at',null).maybeSingle();
+      if(stillChildError||!stillChild)throw failure('対象児童が変更されました。更新してください。',409);
+      return reply(action==='tasks-list'?{schemaVersion:1,...parseTaskDetails(payload)}:{schemaVersion:1,task:parseLearningTask(payload?.task)});
     }
     if(action==='word-artifact'||action==='word-decide'){
       if(typeof body.requestId!=='string'||! /^[0-9a-f-]{36}$/i.test(body.requestId))return reply({error:'申請を選択してください。'},400);

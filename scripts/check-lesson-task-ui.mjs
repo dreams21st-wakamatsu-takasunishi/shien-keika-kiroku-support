@@ -39,7 +39,11 @@ async function check(page,url){
    const rows=[...(tasks.get(body.childId)||[])];
    if(taskDelay)await new Promise(resolve=>setTimeout(resolve,taskDelay));
    if(taskFails){status=503;response={error:'試験用：課題の取得失敗'};}
-   else response={schemaVersion:1,tasks:rows};
+   else response={schemaVersion:1,tasks:rows,catalog:[
+    {category:'mouse',stageId:'1',title:'M-1'},
+    {category:'keyboard',stageId:'4301',title:'あ〜さのことば'}
+   ],results:rows.map(task=>({taskId:task.id,revision:task.revision,count:1,historyComplete:false,unidentifiedCount:2,
+    latest:[{id:'fixture-event',at:task.startsOn+'T01:00:00Z',detail:'クリア',amount:'うった数 5回'}]}))};
   }else if(body.action==='tasks-save'){
    assert(manage,'readonly save');
    const saved={...body.task,revision:body.task.revision+1,updatedAt:'2026-10-01T00:00:00Z'};
@@ -59,6 +63,7 @@ async function check(page,url){
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),'mobile overflow');
  await page.screenshot({path:'output/playwright/task-full-manager-mobile.png',fullPage:true});
  await page.getByRole('combobox',{name:'課題の分野'}).selectOption('keyboard');
+ await page.getByRole('combobox',{name:'課題のステージ'}).selectOption('4301');
  await page.getByRole('textbox',{name:'課題名',exact:true}).fill('架空課題 あ〜さのことば');
  await page.getByRole('textbox',{name:'取り組む内容'}).fill('覚えた文字でことばを入力する');
  await page.getByLabel('課題の開始日',{exact:true}).fill('2026-10-01');
@@ -66,9 +71,12 @@ async function check(page,url){
  await page.getByRole('button',{name:'保存',exact:true}).click();
  await page.getByText('課題を保存しました。',{exact:true}).waitFor();
  let saved=tasks.get('child-ui-a')[0];
- assert(saved.category==='keyboard'&&saved.startsOn==='2026-10-01'&&saved.endsOn==='2026-10-07','create fields');
+ assert(saved.category==='keyboard'&&saved.stageId==='4301'&&saved.startsOn==='2026-10-01'&&saved.endsOn==='2026-10-07','create fields');
+ await page.getByText('期間内に確認できた取り組み：1件',{exact:true}).waitFor();
+ await page.getByText('ステージを特定できない旧形式の記録：2件（集計対象外）',{exact:true}).waitFor();
  await page.getByRole('button',{name:'編集',exact:true}).click();
  await page.getByRole('form',{name:'課題の編集'}).waitFor();
+ assert(await page.getByRole('combobox',{name:'課題のステージ'}).inputValue()==='4301','selected stage survives reload');
  await page.getByLabel('課題の終了日',{exact:true}).fill('2026-10-10');
  await page.getByRole('button',{name:'保存',exact:true}).click();
  await page.getByRole('button',{name:'編集',exact:true}).waitFor();
