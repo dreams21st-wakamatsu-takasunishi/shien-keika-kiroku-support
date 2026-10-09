@@ -6,6 +6,12 @@ import {parseLearningTask,parseLearningTasks,type LearningTask} from '../learnin
 import { parseFetchedLessonProgress } from '../learning/progress';
 import { parseTimedAccountCheck, parseAccountAudits } from '../learning/accounts';
 import { parseCredentialOperations, parseCredentialResult, type CredentialAction } from '../learning/accountCredentials';
+import { parseRegistrationConfig, parseRegistrationResult, type RegistrationConfig } from '../learning/studentRegistration';
+
+export const loadStudentRegistrationConfig = async (childId: string) => parseRegistrationConfig(await invoke({ action: 'configuration', childId }, 'lesson-student-registration'));
+export const registerLessonStudent = async (childId: string, config: RegistrationConfig, operationId: string, campusId: string) => parseRegistrationResult(
+  await invoke({ action: 'register', childId, operationId, campusId, fingerprint: config.fingerprint, confirmed: true }, 'lesson-student-registration'),
+  childId, operationId, { sourceProject: config.sourceProject, campusId, name: config.name, birthDate: config.birthDate });
 
 async function invoke<T>(body: Record<string, unknown>, endpoint = 'lesson-learning'): Promise<T> {
   if (!supabase) throw new Error('学習連携には職員ログインとクラウド接続が必要です。');

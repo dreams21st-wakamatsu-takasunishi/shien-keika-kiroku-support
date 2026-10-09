@@ -10,6 +10,7 @@ import {LearningTaskManager} from './LearningTaskManager';
 import { LessonProgressPanel } from './LessonProgressPanel';
 import { LessonAccountPanel } from './LessonAccountPanel';
 import { LessonCredentialPanel } from './LessonCredentialPanel';
+import { LessonStudentRegistrationPanel } from './LessonStudentRegistrationPanel';
 
 export function LessonLearningManager({ childrenList, remoteMode, scopeKey,reviewFocus=0 }: { childrenList: ChildProfile[]; remoteMode: boolean; scopeKey: string;reviewFocus?:number }) {
   const [tab, setTab] = useState<'history' | 'links'|'reviews'|'tasks'|'progress'>('history');
@@ -146,6 +147,7 @@ export function LessonLearningManager({ childrenList, remoteMode, scopeKey,revie
               <button type="button" disabled={!confirmed || busy} onClick={() => void run(saveLink)} className="flex min-h-10 items-center gap-2 rounded-lg bg-teal-700 px-4 text-sm font-bold text-white disabled:opacity-50"><Link2 className="h-4 w-4" />連携を確定</button>
             </div>}
           </> : <p className="py-6 text-sm text-slate-600">{loaded ? '学習アカウントが未連携です。連携管理者に確認してください。' : '連携状態は未確認です。'}</p>}
+          {tab === 'links' && remoteMode && configured && loaded && canManage && canIssueAccounts && <div key={`register:${scopeKey}:${childId}`}><LessonStudentRegistrationPanel childId={childId} hasLink={Boolean(selectedLink)} onCompleted={() => void refresh()} /></div>}
         </>}
       </section>
     </div>
