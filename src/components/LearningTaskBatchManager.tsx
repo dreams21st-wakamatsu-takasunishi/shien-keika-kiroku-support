@@ -1,7 +1,8 @@
 import {useEffect,useRef,useState} from 'react';
 import {Check,ClipboardCheck,LoaderCircle,Plus,RefreshCw,Search,SquareX,Users} from 'lucide-react';
 import type {ChildProfile} from '../types';
-import {assertSameTaskBatch,batchErrors,filterTaskTargets,parseTaskTemplate,type TaskBatch,type TaskTemplate} from '../learning/taskBatches';
+import {assertSameTaskBatch,batchErrors,batchKindNames,filterTaskTargets,parseTaskTemplate,type TaskBatch,type TaskTemplate} from '../learning/taskBatches';
+import {LearningTaskBatchChangePanel} from './LearningTaskBatchChangePanel';
 import {taskCategories,type TaskCategory} from '../learning/tasks';
 import {applyTaskBatch,loadTaskBatch,loadTaskBatchConfiguration,prepareTaskBatch} from '../services/lessonLearningService';
 import {getLocalDateString} from '../utils/weekdays';
@@ -33,9 +34,9 @@ export function LearningTaskBatchManager({childrenList}:{childrenList:ChildProfi
   catch(e){if(v===generation.current)setError(e instanceof Error?e.message:'指定内容を確認できません。');}
   finally{if(v===generation.current)setBusy(false);}
  };
- const openHistory=async()=>{
-  if(!historyId)return;const v=++generation.current;setBusy(true);setError('');setBatch(null);setConfirmed(false);
-  try{const result=await loadTaskBatch(historyId);if(v===generation.current)setBatch(result);}
+ const openHistory=async(id=historyId)=>{
+  if(!id)return;const v=++generation.current;setBusy(true);setError('');setBatch(null);setConfirmed(false);
+  try{const result=await loadTaskBatch(id);if(v===generation.current)setBatch(result);}
   catch(e){if(v===generation.current)setError(e instanceof Error?e.message:'履歴を取得できません。');}
   finally{if(v===generation.current)setBusy(false);}
  };
@@ -46,7 +47,7 @@ export function LearningTaskBatchManager({childrenList}:{childrenList:ChildProfi
    for(const item of batch.items){
     if(stop.current||v!==generation.current)break;
     if(item.status==='saved')continue;
-    const next=assertSameTaskBatch(current,await applyTaskBatch(batch.operationId,item.childId));
+    const next=assertSameTaskBatch(current,await applyTaskBatch(batch.operationId,item.childId,batch.kind||'create'));
     if(v!==generation.current)break;current=next;setBatch(next);
    }
   }catch(e){if(v===generation.current)setError(e instanceof Error?e.message:'処理を中断しました。履歴から再確認してください。');}
@@ -58,7 +59,7 @@ export function LearningTaskBatchManager({childrenList}:{childrenList:ChildProfi
   {error&&<p role="alert" className="border-l-4 border-rose-500 bg-rose-50 p-3 text-sm text-rose-900">{error}</p>}
   {busy&&<p role="status" className="flex items-center gap-2 text-sm"><LoaderCircle className="h-4 w-4 animate-spin"/>{running?'児童ごとの結果を保存中...':'確認中...'}</p>}
   {!batch&&config&&<>
-   <div className="flex flex-wrap items-end gap-3 border-b border-slate-200 pb-4"><label className="min-w-0 flex-1 text-sm">過去の一括指定<select aria-label="過去の一括指定" value={historyId} disabled={busy} onChange={e=>setHistoryId(e.target.value)} className={inputClass}><option value="">自分の指定履歴（直近20件）</option>{config.history.map(row=><option key={row.operationId} value={row.operationId}>{row.title} / 作成済み {row.saved}/{row.total}名</option>)}</select></label><button type="button" disabled={busy||!historyId} onClick={()=>void openHistory()} className={buttonClass}><RefreshCw className="h-4 w-4"/>履歴を開く</button></div>
+   <div className="flex flex-wrap items-end gap-3 border-b border-slate-200 pb-4"><label className="min-w-0 flex-1 text-sm">過去の一括指定<select aria-label="過去の一括指定" value={historyId} disabled={busy} onChange={e=>setHistoryId(e.target.value)} className={inputClass}><option value="">自分の指定履歴（直近20件）</option>{config.history.map(row=><option key={row.operationId} value={row.operationId}>{row.kind?`[${batchKindNames[row.kind]}] `:''}{row.title} / {row.kind?'処理済み':'作成済み'} {row.saved}/{row.total}名</option>)}</select></label><button type="button" disabled={busy||!historyId} onClick={()=>void openHistory()} className={buttonClass}><RefreshCw className="h-4 w-4"/>履歴を開く</button></div>
    <fieldset disabled={busy} className="space-y-3"><legend className="mb-2 text-sm font-bold">対象児童</legend>
     <div className="grid gap-3 sm:grid-cols-3"><label className="text-sm">校舎<select aria-label="一括指定の校舎" value={campus} onChange={e=>{setCampus(e.target.value);setGroup(null);}} className={inputClass}><option value="">すべての校舎</option>{[...new Set(targets.map(row=>row.campusId))].sort().map(id=><option key={id} value={id}>{id}</option>)}</select></label><label className="text-sm">学習グループ<select aria-label="一括指定のグループ" value={group===null?'*':`g:${group}`} onChange={e=>setGroup(e.target.value==='*'?null:e.target.value.slice(2))} className={inputClass}><option value="*">すべてのグループ</option>{[...new Set(targets.filter(row=>!campus||row.campusId===campus).map(row=>row.group))].sort().map(id=><option key={id} value={`g:${id}`}>{id||'未設定'}</option>)}</select></label><label className="text-sm">児童名<div className="relative"><Search className="absolute left-3 top-4 h-4 w-4 text-slate-500"/><input aria-label="一括指定の児童検索" value={search} onChange={e=>setSearch(e.target.value)} className={`${inputClass} pl-9`}/></div></label></div>
     <div className="flex flex-wrap items-center gap-2 text-sm"><strong>選択 {selection.length}名 / 表示 {visible.length}名</strong><button type="button" onClick={()=>changeSelection([...new Set([...selected,...visible.filter(row=>row.available).map(row=>row.childId)])])} className={buttonClass}><Check className="h-4 w-4"/>表示中を選択</button><button type="button" onClick={()=>changeSelection([])} className={buttonClass}><SquareX className="h-4 w-4"/>選択を解除</button></div>
@@ -75,11 +76,12 @@ export function LearningTaskBatchManager({childrenList}:{childrenList:ChildProfi
    </form>
   </>}
   {batch&&<section aria-label="一括指定の確認と結果" className="space-y-4 border-y border-slate-200 py-4">
-   <h4 className="break-words text-base font-bold">{batch.template.title}</h4><p className="break-words text-sm">{taskCategories[batch.template.category]} / {config?.catalog.find(stage=>stage.category===batch.template.category&&stage.stageId===batch.template.stageId)?.title||batch.template.stageId||'分野全体'} / {batch.template.startsOn} 〜 {batch.template.endsOn}</p><p className="whitespace-pre-wrap break-words text-sm">{batch.template.instructions}</p>
-   <p role="status" className="text-sm font-bold">作成済み {batch.items.filter(row=>row.status==='saved').length}/{batch.items.length}名</p>
-   <ul className="divide-y divide-slate-200">{batch.items.map(item=><li key={item.childId} className="space-y-1 py-3 text-sm"><div className="flex flex-wrap justify-between gap-2"><strong className="break-words">{name(item.childId)}</strong><span className={item.status==='saved'?'text-emerald-800':'text-amber-900'}>{item.status==='saved'?'作成済み':'未完了'}</span></div><p className="break-words text-xs text-slate-600">{item.campusId} / {item.group||'グループ未設定'}</p>{item.errorCode&&<p className="text-amber-900">{batchErrors[item.errorCode]}</p>}</li>)}</ul>
+   <h4 className="break-words text-base font-bold">{batch.kind==='stop'?'課題の一括停止':batch.kind==='edit'?`変更後：${batch.template.title}`:batch.template.title}</h4>{batch.kind!=='stop'&&<><p className="break-words text-sm">{taskCategories[batch.template.category]} / {config?.catalog.find(stage=>stage.category===batch.template.category&&stage.stageId===batch.template.stageId)?.title||batch.template.stageId||'分野全体'} / {batch.template.startsOn} 〜 {batch.template.endsOn}</p><p className="whitespace-pre-wrap break-words text-sm">{batch.template.instructions}</p></>}
+   <p role="status" className="text-sm font-bold">{batch.kind?'処理済み':'作成済み'} {batch.items.filter(row=>row.status==='saved').length}/{batch.items.length}名</p>
+   <ul className="divide-y divide-slate-200">{batch.items.map(item=><li key={item.childId} className="space-y-1 py-3 text-sm"><div className="flex flex-wrap justify-between gap-2"><strong className="break-words">{name(item.childId)}</strong><span className={item.status==='saved'?'text-emerald-800':'text-amber-900'}>{item.status==='saved'?batch.kind==='stop'?'停止済み':batch.kind==='edit'?'変更済み':'作成済み':'未完了'}</span></div><p className="break-words text-xs text-slate-600">{item.campusId} / {item.group||'グループ未設定'}</p>{item.before&&<div className="space-y-1 border-l-2 border-slate-200 pl-3 text-xs text-slate-600"><p className="break-words">{batch.kind==='stop'?'停止対象':'変更前'}：{item.before.title} / {taskCategories[item.before.category]} {item.before.stageId&&`[${item.before.stageId}]`} / {item.before.startsOn} 〜 {item.before.endsOn} / 版 {item.before.revision}</p><p className="whitespace-pre-wrap break-words">{item.before.instructions}</p></div>}{item.errorCode&&<p className="text-amber-900">{batchErrors[item.errorCode]}</p>}</li>)}</ul>
    {batch.items.some(row=>row.status==='pending')&&<label className="flex items-start gap-2 text-sm"><input type="checkbox" aria-label="一括指定の内容確認" checked={confirmed} disabled={busy} onChange={e=>setConfirmed(e.target.checked)} className="mt-1 h-4 w-4 shrink-0 accent-teal-700"/>対象児童と課題内容を確認しました</label>}
-   <div className="flex flex-wrap gap-2">{batch.items.some(row=>row.status==='pending')&&<button type="button" disabled={busy||!confirmed} onClick={()=>void execute()} className={`${buttonClass} border-teal-700 bg-teal-700 font-bold text-white`}><Users className="h-4 w-4"/>{batch.items.some(row=>row.status==='saved'||row.errorCode)?'未完了の児童を再確認':'まとめて指定'}</button>}{running?<button type="button" onClick={()=>{stop.current=true;setError('現在の児童の処理後に停止します。未完了の結果は履歴から再確認できます。');}} className={buttonClass}><SquareX className="h-4 w-4"/>処理を止める</button>:<button type="button" disabled={busy} onClick={()=>{setBatch(null);setConfirmed(false);setDraft(initialDraft());setSelected([]);operationId.current='';void refresh();}} className={buttonClass}><Plus className="h-4 w-4"/>別の課題を指定</button>}</div>
+   <div className="flex flex-wrap gap-2">{batch.items.some(row=>row.status==='pending')&&<button type="button" disabled={busy||!confirmed} onClick={()=>void execute()} className={`${buttonClass} border-teal-700 bg-teal-700 font-bold text-white`}><Users className="h-4 w-4"/>{batch.kind?batch.items.some(row=>row.status==='saved'||row.errorCode)?`未完了の${batchKindNames[batch.kind]}を再確認`:`${batchKindNames[batch.kind]}を実行`:batch.items.some(row=>row.status==='saved'||row.errorCode)?'未完了の児童を再確認':'まとめて指定'}</button>}{running?<button type="button" onClick={()=>{stop.current=true;setError('現在の児童の処理後に停止します。未完了の結果は履歴から再確認できます。');}} className={buttonClass}><SquareX className="h-4 w-4"/>処理を止める</button>:<><button type="button" disabled={busy} onClick={()=>{setBatch(null);setConfirmed(false);setDraft(initialDraft());setSelected([]);operationId.current='';void refresh();}} className={buttonClass}><Plus className="h-4 w-4"/>別の課題を指定</button>{batch.parentId&&<button type="button" disabled={busy} onClick={()=>void openHistory(batch.parentId)} className={buttonClass}><RefreshCw className="h-4 w-4"/>元の一括指定を開く</button>}</>}</div>
+   {!batch.kind&&batch.items.some(row=>row.status==='saved')&&<div key={batch.operationId}><LearningTaskBatchChangePanel base={batch} childrenList={childrenList} disabled={busy} onPrepared={next=>{setBatch(next);setConfirmed(false);setError('');}}/></div>}
   </section>}
  </div>;
 }

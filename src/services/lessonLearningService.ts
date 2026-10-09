@@ -4,7 +4,7 @@ import type { LessonHistory, LessonIdentity, LessonLink } from '../learning/cont
 import type {WordReviewRequest,WordReviewInbox} from '../learning/wordReviews';
 import {parseLearningTask,parseLearningTasks,parseTaskDetails,type LearningTask} from '../learning/tasks';
 import { parseFetchedLessonProgress } from '../learning/progress';
-import {parseBatchConfiguration,parseTaskBatch,parseTaskTemplate,type TaskTemplate,type TaskTarget} from '../learning/taskBatches';
+import {parseBatchConfiguration,parseTaskBatch,parseTaskTemplate,parseChangeCandidates,type BatchKind,type TaskBatch,type ChangeCandidate,type TaskTemplate,type TaskTarget} from '../learning/taskBatches';
 import { parseTimedAccountCheck, parseAccountAudits } from '../learning/accounts';
 import { parseCredentialOperations, parseCredentialResult, type CredentialAction } from '../learning/accountCredentials';
 import { parseHandoffResult, parseRegistrationConfig, parseRegistrationResult, type HandoffReason, type RegistrationConfig, type RegistrationOperation } from '../learning/studentRegistration';
@@ -40,7 +40,15 @@ export const prepareTaskBatch=async(operationId:string,template:TaskTemplate,tar
  return batch;
 };
 export const loadTaskBatch=async(operationId:string)=>parseTaskBatch((await invoke<{batch:unknown}>({action:'load',operationId},'lesson-task-batches')).batch,operationId);
-export const applyTaskBatch=async(operationId:string,childId:string)=>parseTaskBatch((await invoke<{batch:unknown}>({action:'apply',operationId,childId,confirmed:true},'lesson-task-batches')).batch,operationId);
+export const applyTaskBatch=async(operationId:string,childId:string,kind:BatchKind='create')=>parseTaskBatch((await invoke<{batch:unknown}>({action:'apply',operationId,childId,kind,confirmed:true},'lesson-task-batches')).batch,operationId);
+export const loadTaskBatchChangeTargets=async(base:TaskBatch)=>parseChangeCandidates(await invoke({action:'change-targets',operationId:base.operationId},'lesson-task-batches'),base);
+export const prepareTaskBatchChange=async(operationId:string,base:TaskBatch,kind:'edit'|'stop',template:TaskTemplate,targets:ChangeCandidate[])=>{
+ const normalized=kind==='stop'?base.template:parseTaskTemplate(template);
+ const result=parseTaskBatch((await invoke<{batch:unknown}>({action:'prepare-change',operationId,parentId:base.operationId,kind,template:normalized,targets},'lesson-task-batches')).batch,operationId);
+ if(result.kind!==kind||result.parentId!==base.operationId||JSON.stringify(result.template)!==JSON.stringify(normalized)||result.items.length!==targets.length
+  ||!targets.every(target=>result.items.some(item=>item.childId===target.childId&&item.taskId===target.taskId&&item.linkId===target.linkId&&item.revision===target.revision&&item.campusId===target.campusId&&item.group===target.group&&JSON.stringify(item.before)===JSON.stringify(target.task))))throw Error('変更内容が一致しません。履歴を再取得してください。');
+ return result;
+};
 export const loadCredentialOperations = async (link: LessonLink) => {
   const result = await invoke<{ operations: unknown }>({ action: 'operations', childId: link.child_id }, 'lesson-account-credentials');
   return parseCredentialOperations(result.operations);

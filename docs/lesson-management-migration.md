@@ -6,6 +6,8 @@
 
 第7単位の校舎・学習グループによる課題一括指定、確認画面、児童ごとの結果と再開については[lesson-task-batches.md](lesson-task-batches.md)を参照。個別指定・編集・停止も維持する。
 
+第8単位の一括課題の編集・停止、変更前の確認、個別変更との競合防止と履歴再開については[lesson-task-batch-changes.md](lesson-task-batch-changes.md)を参照。
+
 ## 今回の実装
 
 職員用「学習管理」に「児童別進捗」を追加した。対象は既に連携している教室児童のみ。

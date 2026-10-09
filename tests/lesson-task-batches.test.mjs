@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {parseTaskTemplate,parseTaskTargets,parseTaskBatch,parseBatchConfiguration,filterTaskTargets,assertSameTaskBatch} from '../src/learning/taskBatches.ts';
+import {parseTaskTemplate,parseTaskTargets,parseTaskBatch,parseBatchConfiguration,filterTaskTargets,assertSameTaskBatch,parseChangeCandidates,desiredBatchTask} from '../src/learning/taskBatches.ts';
 const id='11111111-1111-4111-8111-111111111111',other='22222222-2222-4222-8222-222222222222';
 const template={category:'mouse',stageId:'1',title:'M-1',instructions:'クリック',startsOn:'2026-10-09',endsOn:'2026-10-09'};
 const target={childId:'fictional',linkId:id,revision:1,campusId:'main',group:'A',available:true};
@@ -32,4 +32,25 @@ test('batch results cannot retarget learners, alter immutable template/task IDs 
  assert.throws(()=>assertSameTaskBatch(batch,{...batch,template:{...template,title:'other'}}));
  assert.throws(()=>assertSameTaskBatch(batch,{...batch,items:[{...item,taskId:id}]}));
  assert.throws(()=>assertSameTaskBatch(batch,{...batch,items:[{...item,group:'other'}]}));
+});
+const before={...template,id:item.taskId,revision:2,active:true,updatedAt:batch.createdAt};
+const change={...batch,kind:'edit',parentId:other,items:[{...item,before}]};
+test('edit and stop snapshots require exact original task and preserve before state, kind and parent',()=>{
+ assert.deepEqual(parseTaskBatch(change,id),change);
+ for(const patch of [{kind:'delete'},{parentId:null},{parentId:id},{items:[{...item,before:{...before,id}}]},{items:[{...item,before:{...before,active:false}}]},{items:[item]}])assert.throws(()=>parseTaskBatch({...change,...patch},id));
+ assert.throws(()=>assertSameTaskBatch(change,{...change,kind:'stop'}));
+ assert.throws(()=>assertSameTaskBatch(change,{...change,items:[{...item,before:{...before,revision:3}}]}));
+ assert.equal(desiredBatchTask(change,change.items[0]).revision,2);
+ assert.deepEqual(desiredBatchTask({...change,kind:'stop',template:{...template,title:'ignored original title'}},change.items[0]),{...template,id:item.taskId,revision:2,active:false});
+ const history={operationId:id,title:'test',createdAt:batch.createdAt,total:1,saved:0,kind:'stop',parentId:other};
+ assert.deepEqual(parseBatchConfiguration({schemaVersion:1,targets:[],catalog:[],history:[history]}).history,[history]);
+});
+test('change candidates bind to original created tasks and reject ambiguous ready/stopped states or credential extras',()=>{
+ const candidate={...target,taskId:item.taskId,reason:'ready',task:before};
+ const value={schemaVersion:1,parentId:batch.operationId,candidates:[candidate],catalog:[]};
+ assert.deepEqual(parseChangeCandidates(value,batch).candidates,[candidate]);
+ const sanitized=parseChangeCandidates({...value,candidates:[{...candidate,password:'secret',task:{...before,password:'secret'}}]},batch);
+ assert(!JSON.stringify(sanitized).includes('secret'));
+ for(const patch of [{parentId:other},{candidates:[]},{candidates:[candidate,candidate]},{candidates:[{...candidate,taskId:id}]},{candidates:[{...candidate,task:undefined}]},
+  {candidates:[{...candidate,available:false}]},{candidates:[{...candidate,reason:'stopped'}]},{candidates:[{...candidate,task:{...before,active:false}}]}])assert.throws(()=>parseChangeCandidates({...value,...patch},batch));
 });

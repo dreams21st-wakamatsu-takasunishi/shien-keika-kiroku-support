@@ -9,6 +9,12 @@ const anon=ref=>JSON.parse(cli(['projects','api-keys','--project-ref',ref,'--rev
 const makeClient=()=>createClient(`https://${supportRef}.supabase.co`,anon(supportRef),{auth:{persistSession:false,autoRefreshToken:false}});
 const snapshot=()=>sql("select md5(string_agg(id||md5(data::text),'|' order by id)) as hash from public.user_data;",lessonRoot).rows[0].hash;
 const before=snapshot();
+// Keep only digests in memory: concurrent normal practice is not a reason to restore user data.
+const rowSnapshot=()=>sql(`select id,md5(data::text) as hash,
+ md5((select jsonb_object_agg(key,value) from jsonb_each(data) where key in
+ ('displayName','name','birthdate','birthDate','campusId','campus','group','loginNumber','studentNumber','authUserId','auth_user_id','authEmail','email','isMaster','isGuest','accountType','publicRegistration'))::text) as identity,
+ (select jsonb_object_agg(key,md5(value::text)) from jsonb_each(data)) as fields from public.user_data;`,lessonRoot).rows;
+const originals=rowSnapshot();
 try{
  assert(check(await lesson.from('lesson_support_scopes').select('enabled').eq('support_project_ref',supportRef).eq('organization_id',orgId).eq('campus_id','main').eq('data_table','user_data').single()).enabled);
  for(let i=0;i<2;i++){
@@ -69,6 +75,50 @@ try{
  const concurrent=await Promise.all([1,2].map(()=>ok({action:'apply',operationId:lost.operationId,childId:lostItem.childId,confirmed:true})));
  assert(concurrent.every(row=>row.batch.items[0].status==='saved'));
  assert.equal(check(await lesson.from('lesson_learning_task_audit').select('id').eq('task_id',lostItem.taskId)).length,1,'uncertain/concurrent retry cannot duplicate source writes');
+ if(process.argv.includes('--batch-changes')){
+  const getCandidates=async()=>ok({action:'change-targets',operationId:batch.operationId});
+  let current=await getCandidates();assert(current.candidates.every(row=>row.reason==='ready'));
+  const changedTemplate={...template,title:'変更後・架空試験',category:'keyboard',stageId:'4301',instructions:'あ〜さのことば'};
+  const editId=randomUUID();batches.push(editId);
+  const edit=(await ok({action:'prepare-change',operationId:editId,parentId:batch.operationId,kind:'edit',template:changedTemplate,targets:current.candidates})).batch;
+  assert.equal(check(await lesson.from('lesson_learning_tasks').select('revision').eq('id',taskA).single()).revision,1,'edit preview cannot mutate source');
+  assert.equal((await call({action:'apply',operationId:editId,childId:children[0].id,confirmed:true})).error?.context.status,400,'old clients cannot execute an unlabelled edit/stop');
+  assert.equal((await call({action:'prepare-change',operationId:editId,parentId:batch.operationId,kind:'edit',template:{...changedTemplate,title:'違う内容'},targets:current.candidates})).error?.context.status,409);
+  const bTask=batch.items.find(row=>row.childId===children[1].id).taskId;
+  // Individual editing between preview and execution must be preserved.
+  await learning({action:'tasks-save',childId:children[1].id,task:{...template,id:bTask,revision:1,title:'職員が個別編集',active:true}});
+  const childA=edit.items.find(row=>row.childId===children[0].id);
+  const sourceChange=(operation,item,kind,task)=>({supportProjectRef:supportRef,organizationId:orgId,dataTable:'user_data',studentId:children.find(child=>child.id===item.childId).studentId,
+   linkId:item.linkId,childId:item.childId,actorId:staff[0].id,actorName:'一括課題・架空試験職員',expectedGroup:item.group,expectedCampus:item.campusId,operationId:operation,parentId:batch.operationId,kind,task});
+  // Save at source but lose the support receipt; concurrent resume must use that receipt.
+  check(await lesson.rpc('apply_support_task_batch_change',{p:sourceChange(editId,childA,'edit',{...changedTemplate,id:childA.taskId,revision:childA.before.revision,active:true})}));
+  const resumed=await Promise.all([1,2].map(()=>ok({action:'apply',operationId:editId,childId:childA.childId,kind:'edit',confirmed:true})));
+  assert(resumed.every(row=>row.batch.items.find(item=>item.childId===childA.childId).status==='saved'));
+  assert.equal(check(await lesson.from('lesson_learning_task_audit').select('id').eq('task_id',taskA)).length,2,'one original plus one edit audit');
+  const conflict=(await ok({action:'apply',operationId:editId,childId:children[1].id,kind:'edit',confirmed:true})).batch;
+  assert.equal(conflict.items.find(row=>row.childId===children[1].id).errorCode,'conflict');
+  assert.equal(check(await lesson.from('lesson_learning_tasks').select('title').eq('id',bTask).single()).title,'職員が個別編集');
+  current=await getCandidates();assert.equal(current.candidates.find(row=>row.childId===children[1].id).reason,'conflict');
+  const eligible=current.candidates.filter(row=>row.reason==='ready');assert.equal(eligible.length,1);
+  assert.equal((await call({action:'prepare-change',operationId:randomUUID(),parentId:batch.operationId,kind:'stop',targets:current.candidates})).error?.context.status,409,'individually edited task cannot be selected');
+  const stopId=randomUUID();batches.push(stopId);
+  const stop=(await ok({action:'prepare-change',operationId:stopId,parentId:batch.operationId,kind:'stop',targets:eligible})).batch;
+  const stoppedItem=stop.items[0];assert.equal(stoppedItem.before.title,changedTemplate.title);
+  check(await lesson.from('lesson_support_students').update({enabled:false}).eq('student_id',children[0].studentId).eq('organization_id',orgId).eq('support_project_ref',supportRef));
+  const deniedStop=(await ok({action:'apply',operationId:stopId,childId:stoppedItem.childId,kind:'stop',confirmed:true})).batch;
+  assert.equal(deniedStop.items[0].errorCode,'permission');assert.equal(check(await lesson.from('lesson_learning_tasks').select('active').eq('id',taskA).single()).active,true);
+  check(await lesson.from('lesson_support_students').update({enabled:true}).eq('student_id',children[0].studentId).eq('organization_id',orgId).eq('support_project_ref',supportRef));
+  const stopTask={...changedTemplate,id:stoppedItem.taskId,revision:stoppedItem.before.revision,active:false};
+  check(await lesson.rpc('apply_support_task_batch_change',{p:sourceChange(stopId,stoppedItem,'stop',stopTask)}));
+  await learning({action:'tasks-save',childId:stoppedItem.childId,task:{...stopTask,revision:3,title:'停止後の個別編集'}});
+  const later=check(await lesson.from('lesson_learning_tasks').select('*').eq('id',taskA).single());assert.equal(later.revision,4);
+  const stopped=(await ok({action:'apply',operationId:stopId,childId:stoppedItem.childId,kind:'stop',confirmed:true})).batch;
+  assert.equal(stopped.items[0].status,'saved');
+  assert.deepEqual(check(await lesson.from('lesson_learning_tasks').select('*').eq('id',taskA).single()),later,'historical stop receipt must not revert a later individual edit');
+  current=await getCandidates();assert.equal(current.candidates.find(row=>row.childId===children[0].id).reason,'stopped');
+  assert((await ok({action:'configuration'})).history.some(row=>row.operationId===stopId&&row.kind==='stop'&&row.parentId===batch.operationId&&row.saved===1));
+  console.log('PASS: live bulk edit/stop previews, kind confirmation, immutable changes, individual-edit race rejection, excluded conflicts/stopped tasks, permission withdrawal, lost edit/stop receipts, concurrent retries, later edits preserved and typed history');
+ }
  const changed=await prepare([targets[1]]);
  check(await support.from('lesson_child_links').update({revision:2}).eq('id',targets[1].linkId));
  const stopped=(await ok({action:'apply',operationId:changed.operationId,childId:targets[1].childId,confirmed:true})).batch;
@@ -81,7 +131,7 @@ try{
  console.log('PASS: live two-child preview/create, partial failure/resume, immutable previews, own history/RLS, permission revocation, changed links, lost receipt/concurrent retries, monotonic receipts and unchanged progress');
 }finally{
  const errors=[];const clean=async(query,label)=>{try{check(await query);}catch{errors.push(label);}};
- if(batches.length)await clean(support.from('lesson_task_batches').delete().in('id',batches).eq('organization_id',orgId),'batches');
+ if(batches.length){await clean(support.from('lesson_task_batches').delete().in('id',batches).eq('organization_id',orgId).neq('kind','create'),'batch changes');await clean(support.from('lesson_task_batches').delete().in('id',batches).eq('organization_id',orgId),'batches');}
  for(const child of children){
   await clean(lesson.from('lesson_support_students').delete().eq('student_id',child.studentId).eq('organization_id',orgId).eq('support_project_ref',supportRef),'permit');
   await clean(lesson.from('user_data').delete().eq('id',child.studentId),'learner');
@@ -94,7 +144,16 @@ try{
   if(row.recorderId)await clean(support.from('recorder_profiles').delete().eq('id',row.recorderId).eq('organization_id',orgId),'recorder');
   await clean(support.from('member_invitations').delete().eq('id',row.invitationId).eq('organization_id',orgId),'invitation');
  }
- assert.equal(snapshot(),before,'Original operational learning data changed during test; never restore operational rows');
  if(errors.length)throw Error('Fictional fixture cleanup requires attention: '+errors.join(', '));
- console.log('PASS: fictional fixtures removed; original operational learning data unchanged');
+ const remaining=check(await lesson.from('user_data').select('id').in('id',children.map(row=>row.studentId)));
+ assert.equal(remaining.length,0,'fictional source rows must be removed');
+ const after=rowSnapshot(),changed=[];
+ for(const original of originals){
+  const current=after.find(row=>row.id===original.id);
+  assert(current,'An original operational row was removed; do not restore it automatically');
+  assert.equal(current.identity,original.identity,'Original identity/account binding changed during test; never restore operational rows');
+  if(current.hash!==original.hash)changed.push(...new Set([...Object.keys(original.fields||{}),...Object.keys(current.fields||{})].filter(key=>original.fields?.[key]!==current.fields?.[key])));
+ }
+ if(snapshot()===before)console.log('PASS: fictional fixtures removed; original operational learning data unchanged');
+ else console.log(JSON.stringify({passed:true,fictionalFixturesRemoved:true,originalIdentityBindingsUnchanged:true,concurrentChangedFieldNames:[...new Set(changed)].sort(),newOperationalRows:after.filter(row=>!originals.some(original=>original.id===row.id)).length,restoredOperationalRows:false}));
 }
