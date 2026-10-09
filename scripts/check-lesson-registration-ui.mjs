@@ -23,7 +23,7 @@ async function check(page) {
     if (body.action === 'configuration') return route.fulfill({ json: { sourceProject: project, fingerprint: 'a'.repeat(64), name, birthDate: '2016-01-01', allowNew: operations.length === 0, campuses: [{ id: 'main', name: '本校' }, { id: 'school', name: '試験校' }], operations } });
     calls.push(body); assert(body.confirmed && body.fingerprint === 'a'.repeat(64) && body.childId === childId && !('passcode' in body), 'bound server generation');
     let op = operations.find(row => row.id === body.operationId);
-    if (!op) { op = { id: body.operationId, campusId: body.campusId, phase: 'requested', at: new Date().toISOString(), canResume: true }; operations.push(op); }
+    if (!op) { op = { id: body.operationId, campusId: body.campusId, phase: 'requested', at: new Date().toISOString(), canResume: true, canTakeOver: false, handoffRevision: 0 }; operations.push(op); }
     if (failOnce) { failOnce = false; return route.fulfill({ status: 503, json: { error: '試験用：登録結果未確定' } }); }
     if (delay) await new Promise(resolve => setTimeout(resolve, delay));
     const link = { id: op.id, organization_id: '11111111-1111-4111-8111-111111111111', child_id: childId, revision: 1, source_display_name: name, source_project_ref: project, source_table: 'user_data', source_student_id: `student_support_${op.id.replaceAll('-', '')}`, source_campus_id: op.campusId, active: true, verified_at: new Date().toISOString() };

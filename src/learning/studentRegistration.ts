@@ -2,7 +2,22 @@ import { isServiceDate, parseIdentity, type LessonLink } from './contracts.ts';
 import { credentialUuid, parseCredentialResult, type CredentialResult } from './accountCredentials.ts';
 import { isAccountTimestamp } from './accounts.ts';
 export type RegistrationPhase = 'requested' | 'source-created' | 'linked' | 'completed' | 'denied';
-export type RegistrationOperation = { id: string; campusId: string; phase: RegistrationPhase; at: string; canResume: boolean };
+export type RegistrationOperation = { id: string; campusId: string; phase: RegistrationPhase; at: string; canResume: boolean; canTakeOver: boolean; handoffRevision: number };
+export const handoffReasons = ['staff-unavailable', 'permission-change', 'connection-failure', 'other-confirmed'] as const;
+export type HandoffReason = typeof handoffReasons[number];
+export function registrationRecoveryAvailability(row: { actor_id: string; executor_id?: string | null; phase: string; lease_until?: string | null; finished_at?: string | null }, actor: string, admin: boolean, matching: boolean, now = Date.now()) {
+  const owner = row.executor_id || row.actor_id, pending = ['requested', 'source-created', 'linked'].includes(row.phase);
+  return {
+    canResume: matching && owner === actor && (!row.executor_id || admin) && (pending || (row.phase === 'completed' && Date.parse(row.finished_at || '') > now - 86400000)),
+    canTakeOver: matching && admin && owner !== actor && pending && !(Date.parse(row.lease_until || '') > now),
+  };
+}
+export function parseHandoffResult(value: unknown, childId: string, operationId: string, requestId: string, previousRevision: number) {
+  const row = object(value);
+  if (row.schemaVersion !== 1 || row.childId !== childId || row.operationId !== operationId || row.requestId !== requestId
+    || !credentialUuid(requestId) || row.revision !== previousRevision + 1) return fail();
+  return { operationId, requestId, revision: row.revision as number };
+}
 export type RegistrationConfig = { sourceProject: string; fingerprint: string; name: string; birthDate: string; allowNew: boolean; campuses: { id: string; name: string }[]; operations: RegistrationOperation[] };
 const fail = () => { throw Error('新規登録の応答を照合できません。同じ操作を再確認してください。'); };
 const object = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : fail();
@@ -20,8 +35,10 @@ export function parseRegistrationConfig(value: unknown): RegistrationConfig {
   const campuses = raw.campuses.map(item => { const row = object(item); if (!campusId(row.id) || seen.has(row.id as string) || typeof row.name !== 'string' || !row.name || row.name.length > 160) return fail(); seen.add(row.id as string); return { id: row.id as string, name: row.name }; });
   const operations = raw.operations.map(item => { const row = object(item);
     if (!credentialUuid(row.id) || !campusId(row.campusId) || !['requested', 'source-created', 'linked', 'completed', 'denied'].includes(String(row.phase))
-      || !isAccountTimestamp(row.at) || typeof row.canResume !== 'boolean' || (row.phase === 'denied' && row.canResume)) return fail();
-    return { id: row.id, campusId: row.campusId as string, phase: row.phase as RegistrationPhase, at: row.at, canResume: row.canResume };
+      || !isAccountTimestamp(row.at) || typeof row.canResume !== 'boolean' || typeof row.canTakeOver !== 'boolean'
+      || !Number.isSafeInteger(row.handoffRevision) || (row.handoffRevision as number) < 0
+      || (row.canTakeOver && (row.canResume || !['requested', 'source-created', 'linked'].includes(String(row.phase)))) || (row.phase === 'denied' && row.canResume)) return fail();
+    return { id: row.id, campusId: row.campusId as string, phase: row.phase as RegistrationPhase, at: row.at, canResume: row.canResume, canTakeOver: row.canTakeOver, handoffRevision: row.handoffRevision as number };
   });
   if (raw.allowNew && operations.some(row => row.phase !== 'denied')) return fail();
   return { sourceProject: raw.sourceProject, fingerprint: raw.fingerprint, name: raw.name, birthDate: raw.birthDate, allowNew: raw.allowNew, campuses, operations };

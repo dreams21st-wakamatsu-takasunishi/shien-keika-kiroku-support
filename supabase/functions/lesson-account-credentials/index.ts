@@ -32,14 +32,20 @@ Deno.serve(async request => {
       return link.data;
     };
     const link = await binding();
+    const service = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false, autoRefreshToken: false } });
     if (body.action === 'operations') {
       const { data, error } = await user.from('lesson_credential_operations').select('id,actor_id,action,status,at,finished_at').eq('organization_id', current.organizationId).eq('child_id', body.childId).eq('link_id', link.id).order('at', { ascending: false }).limit(20);
       if (error) throw failure('発行操作履歴を取得できませんでした。', 503);
+      const registrations = data?.length ? await service.from('lesson_student_registrations').select('id').eq('organization_id', current.organizationId).eq('child_id', body.childId).in('id', data.map(row => row.id)) : { data: [], error: null };
+      if (registrations.error) throw failure('新規登録の操作履歴を確認できませんでした。', 503);
+      const registrationIds = new Set((registrations.data || []).map(row => row.id));
       return reply({ operations: (data || []).map(row => ({ id: row.id, action: row.action, status: row.status, at: row.at, finishedAt: row.finished_at,
-        canResume: row.actor_id === current.actorId && (row.status === 'requested' || (row.status === 'completed' && Date.parse(row.finished_at) > Date.now() - 86400000)) })) });
+        canResume: !registrationIds.has(row.id) && row.actor_id === current.actorId && (row.status === 'requested' || (row.status === 'completed' && Date.parse(row.finished_at) > Date.now() - 86400000)) })) });
     }
     if (body.revision !== link.revision) throw failure('学習連携が変更されています。再取得してください。', 409);
-    const service = createClient(url, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!, { auth: { persistSession: false, autoRefreshToken: false } });
+    const registration = await service.from('lesson_student_registrations').select('id').eq('id', body.operationId).maybeSingle();
+    if (registration.error) throw failure('新規登録の操作履歴を確認できませんでした。', 503);
+    if (registration.data) throw failure('新規登録の未確定操作は、学習アカウントの新規登録欄から再確認してください。', 409);
     const { error: reserveError } = await service.rpc('begin_lesson_credential_operation', { p_id: body.operationId, p_org: current.organizationId, p_actor: current.actorId, p_child: body.childId, p_link: link.id, p_revision: link.revision, p_action: body.action });
     if (reserveError) throw failure('発行権限・連携・未確定の操作を確認してください。', reserveError.code === '42501' ? 403 : reserveError.code === 'PT429' ? 429 : 409);
     const response = await fetch(`https://${sourceProject}.supabase.co/functions/v1/support-account-credentials`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-lesson-bridge-key': secret }, redirect: 'error', signal: AbortSignal.timeout(90000),

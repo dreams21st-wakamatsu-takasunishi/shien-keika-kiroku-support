@@ -3,6 +3,7 @@ import { randomUUID, randomBytes } from 'node:crypto';
 import { createClient } from '@supabase/supabase-js';
 import { clients, cli, sql, lessonRoot, lessonRef, supportRef, orgId } from './lesson-operation-client.mjs';
 import { parseRegistrationConfig, parseRegistrationResult } from '../src/learning/studentRegistration.ts';
+import { runRegistrationRecoveryChecks } from './lesson-registration-recovery-live-checks.mjs';
 if (!process.argv.includes('--run-fictional-test')) throw Error('Use --run-fictional-test');
 const { support, lesson } = clients(), run = randomUUID();
 const check = result => { if (result.error) throw Error('Registration live check failed; sensitive output withheld'); return result.data; };
@@ -12,6 +13,7 @@ const fixtures = ['new', 'parallel', 'duplicate', 'cut'].map(kind => ({ child: `
 const studentIds = new Set(fixtures.map(row => `student_support_${row.op.replaceAll('-', '')}`));
 const duplicateStudent = `student_registration_duplicate_${run}`; studentIds.add(duplicateStudent);
 let staffId, recorderId, invitationId;
+const recoveryStaff = [];
 const snapshot = () => sql("select id,(select jsonb_object_agg(key,md5(value::text)) from jsonb_each(data)) as fields from public.user_data;", lessonRoot).rows;
 const before = snapshot();
 const call = body => staff.functions.invoke('lesson-student-registration', { body });
@@ -73,14 +75,19 @@ try {
   const sourceCut = check(await lesson.rpc('prepare_support_student_registration', { p: { id: cut.op, link: cut.op, actor: staffId, project: supportRef, org: orgId, table: 'user_data', child: cut.child, campus: 'main', code: 'main', name: cut.name, birth: '2018-01-01', domain: 'dlesson.example.com', prefix: 'dlesson-student-', pad: 3 } }));
   check(await support.from('lesson_student_registrations').update({ phase: 'source-created', lease_id: null, lease_until: null }).eq('id', cut.op));
   assert.equal((await register(cut, cutConfig, { operationId: randomUUID() })).error?.context.status, 409);
-  const recovered = parseRegistrationResult(check(await register(cut, cutConfig)), cut.child, cut.op, { sourceProject: lessonRef, campusId: 'main', name: cut.name, birthDate: '2018-01-01' });
+  const recovered = process.argv.includes('--admin-recovery')
+    ? await runRegistrationRecoveryChecks({ support, lesson, staff, staffId, firstFixture: fixtures[0], firstConfig: config, firstResult: first, firstData: learner, cutFixture: cut, cutConfig, sourceCut, check, keys, rememberStaff: record => recoveryStaff.push(record) })
+    : parseRegistrationResult(check(await register(cut, cutConfig)), cut.child, cut.op, { sourceProject: lessonRef, campusId: 'main', name: cut.name, birthDate: '2018-01-01' });
   assert.equal(recovered.link.source_student_id, sourceCut.studentId); assert.equal(recovered.credentials.account.loginNumber, sourceCut.loginNumber);
-  check(await lesson.from('lesson_support_students').update({ enabled: false }).eq('student_id', studentId).eq('organization_id', orgId));
-  assert.equal((await register(fixtures[0], config)).error?.context.status, 409);
+  if (!process.argv.includes('--admin-recovery')) {
+    check(await lesson.from('lesson_support_students').update({ enabled: false }).eq('student_id', studentId).eq('organization_id', orgId));
+    assert.equal((await register(fixtures[0], config)).error?.context.status, 409);
+  }
   console.log('PASS: deployed fictional registration, concurrent campus allocation, zero initial progress, Word binding, own-only RLS, replay, duplicate prevention, source-created recovery, permission/confirmation/fingerprint/foreign-campus/foreign-child/revocation denial and no persisted passphrase');
 } finally {
   const errors = [], clean = async (fn, label) => { try { await fn(); } catch { errors.push(label); } };
   for (const fixture of fixtures) {
+    if (process.argv.includes('--admin-recovery')) await clean(async () => check(await support.from('lesson_registration_handoffs').delete().eq('organization_id', orgId).eq('registration_id', fixture.op)), 'handoff-audit');
     await clean(async () => check(await support.from('lesson_student_registrations').delete().eq('organization_id', orgId).eq('child_id', fixture.child)), 'registration-receipt');
     await clean(async () => check(await support.from('lesson_credential_operations').delete().eq('organization_id', orgId).eq('child_id', fixture.child)), 'credential-receipt');
     const links = await support.from('lesson_child_links').select('id').eq('organization_id', orgId).eq('child_id', fixture.child);
@@ -102,6 +109,11 @@ try {
   if (staffId) await clean(async () => check(await support.auth.admin.deleteUser(staffId)), 'staff');
   if (recorderId) await clean(async () => check(await support.from('recorder_profiles').delete().eq('id', recorderId).eq('organization_id', orgId)), 'recorder');
   if (invitationId) await clean(async () => check(await support.from('member_invitations').delete().eq('id', invitationId).eq('organization_id', orgId)), 'invitation');
+  for (const record of recoveryStaff) {
+    if (record.staffId) await clean(async () => check(await support.auth.admin.deleteUser(record.staffId)), 'recovery-staff');
+    if (record.recorderId) await clean(async () => check(await support.from('recorder_profiles').delete().eq('id', record.recorderId).eq('organization_id', orgId)), 'recovery-recorder');
+    if (record.invitationId) await clean(async () => check(await support.from('member_invitations').delete().eq('id', record.invitationId).eq('organization_id', orgId)), 'recovery-invitation');
+  }
   if (errors.length) throw Error(`Fictional cleanup requires attention: ${errors.join(', ')}; run ${run}`);
   const after = snapshot();
   for (const row of before) { const current = after.find(item => item.id === row.id); assert(current, 'Operational learner disappeared; no automatic restoration'); for (const field of ['authUserId', 'loginNumber', 'campusId', 'campus', 'userDataId', 'displayName', 'birthdate', 'birth']) assert.equal(current.fields?.[field], row.fields?.[field], 'Operational mapping changed; no automatic restoration'); }
