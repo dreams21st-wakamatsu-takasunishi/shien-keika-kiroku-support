@@ -178,8 +178,6 @@ export default function App() {
   const organizationId = auth.profile?.organizationId;
   const [activeTab, setActiveTab] = useState<ActiveTab | 'preview'>('home');
   const [learningReviewFocus,setLearningReviewFocus]=useState(0);
-  const [meetingFocusId, setMeetingFocusId] = useState<string | null>(null);
-  const [meetingFocusChildId, setMeetingFocusChildId] = useState<string | null>(null);
   const [meetingDirty, setMeetingDirty] = useState(false);
   const [activityDirty, setActivityDirty] = useState(false);
   const [facilityDirty, setFacilityDirty] = useState(false);
@@ -2172,7 +2170,6 @@ export default function App() {
           if (activeTab === 'activityPlans' && tab !== 'activityPlans' && tab !== 'home' && activityDirty && !window.confirm('活動・指導案の変更が保存されていません。画面を移動しますか？')) return;
           if (activeTab === 'meetings' && tab !== 'meetings' && tab !== 'home' && meetingDirty
             && !window.confirm('会議の変更が保存されていません。画面を移動しますか？')) return;
-          setMeetingFocusId(null);
           if (tab === 'home') {
             returnToHomeMenu();
             return;
@@ -2446,9 +2443,6 @@ export default function App() {
             onDeleteRecord={handleDeleteRecord}
             canDeleteRecords={!remoteMode || auth.profile?.role !== 'staff'}
             onNewRecord={handleNewRecordClick}
-            organizationId={organizationId || (!remoteMode ? 'local' : undefined)}
-            childrenList={childrenList}
-            onOpenMeetings={(meetingId, childId) => { setMeetingFocusId(meetingId || null); setMeetingFocusChildId(childId || null); setActiveTab('meetings'); }}
           />
         )}
         {activeTab === 'meetings' && (
@@ -2458,8 +2452,6 @@ export default function App() {
             childrenList={childrenList}
             calendarEvents={calendarEventsForCurrentUser}
             canReview={!remoteMode || canReview}
-            initialMeetingId={meetingFocusId || undefined}
-            initialChildId={meetingFocusChildId || undefined}
             onDirtyChange={setMeetingDirty}
           />
         )}
@@ -2607,7 +2599,7 @@ function ScreenContextBar({
     home: { title: 'ホーム', description: '' },
     form: { title: '記録作成', description: '質問に沿って支援経過を入力' },
     records: { title: '記録一覧', description: '確認・修正・出力' },
-    meetings: { title: '会議支援', description: '準備・進行・文字起こし・支援経過' },
+    meetings: { title: '会議支援', description: '事前情報とTiroへの受け渡し・会議中の確認' },
     preview: { title: '記録確認', description: '内容確認・修正指摘・承認' },
     children: { title: '児童名簿', description: '児童情報・利用曜日の管理' },
     learning: { title: '学習管理', description: 'Dレッスンの実績・アカウント連携' },

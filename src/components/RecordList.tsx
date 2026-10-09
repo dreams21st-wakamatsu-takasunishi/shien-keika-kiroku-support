@@ -5,7 +5,6 @@ import { downloadRecordsCsv } from '../utils/recordCsv';
 import { getLocalDateString } from '../utils/weekdays';
 import { MonthlyRecordsPDFDocument } from './MonthlyRecordsPDFDocument';
 import { generatePagedPDFFromElement } from '../utils/pdfGenerator';
-import { MeetingProgressList } from '../meeting/MeetingProgressList';
 
 interface RecordListProps {
   records: SupportRecord[];
@@ -17,9 +16,6 @@ interface RecordListProps {
   onDeleteRecord: (recordId: string) => void;
   canDeleteRecords?: boolean;
   onNewRecord: () => void;
-  organizationId?: string;
-  childrenList?: import('../types').ChildProfile[];
-  onOpenMeetings?: (meetingId?: string, childId?: string) => void;
 }
 
 interface StoredRecordListState {
@@ -74,9 +70,6 @@ export const RecordList: React.FC<RecordListProps> = ({
   onDeleteRecord,
   canDeleteRecords = true,
   onNewRecord,
-  organizationId,
-  childrenList = [],
-  onOpenMeetings,
 }) => {
   const today = getLocalDateString();
   const initialState = useRef(readStoredState(today));
@@ -236,7 +229,6 @@ export const RecordList: React.FC<RecordListProps> = ({
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-4">
-      {onOpenMeetings && <MeetingProgressList organizationId={organizationId} childrenList={childrenList} onOpenMeetings={onOpenMeetings} />}
       {/* Top Header & Quick Stats */}
       <div className="flex flex-col items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center">
         <div>

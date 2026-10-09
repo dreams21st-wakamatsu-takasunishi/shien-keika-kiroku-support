@@ -8,7 +8,7 @@ mkdirSync(path.join(out, 'images'), { recursive: true });
 const escape = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const groups = [...new Set(sections.map(s => s.group))];
 const ids = new Set();
-const screenshotSources={'personal-qr-register':'personal-qr-device-registration-tablet.png','legal-training':'legal-training-form-mobile.png','activityPlans':'activity-workflow-desktop.png'};
+const screenshotSources={'personal-qr-register':'personal-qr-device-registration-tablet.png','legal-training':'legal-training-form-mobile.png','activityPlans':'activity-workflow-desktop.png','meetings':'meeting-workspace-laptop.png'};
 for (const s of sections) {
   if (ids.has(s.id) || s.steps.length !== 3 || s.flow.length !== 3) throw Error('Invalid manual section: ' + s.id);
   ids.add(s.id);
