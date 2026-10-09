@@ -50,7 +50,8 @@ import { LessonLearningManager } from './components/LessonLearningManager';
 import {LessonReviewNotice} from './components/LessonReviewNotice';
 import { RecordForm } from './components/RecordForm';
 import { RecordOverwriteDialog } from './components/RecordOverwriteDialog';
-import { planRecordSave, type RecordOverwritePair, type RecordSaveOutcome } from './services/recordSaveWorkflow';
+import { runRecordSaveWorkflow, type RecordOverwritePair, type RecordSaveOutcome } from './services/recordSaveWorkflow';
+import { diagnosticAction, recordDiagnostic, setDiagnosticScreen } from './services/diagnostics';
 import { RecordPreview } from './components/RecordPreview';
 import { RecordList } from './components/RecordList';
 import { MeetingWorkspace } from './meeting/MeetingWorkspace';
@@ -98,7 +99,7 @@ import {
   deleteVehicle,
   listRecordDrafts,
   loadWorkspaceData,
-  loadRecordsForSave,
+  loadRecordSaveSnapshot,
   punchAttendance,
   requestAttendanceCorrection,
   replaceChildMonthlyTransportRequirements,
@@ -183,6 +184,7 @@ export default function App() {
   const [facilityDirty, setFacilityDirty] = useState(false);
   const [trainingDirty,setTrainingDirty] = useState(false);
   const [homeWorkspace, setHomeWorkspace] = useState<HomeWorkspace>('menu');
+  useEffect(()=>setDiagnosticScreen(activeTab === 'home' && homeWorkspace !== 'menu' ? homeWorkspace : activeTab),[activeTab,homeWorkspace]);
   const [announcementFocusToken, setAnnouncementFocusToken] = useState(0);
   const [recordStatusDate, setRecordStatusDate] = useState(getLocalDateString());
   const [dataLoading, setDataLoading] = useState(remoteMode);
@@ -959,6 +961,7 @@ export default function App() {
   const unapprovedCount = records.filter((record) => record.approvalStatus === '未確認').length;
 
   const persistError = (error: unknown) => {
+    recordDiagnostic('api.other',error);
     const message = mutationErrorMessage(error);
     setDataError(message);
     alert(message);
@@ -992,33 +995,20 @@ export default function App() {
   ): Promise<RecordSaveOutcome> => {
     // Do not confirm an overwrite against a potentially stale workspace cache.
     // When offline, keep the draft instead of silently queuing an overwrite.
-    const existing = organizationId ? await loadRecordsForSave(organizationId, savedRecords) : records;
-    const plan = planRecordSave(savedRecords, existing);
-    if (plan.comparisons.length > 0) {
-      const confirmed = await new Promise<boolean>((resolve) => {
-        setOverwriteRequest({ pairs: plan.comparisons, totalCount: savedRecords.length, resolve });
-      });
-      if (!confirmed) return { status: 'cancelled' };
-      if (plan.comparisons.some((pair) => pair.existing.approvalStatus === '確認済み')) {
-        throw new Error('確認済みの記録は上書きできません。');
-      }
-    }
-    const results = organizationId ? await saveRecords(organizationId, plan.records) : [];
-    const resultById = new Map(results.map((result) => [result.id, result]));
-    const savedLocally = plan.records
-      .filter((record) => resultById.get(record.id)?.outcome !== 'already_saved')
-      .map((record) => {
-        const result = resultById.get(record.id);
-        return result ? { ...record, version: result.version } : record;
-      });
+    const outcome = await runRecordSaveWorkflow(savedRecords, {
+      load: candidates => organizationId ? loadRecordSaveSnapshot(organizationId, candidates) : Promise.resolve({ records, deletedIds: [] }),
+      write: candidates => organizationId ? saveRecords(organizationId, candidates) : Promise.resolve(candidates.map(record=>({ id: record.id, version: (record.version || 0)+1, outcome: 'inserted' as const }))),
+      confirm: pairs => new Promise<boolean>(resolve => setOverwriteRequest({ pairs, totalCount: savedRecords.length, resolve })),
+      newId: () => `rec-${crypto.randomUUID()}`,
+      recovery: kind => recordDiagnostic(`record.save.${kind}`,undefined,{kind:'recovery',code:'RECOVERY'}),
+    });
+    diagnosticAction(outcome.status === 'saved' ? 'record.save.complete' : 'record.save.cancelled');
+    if (outcome.status === 'cancelled') return outcome;
+    const savedLocally = outcome.records;
     setRecords((previous) => {
       const savedIds = new Set(savedLocally.map((record) => record.id));
       return [...savedLocally, ...previous.filter((record) => !savedIds.has(record.id))];
     });
-    if (results.some((result) => result.outcome === 'already_saved')) {
-      await refreshRemoteData(false);
-      throw new Error('保存直前に別端末で記録が保存されました。入力内容は残しています。もう一度保存を押し、最新の記録と比較してください。');
-    }
     return { status: 'saved', records: savedLocally };
   };
 

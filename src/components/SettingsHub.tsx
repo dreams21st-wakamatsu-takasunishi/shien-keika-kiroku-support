@@ -13,6 +13,7 @@ import { VehicleLedger } from './VehicleLedger';
 import { OrganizationServicesSettings } from './OrganizationServicesSettings';
 import { LegalTrainingWorkspace } from './LegalTrainingWorkspace';
 import {canManageTraining} from '../training/model';
+import {DiagnosticsPanel} from './DiagnosticsPanel';
 
 interface SettingsHubProps {
   onTrainingDirtyChange?: (dirty:boolean) => void;
@@ -48,7 +49,7 @@ interface SettingsHubProps {
   onDeleteVehicle: (vehicleId: string) => Promise<void> | void;
 }
 
-type SettingsPage = 'menu' | 'ai' | 'templates' | 'schools' | 'transportMap' | 'rolePermissions' | 'shiftTemplates' | 'vehicles' | 'serviceTypes' | 'legalTraining';
+type SettingsPage = 'menu' | 'ai' | 'templates' | 'schools' | 'transportMap' | 'rolePermissions' | 'shiftTemplates' | 'vehicles' | 'serviceTypes' | 'legalTraining' | 'diagnostics';
 
 export const SettingsHub: React.FC<SettingsHubProps> = ({
   onTrainingDirtyChange,
@@ -100,6 +101,7 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
       { page: 'transportMap', icon: MapPinned, title: '送迎の基本時刻・地点・エリア', description: '基本退所時刻、停車時間、地図の地点・エリア・ピン色を設定します。', keywords: '迎え 送り 開所 小学部 キャリアズ 強調 色' },
     ] },
     { title: '職員・運営', description: '管理者だけが変更できる設定', visible: currentUser?.role === 'admin', items: [
+      { page: 'diagnostics', icon: ListChecks, title: 'エラー・操作履歴', description: 'この端末のエラーと直前操作を確認・書き出します。児童情報は保存しません。', keywords: 'エラー バグ 通信 保存 履歴 診断' },
       { page: 'serviceTypes', icon: Settings, title: '事業所種別', description: '放デイ・児発・保育所等訪問支援を複数選択できます。', keywords: 'サービス 事業種別 併用 訪問 保育所' },
       { page: 'rolePermissions', icon: KeyRound, title: '権限割り振り', description: '児発管・教室長が使える機能を設定します。', keywords: '権限 職員 役職' },
       { page: 'shiftTemplates', icon: CalendarClock, title: '勤務テンプレート', description: `${staffShiftTemplates.length}件の勤務パターン。月間シフトから日・月単位で反映します。`, keywords: 'シフト 出勤 時間 職員' },
@@ -137,6 +139,7 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
         {page === 'shiftTemplates' && <StaffShiftTemplateSettings templates={staffShiftTemplates} onSave={onSaveStaffShiftTemplate} onDelete={onDeleteStaffShiftTemplate} />}
         {page === 'vehicles' && <VehicleLedger vehicles={vehicles} recorderProfiles={recorderProfiles} onSave={onSaveVehicle} onDelete={onDeleteVehicle} />}
         {page === 'serviceTypes' && currentUser?.role === 'admin' && <OrganizationServicesSettings organizationId={currentUser.organizationId} onDirtyChange={setServiceTypesDirty} />}
+        {page === 'diagnostics' && currentUser?.role === 'admin' && <DiagnosticsPanel />}
         {page === 'legalTraining' && currentUser && canManageTraining(currentUser.role) && <LegalTrainingWorkspace key={`${currentUser.organizationId}:${currentUser.id}`} user={currentUser} manage onDirtyChange={trainingChanged} />}
       </div>
     );

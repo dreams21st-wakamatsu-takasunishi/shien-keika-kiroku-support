@@ -69,6 +69,7 @@ import {
 } from '../types';
 import { summarizeABCWithAI } from '../utils/aiHelper';
 import { deleteRecordDraft, finishRecordDraftSave, loadRecordDraft, saveRecordDraft } from '../services/dataService';
+import { diagnosticAction, recordDiagnostic } from '../services/diagnostics';
 import { createDraftWriteQueue, removeSavedDraftChildren, type RecordSaveOutcome } from '../services/recordSaveWorkflow';
 import { QuickMemoPad } from './QuickMemoPad';
 import { ChildInfoDialog } from './ChildInfoDialog';
@@ -4491,6 +4492,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   };
 
   const persistAndComplete = async (childIds: string[]) => {
+    diagnosticAction(childIds.length===1?'record.save.single':'record.save.all');
+    diagnosticAction('record.save');
     saveInProgress.current = true;
     setSaveNotice(null);
     try {
@@ -4510,10 +4513,12 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       setPendingCompletion(completion);
       try {
         await completeSavedRecords(completion);
-      } catch {
+      } catch (error) {
+        recordDiagnostic('record.draft.cleanup',error);
         setSaveError('記録の保存は完了しています。入力中一覧の更新に失敗しました。「入力中一覧の更新を再試行」を押してください。記録を重ねて保存することはありません。');
       }
     } catch (error) {
+      recordDiagnostic('record.save',error);
       const message = error instanceof Error ? error.message : (error as { message?: string })?.message;
       setSaveError(!navigator.onLine || /network|fetch|connection|offline/i.test(message || '')
         ? '通信できないため保存を完了していません。入力内容はこの画面に残しています。通信復旧後にもう一度保存してください。'
@@ -4528,7 +4533,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     saveInProgress.current = true;
     setIsSaving(true);
     try { await completeSavedRecords(pendingCompletion); }
-    catch { setSaveError('記録は保存済みです。入力中一覧をまだ更新できません。通信状態を確認してから再試行してください。'); }
+    catch (error) { recordDiagnostic('record.draft.cleanup',error); setSaveError('記録は保存済みです。入力中一覧をまだ更新できません。通信状態を確認してから再試行してください。'); }
     finally { saveInProgress.current = false; setIsSaving(false); }
   };
 

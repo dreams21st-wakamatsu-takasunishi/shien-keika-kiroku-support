@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { recordSavePayload } from './recordSaveWorkflow';
 import {
   AiWritingSettings,
   Announcement,
@@ -2080,49 +2081,6 @@ export async function closeSupportPlan(organizationId: string, planId: string) {
   if (error) throw error;
 }
 
-function mapRecordForSave(organizationId: string, record: SupportRecord) {
-  return {
-      organization_id: organizationId,
-      id: record.id,
-      template_id: record.templateId,
-      template_name: record.templateName,
-      template_type: record.templateType,
-      child_id: record.childId,
-      child_name: record.childName,
-      record_date: record.date,
-      attendance: record.attendance,
-      attendance_note: record.attendanceNote || null,
-      expression: record.expressions.join('、'),
-      expression_note: record.expressionNote || null,
-      snack: record.snack,
-      snack_note: record.snackNote || null,
-      recorder_profile_id: record.recorderId || null,
-      recorder_name: record.recorderName,
-      service_start_time: record.serviceStartTime || null,
-      service_end_time: record.serviceEndTime || null,
-      transportation: record.transportation || null,
-      support_plan_id: record.supportPlanId || null,
-      five_domains: record.fiveDomains || [],
-      goal_progress: record.goalProgress || [],
-      section_answers: record.sectionAnswers,
-      skipped_question_ids: record.skippedQuestionIds || [],
-      template_snapshot: {
-        id: record.templateId,
-        name: record.templateName,
-        type: record.templateType,
-        sections: record.templateSectionsSnapshot || [],
-      },
-      synthesized_summary: record.synthesizedSummary || null,
-      approval_status: record.approvalStatus,
-      review_comment: record.jihatsukanComment || null,
-      review_issues: record.reviewIssues || [],
-      reviewer_name: record.reviewedBy || null,
-      reviewed_at: record.reviewedAt || null,
-      deleted_at: null,
-      expected_version: record.version || 0,
-    };
-}
-
 export interface SaveRecordResult {
   id: string;
   version: number;
@@ -2145,13 +2103,26 @@ export async function loadRecordsForSave(organizationId: string, records: Suppor
   return [...new Map([...(byDay.data || []), ...(byId.data || [])].map((row) => [row.id, mapRecord(row)])).values()];
 }
 
+export async function loadRecordSaveSnapshot(organizationId: string, records: SupportRecord[]) {
+  const active = await loadRecordsForSave(organizationId, records);
+  if (!records.length) return { records: active, deletedIds: [] as string[] };
+  const { data, error } = await assertSupabase().from('support_records').select('id')
+    .eq('organization_id', organizationId).not('deleted_at', 'is', null).in('id', records.map(record=>record.id));
+  if (error) throw error;
+  const deletedIds = (data || []).map(row=>String(row.id));
+  return { records: active.filter(record=>!deletedIds.includes(record.id)), deletedIds };
+}
+
 export async function saveRecords(organizationId: string, records: SupportRecord[]): Promise<SaveRecordResult[]> {
   if (records.length === 0) return [];
   const { data, error } = await assertSupabase().rpc('save_support_records_guarded', {
     p_organization_id: organizationId,
-    p_records: records.map((record) => mapRecordForSave(organizationId, record)),
+    p_records: records.map((record) => recordSavePayload(organizationId, record)),
   });
   if (error) {
+    if (error.message.includes('RECORD_DELETED')) {
+      throw Object.assign(new Error('保存直前に対象記録の削除を検知しました。入力内容は残しています。'), {code:'RECORD_DELETED'});
+    }
     if (error.message.includes('RECORD_DUPLICATE_DAY')) {
       throw new Error('同じ児童・同じ日付の記録が別端末ですでに保存されています。既存の記録を確認してください。');
     }

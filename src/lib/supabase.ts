@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import { getAccessDeviceToken } from '../utils/accessDevice';
+import { diagnosticFetch } from '../services/diagnostics';
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL?.trim();
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY?.trim();
@@ -12,10 +13,10 @@ export const supabase = isSupabaseConfigured
       global: {
         fetch: (input, init) => {
           const requestUrl = typeof input === 'string' ? input : input.url;
-          if (!requestUrl.includes('/rest/v1/')) return fetch(input, init);
+          if (!requestUrl.includes('/rest/v1/')) return diagnosticFetch(input, init);
           const headers = new Headers(init?.headers || (typeof input === 'string' ? undefined : input.headers));
           headers.set('x-support-device-token', getAccessDeviceToken());
-          return fetch(input, { ...init, headers });
+          return diagnosticFetch(input, { ...init, headers });
         },
       },
       auth: {
