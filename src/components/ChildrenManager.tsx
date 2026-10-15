@@ -1,5 +1,5 @@
 import { ManualLinks } from './ManualLinks';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ChildProfile,
   ChildTransportLocation,
@@ -10,7 +10,10 @@ import {
   TransportLocationType,
   TransportRouteSettings,
   Weekday,
+  UserProfile,
 } from '../types';
+import {ChildDocumentWorkspace} from './ChildDocumentWorkspace';
+import {canManageChildDocuments} from '../utils/childDocuments';
 import {
   ArrowDown,
   ArrowUp,
@@ -43,6 +46,8 @@ interface ChildrenManagerProps {
   schools?: SchoolProfile[];
   transportRouteSettings?: TransportRouteSettings;
   canEdit?: boolean;
+  currentUser?:UserProfile|null;
+  onDocumentDirtyChange?:(dirty:boolean)=>void;
   onAddChild: (child: ChildProfile) => void;
   onUpdateChild: (child: ChildProfile) => void;
   onDeleteChild: (childId: string) => void;
@@ -157,6 +162,8 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   schools = [],
   transportRouteSettings = DEFAULT_TRANSPORT_ROUTE_SETTINGS,
   canEdit = false,
+  currentUser,
+  onDocumentDirtyChange,
   onAddChild,
   onUpdateChild,
   onDeleteChild,
@@ -176,6 +183,11 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   const [sortRules, setSortRules] = useState<SortRule[]>(savedPreferences.sortRules);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingChild, setEditingChild] = useState<ChildProfile | null>(null);
+  const [documentView,setDocumentView]=useState(false),[documentChild,setDocumentChild]=useState('');
+  const [documentDirty,setDocumentDirty]=useState(false);
+  const handleDocumentDirty=useCallback((dirty:boolean)=>{setDocumentDirty(dirty);onDocumentDirtyChange?.(dirty);},[onDocumentDirtyChange]);
+  const canDocuments=canManageChildDocuments(currentUser);
+  const openDocuments=(child:ChildProfile)=>{setIsModalOpen(false);setDocumentChild(child.id);setDocumentView(true);};
 
   // Form states
   const [name, setName] = useState('');
@@ -608,7 +620,9 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-6">
-      <ManualLinks screen="children" />
+      <ManualLinks screen="children" section={canDocuments&&documentView?'documents':undefined}/>
+      {canDocuments&&<div className="flex flex-wrap gap-2 rounded-xl border bg-white p-2" role="tablist" aria-label="児童名簿の表示"><button type="button" role="tab" aria-selected={!documentView} onClick={()=>{if(documentDirty){alert('書類管理の未保存入力を保存するか、入力を戻してから切り替えてください。');return;}setDocumentView(false);}} className={`min-h-11 rounded-lg px-4 text-sm font-bold ${!documentView?'bg-slate-950 text-white':'text-slate-700'}`}>児童情報</button><button type="button" role="tab" aria-selected={documentView} onClick={()=>setDocumentView(true)} className={`min-h-11 rounded-lg px-4 text-sm font-bold ${documentView?'bg-teal-700 text-white':'text-teal-800'}`}>契約日・保管書類</button></div>}
+      {documentView&&canDocuments&&currentUser?<ChildDocumentWorkspace user={currentUser} childrenList={childrenList} initialChildId={documentChild} onDirtyChange={handleDocumentDirty}/>:<>
       {/* Top Header */}
       <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
@@ -856,7 +870,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
               <div className="mb-2 flex items-center gap-2"><h3 className="text-sm font-black text-slate-900">{group}</h3><span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-black text-slate-600">{children.length}名</span></div>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
                 {children.map((child) => (
-                  <ChildGridCard key={child.id} child={child} today={today} canEdit={canEdit} onEdit={handleOpenEditModal} onDelete={handleDeleteRequest} />
+                  <ChildGridCard key={child.id} child={child} today={today} canEdit={canEdit} onEdit={handleOpenEditModal} onDelete={handleDeleteRequest} onDocuments={canDocuments?openDocuments:undefined}/>
                 ))}
               </div>
             </section>
@@ -889,6 +903,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                 canEdit={canEdit}
                 onEdit={handleOpenEditModal}
                 onDelete={handleDeleteRequest}
+                onDocuments={canDocuments?openDocuments:undefined}
               />
             ))}
           </div>
@@ -904,6 +919,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
             </h3>
 
             <form onSubmit={handleSaveChild} className="max-h-[calc(94dvh-3.75rem)] space-y-4 overflow-y-auto p-4 text-xs sm:p-6">
+              {canDocuments&&editingChild&&<section className="rounded-xl border border-teal-200 bg-teal-50 p-3"><p className="font-bold text-teal-950">契約日・保管書類</p><p className="mt-1 text-xs text-teal-900">契約日と受給者証の更新月は、管理者・児発管専用の保管書類画面で登録します。この画面の変更は先に保存してください。</p><button type="button" onClick={()=>{if(window.confirm('児童情報の未保存の変更は反映されません。契約日・保管書類を開きますか？'))openDocuments(editingChild);}} className="mt-2 min-h-10 rounded-lg border border-teal-400 bg-white px-3 font-bold">契約日・保管書類を開く</button></section>}
               <div>
                 <label className="font-bold text-slate-700 block mb-1">
                   児童氏名 <span className="text-red-500">*</span>
@@ -1129,6 +1145,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
           </div>
         </div>
       )}
+      </>}
     </div>
   );
 };
@@ -1200,6 +1217,7 @@ interface ChildDisplayProps {
   canEdit: boolean;
   onEdit: (child: ChildProfile) => void;
   onDelete: (child: ChildProfile) => void;
+  onDocuments?:(child:ChildProfile)=>void;
 }
 
 const getNextRegularDaySchedule = (child: ChildProfile, today: string) =>
@@ -1207,7 +1225,7 @@ const getNextRegularDaySchedule = (child: ChildProfile, today: string) =>
     ?.filter((schedule) => schedule.effectiveFrom > today)
     .sort((left, right) => left.effectiveFrom.localeCompare(right.effectiveFrom))[0];
 
-const ChildGridCard: React.FC<ChildDisplayProps> = ({ child, today, canEdit, onEdit, onDelete }) => {
+const ChildGridCard: React.FC<ChildDisplayProps> = ({ child, today, canEdit, onEdit, onDelete,onDocuments }) => {
   const nextSchedule = getNextRegularDaySchedule(child, today);
   return (
     <article className="flex flex-col justify-between space-y-3 rounded-xl border border-slate-200 bg-white p-5 shadow-xs transition-all hover:border-teal-500/50">
@@ -1254,12 +1272,13 @@ const ChildGridCard: React.FC<ChildDisplayProps> = ({ child, today, canEdit, onE
         </div>
       </div>
 
+      {onDocuments&&<button type="button" onClick={()=>onDocuments(child)} className="min-h-10 rounded-lg border border-teal-200 bg-teal-50 px-3 text-xs font-bold text-teal-900">{child.name}の契約日・保管書類</button>}
       {canEdit && <ChildActionButtons child={child} onEdit={onEdit} onDelete={onDelete} />}
     </article>
   );
 };
 
-const ChildListRow: React.FC<ChildDisplayProps> = ({ child, today, canEdit, onEdit, onDelete }) => {
+const ChildListRow: React.FC<ChildDisplayProps> = ({ child, today, canEdit, onEdit, onDelete,onDocuments }) => {
   const nextSchedule = getNextRegularDaySchedule(child, today);
   const regularDaysLabel = child.careType===VISITING_SERVICE?'通所なし':formatRegularDays(getRegularDaysForDate(child, today));
   return (
@@ -1268,6 +1287,7 @@ const ChildListRow: React.FC<ChildDisplayProps> = ({ child, today, canEdit, onEd
         <div className="min-w-0 flex-1">
           {child.kana && <span className="block truncate text-[9px] text-slate-400">{child.kana}</span>}
           <h3 className="truncate text-sm font-bold text-slate-900">{child.name}</h3>
+          {onDocuments&&<button type="button" onClick={()=>onDocuments(child)} className="mt-1 min-h-9 rounded-lg border border-teal-200 px-2 text-xs font-bold text-teal-800">契約日・保管書類</button>}
           <div className="mt-1.5 flex flex-wrap gap-1">
             <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-bold text-slate-700">
               {getChildGrade(child)}
@@ -1294,6 +1314,7 @@ const ChildListRow: React.FC<ChildDisplayProps> = ({ child, today, canEdit, onEd
           {child.kana && <span className="block truncate text-[10px] text-slate-400">{child.kana}</span>}
           <div className="flex min-w-0 items-center gap-2"><h3 className="truncate text-sm font-bold text-slate-900">{child.name}</h3>{child.serviceSuspended && <span className="shrink-0 rounded-md bg-amber-100 px-2 py-0.5 text-[9px] font-black text-amber-800">利用休止中</span>}</div>
           {child.notes && <p className="mt-1 line-clamp-2 text-[10px] leading-relaxed text-slate-500">{child.notes}</p>}
+          {onDocuments&&<button type="button" onClick={()=>onDocuments(child)} className="mt-1 min-h-9 rounded-lg border border-teal-200 px-2 text-xs font-bold text-teal-800">契約日・保管書類</button>}
         </div>
 
         <div>

@@ -1,0 +1,22 @@
+// Synthetic metadata only; service calls are replaced, no production connection.
+import React,{useState} from 'react';
+import {createRoot} from 'react-dom/client';
+import {ChildDocumentWorkspace} from '../../src/components/ChildDocumentWorkspace';
+import {ChildrenManager} from '../../src/components/ChildrenManager';
+import type {DocumentRegister} from '../../src/utils/childDocuments';
+import type {ChildDocumentApi} from '../../src/services/childDocumentService';
+import '../../src/index.css';
+const mode=new URLSearchParams(location.search).get('mode')||'normal',role=new URLSearchParams(location.search).get('role')||'admin';
+const children=[{id:'a',name:'架空児童A',careType:'放課後等デイサービス',regularDays:['月','金'],grade:'小学2年生'},{id:'b',name:'架空児童B',careType:'保育所等訪問支援',regularDays:[],grade:'小学1年生'}] as any;
+const user={id:'synthetic-manager',organizationId:'synthetic-org',displayName:'架空管理者',role} as any;
+const store='fixture-child-documents-v1';
+let records:DocumentRegister={settings:mode==='empty'?[]:[{childId:'a',revision:1,contractDate:'2024-04-15',monitoringMonths:[4,10],effectiveFrom:'2024-04-15',createdAt:'2024-04-15T00:00:00Z',createdByName:'架空管理者'}],entries:[]};
+const model={loads:0,writes:0,settingsWrites:0,failLoad:mode==='load-error',failSave:false,delay:0};
+const persist=()=>localStorage.setItem(store,JSON.stringify(records));persist();Object.assign(window,{__documentFixture:model});
+const wait=async()=>{if(model.delay)await new Promise(resolve=>setTimeout(resolve,model.delay));};
+const api:ChildDocumentApi={load:async()=>{model.loads++;await wait();if(model.failLoad)throw Error('確認用の通信エラー：保管状況を取得できません。');return structuredClone(records);},
+ settings:async(childId,revision,contractDate,monitoringMonths,effectiveFrom)=>{await wait();if(model.failSave)throw Error('設定を共有保存できませんでした。');const next={childId,revision:revision+1,contractDate,monitoringMonths,effectiveFrom,createdAt:new Date().toISOString(),createdByName:user.displayName};records.settings.push(next);model.settingsWrites++;persist();return structuredClone(next);},
+ entry:async(childId,entry)=>{await wait();if(model.failSave)throw Error('共有保存できませんでした。入力は残しています。');const next={...entry,childId,createdAt:new Date().toISOString(),createdByName:user.displayName};records.entries=records.entries.filter(row=>row.id!==entry.id);records.entries.push(next);model.writes++;persist();return structuredClone(next);},
+};
+function Fixture(){const [dirty,setDirty]=useState(false);return <main className="app-background min-h-screen mx-auto max-w-[1500px] p-3"><p className="mb-3 rounded-xl bg-slate-950 p-3 text-xs font-bold text-white">Dサポート 保管書類／架空データの検証画面</p>{mode==='roster'?<ChildrenManager currentUser={user} childrenList={children} canEdit onAddChild={()=>{}} onUpdateChild={()=>{}} onDeleteChild={()=>{}}/>:<ChildDocumentWorkspace user={user} childrenList={children} api={api} onDirtyChange={setDirty}/>}<output data-testid="dirty" className="block text-xs">{dirty?'未保存の入力あり':'未保存の入力なし'}</output></main>;}
+createRoot(document.getElementById('root')!).render(<Fixture/>);

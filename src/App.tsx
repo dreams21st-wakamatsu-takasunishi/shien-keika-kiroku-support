@@ -188,6 +188,7 @@ export default function App() {
   const [activityDirty, setActivityDirty] = useState(false);
   const [facilityDirty, setFacilityDirty] = useState(false);
   const [trainingDirty,setTrainingDirty] = useState(false);
+  const [documentDirty,setDocumentDirty]=useState(false);
   const [homeWorkspace, setHomeWorkspace] = useState<HomeWorkspace>('menu');
   useEffect(()=>setDiagnosticScreen(activeTab === 'home' && homeWorkspace !== 'menu' ? homeWorkspace : activeTab),[activeTab,homeWorkspace]);
   const [announcementFocusToken, setAnnouncementFocusToken] = useState(0);
@@ -1862,6 +1863,7 @@ export default function App() {
   }
 
   const handleNewRecordClick = () => {
+    if(documentDirty){alert('保管書類の入力が未保存です。先に保存するか入力を戻してください。');return;}
     if (trainingDirty && !window.confirm('法定研修の入力が保存されていません。画面を移動しますか？')) return;
     if (activeTab === 'facilityWork' && facilityDirty && !window.confirm('施設業務の変更が保存されていません。画面を移動しますか？')) return;
     if (activeTab === 'activityPlans' && activityDirty && !window.confirm('活動・指導案の変更が保存されていません。画面を移動しますか？')) return;
@@ -2145,6 +2147,7 @@ export default function App() {
   };
 
   const returnToHomeMenu = () => {
+    if(documentDirty){alert('保管書類の入力が未保存です。先に保存するか入力を戻してください。');return;}
     if (trainingDirty && !window.confirm('法定研修の入力が未保存です。画面を移動しますか？')) return;
     if (activeTab === 'facilityWork' && facilityDirty && !window.confirm('施設業務の変更が保存されていません。画面を移動しますか？')) return;
     if (activeTab === 'activityPlans' && activityDirty && !window.confirm('活動・指導案の変更が保存されていません。画面を移動しますか？')) return;
@@ -2172,6 +2175,7 @@ export default function App() {
         activeTab={activeTab === 'preview' ? 'records' : activeTab}
         activeHomeWorkspace={homeWorkspace}
         setActiveTab={(tab) => {
+          if(documentDirty&&tab!=='children'){alert('保管書類の入力が未保存です。先に保存するか入力を戻してください。');return;}
           if (trainingDirty && !window.confirm('法定研修の入力が未保存です。画面を移動しますか？')) return;
           if (activeTab === 'facilityWork' && tab !== 'facilityWork' && tab !== 'home' && facilityDirty && !window.confirm('施設業務の変更が保存されていません。画面を移動しますか？')) return;
           if (activeTab === 'activityPlans' && tab !== 'activityPlans' && tab !== 'home' && activityDirty && !window.confirm('活動・指導案の変更が保存されていません。画面を移動しますか？')) return;
@@ -2191,6 +2195,7 @@ export default function App() {
         activeRecorder={activeRecorder}
         onSaveMenuPreferences={handleSaveRecorderMenuPreferences}
         onOpenHomeWorkspace={(workspace) => {
+          if(documentDirty){alert('保管書類の入力が未保存です。先に保存するか入力を戻してください。');return;}
           if (trainingDirty && !window.confirm('法定研修の入力が未保存です。画面を移動しますか？')) return;
           if (activeTab === 'facilityWork' && facilityDirty && !window.confirm('施設業務の変更が保存されていません。画面を移動しますか？')) return;
           if (activeTab === 'activityPlans' && activityDirty && !window.confirm('活動・指導案の変更が保存されていません。画面を移動しますか？')) return;
@@ -2199,14 +2204,15 @@ export default function App() {
           setHomeWorkspace(workspace);
           setActiveTab('home');
         }}
-        onOpenFieldOperations={auth.profile?.recorderProfileId ? () => {if(trainingDirty&&!window.confirm('法定研修の入力が未保存です。送迎画面へ移動しますか？'))return;setFieldOperationsOpen(true);} : undefined}
+        onOpenFieldOperations={auth.profile?.recorderProfileId ? () => {if(documentDirty){alert('保管書類の入力が未保存です。先に保存するか入力を戻してください。');return;}if(trainingDirty&&!window.confirm('法定研修の入力が未保存です。送迎画面へ移動しますか？'))return;setFieldOperationsOpen(true);} : undefined}
         onSignOut={remoteMode ? async () => {
+          if(documentDirty){alert('保管書類の入力が未保存です。先に保存するか入力を戻してください。');return;}
           sessionStorage.removeItem('support-record-list-view-v1');
           await auth.signOut();
         } : undefined}
         onSwitchUser={remoteMode?async()=>{
           await switchUserSafely({
-            dirtyAreas:[trainingDirty?'法定研修':'',activityDirty?'活動・指導案':'',facilityDirty?'施設業務':'',meetingDirty?'会議':''].filter(Boolean),
+            dirtyAreas:[trainingDirty?'法定研修':'',activityDirty?'活動・指導案':'',facilityDirty?'施設業務':'',meetingDirty?'会議':'',documentDirty?'保管書類':''].filter(Boolean),
             prepare:prepareUserSwitchRef.current,
             signOut:auth.signOut,
             reset:()=>{
@@ -2476,7 +2482,7 @@ export default function App() {
           />
         )}
         {activeTab === 'children' && (
-          <ChildrenManager childrenList={childrenList} schools={schools} transportRouteSettings={transportRouteSettings} canEdit={canManageChildren} onAddChild={handleAddChild} onUpdateChild={handleUpdateChild} onDeleteChild={handleDeleteChild} />
+          <ChildrenManager childrenList={childrenList} schools={schools} transportRouteSettings={transportRouteSettings} canEdit={canManageChildren} currentUser={auth.profile} onDocumentDirtyChange={setDocumentDirty} onAddChild={handleAddChild} onUpdateChild={handleUpdateChild} onDeleteChild={handleDeleteChild} />
         )}
         {activeTab === 'learning' && !auth.profile?.fieldModeOnly && (
           <LessonLearningManager scopeKey={`${organizationId || 'local'}:${auth.profile?.id || 'local'}:${auth.profile?.role || 'local'}`} childrenList={childrenList} remoteMode={remoteMode} reviewFocus={learningReviewFocus}/>

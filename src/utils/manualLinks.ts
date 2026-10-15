@@ -11,6 +11,7 @@ export const MANUAL_TITLES = {
   "record-status": "記録状況と記録の引き継ぎ",
   "record-list": "記録一覧で検索・確認・出力する",
   "quick-memo": "クイックメモから申し送りへ登録する",
+  "child-documents": "児童の契約日・保管書類・更新履歴を確認する",
   "children": "児童名簿・基本予定・恒常的な連絡",
   "daily-change": "当日の欠席・追加利用・担当交代",
   "monthly": "利用・送迎一覧と日ごとの編集",
@@ -103,7 +104,7 @@ const screens={
  assistant:context(['assistant'],['forbidden','report']),
  meeting:context(['meeting'],['forbidden','save-offline','report']),
  records:context(['record-list'],['save-conflict','pdf-output']),
- children:context(['children','service-types'],['monthly-wrong','forbidden']),
+ children:context(['children','child-documents','service-types'],['monthly-wrong','forbidden']),
  record:context(['record-input','record-select','record-save','lesson-auto','lesson-details'],['missing-answer','save-offline','save-conflict','save-cleanup']),
  activity:context(['activity','activity-print'],['pdf-output','save-offline']),
  traffic:context(['traffic'],['pdf-output','report']),
@@ -119,6 +120,7 @@ const screens={
 } as const;
 export type ManualScreen=keyof typeof screens;
 export function getManualContext(screen:ManualScreen,section?:string):ManualContext {
+ if(screen==='children'&&section==='documents')return context(['child-documents','children'],['forbidden','report']);
  if(screen==='record'){
   if(section==='review')return context(['record-save','record-input'],['save-offline','save-conflict','save-cleanup']);
   if(['date','children','template','recorder'].includes(section||''))return context(['record-select','record-input'],['wrong-user','forbidden']);
