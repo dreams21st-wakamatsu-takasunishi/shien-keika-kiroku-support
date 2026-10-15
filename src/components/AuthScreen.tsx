@@ -1,3 +1,4 @@
+import { ManualLinks } from './ManualLinks';
 import React, { useState } from 'react';
 import { Building2, ChevronRight, FileText, IdCard, LockKeyhole, Mail, QrCode, ShieldCheck } from 'lucide-react';
 import { AttendanceQrScanner } from './AttendanceQrScanner';
@@ -80,6 +81,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onSignIn, onStaffIdSignI
         </div>
 
         <div className="bg-white rounded-2xl shadow-2xl border border-slate-800 p-6">
+          <ManualLinks screen="auth" className="mb-4" />
           <div className="mb-5 rounded-xl border border-teal-200 bg-teal-50 p-3 text-xs leading-relaxed text-teal-900 flex gap-2">
             <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" />
             <span>本アプリは招待制です。管理者から招待された職員のみログインできます。</span>

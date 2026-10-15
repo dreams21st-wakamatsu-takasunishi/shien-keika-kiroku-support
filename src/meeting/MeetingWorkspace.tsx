@@ -1,3 +1,4 @@
+import { ManualLinks } from '../components/ManualLinks';
 import React, { useEffect, useId, useState } from 'react';
 import { ArrowLeft, ClipboardCopy, Download, LoaderCircle, Plus, RefreshCw, Save } from 'lucide-react';
 import type { CalendarEvent, ChildProfile, UserProfile } from '../types';
@@ -191,6 +192,7 @@ export function MeetingWorkspace({ organizationId, currentUser, childrenList, ca
 
   if (!organizationId || !currentUser) return <section className={panelClass}>会議支援はログインした運用環境で利用できます。</section>;
   return <section className="mx-auto max-w-7xl space-y-4 pb-16">
+    <ManualLinks screen="meeting" />
     {organizationId === 'local' && <p className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm font-bold text-amber-900">試用モード：会議内容はこの画面を再読み込みすると消えます。実際の児童情報は入力しないでください。</p>}
     <header className={panelClass}>
       <div className="flex flex-wrap items-start justify-between gap-3">

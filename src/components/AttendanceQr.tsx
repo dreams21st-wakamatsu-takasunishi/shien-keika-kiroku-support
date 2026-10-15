@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ManualLinks } from './ManualLinks';
 import { AlertTriangle, Camera, CheckCircle2, Clock3, QrCode, RefreshCw, X } from 'lucide-react';
 import type { AttendanceQrChallenge, UserProfile } from '../types';
 import { registerAttendanceKioskDevice } from '../services/dataService';
@@ -58,6 +59,7 @@ export function AttendanceQrKiosk({ enabled, canRegister }: { enabled: boolean; 
     {open && <div role="dialog" aria-modal="true" aria-label="事業所のQR打刻" className="fixed inset-0 z-[180] flex flex-col overflow-y-auto bg-slate-950 p-4 text-white sm:p-6">
       <header className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3"><h2 className="text-xl font-black">事業所のQR打刻</h2><button type="button" onClick={() => setOpen(false)} aria-label="QR打刻画面を閉じる" className="grid h-12 w-12 place-items-center rounded-xl border border-slate-600"><X /></button></header>
       <section className="m-auto w-full max-w-xl space-y-5 rounded-3xl bg-white p-5 text-slate-950 sm:p-8">
+        <ManualLinks screen="qr" />
         <div className="rounded-2xl bg-slate-100 p-4 text-center"><p className="text-sm font-bold">{new Intl.DateTimeFormat('ja-JP', { timeZone: 'Asia/Tokyo', dateStyle: 'full' }).format(now)}</p><p className="mt-1 font-mono text-4xl font-black tabular-nums">{timeLabel(now)}</p><p className="mt-1 text-xs text-slate-500">表示は端末時計・打刻はサーバー時刻</p></div>
         <p className="text-sm font-bold leading-relaxed">出勤・退勤を選び、職員の個人端末に表示した本人用QRを、この端末のカメラで読み取ってください。</p>
         <FacilityQrPunchControls disabled={registering} />
@@ -185,6 +187,7 @@ function PersonalQrDisplay({ onClose }: { onClose: () => void }) {
   return <div role="dialog" aria-modal="true" aria-label="本人用QRコード" className="fixed inset-0 z-[180] overflow-y-auto bg-slate-950 p-4 text-white sm:p-6">
     <header className="mx-auto flex max-w-xl items-center justify-between gap-3"><h2 className="text-lg font-black">本人用QRコード</h2><button type="button" onClick={onClose} aria-label="本人用QRを閉じる" className="grid h-11 w-11 place-items-center rounded-xl border border-slate-600"><X /></button></header>
     <section className="mx-auto mt-4 max-w-xl rounded-3xl bg-white p-4 text-center text-slate-950 sm:p-6">
+      <ManualLinks screen="qr" className="mb-4" />
       <p className="text-lg font-black">{challenge?.displayName || device?.displayName || '端末の登録状況を確認します'}</p>
       <p className="mt-2 text-sm leading-relaxed text-slate-600">事業所側で「ログイン・出勤・退勤」を選択します。<br />この端末でのカメラ操作は不要です。</p>
       {loading && <div role="status" className="grid h-48 place-items-center"><RefreshCw className="h-10 w-10 animate-spin text-sky-700" /></div>}

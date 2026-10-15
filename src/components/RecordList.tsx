@@ -1,3 +1,4 @@
+import { ManualLinks } from './ManualLinks';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { SupportRecord, ApprovalStatus } from '../types';
 import { Search, FileText, Clock, Eye, Edit, Copy, Trash2, Download, Wrench, SlidersHorizontal, X, CalendarRange, LoaderCircle, ChevronDown } from 'lucide-react';
@@ -229,6 +230,7 @@ export const RecordList: React.FC<RecordListProps> = ({
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-4">
+      <ManualLinks screen="records" />
       {/* Top Header & Quick Stats */}
       <div className="flex flex-col items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm md:flex-row md:items-center">
         <div>

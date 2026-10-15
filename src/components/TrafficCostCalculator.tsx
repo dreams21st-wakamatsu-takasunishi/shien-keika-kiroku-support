@@ -1,3 +1,4 @@
+import { ManualLinks } from './ManualLinks';
 import React, { useEffect, useMemo, useState } from 'react';
 import { BookOpen, Calculator, Check, Copy, Fuel, Plus, Printer, RotateCcw, Trash2 } from 'lucide-react';
 import { calculateTrafficCost, createTrafficCostInput, restoreTrafficCostInput, type TrafficCostInput } from '../utils/trafficCost';
@@ -46,6 +47,7 @@ export function TrafficCostCalculator({ scopeKey }: { scopeKey: string }) {
   };
 
   return <section className="traffic-cost-page mx-auto max-w-6xl space-y-4 pb-6" aria-label="交通費計算">
+    <ManualLinks screen="traffic" className="traffic-cost-no-print" />
     <header className="flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
       <div className="flex items-start gap-3">
         <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-teal-50 text-teal-700"><Calculator className="h-6 w-6" /></span>

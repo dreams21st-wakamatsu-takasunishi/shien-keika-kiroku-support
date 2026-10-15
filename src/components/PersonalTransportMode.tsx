@@ -1,3 +1,4 @@
+import { ManualLinks } from './ManualLinks';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
@@ -379,6 +380,7 @@ export const PersonalTransportMode: React.FC<PersonalTransportModeProps> = ({ cu
       )}
 
       <main className="mx-auto max-w-3xl space-y-3 p-3 sm:p-4">
+        <ManualLinks screen="personal" />
         {!online && (
           <div className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-sm font-bold text-rose-800">
             <AlertTriangle className="mr-2 inline h-5 w-5" />オフラインです。運行操作は送信されません。

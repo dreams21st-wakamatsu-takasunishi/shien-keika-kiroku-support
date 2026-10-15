@@ -1,3 +1,4 @@
+import { ManualLinks } from './ManualLinks';
 import {useCallback,useEffect,useMemo,useRef,useState,type ReactNode} from 'react';
 import {ArrowDown,ArrowUp,BookOpenCheck,ExternalLink,GripVertical,Pencil,Plus,RefreshCw} from 'lucide-react';
 import {closestCenter,DndContext,KeyboardSensor,PointerSensor,useSensor,useSensors} from '@dnd-kit/core';
@@ -53,12 +54,14 @@ export function LegalTrainingWorkspace({user,manage=false,repository,onDirtyChan
  const startVideoEdit=(row:TrainingVideo)=>{if((video.title||video.videoUrl||video.materialUrl)&&!window.confirm('現在の動画の入力を破棄して編集しますか？'))return;setEditingVideo(row);setVideo({title:row.title,videoUrl:row.videoUrl,materialUrl:row.materialUrl});setMessage('');};
  if(manage&&!allowed)return <p role="alert" className="rounded-xl bg-rose-50 p-4 text-rose-800">研修の追加は管理者・児発管のみ行えます。</p>;
  if(!manage&&!confirmed)return <section aria-label="受講する職員の確認" className="mx-auto max-w-xl space-y-4 rounded-2xl border-2 border-teal-400 bg-white p-5 shadow-sm sm:p-7">
+  <ManualLinks screen="training" />
   <h2 className="text-xl font-black">受講する職員を確認してください</h2><p className="text-sm leading-relaxed text-slate-600">このアカウント本人の受講状況として「完了」が保存されます。表示されている職員で間違いありませんか？</p>
   <div className="rounded-xl bg-teal-50 p-4"><p className="text-xs font-bold text-teal-700">現在のログイン職員</p><p className="mt-1 break-words text-2xl font-black text-slate-950">{user.displayName}</p>{user.organizationName&&<p className="mt-1 text-xs text-slate-600">{user.organizationName}</p>}</div>
   <button type="button" className="min-h-12 w-full rounded-xl bg-teal-700 px-4 font-black text-white" onClick={()=>setConfirmedScope(scope)}>この職員で受講する</button>
   {onSignOut?<button type="button" className={`${buttonClass} w-full`} onClick={onSignOut}>別の職員で受講する（ログアウト）</button>:<p className="text-sm text-slate-600">違う職員の場合は、メニューからログアウトし、本人のアカウントでログインしてください。</p>}
  </section>;
  return <div className={manage?'space-y-4':'space-y-4 pb-32'} aria-label={manage?'法定研修追加':'法定研修'}>
+  {!manage&&<ManualLinks screen="training" />}
   <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
    <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><BookOpenCheck className="h-7 w-7 text-teal-700"/><div><h2 className="text-xl font-black">{manage?'法定研修追加':'法定研修'}</h2><p className="mt-1 text-sm text-slate-600">{manage?'研修カテゴリに動画と資料のリンクを登録します。':`${user.displayName}さん本人の受講状況です。`}</p></div></div>
     <button type="button" className={buttonClass} disabled={busy||loading} onClick={()=>{if(!dirty||window.confirm('未保存の入力を残したまま、一覧を再読込しますか？'))void reload();}}><RefreshCw className="mr-1 inline h-4 w-4"/>再読込</button></div>

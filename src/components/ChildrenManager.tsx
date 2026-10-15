@@ -1,3 +1,4 @@
+import { ManualLinks } from './ManualLinks';
 import React, { useEffect, useMemo, useState } from 'react';
 import {
   ChildProfile,
@@ -607,6 +608,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-6">
+      <ManualLinks screen="children" />
       {/* Top Header */}
       <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>

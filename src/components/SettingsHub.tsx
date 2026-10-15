@@ -1,3 +1,4 @@
+import { ManualLinks } from './ManualLinks';
 import React, { useCallback, useState } from 'react';
 import { MenuSearch } from './MenuSearch';
 import { matchesMenuSearch } from '../utils/navigation';
@@ -126,6 +127,7 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
           </button>
           <ChevronRight aria-hidden="true" className="h-4 w-4 shrink-0 text-slate-400" />
           <strong className="min-w-0 text-sm text-slate-900">{currentPageTitle}</strong>
+          <ManualLinks screen="settings" section={page} className="ml-auto" />
         </div>
         {page === 'ai' && <AISettingsEditor settings={aiWritingSettings} onSave={onSaveAiWritingSettings} />}
         {page === 'templates' && <TemplateEditor templates={templates} onSaveTemplate={onSaveTemplate} onDeleteTemplate={onDeleteTemplate} />}
@@ -147,6 +149,7 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-5">
+      <ManualLinks screen="settings" />
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
         <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
           <div className="flex items-start gap-3">

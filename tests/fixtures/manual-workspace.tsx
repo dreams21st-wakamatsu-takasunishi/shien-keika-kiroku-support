@@ -1,0 +1,58 @@
+// Synthetic manual fixture. External requests must be blocked during capture.
+import React, { useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import '../../src/index.css';
+import { Header } from '../../src/components/Header';
+import { HomeScreen } from '../../src/components/HomeScreen';
+import { SettingsHub } from '../../src/components/SettingsHub';
+import { ActivityPlanWorkspace } from '../../src/components/ActivityPlanWorkspace';
+import { TrafficCostCalculator } from '../../src/components/TrafficCostCalculator';
+import { FacilityWorkspace } from '../../src/components/FacilityWorkspace';
+import { RecordForm } from '../../src/components/RecordForm';
+import { RecordList } from '../../src/components/RecordList';
+import { ChildrenManager } from '../../src/components/ChildrenManager';
+import { MeetingWorkspace } from '../../src/meeting/MeetingWorkspace';
+import { TeamManager } from '../../src/components/TeamManager';
+import { LessonLearningManager } from '../../src/components/LessonLearningManager';
+import { QuickMemoPad } from '../../src/components/QuickMemoPad';
+import { AttendanceQrKiosk } from '../../src/components/AttendanceQr';
+import { TransportScheduleBoard } from '../../src/components/TransportScheduleBoard';
+import { AuthScreen } from '../../src/components/AuthScreen';
+import { PersonalTransportMode } from '../../src/components/PersonalTransportMode';
+import { LegalTrainingWorkspace } from '../../src/components/LegalTrainingWorkspace';
+import { STANDARD_WEEKDAY_TEMPLATE } from '../../src/data/weekdayTemplate';
+import { STANDARD_HOLIDAY_TEMPLATE } from '../../src/data/holidayTemplate';
+import { DEFAULT_TRANSPORT_ROUTE_SETTINGS } from '../../src/types';
+const date = '2026-10-05', now = date + 'T09:00:00+09:00';
+const noop = async () => {};
+const user = { id: 'manual-user', organizationId: 'local', displayName: 'サンプル職員Ａ', role: 'admin', recorderProfileId: 'staff-a', accessDeviceKind: 'facility_shared' };
+const staff = [{ id: 'staff-a', displayName: 'サンプル職員Ａ', employmentType: 'full_time', active: true }, { id: 'staff-b', displayName: 'サンプル職員Ｂ', employmentType: 'part_time', active: true, partTimeWeekdayStartTime: '13:00', partTimeWeekdayEndTime: '18:00', shiftRequestDefaultStartTime: '13:00', shiftRequestDefaultEndTime: '18:00' }];
+const children = [{ id: 'a', name: 'サンプル児童Ａ', kana: 'サンプルジドウア', grade: '小学2年生', transportProgram: '小学部', schoolId: 'school-a' }, { id: 'b', name: 'サンプル児童Ｂ', kana: 'サンプルジドウイ', grade: '小学3年生', transportProgram: '小学部', schoolId: 'school-a' }, { id: 'c', name: 'サンプル児童Ｃ', kana: 'サンプルジドウウ', grade: '中学2年生', transportProgram: 'キャリアズ', schoolId: 'school-b' }].map((c) => ({ ...c, regularDays: ['月','火','水','木','金'], schoolName: c.schoolId === 'school-a' ? 'サンプル小学校' : 'サンプル中学校', careType: '放課後等デイサービス', transportationRequired: true, transportSchedule: [{ weekday: '月', schoolEndTime: '14:30' }], pickupLocation: 'サンプル小学校', dropoffLocation: '自宅', transportPermanentNote: '持ち物を確認', transportLocations: [{id: 'home-' + c.id, name:'自宅', type:'自宅', address:'サンプル住所（撮影用）', isDefaultPickup:false, isDefaultDropoff:true}] }));
+children.forEach(c => c.transportLocations.forEach(l => Object.assign(l, { directions:['迎え','送り'], defaultDirections:['送り'], weekdays:['月','火','水','木','金'] })));
+const schools = [{ id:'school-a', name:'サンプル小学校', address:'サンプル住所（撮影用）', active:true, holidayPeriods:[], dismissalScheduleConfirmations:[] },{ id:'school-b', name:'サンプル中学校', address:'サンプル住所（撮影用）', active:true, holidayPeriods:[], dismissalScheduleConfirmations:[] }];
+const plans = children.map(c => ({ id:'plan-'+c.id,childId:c.id,date,attendancePlan:'利用予定',serviceCategory:'平日',recordFormat:'平日',dayPattern:'通常',hasMorningProgram:false,hasAfternoonProgram:true,hasLunch:false,hasSnack:true,schoolEndTime:c.id==='c'?'17:00':'14:30',arrivalTime:'15:00',departureTime:'16:00',createdAt:now,updatedAt:now }));
+const requirements = children.map(c => ({id:'req-'+c.id,childId:c.id,date,pickupRequired:true,dropoffRequired:true,pickupLocationType:'学校',pickupLocationName:c.schoolName,pickupLocation:c.schoolName,pickupTime:c.id==='c'?'17:00':'14:30',pickupTimeMode:'fixed',dropoffLocationType:'自宅',dropoffLocationName:'自宅',dropoffLocation:'サンプル住所（撮影用）',dropoffTime:'16:00',dropoffTimeMode:'departure_forward',createdAt:now,updatedAt:now}));
+const vehicles = [{id:'car-a',name:'サンプル車１',capacity:7,available:true,wheelchairAccessible:false,createdAt:now,updatedAt:now},{id:'car-b',name:'サンプル車２',capacity:5,available:true,wheelchairAccessible:false,createdAt:now,updatedAt:now}];
+requirements.forEach(r=>Object.assign(r,{pickupEnabled:true,dropoffEnabled:true,pickupPattern:'school',pickupTargetTime:r.pickupTime,dropoffTargetTime:r.dropoffTime,pickupAddress:'サンプル住所（撮影用）',dropoffAddress:'サンプル住所（撮影用）',stopDurationMinutes:3,keepSiblingsTogether:true,source:'manual',status:'confirmed',revision:1}));
+const runs = [{ id:'run-a',date,name:'迎え1便・サンプル車１',direction:'迎え',startTime:'14:00',endTime:'15:00',driverRecorderProfileId:'staff-a',driverName:'サンプル職員Ａ',assistantRecorderProfileIds:[],vehicleId:'car-a',vehicleName:'サンプル車１',status:'未出発',createdAt:now,updatedAt:now,stops:children.slice(0,2).map(c=>({id:'stop-'+c.id,childId:c.id,childName:c.name,locationName:c.schoolName,location:c.schoolName,locationType:'学校',plannedTime:'14:30',sequence:c.id==='a'?1:2})) }];
+const arrays = ['announcements','announcementConfirmations','drafts','staffScheduleItems','attendanceRecords','staffShiftTemplates','staffShiftRequests','attendanceCorrections','transportPlanDays','transportMapLocations','transportAreaZones','handoverItems','handoverConfirmations','morningMeetingRecords','morningMeetingTemplates','morningMeetingConfirmations','mapLocations','areaZones','rolePermissions'];
+const empty = Object.fromEntries(arrays.map(k => [k,[]]));
+const callbacks = Object.fromEntries(['SaveAnnouncement','ArchiveAnnouncement','SaveAnnouncementConfirmation','SaveHandover','HandoverStatusChange','SetHandoverConfirmation','SaveMorningMeeting','SaveMorningMeetingTemplate','ArchiveMorningMeetingTemplate','SetMorningMeetingConfirmation','AssistantExecuted','SaveStaffSchedule','DeleteStaffSchedule','SaveCalendarEvent','DeleteCalendarEvent','SaveDailyChildPlan','DeleteDailyChildPlan','DeleteDailyTransportRequirement','DeleteMonthlyDailySchedules','SaveAttendance','SaveAttendanceRecords','DeleteAttendance','SaveStaffShiftRequest','SaveShiftRequestDefaults','ReviewStaffShiftRequest','DeleteReviewedStaffShiftRequest','PunchAttendance','RequestAttendanceCorrection','ReviewAttendanceCorrection','SaveVehicle','DeleteVehicle','SaveTransportPlanDay','SaveDailyTransportRequirements','ReplaceMonthlyTransportRequirements','ReplaceChildMonthlyTransportRequirements','SaveTransportRun','ChangeTransportAssignment','DeleteTransportRun','SaveTransportRouteSettings','SaveTransportMapLocation','SaveTransportAreaZone','DeleteTransportAreaZone','SaveSchool','UpdateTransportStatus','SaveAiWritingSettings','SaveTemplate','DeleteTemplate','DeleteSchool','SaveMapLocation','SaveAreaZone','DeleteAreaZone','SaveRouteSettings','SaveStaffShiftTemplate','DeleteStaffShiftTemplate','SaveRolePermission'].map(k=>['on'+k,noop]));
+function Harness(){
+ const initial = new URLSearchParams(location.search).get('screen') || 'menu';
+ const [screen,setScreen] = useState(initial);
+ const [recorder,setRecorder] = useState(staff[new URLSearchParams(location.search).has('part') ? 1 : 0]);
+ const [recordDate,setRecordDate] = useState(date);
+ const [list,setList] = useState(children);
+ const data:any = {...empty,...callbacks,childrenList:list,schools,recorderProfiles:staff,calendarEvents:[{id:'event',date,endDate:date,startTime:'10:00',endTime:'11:00',title:'打合せ（サンプル）',eventType:'会議',recorderProfileIds:['staff-a'],childIds:[],createdAt:now,updatedAt:now}],dailyChildPlans:plans,dailyTransportRequirements:requirements,vehicles,transportRuns:runs,transportRouteSettings:DEFAULT_TRANSPORT_ROUTE_SETTINGS,routeSettings:DEFAULT_TRANSPORT_ROUTE_SETTINGS,currentUser:user,activeRecorder:recorder,organizationId:'local',canReviewRecords:true,canManageCommunications:true,canManageShifts:true,canManageCalendar:true,canManageTransport:true,canManageChildren:true,canManageRecordSettings:true,facilityAddress:'サンプル事業所',aiWritingSettings:{},templates:[STANDARD_WEEKDAY_TEMPLATE,STANDARD_HOLIDAY_TEMPLATE],records:[],recordStatusDate:recordDate,onRecordStatusDateChange:setRecordDate,onNavigate:setScreen,onNewRecord:()=>setScreen('form'),onStartRecord:()=>setScreen('form'),onResumeDraft:noop,onViewDraft:noop,onTakeOverDrafts:async()=>true,onDeleteDraft:noop,onOpenRecord:noop};
+ if(screen==='auth') return <AuthScreen onSignIn={async()=>({error:null})} onStaffIdSignIn={async()=>({error:null})} onQrSignIn={async()=>({error:null})} />;
+ if(screen==='qr') return <div className="p-5"><AttendanceQrKiosk enabled canRegister /></div>;
+ if(screen==='personalActual') return <PersonalTransportMode currentUser={user as any} onSignOut={noop}/>;
+ if(screen==='training') return <div className="p-4"><LegalTrainingWorkspace user={user as any}/></div>;
+ if(screen==='personal') return <div className="app-background p-4"><h1 className="mb-4 text-xl font-black">送迎スケジュール（画面例）</h1><TransportScheduleBoard runs={runs as any} /></div>;
+ const homes=['menu','dailyChanges','todayWork','attendance','calendar','monthlySchedule','dispatch','operations','communication','assistant'];
+ return <div className="app-background min-h-screen"><Header activeTab={homes.includes(screen)?'home':screen as any} activeHomeWorkspace={screen} setActiveTab={setScreen as any} unapprovedCount={0} currentUser={user as any} activeRecorder={recorder as any} onNewRecord={()=>setScreen('form')} onOpenHomeWorkspace={setScreen as any} onOpenFieldOperations={()=>setScreen('personal')} onSignOut={()=>setScreen('auth')} canOpenSettings canOpenTeam onSaveMenuPreferences={noop}/><main className="mx-auto max-w-[1800px] space-y-4 p-4">
+ {homes.includes(screen) ? <HomeScreen {...data} activeWorkspace={screen} onWorkspaceChange={setScreen as any}/> : screen==='activityPlans'?<ActivityPlanWorkspace organizationId="local" userId="manual" onDirtyChange={()=>{}} onOpenCalendar={()=>setScreen('calendar')} onOpenTrafficCost={()=>setScreen('trafficCost')}/> : screen==='trafficCost'?<TrafficCostCalculator scopeKey="manual"/> : screen==='facilityWork'?<FacilityWorkspace organizationId="local" userId="manual" onDirtyChange={()=>{}}/> : screen==='templates'?<SettingsHub {...data}/> : screen==='children'?<ChildrenManager childrenList={list as any} schools={schools as any} canEdit onAddChild={c=>setList([...list,c] as any)} onUpdateChild={noop} onDeleteChild={noop}/> : screen==='form'?<RecordForm templates={data.templates} childrenList={list as any} dailyChildPlans={plans as any} recorderProfiles={staff as any} activeRecorder={recorder as any} draftKey="manual-record" onSaveRecords={async records=>({status:'saved',records})}/> : screen==='records'?<RecordList records={[]} childrenList={list as any} onSelectRecord={noop} onEditRecord={noop} onDuplicateRecord={noop} onDeleteRecord={noop} onNewRecord={()=>setScreen('form')}/> : screen==='meetings'?<MeetingWorkspace organizationId="local" currentUser={user as any} childrenList={list as any} calendarEvents={data.calendarEvents} onDirtyChange={()=>{}}/> : screen==='learning'?<LessonLearningManager scopeKey="manual" childrenList={list as any} remoteMode={false} reviewFocus={0}/> : screen==='team'?<TeamManager currentUser={user as any}/> : null}
+ </main>{screen !== 'form' && <QuickMemoPad children={list as any} allowLocalSensitiveStorage recorderId={recorder.id} onCreateHandover={noop}/>}</div>;
+}
+createRoot(document.getElementById('root')!).render(<Harness/>);

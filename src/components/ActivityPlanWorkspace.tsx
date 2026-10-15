@@ -1,3 +1,4 @@
+import { ManualLinks } from './ManualLinks';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, BookOpenCheck, ChevronDown, Copy, Plus, Printer, Search, Trash2 } from 'lucide-react';
 import { EditorActionBar } from './EditorActionBar';
@@ -79,6 +80,7 @@ export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, o
   const completed = plan.content.preparations.filter((p) => p.done).length;
   const text = activityText(plan);
   return <section className="activity-workspace space-y-4 pb-6" aria-label="活動・指導案">
+    <ManualLinks screen="activity" className="activity-no-print" />
     <header className="activity-no-print flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-teal-200 bg-white p-4 sm:p-5">
       <div><h1 className="flex items-center gap-2 text-xl font-black"><BookOpenCheck className="h-6 w-6 text-teal-600" />活動・指導案</h1><p className="mt-1 text-sm text-slate-600">ひな形を選んで入力 → 準備を確認 → 実施後の振り返り。表の整形は不要です。</p></div>
       <div className="flex flex-wrap gap-2"><button className={button} onClick={onOpenCalendar}>業務カレンダーを開く</button><button className={button} onClick={onOpenTrafficCost}>交通費を計算</button></div>

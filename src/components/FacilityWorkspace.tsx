@@ -1,3 +1,4 @@
+import { ManualLinks } from './ManualLinks';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Copy, Package, Plus, Printer, Trash2 } from 'lucide-react';
 import { EditorActionBar } from './EditorActionBar';
@@ -12,6 +13,7 @@ export function FacilityWorkspace(props: Props) {
   const [dirty, setDirty] = useState(false);
   const notifyDirty = useCallback((value: boolean) => { setDirty(value); props.onDirtyChange(value); }, [props.onDirtyChange]);
   return <section className="facility-workspace space-y-4 pb-6" aria-label="施設業務">
+    <ManualLinks screen="facility" section={tab} className="facility-no-print" />
     <header className="facility-no-print rounded-2xl border border-teal-200 bg-white p-4"><h1 className="text-xl font-black">施設業務</h1><p className="mt-1 text-sm text-slate-600">点検・備品・おたよりをまとめて管理</p></header>
     <div className="facility-no-print grid grid-cols-3 gap-1 rounded-xl bg-slate-100 p-1" role="tablist" aria-label="施設業務の種類">{([['inspection', '日常点検'], ['supplies', '備品・補充'], ['newsletter', 'おたより']] as const).map(([id, label]) => <button key={id} role="tab" aria-selected={tab === id} className={`${button} border-0 px-1 ${tab === id ? 'bg-teal-700 text-white' : 'bg-transparent'}`} onClick={() => { if (tab === id || (dirty && !window.confirm('未保存の入力をこのタブに残して切り替えますか？職員に共有する場合は先に保存してください。'))) return; setTab(id); }}>{label}</button>)}</div>
     {tab === 'supplies' ? <SupplyWorkspace {...props} onDirtyChange={notifyDirty} /> : <div key={tab}><DocumentWorkspace {...props} kind={tab} onDirtyChange={notifyDirty} /></div>}

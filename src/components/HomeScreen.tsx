@@ -1,3 +1,5 @@
+import { ManualLinks } from './ManualLinks';
+import { homeManualContext } from '../utils/manualLinks';
 import React, { useEffect, useMemo, useState } from 'react';
 import { applyMenuPreferences, groupNavigationItems, MENU_CATEGORIES, matchesMenuSearch, navigationItems, type MenuCategory, type NavigationItem } from '../utils/navigation';
 import { MenuSearch } from './MenuSearch';
@@ -399,6 +401,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 
   return (
     <div className="mx-auto max-w-[1800px] space-y-4">
+      {activePanel !== 'attendance' && <ManualLinks context={homeManualContext(activePanel, communicationView)} />}
       {activePanel === 'menu' ? (
         <>
           <section className="rounded-2xl bg-gradient-to-br from-slate-950 via-slate-900 to-teal-950 p-4 text-white shadow-lg sm:p-5">

@@ -1,3 +1,4 @@
+import { ManualLinks } from './ManualLinks';
 import React, { useEffect, useMemo, useState } from 'react';
 import { RecordRevision, ReviewIssue, SectionAnswer, SectionFieldAnswer, SupportRecord, Template } from '../types';
 import { PDFDocument } from './PDFDocument';
@@ -226,6 +227,7 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-6">
+      <ManualLinks screen="records" />
       {/* Action Header Bar */}
       <div className="bg-slate-900 text-white p-4 rounded-xl shadow-md border border-slate-800 flex flex-wrap items-center justify-between gap-3 print:hidden">
         <button

@@ -1,3 +1,4 @@
+import { ManualLinks } from './ManualLinks';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { BookOpenCheck, Check, Link2, LoaderCircle, RefreshCw, Search, Unlink } from 'lucide-react';
 import type { ChildProfile } from '../types';
@@ -90,6 +91,7 @@ export function LessonLearningManager({ childrenList, remoteMode, scopeKey,revie
   const filtered = childrenList.filter(child => `${child.name} ${child.kana || ''}`.normalize('NFKC').includes(search.normalize('NFKC').trim()));
 
   return <div className="mx-auto max-w-[1400px] space-y-4">
+    <ManualLinks screen="learning" section={tab === 'tasks' ? taskMode : tab} />
     <section className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
       <h2 className="flex items-center gap-2 text-lg font-bold text-slate-950"><BookOpenCheck className="h-5 w-5 text-teal-700" />学習管理</h2>
       <button type="button" onClick={() => void refresh()} disabled={!remoteMode || busy} title="連携一覧を更新" className="flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${busy ? 'animate-spin' : ''}`} />更新</button>

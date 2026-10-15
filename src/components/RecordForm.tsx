@@ -1,3 +1,4 @@
+import { ManualLinks } from './ManualLinks';
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -4732,6 +4733,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       onInputCapture={(event) => rememberFocusedEditor(event.target, true)}
       className="mx-auto w-full min-w-0 max-w-4xl space-y-4 scroll-mt-20"
     >
+      <ManualLinks screen={readOnly ? 'operations' : 'record'} section={currentStep?.kind} />
       {saveNotice && <div role="status" className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-900"><Check className="h-5 w-5 shrink-0" />{saveNotice}</div>}
       {(isSaving || savingChildId) && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/30 p-4" role="status" aria-live="polite"><div className="flex items-center gap-3 rounded-xl bg-white p-5 font-bold text-slate-800 shadow-xl"><LoaderCircle className="h-5 w-5 animate-spin" />保存内容を確認・処理しています…</div></div>}
       {takeoverNotice && (

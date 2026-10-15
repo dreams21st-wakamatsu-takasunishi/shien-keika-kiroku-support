@@ -1,3 +1,4 @@
+import { ManualLinks } from './ManualLinks';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -1528,6 +1529,7 @@ export const DailyTransportPlanner: React.FC<DailyTransportPlannerProps> = ({
         <label className="flex min-h-10 items-center gap-2 rounded-xl border border-emerald-200 bg-white px-3 text-[10px] font-black text-emerald-900"><input type="checkbox" checked={groupDragEnabled} onChange={(event) => setGroupDragEnabled(event.target.checked)} className="h-4 w-4 accent-emerald-600" />同じ場所・近い時刻をまとめて移動</label>
         <p className="w-full flex-none text-[10px] font-bold leading-relaxed text-slate-500 lg:min-w-48 lg:w-auto lg:flex-1">{routingNotice || '児童の下校／迎え・送り時刻マーカーを押して配車します。便の時間計算・確認後に「配車を保存」を押してください。'}</p>
       </div>
+      <ManualLinks screen="dispatch" className="shrink-0 border-b border-slate-200 bg-white px-3 py-1.5" />
       <DndContext
         sensors={sensors}
         collisionDetection={transportCollisionDetection}
