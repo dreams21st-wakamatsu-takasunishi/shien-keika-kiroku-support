@@ -1,4 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {useRecordEntry} from './hooks/useRecordEntry';
+import {RecordEntryDialog} from './components/RecordEntryDialog';
+import {localInputDrafts,mergeLocalInputDrafts,type RecordEntryLaunch,type RecordEntrySignal} from './utils/recordEntry';
+import {mergeOwnRecordDrafts} from './services/dataService';
 import { AlertTriangle, BellRing, ChevronRight, HardDrive, House, LoaderCircle, RefreshCw, ShieldCheck, WifiOff, X } from 'lucide-react';
 import {
   AiWritingSettings,
@@ -342,6 +346,7 @@ export default function App() {
   const remoteRefreshTimerRef = useRef<number | null>(null);
   const loadedOrganizationIdRef = useRef<string | null>(remoteMode ? null : 'local');
   const [activeDraftKey, setActiveDraftKey] = useState(createRecordDraftKey);
+  const [recordEntrySignal,setRecordEntrySignal]=useState<RecordEntrySignal|null>(null);
   const [online, setOnline] = useState(() => navigator.onLine);
   const [pendingSyncs, setPendingSyncs] = useState<PendingRecordSync[]>([]);
   const [syncing, setSyncing] = useState(false);
@@ -675,6 +680,25 @@ export default function App() {
       // Draft list failure does not block the main workspace.
     }
   }, [auth.profile?.fieldModeOnly, organizationId]);
+
+  const recordEntry=useRecordEntry({
+    identity:{userId:auth.profile?.id,recorderId:activeRecorder?.id},
+    load:async()=>{
+      const local=localInputDrafts(localStorage,organizationId,auth.profile?.id);
+      if(!organizationId)return local;
+      const remote=await listRecordDrafts(organizationId);
+      // Recover unshared local input, but never resurrect children now owned by another draft.
+      const pending=local.filter(draft=>!remote.some(row=>row.draftKey===draft.draftKey)
+        &&!remote.some(row=>row.date===draft.date&&row.selectedChildIds.some(id=>draft.selectedChildIds.includes(id))));
+      return [...remote,...pending];
+    },
+    merge:async(drafts,target)=>{
+      if(organizationId)await mergeOwnRecordDrafts(organizationId,drafts,target,activeRecorder?.id);
+      else mergeLocalInputDrafts(localStorage,organizationId,{userId:auth.profile?.id,recorderId:activeRecorder?.id},drafts[0].date!,drafts.map(draft=>draft.draftKey),target);
+      await refreshRecordDrafts();
+    },
+    open:applyRecordEntryLaunch,
+  });
 
   useEffect(() => {
     if (activeTab === 'home') void refreshRecordDrafts();
@@ -1803,17 +1827,7 @@ export default function App() {
     if (remoteMode && auth.profile) await refreshRemoteData(false);
 
     if (result.clientAction?.type === 'start_support_record') {
-      setCurrentRecord(null);
-      setCorrectionTarget(null);
-      setReadOnlyDraft(null);
-      setActiveDraftKey(createRecordDraftKey());
-      setAssistantRecordPrefill({
-        childId: result.clientAction.childId,
-        date: result.clientAction.date || new Date().toISOString().slice(0, 10),
-        requestId: proposal.actionId,
-      });
-      setFormSessionId((previous) => previous + 1);
-      setActiveTab('form');
+      await recordEntry.request({childId:result.clientAction.childId,date:result.clientAction.date||getLocalDateString()});
     } else if (result.clientAction?.type === 'open_child_records') {
       setRecordFilterChildId(result.clientAction.childId);
       setActiveTab('records');
@@ -1836,17 +1850,24 @@ export default function App() {
     } catch (error) { persistError(error); }
   };
 
+  function applyRecordEntryLaunch(launch:RecordEntryLaunch){
+    const unchanged=activeTab==='form'&&!currentRecord&&!readOnlyDraft&&activeDraftKey===launch.draftKey&&!launch.reloaded;
+    setCurrentRecord(null);setCorrectionTarget(null);setReadOnlyDraft(null);setAssistantRecordPrefill(null);
+    setActiveDraftKey(launch.draftKey);
+    setRecordEntrySignal({requestId:createRecordDraftKey(),date:launch.date,childId:launch.childId,chooseChildren:launch.chooseChildren});
+    if(!unchanged)setFormSessionId(previous=>previous+1);
+    setActiveTab('form');
+  }
+
   const handleNewRecordClick = () => {
     if (trainingDirty && !window.confirm('法定研修の入力が保存されていません。画面を移動しますか？')) return;
     if (activeTab === 'facilityWork' && facilityDirty && !window.confirm('施設業務の変更が保存されていません。画面を移動しますか？')) return;
     if (activeTab === 'activityPlans' && activityDirty && !window.confirm('活動・指導案の変更が保存されていません。画面を移動しますか？')) return;
-    setCurrentRecord(null);
-    setCorrectionTarget(null);
-    setReadOnlyDraft(null);
-    setAssistantRecordPrefill(null);
-    setActiveDraftKey(createRecordDraftKey());
-    setFormSessionId((previous) => previous + 1);
-    setActiveTab('form');
+    if(activeTab==='form'&&!currentRecord&&!readOnlyDraft){
+      setRecordEntrySignal({requestId:createRecordDraftKey(),chooseChildren:true});
+      return;
+    }
+    void recordEntry.request({date:getLocalDateString()});
   };
 
   const handleSaveRecorderMenuPreferences = async (preferences: RecorderMenuPreferences) => {
@@ -1861,17 +1882,11 @@ export default function App() {
   };
 
   const handleStartRecord = (childId: string, date: string) => {
-    const requestId = createRecordDraftKey();
-    setCurrentRecord(null);
-    setCorrectionTarget(null);
-    setReadOnlyDraft(null);
-    setActiveDraftKey(requestId);
-    setAssistantRecordPrefill({ childId, date, requestId });
-    setFormSessionId((previous) => previous + 1);
-    setActiveTab('form');
+    void recordEntry.request({childId,date});
   };
 
   const handleResumeDraft = (draftKey: string) => {
+    setRecordEntrySignal(null);
     setCurrentRecord(null);
     setCorrectionTarget(null);
     setReadOnlyDraft(null);
@@ -2164,14 +2179,7 @@ export default function App() {
             returnToHomeMenu();
             return;
           }
-          if (tab === 'form') {
-            setCurrentRecord(null);
-            setCorrectionTarget(null);
-            setReadOnlyDraft(null);
-            setAssistantRecordPrefill(null);
-            setActiveDraftKey(createRecordDraftKey());
-            setFormSessionId((previous) => previous + 1);
-          }
+          if (tab === 'form') {handleNewRecordClick();return;}
           if (tab === 'records') setRecordFilterChildId(null);
           setActiveTab(tab);
         }}
@@ -2311,6 +2319,7 @@ export default function App() {
               setActiveTab(tab);
             }}
             onNewRecord={handleNewRecordClick}
+            onManageRecordDrafts={date=>void recordEntry.request({date,manage:true})}
             onStartRecord={handleStartRecord}
             onResumeDraft={handleResumeDraft}
             onViewDraft={handleViewDraft}
@@ -2382,6 +2391,9 @@ export default function App() {
             draftKey={activeDraftKey}
             activeRecorder={activeRecorder || undefined}
             assistantPrefill={assistantRecordPrefill}
+            entryRequest={recordEntrySignal}
+            entryManagerOpen={Boolean(recordEntry.dialog)||recordEntry.busy}
+            onManageOwnDrafts={date=>recordEntry.request({date,manage:true})}
             initialStepId={correctionTarget?.stepId}
             resolvedIssueId={correctionTarget?.issueId}
             readOnly={Boolean(readOnlyDraft)}
@@ -2495,6 +2507,9 @@ export default function App() {
       </main>
       {overwriteRequest && <RecordOverwriteDialog pairs={overwriteRequest.pairs} totalCount={overwriteRequest.totalCount}
         onDecision={(confirmed) => { overwriteRequest.resolve(confirmed); setOverwriteRequest(null); }} />}
+      {recordEntry.error&&!recordEntry.dialog&&<div role="alert" className="fixed bottom-4 left-1/2 z-[170] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 rounded-xl border border-rose-300 bg-white p-4 text-sm font-bold text-rose-800 shadow-xl">{recordEntry.error}<button type="button" onClick={recordEntry.clearError} className="ml-3 min-h-10 rounded-lg border px-3">閉じる</button></div>}
+      {recordEntry.busy&&!recordEntry.dialog&&<div role="status" className="fixed inset-0 z-[165] grid place-items-center bg-slate-950/40"><p className="rounded-xl bg-white p-5 font-bold">入力中の記録を確認しています…</p></div>}
+      {recordEntry.dialog&&<RecordEntryDialog request={recordEntry.dialog.request} drafts={recordEntry.dialog.drafts} childrenList={childrenList} busy={recordEntry.busy} error={recordEntry.error} onDateChange={date=>void recordEntry.request({date,manage:true})} onChoose={key=>void recordEntry.choose(key)} onMerge={(keys,target)=>void recordEntry.merge(keys,target)} onClose={recordEntry.close}/>}
     </div>
   );
 }

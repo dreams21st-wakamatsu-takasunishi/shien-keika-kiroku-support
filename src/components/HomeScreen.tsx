@@ -1,5 +1,6 @@
 import { ManualLinks } from './ManualLinks';
 import { homeManualContext } from '../utils/manualLinks';
+import {isInputDraftKey} from '../utils/recordEntry';
 import React, { useEffect, useMemo, useState } from 'react';
 import { applyMenuPreferences, groupNavigationItems, MENU_CATEGORIES, matchesMenuSearch, navigationItems, type MenuCategory, type NavigationItem } from '../utils/navigation';
 import { MenuSearch } from './MenuSearch';
@@ -113,6 +114,7 @@ interface HomeScreenProps {
   canManageTransport: boolean;
   onNavigate: (tab: ActiveTab) => void;
   onNewRecord: () => void;
+  onManageRecordDrafts?:(date:string)=>void;
   onStartRecord: (childId: string, date: string) => void;
   onResumeDraft: (draftKey: string) => void;
   onViewDraft: (draftKey: string, ownerName?: string, childId?: string) => void;
@@ -217,6 +219,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   canManageTransport,
   onNavigate,
   onNewRecord,
+  onManageRecordDrafts,
   onStartRecord,
   onResumeDraft,
   onViewDraft,
@@ -368,12 +371,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const resumableDraft = useMemo(() => drafts
     .filter((draft) => {
       if (draft.selectedChildIds.length === 0) return false;
+      if(draft.date!==today||!isInputDraftKey(draft.draftKey))return false;
       if (currentUser?.id && draft.userId !== currentUser.id) return false;
       if (activeRecorder) return draft.recorderId === activeRecorder.id;
       if (currentUser) return !draft.recorderId;
       return true;
     })
-    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0], [activeRecorder, currentUser, drafts]);
+    .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0], [activeRecorder, currentUser, drafts,today]);
 
   const homeItems = applyMenuPreferences(navigationItems.filter((item) => Boolean(item.category)), activeRecorder?.menuPreferences);
   const filteredHomeItems = homeItems.filter((item) => (menuCategory === 'すべて' || item.category === menuCategory)
@@ -412,7 +416,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                 <p className="mt-1 text-xs text-slate-300">記録の入力・再開、当日の送迎へすぐに移動できます。</p>
               </div>
               <div className="grid shrink-0 grid-cols-2 gap-2 sm:flex">
-                <button type="button" onClick={() => resumableDraft ? onResumeDraft(resumableDraft.draftKey) : onNewRecord()} className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-teal-400 px-2 text-xs font-black text-slate-950 shadow-md hover:bg-teal-300 sm:gap-2 sm:px-4 sm:text-sm">
+                <button type="button" onClick={onNewRecord} className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-teal-400 px-2 text-xs font-black text-slate-950 shadow-md hover:bg-teal-300 sm:gap-2 sm:px-4 sm:text-sm">
                   {resumableDraft ? <RotateCcw className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" /> : <PlusCircle className="h-4 w-4 shrink-0 sm:h-5 sm:w-5" />}
                   {resumableDraft ? '記録を再開' : '記録を始める'}
                 </button>
@@ -606,6 +610,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             currentRecorderId={activeRecorder?.id}
             canManageDrafts={canReviewRecords}
             onStartRecord={onStartRecord}
+            onManageOwnDrafts={onManageRecordDrafts}
             onResumeDraft={onResumeDraft}
             onViewDraft={onViewDraft}
             onTakeOverDrafts={onTakeOverDrafts}

@@ -4,6 +4,7 @@ import { BusFront, CalendarCheck2, CalendarClock, CheckCircle2, Clock3, Eye, Fil
 import type { ChildProfile, DailyChildPlan, DailyTransportRequirement, RecordDraftSummary, SupportRecord } from '../types';
 import { getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
 import { ChildInfoDialog } from './ChildInfoDialog';
+import {ownInputDrafts} from '../utils/recordEntry';
 
 interface DailyOperationsPanelProps {
   childrenList: ChildProfile[];
@@ -22,6 +23,7 @@ interface DailyOperationsPanelProps {
   onTakeOverDrafts: (items: DraftTakeoverSelection[]) => Promise<boolean>;
   onDeleteDraft: (draftKey: string) => void;
   onOpenRecord: (record: SupportRecord) => void;
+  onManageOwnDrafts?:(date:string)=>void;
 }
 
 export interface DraftTakeoverSelection {
@@ -48,6 +50,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
   onTakeOverDrafts,
   onDeleteDraft,
   onOpenRecord,
+  onManageOwnDrafts,
 }) => {
   const [infoChild, setInfoChild] = useState<ChildProfile | null>(null);
   const [takeoverSelectionMode, setTakeoverSelectionMode] = useState(false);
@@ -55,6 +58,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
   const [takingOver, setTakingOver] = useState(false);
   const [takeoverMessage, setTakeoverMessage] = useState<string | null>(null);
   const weekday = getWeekdayFromDate(targetDate);
+  const ownGroups=ownInputDrafts(drafts,{userId:currentUserId,recorderId:currentRecorderId},targetDate);
 
   const rows = useMemo(() => {
     const recordChildren = new Set(
@@ -189,6 +193,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
           <StatusCount label="入力中" value={counts.drafting} tone="amber" />
           <StatusCount label="保存済み" value={counts.saved} tone="emerald" />
         </div>
+        {ownGroups.length>1&&onManageOwnDrafts&&<div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border-2 border-teal-300 bg-white p-3"><div><p className="text-sm font-black text-teal-900">自分の入力中記録が{ownGroups.length}画面に分かれています</p><p className="mt-1 text-xs text-slate-600">入力内容を保持して、児童を同じ画面にまとめられます。</p></div><button type="button" onClick={()=>onManageOwnDrafts(targetDate)} className="min-h-11 rounded-xl bg-teal-700 px-4 text-sm font-bold text-white">自分の記録をまとめる</button></div>}
         {takeoverCandidates.length > 0 && (
           <div className="mt-4 rounded-xl border border-amber-300 bg-white p-3">
             {!takeoverSelectionMode ? (

@@ -1,4 +1,6 @@
 import { ManualLinks } from './ManualLinks';
+import type {RecordEntrySignal} from '../utils/recordEntry';
+import {getLocalDateString} from '../utils/weekdays';
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
@@ -135,6 +137,9 @@ interface RecordFormProps {
   draftKey?: string;
   activeRecorder?: RecorderProfile;
   assistantPrefill?: { childId: string; date: string; requestId: string } | null;
+  entryRequest?:RecordEntrySignal|null;
+  entryManagerOpen?:boolean;
+  onManageOwnDrafts?:(date:string)=>Promise<void>;
   initialStepId?: string;
   resolvedIssueId?: string;
   readOnly?: boolean;
@@ -1797,6 +1802,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   draftKey: requestedDraftKey,
   activeRecorder,
   assistantPrefill,
+  entryRequest,
+  entryManagerOpen=false,
+  onManageOwnDrafts,
   initialStepId,
   resolvedIssueId,
   readOnly = false,
@@ -1852,7 +1860,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         ? recorderProfiles[0]
         : undefined);
     const initialChildId = initialRecord?.childId || assistantPrefill?.childId || '';
-    const initialDate = initialRecord?.date || assistantPrefill?.date || new Date().toISOString().split('T')[0];
+    const initialDate = initialRecord?.date || assistantPrefill?.date || entryRequest?.date || getLocalDateString();
     const initialChildTemplate = initialRecord ? initialTemplate : UNIFIED_TEMPLATE;
     const base: WizardDraft = {
       version: 12,
@@ -1915,6 +1923,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const [handoverReferenceOpen, setHandoverReferenceOpen] = useState(false);
   const [copiedHandoverId, setCopiedHandoverId] = useState<string | null>(null);
   const [childSearch, setChildSearch] = useState('');
+  const [addingChildren,setAddingChildren]=useState(false);
+  const [preparingEntry,setPreparingEntry]=useState(false);
+  const entryApplied=useRef('');
+  const entryReturnStep=useRef(2);
   const [checksAcknowledged, setChecksAcknowledged] = useState(false);
   const [expandedGroupStepId, setExpandedGroupStepId] = useState<string | null>(null);
   const jumpTargetRef = useRef<{ childId: string; stepId: string } | null>(null);
@@ -1931,7 +1943,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   );
   const [takeoverNotice, setTakeoverNotice] = useState<TakeoverNotice | null>(null);
   const draftWriteBlocked = draftStatus === 'locked' || draftStatus === 'taken-over' || Boolean(takeoverNotice);
-  const editingDisabled = readOnly || draftWriteBlocked || Boolean(pendingCompletion);
+  const editingDisabled = readOnly || draftWriteBlocked || Boolean(pendingCompletion)||entryManagerOpen||preparingEntry;
   const [questionIndexMode, setQuestionIndexMode] = useState<'unanswered' | 'all'>('unanswered');
   const draftCleared = useRef(false);
   const skipNextDraftSave = useRef(false);
@@ -2275,6 +2287,13 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     // Realtime and the form-only polling refresh this summary signature.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [liveCurrentDraftSignature, organizationId, draftKey, draftReady, initialRecord, readOnly, storageKey, allowLocalSensitiveStorage, isSaving, savingChildId]);
+
+  // Keep rapid navigation from cancelling the only local copy during the debounce.
+  useEffect(()=>{
+    if(!draftReady||editingDisabled||draftCleared.current||!allowLocalSensitiveStorage||!wizard.selectedChildIds.length)return;
+    writeLocalDraft({...wizard,updatedAt:new Date().toISOString()});
+    // The business payload is scoped to this account/device; no network write here.
+  },[wizard,draftReady,editingDisabled,allowLocalSensitiveStorage,storageKey]);
 
   useEffect(() => {
     if (editingDisabled || !draftReady || draftCleared.current || isSaving || savingChildId || saveInProgress.current) return;
@@ -2881,6 +2900,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
   const toggleChild = (childId: string) => {
     if (initialRecord) return;
+    if(addingChildren&&wizard.selectedChildIds.includes(childId))return;
     const lockOwner = lockedChildren[`${wizard.date}:${childId}`];
     if (lockOwner) {
       setStepError(`${lockOwner}が同日の記録を入力中のため、この児童は選択できません。ホームから入力状況を確認できます。`);
@@ -2901,6 +2921,53 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         : previous.activeChildId || childId;
       return { ...previous, selectedChildIds, activeChildId, childDrafts, childTemplateIds };
     });
+  };
+
+  useEffect(()=>{
+    if(!entryRequest||entryApplied.current===entryRequest.requestId||!draftReady||initialRecord||readOnly||entryManagerOpen||draftStatus==='error')return;
+    entryApplied.current=entryRequest.requestId;
+    if(entryRequest.date&&entryRequest.date!==wizard.date){setStepError('記録の日付が変わっています。入力中の内容を保持しました。日付を確認してください。');return;}
+    const childId=entryRequest.childId;
+    if(childId&&(!childrenList.some(child=>child.id===childId)||lockedChildren[`${wizard.date}:${childId}`])){setStepError('この児童は別の入力画面で入力中か、利用状態が変わっています。記録状況を確認してください。');return;}
+    entryReturnStep.current=Math.max(2,wizard.currentStepIndex);
+    setAddingChildren(entryRequest.chooseChildren);
+    setWizard(previous=>{
+      const selected=childId&&previous.selectedChildIds.includes(childId),template=childId?recommendedTemplateForChild(childId,previous.date):undefined;
+      const draft=childId?(previous.childDrafts[childId]||createChildDraft(template)):undefined;
+      const stepId=childId?(previous.childStepIds[childId]||'attendance'):undefined;
+      const index=childId?Math.max(2,buildStepsForTemplate(template,draft).findIndex(step=>step.id===stepId)):1;
+      return {...previous,currentStepIndex:entryRequest.chooseChildren?1:index,
+        selectedChildIds:childId&&!selected?[...previous.selectedChildIds,childId]:previous.selectedChildIds,
+        activeChildId:childId||previous.activeChildId,
+        childTemplateIds:childId?{...previous.childTemplateIds,[childId]:previous.childTemplateIds[childId]||template?.id||previous.selectedTemplateId}:previous.childTemplateIds,
+        childDrafts:childId?{...previous.childDrafts,[childId]:draft!}:previous.childDrafts};
+    });
+    setStepError(null);
+    if(childId)setSaveNotice('同じ日付の入力画面を開きました。児童タブで切り替えながら入力できます。');
+    // The request is consumed exactly once, only after remote hydration finishes.
+  },[entryRequest?.requestId,draftReady,entryManagerOpen,draftStatus,readOnly,initialRecord]);
+
+  const openChildAddition=()=>{
+    if(editingDisabled||initialRecord)return;
+    entryReturnStep.current=Math.max(2,wizard.currentStepIndex);
+    setAddingChildren(true);setStepError(null);
+    setWizard(previous=>({...previous,currentStepIndex:1}));
+    formElement.current?.scrollIntoView({behavior:'smooth',block:'start'});
+  };
+  const manageOwnEntries=async()=>{
+    if(!onManageOwnDrafts||editingDisabled||!draftReady||isSaving||savingChildId)return;
+    setPreparingEntry(true);saveInProgress.current=true;setStepError(null);
+    try{
+      const payload={...wizard,updatedAt:new Date().toISOString()};
+      if(!writeLocalDraft(payload))throw Error('端末内に入力を保持できません。画面を閉じず、管理者へ確認してください。');
+      await draftWrites.idle();
+      if(organizationId&&userId&&wizard.selectedChildIds.length){
+        const saved=await saveRecordDraft(organizationId,userId,draftKey,payload,{deviceId,expectedRevision:remoteRevision.current,recorderId:wizard.recorderId||null});
+        remoteRevision.current=saved.revision;
+      }
+      await onManageOwnDrafts(wizard.date);
+    }catch(error){setStepError(describeDraftSaveError(error,allowLocalSensitiveStorage));}
+    finally{saveInProgress.current=false;setPreparingEntry(false);}
   };
 
   const updateFieldAnswer = (
@@ -4048,6 +4115,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             <div className="rounded-xl border border-teal-200 bg-teal-50 p-3 text-sm text-teal-900">
               <strong>{wizard.date}（{targetWeekday}）の利用予定児童</strong>
               <p className="mt-1 text-xs text-teal-700">「利用予定／送迎管理」の追加利用・欠席を反映しています。</p>
+              {addingChildren&&<><p className="mt-2 text-sm font-bold">追加する児童を選んでください。選択済みの児童・入力内容はそのまま残ります。</p><button type="button" disabled={!wizard.selectedChildIds.length} onClick={()=>{setAddingChildren(false);setWizard(previous=>({...previous,currentStepIndex:Math.min(entryReturnStep.current,steps.length-1)}));}} className="mt-3 min-h-11 rounded-xl bg-teal-700 px-4 font-bold text-white disabled:opacity-40">追加を完了して入力へ戻る（{wizard.selectedChildIds.length}名）</button></>}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[50vh] overflow-y-auto pr-1">
               {displayedChildren.map((child) => {
@@ -4734,6 +4802,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       className="mx-auto w-full min-w-0 max-w-4xl space-y-4 scroll-mt-20"
     >
       <ManualLinks screen={readOnly ? 'operations' : 'record'} section={currentStep?.kind} />
+      {!readOnly&&!initialRecord&&<section aria-label="同じ入力画面で児童をまとめて記録" className="flex flex-wrap items-center justify-between gap-2 rounded-xl border-2 border-teal-300 bg-white/95 p-3 shadow-sm backdrop-blur"><div><p className="text-sm font-black text-teal-900">{wizard.date}・この画面で{wizard.selectedChildIds.length}名を入力中</p><p className="mt-1 text-xs text-slate-600">別画面を作らず、ここから児童を追加できます。</p></div><div className="flex flex-wrap gap-2"><button type="button" disabled={editingDisabled||!draftReady||isSaving||Boolean(savingChildId)} onClick={openChildAddition} className="flex min-h-11 items-center gap-2 rounded-lg bg-teal-700 px-3 text-sm font-bold text-white disabled:opacity-40"><UserPlus className="h-4 w-4"/>この画面に児童を追加</button>{onManageOwnDrafts&&<button type="button" disabled={editingDisabled||!draftReady||isSaving||Boolean(savingChildId)} onClick={()=>void manageOwnEntries()} className="min-h-11 rounded-lg border border-teal-300 px-3 text-xs font-bold text-teal-800 disabled:opacity-40">分かれた自分の記録をまとめる／別日を開く</button>}</div></section>}
+      {initialRecord&&!readOnly&&<p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">保存済み記録の再編集は、この児童1名のみが対象です。複数児童の新しい記録は「記録作成」から開いてください。</p>}
       {saveNotice && <div role="status" className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-900"><Check className="h-5 w-5 shrink-0" />{saveNotice}</div>}
       {(isSaving || savingChildId) && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/30 p-4" role="status" aria-live="polite"><div className="flex items-center gap-3 rounded-xl bg-white p-5 font-bold text-slate-800 shadow-xl"><LoaderCircle className="h-5 w-5 animate-spin" />保存内容を確認・処理しています…</div></div>}
       {takeoverNotice && (
@@ -5000,6 +5070,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             <p className="text-[11px] font-black text-slate-600">
               {reorderingChildTabs ? '児童名側でスクロール・右端のハンドルを長押しして移動' : '児童切替'}
             </p>
+            {!initialRecord&&!editingDisabled&&<button type="button" onClick={openChildAddition} className="flex min-h-9 items-center gap-1 rounded-lg bg-teal-700 px-2 text-xs font-bold text-white"><UserPlus className="h-4 w-4"/>この画面に児童を追加</button>}
             {wizard.selectedChildIds.length > 1 && !editingDisabled && (
               <button
                 type="button"

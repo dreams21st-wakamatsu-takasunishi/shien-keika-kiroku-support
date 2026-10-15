@@ -144,7 +144,7 @@ export const Header: React.FC<HeaderProps> = ({
 
   const openTab = (tab: ActiveTab) => {
     if (tab === 'form') onNewRecord();
-    setActiveTab(tab);
+    else setActiveTab(tab);
     setMenuOpen(false);
     setCustomizingMenu(false);
     setPrivilegedMenuOpen(false);

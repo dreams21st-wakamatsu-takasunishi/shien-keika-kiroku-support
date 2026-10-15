@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { recordSavePayload } from './recordSaveWorkflow';
+import { assertDraftMergeSynced } from '../utils/recordEntry';
 import {
   AiWritingSettings,
   Announcement,
@@ -2324,6 +2325,25 @@ export async function takeOverRecordDraftChildrenIntoExisting(
     updatedAt: String(result?.saved_at || new Date().toISOString()),
     payload: result?.draft_payload as unknown,
   };
+}
+
+/** Explicit, same-account consolidation. Server revalidates every revision under locks. */
+export async function mergeOwnRecordDrafts(organizationId:string,drafts:RecordDraftSummary[],targetDraftKey:string,recorderId?:string){
+  const snapshots=await Promise.all(drafts.map(async draft=>{
+    const key=`support-record-draft-v2:${organizationId}:${draft.userId||'local'}:${draft.draftKey}`;
+    const raw=localStorage.getItem(key),remote=await loadRecordDraft(organizationId,draft.draftKey);
+    let local:unknown;
+    try{local=raw?JSON.parse(raw):null;}catch{throw Error('端末内の入力内容を確認できません。まとめる処理は行っていません。各入力画面を確認してください。');}
+    assertDraftMergeSynced(local,remote?.payload,draft.revision,remote?.revision);
+    return {key,raw};
+  }));
+  if(snapshots.some(({key,raw})=>localStorage.getItem(key)!==raw))throw Error('別のタブで入力が更新されました。入力を終えてから、もう一度まとめてください。入力内容は残しています。');
+  const {error}=await assertSupabase().rpc('merge_own_record_drafts',{
+    p_organization_id:organizationId,p_target_draft_key:targetDraftKey,
+    p_drafts:drafts.map(draft=>({draftKey:draft.draftKey,revision:draft.revision})),
+    p_recorder_profile_id:recorderId||null,p_device_token:getAccessDeviceToken(),
+  });
+  if(error)throw Error(error.message||'まとめる処理に失敗しました。入力内容はそれぞれに残しています。');
 }
 
 export async function listRecordDrafts(organizationId: string): Promise<RecordDraftSummary[]> {
