@@ -304,20 +304,21 @@ export function useAuth() {
   };
 
   const signOut = async () => {
-    if (!supabase) return;
+    if (!supabase) return {error:new Error('Supabaseが設定されていません。')};
     setError(null);
-    setLoading(true);
+    // Keep editors mounted if logout fails. A successful SIGNED_OUT event closes them.
     // Signing out the shared PC must not sign out the phone that displays QR.
     const { error: signOutError } = await supabase.auth.signOut({ scope: 'local' });
     if (signOutError) {
       setError(`ログアウトできませんでした: ${signOutError.message}`);
       setLoading(false);
-      return;
+      return {error:signOutError};
     }
     setSession(null);
     setProfile(null);
     setLastInteractiveAuthAt(0);
     setLoading(false);
+    return {error:null};
   };
 
   const signInWithAttendanceQr = async (qrToken: string) => {

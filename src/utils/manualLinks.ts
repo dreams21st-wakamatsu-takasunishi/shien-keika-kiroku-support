@@ -1,5 +1,6 @@
 // Static help destinations only. Never put names, dates, IDs, input or tokens in URLs.
 export const MANUAL_TITLES = {
+  "user-switch": "右上の職員名からユーザーを切り替える",
   "login": "ログインと端末の使い分け",
   "home": "ホームで目的の機能を探す",
   "menu": "自分のメニュー・通知・画面更新",
@@ -91,7 +92,7 @@ export type TroubleTopic=keyof typeof TROUBLE_TITLES;
 export interface ManualContext {topics:ManualTopic[];troubles:TroubleTopic[]}
 const context=(topics:ManualTopic[],troubles:TroubleTopic[]):ManualContext=>({topics,troubles});
 const screens={
- home:context(['home','menu','quick-memo','install'],['menu-hidden','update','protect-input','report']),
+ home:context(['home','menu','user-switch','quick-memo','install'],['menu-hidden','update','protect-input','report']),
  dailyChanges:context(['daily-change'],['monthly-wrong','wrong-map','report']),
  todayWork:context(['today','transport-log'],['transport-overlap','wrong-map']),
  calendar:context(['calendar'],['monthly-wrong','report']),

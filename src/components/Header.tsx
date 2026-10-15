@@ -28,6 +28,7 @@ import { APP_BUILD_TIME, APP_VERSION, useAppUpdate } from '../hooks/useAppUpdate
 
 import { activeNavigationId, applyMenuPreferences, groupNavigationItems, matchesMenuSearch, navigationItems, type ActiveTab, type HomeWorkspaceItem } from '../utils/navigation';
 import { MenuSearch } from './MenuSearch';
+import {UserSwitchDialog} from './UserSwitchDialog';
 export type { ActiveTab } from '../utils/navigation';
 
 interface HeaderProps {
@@ -42,6 +43,7 @@ interface HeaderProps {
   onOpenHomeWorkspace?: (workspace: HomeWorkspaceItem) => void;
   onOpenFieldOperations?: () => void;
   onSignOut?: () => void;
+  onSwitchUser?: () => Promise<void>;
   canOpenSettings?: boolean;
   canOpenTeam?: boolean;
 }
@@ -61,10 +63,12 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenHomeWorkspace,
   onOpenFieldOperations,
   onSignOut,
+  onSwitchUser,
   canOpenSettings = false,
   canOpenTeam = false,
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [userSwitchOpen,setUserSwitchOpen]=useState(false);
   const [menuSearch, setMenuSearch] = useState('');
   const [groupedMenu, setGroupedMenu] = useState(true);
   const drawerRef = useRef<HTMLElement>(null);
@@ -237,18 +241,24 @@ export const Header: React.FC<HeaderProps> = ({
 
           <button
             type="button"
-            className="min-w-0 cursor-default rounded-xl border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-right"
-            aria-label="ログイン中の職員"
+            onClick={()=>setUserSwitchOpen(true)}
+            disabled={!currentUser||!onSwitchUser}
+            className="min-w-0 rounded-xl border border-slate-700 bg-slate-900 px-2.5 py-1.5 text-right transition-colors enabled:hover:border-teal-400 enabled:hover:bg-slate-800 disabled:cursor-default"
+            aria-label={onSwitchUser&&currentUser?'ログイン中の職員・ユーザー切り替え':'ログイン中の職員'}
+            aria-haspopup={onSwitchUser&&currentUser?'dialog':undefined}
+            aria-expanded={onSwitchUser&&currentUser?userSwitchOpen:undefined}
           >
             <span className="block max-w-28 truncate text-[11px] font-black text-white sm:max-w-48 sm:text-xs">
-              {activeRecorder?.displayName || currentUser?.displayName || 'ローカル職員'}
+              {currentUser?.displayName || activeRecorder?.displayName || 'ローカル職員'}
             </span>
             <span className="block text-[9px] font-bold text-slate-400">
-              {currentUser ? `${roleLabel(currentUser.role)}でログイン中` : 'ローカル試用'}
+              {currentUser ? `${roleLabel(currentUser.role)}でログイン中` : 'ローカル試用'}{onSwitchUser&&currentUser&&<span className="ml-1 inline-flex items-center text-teal-300">切り替え<ChevronDown className="h-3 w-3"/></span>}
             </span>
           </button>
         </div>
       </header>
+
+      {userSwitchOpen&&currentUser&&onSwitchUser&&<UserSwitchDialog name={currentUser.displayName} onSwitch={onSwitchUser} onClose={()=>setUserSwitchOpen(false)}/>}
 
       {updateAvailable && (
         <div className="border-b border-amber-300 bg-amber-50 px-3 py-2 text-amber-950 shadow-sm" role="status">

@@ -1,5 +1,6 @@
 import { ManualLinks } from './ManualLinks';
 import type {RecordEntrySignal} from '../utils/recordEntry';
+import type {PrepareUserSwitch} from '../utils/userSwitch';
 import {getLocalDateString} from '../utils/weekdays';
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
@@ -140,6 +141,7 @@ interface RecordFormProps {
   entryRequest?:RecordEntrySignal|null;
   entryManagerOpen?:boolean;
   onManageOwnDrafts?:(date:string)=>Promise<void>;
+  prepareUserSwitchRef?:React.MutableRefObject<PrepareUserSwitch|null>;
   initialStepId?: string;
   resolvedIssueId?: string;
   readOnly?: boolean;
@@ -1805,6 +1807,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   entryRequest,
   entryManagerOpen=false,
   onManageOwnDrafts,
+  prepareUserSwitchRef,
   initialStepId,
   resolvedIssueId,
   readOnly = false,
@@ -1925,6 +1928,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const [childSearch, setChildSearch] = useState('');
   const [addingChildren,setAddingChildren]=useState(false);
   const [preparingEntry,setPreparingEntry]=useState(false);
+  const [preparingUserSwitch,setPreparingUserSwitch]=useState(false);
   const entryApplied=useRef('');
   const entryReturnStep=useRef(2);
   const [checksAcknowledged, setChecksAcknowledged] = useState(false);
@@ -1943,7 +1947,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   );
   const [takeoverNotice, setTakeoverNotice] = useState<TakeoverNotice | null>(null);
   const draftWriteBlocked = draftStatus === 'locked' || draftStatus === 'taken-over' || Boolean(takeoverNotice);
-  const editingDisabled = readOnly || draftWriteBlocked || Boolean(pendingCompletion)||entryManagerOpen||preparingEntry;
+  const editingDisabled = readOnly || draftWriteBlocked || Boolean(pendingCompletion)||entryManagerOpen||preparingEntry||preparingUserSwitch;
   const [questionIndexMode, setQuestionIndexMode] = useState<'unanswered' | 'all'>('unanswered');
   const draftCleared = useRef(false);
   const skipNextDraftSave = useRef(false);
@@ -2969,6 +2973,29 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     }catch(error){setStepError(describeDraftSaveError(error,allowLocalSensitiveStorage));}
     finally{saveInProgress.current=false;setPreparingEntry(false);}
   };
+
+  useEffect(()=>{
+    if(!prepareUserSwitchRef)return;
+    prepareUserSwitchRef.current=async()=>{
+      if(readOnly)return ()=>{};
+      if(!draftReady||isSaving||savingChildId||pendingCompletion||entryManagerOpen||preparingEntry||preparingUserSwitch||draftWriteBlocked)throw Error('記録の保存・同期状態を確認してから切り替えてください。入力内容は残しています。');
+      if(!wizard.selectedChildIds.length)return ()=>{};
+      setPreparingUserSwitch(true);saveInProgress.current=true;
+      const release=()=>{saveInProgress.current=false;setPreparingUserSwitch(false);};
+      try{
+        const payload={...wizard,updatedAt:new Date().toISOString()};
+        if(!writeLocalDraft(payload))throw Error('端末内に入力を保持できません。画面を閉じず、管理者へ確認してください。');
+        await draftWrites.idle();
+        if(organizationId&&userId){
+          const saved=await saveRecordDraft(organizationId,userId,draftKey,payload,{deviceId,expectedRevision:remoteRevision.current,recorderId:wizard.recorderId||null});
+          remoteRevision.current=saved.revision;
+        }
+        return release;
+      }catch(cause){release();throw Error(describeDraftSaveError(cause,allowLocalSensitiveStorage)+' ユーザーは切り替えていません。');}
+    };
+    return()=>{prepareUserSwitchRef.current=null;};
+    // Register the latest editor snapshot; the explicit switch waits for its queued writes.
+  },[prepareUserSwitchRef,wizard,draftReady,isSaving,savingChildId,pendingCompletion,entryManagerOpen,preparingEntry,preparingUserSwitch,draftWriteBlocked,readOnly,organizationId,userId,draftKey,deviceId,allowLocalSensitiveStorage,draftWrites]);
 
   const updateFieldAnswer = (
     sectionId: string,

@@ -1,15 +1,15 @@
 # Dサポート 図解操作マニュアル
 
-更新日：2026-10-15。現行ソース9bced03を確認し、画像付き操作61項目とトラブル対応22項目を作成。配車の時刻マーカー・小窓、学習進捗・アカウント・課題一括指定／変更、研修設定、事業所種別、保存復旧・エラー履歴に対応。
+更新日：2026-10-15。画像付き操作62項目とトラブル対応22項目。配車の時刻マーカー・小窓、学習進捗・アカウント・課題一括指定／変更、研修設定、事業所種別、保存復旧・エラー履歴に対応。右上の職員名からのユーザー切り替え手順を追加。
 
 同日・本人の入力画面の再利用、「この画面に児童を追加」、明示確認による自分の下書き統合の手順を追記。統合前の未同期入力・重複検出時は停止する。記録選択の画像は `check-record-entry-ui.mjs` の架空データで撮影する。
 
 ## 構成
 
-- 本文：`sections.json`（操作61項目）、`troubleshooting.json`（症状別22項目）
+- 本文：`sections.json`（操作62項目）、`troubleshooting.json`（症状別22項目）
 - ブラウザ版：`public/manuals/d-support/index.html`
 - トラブル対応ブラウザ版：`public/manuals/d-support/troubleshooting.html`
-- 操作PDF：`public/manuals/d-support/Dサポート_図解操作マニュアル.pdf`（63ページ）
+- 操作PDF：`public/manuals/d-support/Dサポート_図解操作マニュアル.pdf`（64ページ）
 - トラブルPDF：`public/manuals/d-support/Dサポート_トラブル対応ガイド.pdf`（24ページ）
 - 指導案出力見本：`output/pdf/指導案_表形式サンプル.pdf`
 

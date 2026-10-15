@@ -3,6 +3,7 @@ import {useRecordEntry} from './hooks/useRecordEntry';
 import {RecordEntryDialog} from './components/RecordEntryDialog';
 import {localInputDrafts,mergeLocalInputDrafts,type RecordEntryLaunch,type RecordEntrySignal} from './utils/recordEntry';
 import {mergeOwnRecordDrafts} from './services/dataService';
+import {switchUserSafely,type PrepareUserSwitch} from './utils/userSwitch';
 import { AlertTriangle, BellRing, ChevronRight, HardDrive, House, LoaderCircle, RefreshCw, ShieldCheck, WifiOff, X } from 'lucide-react';
 import {
   AiWritingSettings,
@@ -347,6 +348,7 @@ export default function App() {
   const loadedOrganizationIdRef = useRef<string | null>(remoteMode ? null : 'local');
   const [activeDraftKey, setActiveDraftKey] = useState(createRecordDraftKey);
   const [recordEntrySignal,setRecordEntrySignal]=useState<RecordEntrySignal|null>(null);
+  const prepareUserSwitchRef=useRef<PrepareUserSwitch|null>(null);
   const [online, setOnline] = useState(() => navigator.onLine);
   const [pendingSyncs, setPendingSyncs] = useState<PendingRecordSync[]>([]);
   const [syncing, setSyncing] = useState(false);
@@ -2202,6 +2204,21 @@ export default function App() {
           sessionStorage.removeItem('support-record-list-view-v1');
           await auth.signOut();
         } : undefined}
+        onSwitchUser={remoteMode?async()=>{
+          await switchUserSafely({
+            dirtyAreas:[trainingDirty?'法定研修':'',activityDirty?'活動・指導案':'',facilityDirty?'施設業務':'',meetingDirty?'会議':''].filter(Boolean),
+            prepare:prepareUserSwitchRef.current,
+            signOut:auth.signOut,
+            reset:()=>{
+              try{sessionStorage.removeItem('support-record-list-view-v1');}catch{/* Logout must not depend on optional view storage. */}
+              setActiveRecorder(null);setCurrentRecord(null);setReadOnlyDraft(null);setCorrectionTarget(null);setAssistantRecordPrefill(null);
+              setRecordEntrySignal(null);setRecordDrafts([]);setFieldOperationsOpen(false);
+              setHomeWorkspace('menu');setActiveTab('home');
+            },
+            // A user-requested fresh login discards the previous account's in-memory UI.
+            reload:()=>window.location.reload(),
+          });
+        }:undefined}
         canOpenSettings={canManageRecordSettings || canManageChildren || canManageTransport || auth.profile?.role === 'admin' || auth.profile?.role === 'manager'}
         canOpenTeam={!remoteMode || auth.profile?.role === 'admin'}
       />
@@ -2394,6 +2411,7 @@ export default function App() {
             entryRequest={recordEntrySignal}
             entryManagerOpen={Boolean(recordEntry.dialog)||recordEntry.busy}
             onManageOwnDrafts={date=>recordEntry.request({date,manage:true})}
+            prepareUserSwitchRef={prepareUserSwitchRef}
             initialStepId={correctionTarget?.stepId}
             resolvedIssueId={correctionTarget?.issueId}
             readOnly={Boolean(readOnlyDraft)}
