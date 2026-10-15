@@ -17,3 +17,8 @@ test('document UI cannot bypass the strict role check or silently discard an uns
  const source=read('src/components/ChildDocumentWorkspace.tsx');for(const marker of ['canManageChildDocuments(props.user)','dirtyRows','if (dirtyCount)','beforeunload','入力を戻す','api.entry','未確認・未入力だけ表示'])assert.ok(source.includes(marker),marker);
  assert.match(read('src/components/ChildrenManager.tsx'),/canDocuments&&currentUser\?<ChildDocumentWorkspace/);
 });
+
+test('category layout includes registered documents and cannot collapse unsaved rows',()=>{
+ const source=read('src/components/ChildDocumentWorkspace.tsx');
+ for(const marker of ['[onlyMissing, setOnlyMissing] = useState(false)','groupDocumentSlots(slots)','保管書類のカテゴリ','dirtyRows.current.has(slot.key)','hidden={!expanded}','aria-expanded={expanded}'])assert.ok(source.includes(marker),marker);
+});

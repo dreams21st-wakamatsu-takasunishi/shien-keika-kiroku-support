@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  CheckCircle2,
+  ChevronDown,
   ClipboardCheck,
+  FolderOpen,
   History,
   LoaderCircle,
   RefreshCw,
@@ -16,8 +17,10 @@ import {
 import {
   canManageChildDocuments,
   DOCUMENT_TYPES,
+  DOCUMENT_CATEGORIES,
   documentSlots,
   documentWarnings,
+  groupDocumentSlots,
   latestDocumentSettings,
   newDocumentEntry,
   validDocumentDate,
@@ -26,6 +29,7 @@ import {
   type DocumentEntryInput,
   type DocumentSlot,
   type DocumentType,
+  type DocumentCategoryId,
 } from "../utils/childDocuments";
 
 const today = () =>
@@ -37,6 +41,13 @@ const today = () =>
   }).format(new Date());
 const input =
   "min-h-10 w-full min-w-0 rounded-lg border border-teal-300 bg-teal-50 px-2 text-sm text-slate-900";
+const categoryColors: Record<DocumentCategoryId, string> = {
+  contracts: "border-sky-200 bg-sky-50 text-sky-950",
+  assessment: "border-teal-200 bg-teal-50 text-teal-950",
+  benefits: "border-violet-200 bg-violet-50 text-violet-950",
+  support: "border-amber-200 bg-amber-50 text-amber-950",
+  other: "border-slate-200 bg-slate-100 text-slate-900",
+};
 interface Props {
   key?: string;
   childrenList: ChildProfile[];
@@ -72,12 +83,18 @@ function DocumentWorkspace({
   const [data, setData] = useState<DocumentRegister | null>(null),
     [loading, setLoading] = useState(true),
     [error, setError] = useState(""),
-    [message,setMessage]=useState(""),
+    [message, setMessage] = useState(""),
     [search, setSearch] = useState(""),
     [selected, setSelected] = useState(initialChildId || ""),
     [asOf, setAsOf] = useState(today),
-    [onlyMissing, setOnlyMissing] = useState(true),
-    [filterType,setFilterType]=useState("all"),
+    [onlyMissing, setOnlyMissing] = useState(false),
+    [filterType, setFilterType] = useState("all"),
+    [categoryFilter, setCategoryFilter] = useState<DocumentCategoryId | "all">(
+      "all",
+    ),
+    [expandedTypes, setExpandedTypes] = useState<
+      Partial<Record<DocumentType, boolean>>
+    >({}),
     [busy, setBusy] = useState(false);
   const generation = useRef(0),
     mounted = useRef(true),
@@ -137,6 +154,7 @@ function DocumentWorkspace({
         ? latestDocumentSettings(data.settings, child.id)
         : undefined;
   const slots = child && data ? documentSlots(child.id, data, asOf) : [];
+  const categories = groupDocumentSlots(slots);
   const summaries = useMemo(
     () =>
       data
@@ -173,7 +191,23 @@ function DocumentWorkspace({
     }
     setError("");
     setMessage("");
+    setExpandedTypes({});
     setSelected(id);
+  };
+  const toggleType = (type: DocumentType) => {
+    if (
+      expandedTypes[type] &&
+      slots.some(
+        (slot) => slot.type === type && dirtyRows.current.has(slot.key),
+      )
+    ) {
+      setError(
+        "この書類に未保存の入力があります。先に保存するか「入力を戻す」を押してから閉じてください。",
+      );
+      return;
+    }
+    setError("");
+    setExpandedTypes((previous) => ({ ...previous, [type]: !previous[type] }));
   };
   const writeEntry = async (entry: DocumentEntryInput) => {
     if (!child || busy) throw Error("保存中です。しばらくお待ちください。");
@@ -194,7 +228,12 @@ function DocumentWorkspace({
               }
             : previous,
         );
-      if(mounted.current&&request===generation.current)setMessage(entry.operation==='void'?'取消を履歴に追加しました。元の登録は履歴に残っています。':'保存しました。確認済みの行は「未確認・未入力だけ表示」を外すと確認できます。');
+      if (mounted.current && request === generation.current)
+        setMessage(
+          entry.operation === "void"
+            ? "取消を履歴に追加しました。元の登録は履歴に残っています。"
+            : "保存しました。対応するカテゴリの登録件数を更新しました。書類名を押すと登録内容を確認できます。",
+        );
     } finally {
       if (mounted.current) setBusy(false);
     }
@@ -230,7 +269,14 @@ function DocumentWorkspace({
           {error}
         </p>
       )}
-      {message&&<p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-900">{message}</p>}
+      {message && (
+        <p
+          role="status"
+          className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-900"
+        >
+          {message}
+        </p>
+      )}
       {loading ? (
         <p role="status" className="flex items-center gap-2 p-4">
           <LoaderCircle className="h-4 w-4 animate-spin" />
@@ -329,7 +375,10 @@ function DocumentWorkspace({
                               }
                             : previous,
                         );
-                      if(mounted.current)setMessage('契約日・更新月を保存しました。過去の設定履歴も保持しています。');
+                      if (mounted.current)
+                        setMessage(
+                          "契約日・更新月を保存しました。過去の設定履歴も保持しています。",
+                        );
                     } finally {
                       if (mounted.current) setBusy(false);
                     }
@@ -380,26 +429,210 @@ function DocumentWorkspace({
                     年次書類は契約日を起点に1年ごとに表示します。更新月の枠は月初に表示し、月末を確認目安にします。過去の枠は新しい書類で上書きしません。
                   </p>
                 )}
-                <label className="flex flex-wrap items-center gap-2 rounded-xl border bg-white p-3 text-xs font-bold">書類を絞り込み<select aria-label="書類を絞り込み" value={filterType} disabled={dirtyCount>0||busy} onChange={e=>setFilterType(e.target.value)} className="min-h-10 rounded-lg border border-slate-300 bg-white px-3"><option value="all">すべての書類</option>{Object.entries(DOCUMENT_TYPES).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
-                {slots
-                  .filter((slot) => (!onlyMissing || slot.status !== "complete")&&(filterType==='all'||slot.type===filterType))
-                  .map((slot) => (
-                    <DocumentRow
-                      key={slot.key}
-                      slot={slot}
-                      disabled={busy}
-                      onSave={writeEntry}
-                      onDirty={(dirty) => markDirty(slot.key, dirty)}
-                    />
+                <nav
+                  aria-label="保管書類のカテゴリ"
+                  className="flex flex-wrap gap-2"
+                >
+                  <button
+                    type="button"
+                    aria-pressed={categoryFilter === "all"}
+                    disabled={dirtyCount > 0 || busy}
+                    onClick={() => {
+                      setCategoryFilter("all");
+                      setFilterType("all");
+                    }}
+                    className={`min-h-10 rounded-lg border px-3 text-xs font-bold disabled:opacity-40 ${categoryFilter === "all" ? "border-slate-950 bg-slate-950 text-white" : "border-slate-300 bg-white text-slate-700"}`}
+                  >
+                    すべてのカテゴリ
+                  </button>
+                  {DOCUMENT_CATEGORIES.map((category) => (
+                    <button
+                      key={category.id}
+                      type="button"
+                      aria-pressed={categoryFilter === category.id}
+                      disabled={dirtyCount > 0 || busy}
+                      onClick={() => {
+                        setCategoryFilter(category.id);
+                        setFilterType("all");
+                      }}
+                      className={`min-h-10 rounded-lg border px-3 text-xs font-bold disabled:opacity-40 ${categoryFilter === category.id ? "border-teal-700 bg-teal-700 text-white" : "border-slate-300 bg-white text-slate-700"}`}
+                    >
+                      {category.title}
+                    </button>
                   ))}
-                {slots.length > 0 &&
-                  slots.every((slot) => slot.status === "complete") &&
-                  onlyMissing && (
-                    <p className="flex items-center gap-2 rounded-xl bg-emerald-50 p-4 text-sm font-bold text-emerald-900">
-                      <CheckCircle2 className="h-5 w-5" />
-                      表示対象の枠はすべて保管確認済みです。注意事項も併せて確認してください。
-                    </p>
-                  )}
+                </nav>
+                <label className="flex flex-wrap items-center gap-2 rounded-xl border bg-white p-3 text-xs font-bold">
+                  書類を絞り込み
+                  <select
+                    aria-label="書類を絞り込み"
+                    value={filterType}
+                    disabled={dirtyCount > 0 || busy}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setFilterType(value);
+                      if (value !== "all") {
+                        setCategoryFilter("all");
+                        setExpandedTypes((previous) => ({
+                          ...previous,
+                          [value]: true,
+                        }));
+                      }
+                    }}
+                    className="min-h-10 max-w-full rounded-lg border border-slate-300 bg-white px-3"
+                  >
+                    <option value="all">すべての書類</option>
+                    {Object.entries(DOCUMENT_TYPES).map(([value, label]) => (
+                      <option key={value} value={value}>
+                        {label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <p className="text-xs leading-relaxed text-slate-600">
+                  カテゴリごとに登録件数・保管確認状況を表示します。書類名を押すと、過去年分も含めて確認・入力できます。登録件数には保管未確認の書類も含まれます。
+                </p>
+                {categories
+                  .filter(
+                    (category) =>
+                      (categoryFilter === "all" ||
+                        category.id === categoryFilter) &&
+                      (filterType === "all" ||
+                        category.groups.some(
+                          (group) => group.type === filterType,
+                        )),
+                  )
+                  .map((category) => (
+                    <section
+                      key={category.id}
+                      aria-label={category.title}
+                      className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs"
+                    >
+                      <div
+                        className={`flex flex-wrap items-center justify-between gap-2 border-b p-3 ${categoryColors[category.id]}`}
+                      >
+                        <div className="min-w-0">
+                          <h4 className="flex items-center gap-2 text-sm font-black">
+                            <FolderOpen
+                              aria-hidden="true"
+                              className="h-4 w-4 shrink-0"
+                            />
+                            {category.title}
+                          </h4>
+                          <p className="mt-1 text-[11px]">
+                            {category.description}
+                          </p>
+                        </div>
+                        <p className="text-xs font-bold">
+                          必要{" "}
+                          {category.groups.reduce(
+                            (n, group) => n + group.required,
+                            0,
+                          )}
+                          枠 ／ 登録{" "}
+                          {category.groups.reduce(
+                            (n, group) => n + group.registered,
+                            0,
+                          )}
+                          件 ／ 保管確認{" "}
+                          {category.groups.reduce(
+                            (n, group) => n + group.confirmed,
+                            0,
+                          )}
+                          件
+                        </p>
+                      </div>
+                      <div className="divide-y divide-slate-100">
+                        {category.groups
+                          .filter(
+                            (group) =>
+                              filterType === "all" || group.type === filterType,
+                          )
+                          .map((group) => {
+                            const expanded = Boolean(expandedTypes[group.type]);
+                            const visibleSlots = group.slots.filter(
+                              (slot) =>
+                                !onlyMissing || slot.status !== "complete",
+                            );
+                            const names = group.slots
+                              .filter((slot) => slot.entry?.title)
+                              .map((slot) => slot.entry!.title);
+                            return (
+                              <div key={group.type}>
+                                <button
+                                  type="button"
+                                  aria-label={`${DOCUMENT_TYPES[group.type]}の書類`}
+                                  aria-expanded={expanded}
+                                  aria-controls={`document-type-${group.type}`}
+                                  disabled={busy}
+                                  onClick={() => toggleType(group.type)}
+                                  className="flex min-h-16 w-full flex-wrap items-center justify-between gap-2 px-3 py-3 text-left hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-teal-600 disabled:opacity-50"
+                                >
+                                  <span className="min-w-0 flex-1 basis-44">
+                                    <span className="block text-sm font-bold text-slate-900">
+                                      {DOCUMENT_TYPES[group.type]}
+                                    </span>
+                                    <span className="mt-1 block break-words text-[11px] text-slate-600">
+                                      {names.length
+                                        ? `登録名：${names.slice(0, 2).join("・")}${names.length > 2 ? ` ほか${names.length - 2}件` : ""}`
+                                        : group.latestDate
+                                          ? `最新作成日 ${group.latestDate}`
+                                          : group.registered
+                                            ? "作成日の登録なし（任意）"
+                                            : group.slots.length
+                                              ? "まだ登録されていません"
+                                              : "必要な場合に「書類／計画を追加」から登録"}
+                                    </span>
+                                  </span>
+                                  <span className="flex flex-wrap items-center gap-1 text-[11px] font-bold">
+                                    <span className="rounded-md bg-slate-100 px-2 py-1 text-slate-700">
+                                      登録 {group.registered}件
+                                    </span>
+                                    <span
+                                      className={`rounded-md px-2 py-1 ${group.confirmed ? "bg-emerald-50 text-emerald-800" : "bg-slate-50 text-slate-500"}`}
+                                    >
+                                      保管確認 {group.confirmed}件
+                                    </span>
+                                    {group.pending > 0 && (
+                                      <span className="rounded-md bg-rose-50 px-2 py-1 text-rose-800">
+                                        要確認 {group.pending}件
+                                      </span>
+                                    )}
+                                    <ChevronDown
+                                      aria-hidden="true"
+                                      className={`ml-1 h-4 w-4 text-slate-500 transition-transform ${expanded ? "rotate-180" : ""}`}
+                                    />
+                                  </span>
+                                </button>
+                                <div
+                                  id={`document-type-${group.type}`}
+                                  hidden={!expanded}
+                                  className="space-y-2 border-t border-slate-100 bg-slate-50 p-3"
+                                >
+                                  {visibleSlots.map((slot) => (
+                                    <DocumentRow
+                                      key={slot.key}
+                                      slot={slot}
+                                      disabled={busy}
+                                      onSave={writeEntry}
+                                      onDirty={(dirty) =>
+                                        markDirty(slot.key, dirty)
+                                      }
+                                    />
+                                  ))}
+                                  {!visibleSlots.length && (
+                                    <p className="p-2 text-xs text-slate-600">
+                                      {group.slots.length
+                                        ? "この書類はすべて保管確認済みです。「未確認・未入力だけ表示」を外すと登録内容を確認できます。"
+                                        : "登録された書類はありません。必要に応じて下の追加登録を利用してください。"}
+                                    </p>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                      </div>
+                    </section>
+                  ))}
                 <AdditionalDocument
                   key={"extra:" + child.id}
                   disabled={busy}
@@ -540,7 +773,7 @@ function DocumentSettings({
           <input
             aria-label="更新月設定の適用日"
             type="date"
-            min={saved?[saved.effectiveFrom,today()].sort().at(-1):date}
+            min={saved ? [saved.effectiveFrom, today()].sort().at(-1) : date}
             value={effective}
             disabled={!saved || disabled}
             onChange={(e) => {
@@ -653,11 +886,11 @@ function DocumentRow({
   const [draft, setDraft] = useState<DocumentEntryInput>(base),
     [dirty, setDirty] = useState(false),
     [error, setError] = useState("");
-  const cancellationId=useRef(crypto.randomUUID());
+  const cancellationId = useRef(crypto.randomUUID());
   useEffect(() => {
     setDraft(base());
     setDirty(false);
-    cancellationId.current=crypto.randomUUID();
+    cancellationId.current = crypto.randomUUID();
   }, [slot.entry?.id]);
   useEffect(() => {
     onDirty(dirty);
@@ -743,10 +976,10 @@ function DocumentRow({
       </div>
       <div className="mt-3 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
         <label className="text-xs font-bold">
-          {slot.type === "certificate"||slot.type === "additional"
+          {slot.type === "certificate" || slot.type === "additional"
             ? "証明書名"
             : "作成日" + (needsDate ? "" : "（任意）")}
-          {slot.type === "certificate"||slot.type === "additional" ? (
+          {slot.type === "certificate" || slot.type === "additional" ? (
             <input
               aria-label="証明書名"
               maxLength={120}
@@ -895,8 +1128,15 @@ function AdditionalDocument({
   }, [dirty]);
   const save = async () => {
     setError("");
-    const named=["certificate","additional"].includes(type);
-    const dated = !["certificate", "additional","contract","important","portrait","privacy"].includes(type);
+    const named = ["certificate", "additional"].includes(type);
+    const dated = ![
+      "certificate",
+      "additional",
+      "contract",
+      "important",
+      "portrait",
+      "privacy",
+    ].includes(type);
     if (
       (dated && !validDocumentDate(draft.documentDate)) ||
       (named && !draft.title.trim())

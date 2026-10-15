@@ -63,6 +63,66 @@ export interface DocumentSlot {
   entry?: ChildDocumentEntry;
   status: "missing" | "unconfirmed" | "complete" | "upcoming";
 }
+export const DOCUMENT_CATEGORIES = [
+  {
+    id: "contracts",
+    title: "契約・同意書",
+    description: "利用開始時の契約書と各種同意書",
+    types: ["contract", "important", "portrait", "privacy"],
+  },
+  {
+    id: "assessment",
+    title: "基本情報・アセスメント",
+    description: "児童の基本情報とアセスメントの更新",
+    types: ["face", "assessment"],
+  },
+  {
+    id: "benefits",
+    title: "受給者証・利用計画",
+    description: "受給者証、利用計画と別表の更新",
+    types: ["benefit", "usage_plan", "annex"],
+  },
+  {
+    id: "support",
+    title: "個別支援計画・モニタリング",
+    description: "原案・会議・本案とモニタリング",
+    types: ["plan_draft", "plan_meeting", "plan_final", "monitoring"],
+  },
+  {
+    id: "other",
+    title: "証明書・その他",
+    description: "名称で登録した証明書と追加書類",
+    types: ["certificate", "additional"],
+  },
+] as const satisfies ReadonlyArray<{
+  id: string;
+  title: string;
+  description: string;
+  types: ReadonlyArray<DocumentType>;
+}>;
+export type DocumentCategoryId = (typeof DOCUMENT_CATEGORIES)[number]["id"];
+export function groupDocumentSlots(slots: DocumentSlot[]) {
+  return DOCUMENT_CATEGORIES.map((category) => ({
+    ...category,
+    groups: category.types.map((type) => {
+      const rows = slots.filter((slot) => slot.type === type);
+      return {
+        type,
+        slots: rows,
+        registered: rows.filter((slot) => slot.entry).length,
+        confirmed: rows.filter((slot) => slot.status === "complete").length,
+        required: rows.filter((slot) => slot.required).length,
+        pending: rows.filter((slot) => slot.status !== "complete").length,
+        latestDate:
+          rows
+            .map((slot) => slot.entry?.documentDate || "")
+            .filter(Boolean)
+            .sort()
+            .at(-1) || "",
+      };
+    }),
+  }));
+}
 export const canManageChildDocuments = (
   user?: Pick<UserProfile, "role" | "fieldModeOnly"> | null,
 ) =>
@@ -192,9 +252,9 @@ export function documentSlots(
           first = period + "-01",
           last = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
         if (period <= start.slice(0, 7) || first > today) continue;
-      // A mid-month change takes effect from the next month's first day.
-      // The checklist already shown for this month must not disappear.
-      const version = versions.find((row) => row.effectiveFrom <= first);
+        // A mid-month change takes effect from the next month's first day.
+        // The checklist already shown for this month must not disappear.
+        const version = versions.find((row) => row.effectiveFrom <= first);
         if (!version?.monitoringMonths.includes(m)) continue;
         for (const type of [
           "plan_draft",
