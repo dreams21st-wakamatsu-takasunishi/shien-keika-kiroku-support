@@ -6,6 +6,7 @@ import {parseLearningTask,parseLearningTasks,parseTaskDetails,type LearningTask}
 import { parseFetchedLessonProgress } from '../learning/progress';
 import {parseBatchConfiguration,parseTaskBatch,parseTaskTemplate,parseChangeCandidates,type BatchKind,type TaskBatch,type ChangeCandidate,type TaskTemplate,type TaskTarget} from '../learning/taskBatches';
 import { parseTimedAccountCheck, parseAccountAudits } from '../learning/accounts';
+import {initialAuditFilters,parseAuditDetail,parseAuditPage,type AuditCursor,type AuditFilters} from '../learning/taskBatchAudit';
 import { parseCredentialOperations, parseCredentialResult, type CredentialAction } from '../learning/accountCredentials';
 import { parseHandoffResult, parseRegistrationConfig, parseRegistrationResult, type HandoffReason, type RegistrationConfig, type RegistrationOperation } from '../learning/studentRegistration';
 
@@ -30,7 +31,9 @@ async function invoke<T>(body: Record<string, unknown>, endpoint = 'lesson-learn
   return data as T;
 }
 
-export const loadLessonLinks = () => invoke<{ links: LessonLink[]; canManageLinks: boolean; canManageAccounts?: boolean; canIssueAccounts?: boolean; configured: boolean }>({ action: 'list' });
+export const loadLessonLinks = () => invoke<{ links: LessonLink[]; canManageLinks: boolean; canManageAccounts?: boolean; canIssueAccounts?: boolean; canViewTaskAudit?: boolean; configured: boolean }>({ action: 'list' });
+export const loadTaskAuditPage=async(filters:AuditFilters,cursor:AuditCursor|null)=>parseAuditPage(await invoke({action:'list',filters,cursor},'lesson-task-audit'),filters,cursor);
+export const loadTaskAuditDetail=async(operationId:string,organizationId:string)=>parseAuditDetail(await invoke({action:'detail',operationId,filters:initialAuditFilters,cursor:null},'lesson-task-audit'),operationId,organizationId);
 export const loadTaskBatchConfiguration=async()=>parseBatchConfiguration(await invoke({action:'configuration'},'lesson-task-batches'));
 export const prepareTaskBatch=async(operationId:string,template:TaskTemplate,targets:TaskTarget[])=>{
  const normalized=parseTaskTemplate(template);

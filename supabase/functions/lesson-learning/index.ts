@@ -65,7 +65,10 @@ Deno.serve(async request => {
     if (action === 'list') {
       const { data, error } = await user.from('lesson_child_links').select('*').eq('organization_id', context.organizationId).eq('active', true);
       if (error) throw failure('連携一覧を取得できませんでした。', 503);
-      return reply({ links: data || [], canManageLinks: context.canManageLinks === true, canManageAccounts: context.canManageAccounts === true, canIssueAccounts: context.canIssueAccounts === true, configured });
+      const {data:canViewTaskAudit,error:auditError}=await user.rpc('can_view_lesson_task_audit');
+      const latest=await getContext();
+      if(latest.organizationId!==context.organizationId)throw failure('学習管理の権限を再確認してください。',403);
+      return reply({ links: data || [], canManageLinks: latest.canManageLinks === true, canManageAccounts: latest.canManageAccounts === true, canIssueAccounts: latest.canIssueAccounts === true, canViewTaskAudit: !auditError && canViewTaskAudit === true, configured });
     }
     if (typeof body.childId !== 'string' || !body.childId || body.childId.length > 160) return reply({ error: '対象児童を選択してください。' }, 400);
     const { data: child, error: childError } = await user.from('children').select('id').eq('organization_id', context.organizationId)

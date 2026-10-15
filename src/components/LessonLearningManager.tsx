@@ -9,6 +9,7 @@ import { getLocalDateString } from '../utils/weekdays';
 import {WordReviewInbox} from './WordReviewInbox';
 import {LearningTaskManager} from './LearningTaskManager';
 import {LearningTaskBatchManager} from './LearningTaskBatchManager';
+import {LearningTaskAuditPanel} from './LearningTaskAuditPanel';
 import { LessonProgressPanel } from './LessonProgressPanel';
 import { LessonAccountPanel } from './LessonAccountPanel';
 import { LessonCredentialPanel } from './LessonCredentialPanel';
@@ -16,13 +17,14 @@ import { LessonStudentRegistrationPanel } from './LessonStudentRegistrationPanel
 
 export function LessonLearningManager({ childrenList, remoteMode, scopeKey,reviewFocus=0 }: { childrenList: ChildProfile[]; remoteMode: boolean; scopeKey: string;reviewFocus?:number }) {
   const [tab, setTab] = useState<'history' | 'links'|'reviews'|'tasks'|'progress'>('history');
-  const [taskMode,setTaskMode]=useState<'individual'|'batch'>('individual');
+  const [taskMode,setTaskMode]=useState<'individual'|'batch'|'audit'>('individual');
   useEffect(()=>{if(reviewFocus){setTab('reviews');setChildId('');}},[reviewFocus]);
   const [links, setLinks] = useState<LessonLink[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [canManage, setCanManage] = useState(false);
   const [canManageAccounts, setCanManageAccounts] = useState(false);
   const [canIssueAccounts, setCanIssueAccounts] = useState(false);
+  const [canViewTaskAudit,setCanViewTaskAudit]=useState(false);
   const [configured, setConfigured] = useState(false);
   const [childId, setChildId] = useState('');
   const [search, setSearch] = useState('');
@@ -44,12 +46,12 @@ export function LessonLearningManager({ childrenList, remoteMode, scopeKey,revie
 
   const refresh = useCallback(async () => {
     const version = ++listVersion.current;
-    setListBusy(remoteMode); setListError(''); setLoaded(false); setLinks([]); setCanManage(false); setCanManageAccounts(false); setCanIssueAccounts(false); setConfigured(false); setHistory(null); setCandidate(null); setConfirmed(false);
+    setListBusy(remoteMode); setListError(''); setLoaded(false); setLinks([]); setCanManage(false); setCanManageAccounts(false); setCanIssueAccounts(false); setCanViewTaskAudit(false); setConfigured(false); setHistory(null); setCandidate(null); setConfirmed(false);
     if (!remoteMode) return;
     try {
       const result = await loadLessonLinks();
       if (version !== listVersion.current) return;
-      setLinks(result.links); setCanManage(result.canManageLinks); setCanManageAccounts(result.canManageAccounts === true); setCanIssueAccounts(result.canIssueAccounts === true); setConfigured(result.configured); setLoaded(true);
+      setLinks(result.links); setCanManage(result.canManageLinks); setCanManageAccounts(result.canManageAccounts === true); setCanIssueAccounts(result.canIssueAccounts === true); setCanViewTaskAudit(result.canViewTaskAudit === true); setConfigured(result.configured); setLoaded(true);
     } catch (error) {
       if (version === listVersion.current) setListError(error instanceof Error ? error.message : '連携一覧を取得できませんでした。');
     } finally { if (version === listVersion.current) setListBusy(false); }
@@ -105,6 +107,7 @@ export function LessonLearningManager({ childrenList, remoteMode, scopeKey,revie
       {([['history', '当日の取り組み'], ['progress', '児童別進捗'], ['tasks','課題の指定'], ['reviews','Word確認'], ['links', 'アカウント連携']] as const).map(([value, label]) => <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => setTab(value)} className={`min-h-11 border-b-2 px-4 text-sm font-bold ${tab === value ? 'border-teal-700 text-teal-800' : 'border-transparent text-slate-600'}`}>{label}</button>)}
     </div>
     {tab==='tasks'&&<div role="group" aria-label="課題指定の対象" className="flex gap-1 border-b border-slate-200 pb-3">{([['individual','児童ごと'],['batch','まとめて指定']] as const).map(([mode,label])=><button key={mode} type="button" aria-pressed={taskMode===mode} disabled={mode==='batch'&&(!loaded||!configured||!canManage||!remoteMode)} onClick={()=>setTaskMode(mode)} className={`min-h-10 rounded-lg border px-4 text-sm font-bold disabled:opacity-50 ${taskMode===mode?'border-teal-700 bg-teal-50 text-teal-900':'border-slate-300'}`}>{label}</button>)}</div>}
+    {tab==='tasks'&&loaded&&canViewTaskAudit&&remoteMode&&<button type="button" aria-pressed={taskMode==='audit'} onClick={()=>setTaskMode(taskMode==='audit'?'individual':'audit')} className={`flex min-h-10 items-center gap-2 rounded-lg border px-3 text-sm font-bold ${taskMode==='audit'?'border-teal-700 bg-teal-50 text-teal-900':'border-slate-300'}`}><Search className="h-4 w-4"/>事業所の一括課題履歴</button>}
     {tab === 'tasks' && taskMode==='individual' && <div className="flex flex-wrap items-end gap-3">
       <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm font-bold text-slate-700">対象児童
         <select aria-label="課題の対象児童" value={selectedChild ? childId : ''} disabled={operationBusy || !remoteMode} onChange={event => setChildId(event.target.value)} className="min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 sm:max-w-md">
@@ -125,7 +128,7 @@ export function LessonLearningManager({ childrenList, remoteMode, scopeKey,revie
         </div>
       </aside>}
       <section className="min-w-0 space-y-4" aria-label={tab === 'history' ? '当日の取り組み' : tab === 'progress' ? '児童別進捗' : tab === 'reviews' ? 'Word確認' : tab==='tasks'?'課題の指定':'アカウント連携'}>
-        {tab==='tasks'&&taskMode==='batch'?loaded&&configured&&canManage&&remoteMode?<div key={scopeKey}><LearningTaskBatchManager childrenList={childrenList}/></div>:<p role="status" className="py-6 text-sm text-slate-600">連携情報と課題管理権限の確認が必要です。</p>:tab==='reviews'?<WordReviewInbox childrenList={childrenList} childId={childId} remoteMode={remoteMode} scopeKey={scopeKey}/>:!selectedChild ? <p className="py-10 text-center text-sm text-slate-600">児童を選択してください。</p> : <>
+        {tab==='tasks'&&taskMode==='audit'?loaded&&canViewTaskAudit&&remoteMode?<div key={scopeKey}><LearningTaskAuditPanel childrenList={childrenList}/></div>:<p role="status" className="py-6 text-sm text-slate-600">管理者権限の確認が必要です。</p>:tab==='tasks'&&taskMode==='batch'?loaded&&configured&&canManage&&remoteMode?<div key={scopeKey}><LearningTaskBatchManager childrenList={childrenList}/></div>:<p role="status" className="py-6 text-sm text-slate-600">連携情報と課題管理権限の確認が必要です。</p>:tab==='reviews'?<WordReviewInbox childrenList={childrenList} childId={childId} remoteMode={remoteMode} scopeKey={scopeKey}/>:!selectedChild ? <p className="py-10 text-center text-sm text-slate-600">児童を選択してください。</p> : <>
           <div className="flex flex-wrap items-center gap-3"><h3 className="break-words text-base font-bold text-slate-950">{selectedChild.name}</h3>{selectedLink && <span className="text-xs text-slate-600">Dレッスン: {selectedLink.source_display_name}</span>}</div>
           {tab === 'progress' ? selectedLink && remoteMode && configured && loaded ? <div key={`${scopeKey}:${childId}:${selectedLink.id}:${selectedLink.revision}`}><LessonProgressPanel link={selectedLink} /></div> : <p role="status" className="py-6 text-sm text-slate-600">{!remoteMode ? '職員ログインとクラウド接続が必要です。' : listBusy ? '連携情報を読み込み中...' : !loaded ? '連携情報の取得に失敗しました。' : !configured ? '学習連携のサーバー設定が未完了です。' : 'この児童の学習アカウントは未連携です。'}</p> : tab==='tasks'?selectedLink&&configured&&loaded?<div key={`${scopeKey}:${childId}:${selectedLink.id}:${selectedLink.revision}`}><LearningTaskManager childId={childId} linkId={selectedLink.id} canManage={canManage} scopeKey={scopeKey}/></div>:<div className="space-y-3 py-6 text-sm text-slate-600">
             <p role="status">{!remoteMode ? '職員ログインとクラウド接続が必要です。' : listBusy ? '連携情報を読み込み中...' : !loaded ? '連携情報の取得に失敗しました。' : !configured ? '学習連携のサーバー設定が未完了です。' : 'この児童の学習アカウントは未連携です。'}</p>
