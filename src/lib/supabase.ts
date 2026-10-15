@@ -13,7 +13,7 @@ export const supabase = isSupabaseConfigured
       global: {
         fetch: (input, init) => {
           const requestUrl = typeof input === 'string' ? input : input.url;
-          if (!requestUrl.includes('/rest/v1/')) return diagnosticFetch(input, init);
+          if (!requestUrl.includes('/rest/v1/')&&!requestUrl.includes('/functions/v1/')) return diagnosticFetch(input, init);
           const headers = new Headers(init?.headers || (typeof input === 'string' ? undefined : input.headers));
           headers.set('x-support-device-token', getAccessDeviceToken());
           return diagnosticFetch(input, { ...init, headers });

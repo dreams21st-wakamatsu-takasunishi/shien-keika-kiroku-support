@@ -2,7 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-support-device-token',
 };
 
 function jsonResponse(body: unknown, status = 200) {
@@ -104,6 +104,9 @@ Deno.serve(async (request) => {
     .eq('organization_id', organization.id)
     .maybeSingle();
   if (!loginProfile?.active) return genericLoginError();
+  const {data:emailRequired,error:emailRequirementError}=await serviceClient.rpc('facility_privileged_email_required',{p_user:recorder.auth_user_id});
+  if(emailRequirementError)return jsonResponse({error:'認証設定を確認できません。'},503);
+  if(emailRequired===true)return jsonResponse({error:'特別権限の職員は個人のメールアドレスとパスワードでログインしてください。'},403);
   const administratorLogin = loginProfile.role === 'admin';
 
   const { data: authUser, error: authUserError } = await serviceClient.auth.admin.getUserById(recorder.auth_user_id);

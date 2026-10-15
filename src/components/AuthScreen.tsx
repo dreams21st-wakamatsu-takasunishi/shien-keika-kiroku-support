@@ -3,12 +3,14 @@ import React, { useState } from 'react';
 import { Building2, ChevronRight, FileText, IdCard, LockKeyhole, Mail, QrCode, ShieldCheck } from 'lucide-react';
 import { AttendanceQrScanner } from './AttendanceQrScanner';
 import { FacilityQrPunchControls } from './AttendanceQr';
+import {FacilityLoginForm} from './FacilityLoginForm';
 
 interface AuthScreenProps {
   onSignIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   onStaffIdSignIn: (organizationCode: string, employeeCode: string, password: string) => Promise<{ error: Error | null }>;
   onQrSignIn: (token: string) => Promise<{ error: Error | null }>;
   initialMessage?: string | null;
+  onFacilitySignIn?: (ticket:string,recorderId:string,signal?:AbortSignal)=>Promise<{error:Error|null}>;
 }
 
 const STAFF_ORGANIZATION_CODE_KEY = 'support-staff-organization-code-v1';
@@ -22,9 +24,9 @@ function readRememberedOrganizationCode() {
   }
 }
 
-export const AuthScreen: React.FC<AuthScreenProps> = ({ onSignIn, onStaffIdSignIn, onQrSignIn, initialMessage }) => {
+export const AuthScreen: React.FC<AuthScreenProps> = ({ onSignIn, onStaffIdSignIn, onQrSignIn, onFacilitySignIn, initialMessage }) => {
   const rememberedOrganizationCode = readRememberedOrganizationCode();
-  const [loginMethod, setLoginMethod] = useState<'staff-id' | 'email'>('staff-id');
+  const [loginMethod, setLoginMethod] = useState<'facility'|'staff-id' | 'email'>('facility');
   const [email, setEmail] = useState('');
   const [organizationCode, setOrganizationCode] = useState(rememberedOrganizationCode);
   const [editingOrganizationCode, setEditingOrganizationCode] = useState(!rememberedOrganizationCode);
@@ -87,14 +89,16 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onSignIn, onStaffIdSignI
             <span>本アプリは招待制です。管理者から招待された職員のみログインできます。</span>
           </div>
 
-          <section className="mb-6 rounded-xl border border-sky-200 bg-sky-50 p-3">
+          {loginMethod==='staff-id'&&<section className="mb-6 rounded-xl border border-sky-200 bg-sky-50 p-3">
             <button type="button" disabled={submitting} onClick={() => { setMessage(null); setQrOpen(true); }} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-sky-700 px-3 text-sm font-black text-white hover:bg-sky-600 disabled:opacity-50">
               <QrCode className="h-5 w-5" />本人用QRでログイン
             </button>
             <p className="mt-2 text-xs leading-relaxed text-sky-950">事業所端末のカメラで、個人端末に表示した本人用QRを読み取ります。QRの職員としてログインします。</p>
             <p className="mt-1 text-[11px] leading-relaxed text-slate-600">承認済みの施設共用端末専用です。初回・個人端末は下の職員ID／メールでログインしてください。</p>
             <div className="mt-3 border-t border-sky-200 pt-3"><p className="mb-2 text-xs font-bold text-slate-700">出退勤だけ行う（ログインはしません）</p><FacilityQrPunchControls disabled={submitting} /></div>
-          </section>
+          </section>}
+
+          {loginMethod==='facility'?<>{message&&<p role="alert" className="mb-3 border-l-4 border-amber-500 bg-amber-50 p-3 text-sm text-amber-950">{message}</p>}<FacilityLoginForm onSelect={onFacilitySignIn} onBusyChange={setSubmitting}/></>:<>
 
           <div className="mb-5">
             <p className="text-base font-black text-slate-900">
@@ -103,7 +107,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onSignIn, onStaffIdSignI
             <p className="mt-1 text-xs leading-relaxed text-slate-500">
               {loginMethod === 'staff-id'
                 ? '通常の職員はこちらからログインしてください。'
-                : '管理者・児発管など、メールアドレスを登録している方が利用します。'}
+                : '管理者・教室長・児発管など、特別権限のある職員はこちらからログインしてください。'}
             </p>
           </div>
 
@@ -189,23 +193,25 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({ onSignIn, onStaffIdSignI
               {submitting ? 'ログイン中...' : 'ログイン'}
             </button>
           </form>
+          </>}
 
           <button
             type="button"
             disabled={submitting}
             onClick={() => {
-              setLoginMethod((current) => current === 'staff-id' ? 'email' : 'staff-id');
+              setLoginMethod((current) => current === 'email' ? 'facility' : 'email');
               setPassword('');
               setMessage(null);
             }}
             className="mt-5 flex min-h-11 w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 text-left text-xs font-bold text-slate-600 hover:bg-slate-100"
           >
             <span className="flex items-center gap-2">
-              {loginMethod === 'staff-id' ? <Mail className="h-4 w-4" /> : <IdCard className="h-4 w-4" />}
-              {loginMethod === 'staff-id' ? '管理者・児発管のメールログイン' : '職員IDログインへ戻る'}
+              {loginMethod !== 'email' ? <Mail className="h-4 w-4" /> : <Building2 className="h-4 w-4" />}
+              {loginMethod !== 'email' ? '管理者・教室長・児発管のメールログイン' : '施設共通ログインへ戻る'}
             </span>
             <ChevronRight className="h-4 w-4" />
           </button>
+          {loginMethod!=='staff-id'&&<button type="button" disabled={submitting} onClick={()=>{setLoginMethod('staff-id');setPassword('');setMessage(null);}} className="mt-3 flex min-h-10 items-center gap-2 text-xs text-slate-600"><IdCard className="h-4 w-4"/>従来の個人職員IDログイン</button>}
         </div>
       </div>
       {qrOpen && <AttendanceQrScanner action="ログイン" onClose={() => setQrOpen(false)} onScanned={handleQrSignIn} />}

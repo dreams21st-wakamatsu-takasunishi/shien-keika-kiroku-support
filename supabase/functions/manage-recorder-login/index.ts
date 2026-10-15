@@ -4,7 +4,7 @@ type IndividualLoginRole = 'staff' | 'manager' | 'classroom_manager';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-support-device-token',
 };
 
 function jsonResponse(body: unknown, status = 200) {
@@ -28,7 +28,7 @@ Deno.serve(async (request) => {
   if (!authorization) return jsonResponse({ error: 'Unauthorized' }, 401);
 
   const userClient = createClient(supabaseUrl, anonKey, {
-    global: { headers: { Authorization: authorization } },
+    global: { headers: { Authorization: authorization, 'x-support-device-token': request.headers.get('x-support-device-token') || '' } },
     auth: { persistSession: false, autoRefreshToken: false },
   });
   const accessToken = authorization.replace(/^Bearer\s+/i, '').trim();
@@ -45,6 +45,8 @@ Deno.serve(async (request) => {
     return jsonResponse({ error: '管理者または児発管の権限が必要です。' }, 403);
   }
 
+  const {data:sessionAllowed,error:sessionAccessError}=await userClient.rpc('facility_session_allowed');
+  if(sessionAccessError||sessionAllowed!==true)return jsonResponse({error:'このログインの端末承認・利用権限を確認してください。'},403);
   const body = await request.json().catch(() => null) as {
     action?: 'configure' | 'disable';
     recorderProfileId?: string;

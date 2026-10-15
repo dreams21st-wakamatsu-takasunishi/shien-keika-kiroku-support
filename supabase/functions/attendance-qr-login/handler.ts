@@ -2,7 +2,7 @@ import type { SupabaseClient } from 'npm:@supabase/supabase-js@2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-support-device-token',
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
@@ -72,6 +72,9 @@ export function createQrLoginHandler(service: SupabaseClient, login: SupabaseCli
         return qrLoginResponse({ error: '初回のパスワード設定を完了してからQRログインをご利用ください。' }, 403);
       }
       if (action === 'ログイン') {
+        const {data:emailRequired,error:emailRequirementError}=await service.rpc('facility_privileged_email_required',{p_user:user.id});
+        if(emailRequirementError)return qrLoginResponse({error:'認証設定を確認できません。通常のログインをご利用ください。'},503);
+        if(emailRequired===true)return qrLoginResponse({error:'特別権限の職員は個人のメールアドレスとパスワードでログインしてください。'},403);
         const { data: factors, error: factorError } = await service.auth.admin.mfa.listFactors({ userId: user.id });
         if (factorError || !factors) return qrLoginResponse({ error: '認証設定を確認できませんでした。通常のログインをご利用ください。' }, 503);
         if (factors.factors.some((factor) => factor.status === 'verified')) {

@@ -3,6 +3,7 @@ import { Clock3, Laptop, LockKeyhole, Pencil, RefreshCw, Save, ShieldCheck, Shie
 import { supabase } from '../lib/supabase';
 import type { UserProfile } from '../types';
 import { getAccessDeviceToken } from '../utils/accessDevice';
+import {FacilityLoginSettings} from './FacilityLoginSettings';
 
 interface DevicePolicy {
   deviceApprovalEnabled: boolean;
@@ -207,6 +208,7 @@ export const StaffDeviceManager: React.FC<{ currentUser: UserProfile }> = ({ cur
 
   return (
     <div className="space-y-4">
+      {currentUser.role==='admin'&&<div key={currentUser.organizationId}><FacilityLoginSettings organizationId={currentUser.organizationId}/></div>}
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>

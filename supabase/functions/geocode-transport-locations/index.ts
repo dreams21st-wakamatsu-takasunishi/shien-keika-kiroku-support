@@ -39,7 +39,7 @@ Deno.serve(async (request) => {
   if (!supabaseUrl || !anonKey || !serviceRoleKey) return jsonResponse({ error: 'サーバー設定が不足しています。' }, 500);
   if (!authorization) return jsonResponse({ error: 'Unauthorized' }, 401);
 
-  const userClient = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authorization } } });
+  const userClient = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authorization, 'x-support-device-token': request.headers.get('x-support-device-token') || '' } } });
   const accessToken = authorization.replace(/^Bearer\s+/i, '').trim();
   const { data: claimsData, error: claimsError } = await userClient.auth.getClaims(accessToken);
   const userId = claimsData?.claims?.sub;
@@ -58,6 +58,8 @@ Deno.serve(async (request) => {
   const configuredDailyLimit = Number.parseInt(Deno.env.get('GEOCODING_DAILY_LIMIT') || '500', 10);
   const dailyLimit = Number.isFinite(configuredDailyLimit) ? Math.max(1, Math.min(configuredDailyLimit, 10000)) : 500;
 
+  const {data:sessionAllowed,error:sessionAccessError}=await userClient.rpc('facility_session_allowed');
+  if(sessionAccessError||sessionAllowed!==true)return jsonResponse({error:'このログインの端末承認・利用権限を確認してください。'},403);
   const body = await request.json().catch(() => null) as { locations?: RequestLocation[] } | null;
   const locations = (Array.isArray(body?.locations) ? body.locations : []).map((location) => ({
     id: text(location.id, 160),

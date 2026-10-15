@@ -11,6 +11,7 @@ function fixture(patch = {}) {
   const fake = (name, value) => async (...args) => { calls.push([name, ...args]); return value; };
   const service = {
     rpc: async (name, args) => {
+      if(name==='facility_privileged_email_required')return patch.emailRequired||{data:false,error:null};
       calls.push(['authorize', name, args]);
       return name === 'inspect_personal_staff_qr'
         ? (patch.authorization || { data: { userId: user.id, deviceId: 'device-1' }, error: null })
@@ -31,6 +32,13 @@ function fixture(patch = {}) {
 function request(body = { qrToken: token, deviceToken: device, action: 'ログイン' }) {
   return new Request('https://test.invalid/qr-login', { method: 'POST', body: JSON.stringify(body) });
 }
+
+test('facility mode requires personal email/password for privileged staff and fails closed if policy lookup fails',async()=>{
+ for(const emailRequired of [{data:true,error:null},{data:null,error:{message:'internal'}}]){
+  const {calls,handle}=fixture({emailRequired});const result=await handle(request());assert([403,503].includes(result.status));
+  assert(!calls.some(row=>['link','verify'].includes(row[0])));
+ }
+});
 
 test('personal QR payload rejects legacy entrance QR and unrelated payloads', () => {
   assert.equal(parseAttendanceQrToken(attendanceQrPayload(token)), token);

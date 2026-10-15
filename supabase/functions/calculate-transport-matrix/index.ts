@@ -46,7 +46,7 @@ Deno.serve(async (request) => {
   if (!authorization) return jsonResponse({ error: 'Unauthorized' }, 401);
 
   const userClient = createClient(supabaseUrl, anonKey, {
-    global: { headers: { Authorization: authorization } },
+    global: { headers: { Authorization: authorization, 'x-support-device-token': request.headers.get('x-support-device-token') || '' } },
   });
   const accessToken = authorization.replace(/^Bearer\s+/i, '').trim();
   const { data: claimsData, error: claimsError } = await userClient.auth.getClaims(accessToken);
@@ -62,6 +62,8 @@ Deno.serve(async (request) => {
     return jsonResponse({ error: 'Manager access required' }, 403);
   }
 
+  const {data:sessionAllowed,error:sessionAccessError}=await userClient.rpc('facility_session_allowed');
+  if(sessionAccessError||sessionAllowed!==true)return jsonResponse({error:'このログインの端末承認・利用権限を確認してください。'},403);
   const body = await request.json().catch(() => null) as RequestBody | null;
   const locations = (Array.isArray(body?.locations) ? body.locations : []).map((location) => ({
     id: text(location.id, 100),

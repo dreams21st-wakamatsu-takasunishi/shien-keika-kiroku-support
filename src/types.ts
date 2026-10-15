@@ -348,6 +348,8 @@ export interface UserProfile {
   email?: string;
   recorderProfileId?: string;
   loginMethod?: 'email' | 'staff_id';
+  facilityLogin?: boolean;
+  facilityLoginExpiresAt?: string;
   fieldModeOnly?: boolean;
   accessDeviceId?: string;
   accessDeviceKind?: 'personal' | 'facility_shared' | 'unmanaged';

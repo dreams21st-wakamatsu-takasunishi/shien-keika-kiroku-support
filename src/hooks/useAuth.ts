@@ -4,6 +4,7 @@ import { isSupabaseConfigured, supabase } from '../lib/supabase';
 import { UserProfile } from '../types';
 import { getAccessDeviceLabel, getAccessDevicePlatform, getAccessDeviceToken } from '../utils/accessDevice';
 import { scanPersonalStaffQr } from '../services/staffQrService';
+import {selectFacilityStaff} from '../services/facilityLogin';
 
 function mapProfile(
   row: any,
@@ -48,6 +49,8 @@ async function fetchProfile(activeSession: Session): Promise<UserProfile> {
   if (!profileRow.active) {
     throw new Error('このアカウントは利用停止中です。管理者にお問い合わせください。');
   }
+  const {data:facilityState,error:facilityError}=await supabase.rpc('get_current_facility_login_state');
+  if(facilityError||facilityState?.allowed!==true)throw new Error('このログインは利用できません。端末承認・利用権限を確認し、特別権限の職員はメールでログインしてください。');
 
   // 事業所名の取得だけに失敗しても、記録画面へのログインは妨げない。
   const { data: organization } = await supabase
@@ -68,7 +71,7 @@ async function fetchProfile(activeSession: Session): Promise<UserProfile> {
   let fieldModeOnly = false;
   let accessDeviceId: string | undefined;
   let accessDeviceKind: UserProfile['accessDeviceKind'];
-  const { data: deviceAccessRows, error: deviceAccessError } = await supabase.rpc(
+  const { data: deviceAccessRows, error: deviceAccessError } = facilityState.facilityLogin===true?{data:[{access_allowed:true,field_mode_only:false,device_id:facilityState.deviceId,device_kind:'facility_shared'}],error:null}:await supabase.rpc(
     'get_current_staff_device_access',
     { p_device_token: getAccessDeviceToken() },
   );
@@ -87,7 +90,7 @@ async function fetchProfile(activeSession: Session): Promise<UserProfile> {
       : undefined;
   }
 
-  return mapProfile(
+  return {...mapProfile(
     profileRow,
     loginMethod === 'staff_id' ? undefined : activeSession.user.email,
     organization?.name,
@@ -96,7 +99,7 @@ async function fetchProfile(activeSession: Session): Promise<UserProfile> {
     fieldModeOnly,
     accessDeviceId,
     accessDeviceKind,
-  );
+  ),facilityLogin:facilityState.facilityLogin===true,facilityLoginExpiresAt:facilityState.facilityLogin===true?facilityState.expiresAt:undefined};
 }
 
 export function useAuth() {
@@ -197,9 +200,17 @@ export function useAuth() {
   }, [initialized, profileReloadKey, session]);
 
   useEffect(() => {
-    if (!supabase || !session || session.user.user_metadata?.login_method !== 'staff_id') return;
+    if (!supabase || !session) return;
     let active = true;
     const verifyDeviceAccess = async () => {
+      const {data:facilityState,error:facilityError}=await supabase!.rpc('get_current_facility_login_state');
+      if(!active)return;
+      if(!facilityError&&facilityState?.allowed===false){
+        setError('施設ログインの期限・端末承認・職員権限が変更されました。もう一度ログインしてください。');
+        setProfile(null);setSession(null);await supabase!.auth.signOut({scope:'local'});return;
+      }
+      if(facilityState?.facilityLogin===true)return;
+      if(session.user.user_metadata?.login_method!=='staff_id'&&!profile?.facilityLogin)return;
       const { data, error: accessError } = await supabase.rpc('get_current_staff_device_access', {
         p_device_token: getAccessDeviceToken(),
       });
@@ -331,6 +342,18 @@ export function useAuth() {
     }
   };
 
+  const signInWithFacilityChoice=async(ticket:string,recorderId:string,signal?:AbortSignal)=>{
+    if(!supabase)return {error:new Error('Supabaseが設定されていません。')};
+    setError(null);
+    try{
+      const tokens=await selectFacilityStaff(ticket,recorderId);
+      if(signal?.aborted)throw new Error('職員選択を中断しました。施設ログインからやり直してください。');
+      const {data,error}=await supabase.auth.setSession(tokens);
+      if(error||!data.session)throw error||new Error('ログイン状態を開始できませんでした。');
+      setSession(data.session);setLastInteractiveAuthAt(Date.now());setInitialized(true);return {error:null};
+    }catch(cause){return {error:cause instanceof Error?cause:new Error('施設ログインできませんでした。')};}
+  };
+
   const completePasswordSetup = async (password: string) => {
     if (!supabase || !session) {
       return { error: new Error('招待セッションを確認できません。招待メールのリンクをもう一度開いてください。') };
@@ -367,6 +390,7 @@ export function useAuth() {
     signIn,
     signInWithStaffId,
     signInWithAttendanceQr,
+    signInWithFacilityChoice,
     completePasswordSetup,
     signOut,
     reloadProfile,

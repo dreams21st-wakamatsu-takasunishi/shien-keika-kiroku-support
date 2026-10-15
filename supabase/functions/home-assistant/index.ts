@@ -2,7 +2,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-support-device-token',
 };
 
 const WEEKDAYS = ['月', '火', '水', '木', '金', '土', '日'] as const;
@@ -388,7 +388,7 @@ Deno.serve(async (request) => {
   if (!authorization) return jsonResponse({ error: 'Unauthorized' }, 401);
 
   const userClient = createClient(supabaseUrl, anonKey, {
-    global: { headers: { Authorization: authorization } },
+    global: { headers: { Authorization: authorization, 'x-support-device-token': request.headers.get('x-support-device-token') || '' } },
   });
   const accessToken = authorization.replace(/^Bearer\s+/i, '').trim();
   const { data: claimsData, error: claimsError } = await userClient.auth.getClaims(accessToken);
@@ -405,6 +405,8 @@ Deno.serve(async (request) => {
     .single();
   if (profileError || !profile?.active) return jsonResponse({ error: 'Profile not found' }, 403);
 
+  const {data:sessionAllowed,error:sessionAccessError}=await userClient.rpc('facility_session_allowed');
+  if(sessionAccessError||sessionAllowed!==true)return jsonResponse({error:'このログインの端末承認・利用権限を確認してください。'},403);
   const body = await request.json().catch(() => null) as RequestBody | null;
   const mode = body?.mode === 'execute' ? 'execute' : 'propose';
   const serviceClient = createClient(supabaseUrl, serviceRoleKey);
@@ -469,7 +471,7 @@ Deno.serve(async (request) => {
 
       if (actionType === 'update_child_profile') {
         const changes = proposal.profileChanges || {};
-        const updateFields: Record<string, string | null> = {};
+        const updateFields: Record<string, string | boolean | null> = {};
         if (Object.hasOwn(changes, 'name')) updateFields.name = String(changes.name).trim();
         if (Object.hasOwn(changes, 'kana')) updateFields.kana = String(changes.kana || '').trim() || null;
         if (Object.hasOwn(changes, 'birthDate')) updateFields.birth_date = normalizeDate(changes.birthDate);

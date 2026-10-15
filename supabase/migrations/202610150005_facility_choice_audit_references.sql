@@ -1,0 +1,10 @@
+-- Keep revocation evidence when a staff member/recorder/device is deleted.
+-- Deleting a session tombstone while its Auth token is still valid would restore the legacy path.
+alter table public.facility_login_sessions drop constraint facility_login_sessions_challenge_id_fkey;
+alter table public.facility_login_sessions drop constraint facility_login_sessions_device_id_fkey;
+alter table public.facility_login_sessions drop constraint facility_login_sessions_user_id_fkey;
+alter table public.facility_login_sessions drop constraint facility_login_sessions_recorder_id_fkey;
+alter table public.facility_login_challenges drop constraint facility_login_challenges_device_id_fkey;
+alter table public.facility_login_challenges drop constraint facility_login_challenges_selected_recorder_id_fkey;
+alter table public.facility_login_challenges drop constraint facility_login_challenges_selected_user_id_fkey;
+alter table public.facility_login_credentials drop constraint facility_login_credentials_updated_by_fkey;
