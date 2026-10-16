@@ -41,7 +41,7 @@ export const navigationItems: NavigationItem[] = [
   { id: 'records', tab: 'records', label: '記録一覧・確認', description: '保存済み記録の確認・修正・出力', keywords: '過去 PDF 印刷 コピー 承認', category: '記録・児童', tone: 'teal', icon: History },
   { id: 'meetings', tab: 'meetings', label: '会議支援', description: '事前情報とTiroへの受け渡し・会議中の確認', keywords: '担当者会議 保護者面談 ケース会議 準備 議題 Tiro', category: '記録・児童', tone: 'indigo', icon: Mic },
   { id: 'children', tab: 'children', label: '児童名簿', description: '児童情報・学校・利用曜日・送迎先', keywords: '住所 兄弟 基本予定 メモ', category: '記録・児童', tone: 'teal', icon: Users },
-  { id: 'learning', tab: 'learning', label: '学習管理', description: 'Dレッスンの実績・学習アカウント連携', keywords: 'パソコン 練習 成績 進捗', category: '記録・児童', tone: 'teal', icon: BookOpenCheck },
+  { id: 'learning', tab: 'learning', label: 'Dレッスン管理', description: '取り組み・課題・Word確認・教材とごほうび・アカウント', keywords: '学習管理 パソコン 練習 成績 進捗 文章課題 テーマ 演出 ご褒美 ごほうび', category: '記録・児童', tone: 'teal', icon: BookOpenCheck },
   { id: 'templates', tab: 'templates', label: '設定', description: '記録・学校・送迎の共通設定', keywords: '退所 時刻 エリア', tone: 'indigo', icon: Settings, managerOnly: true },
   { id: 'team', tab: 'team', label: '職員', description: '職員・権限・記録者', keywords: '端末 招待 名簿', tone: 'indigo', icon: ShieldCheck, managerOnly: true },
 ];

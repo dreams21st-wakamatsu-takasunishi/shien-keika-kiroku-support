@@ -1,0 +1,15 @@
+const [supportSha,lessonSha]=process.argv.slice(2);
+if(!/^[a-f0-9]{7,40}$/.test(supportSha||'')||!/^[a-f0-9]{7,40}$/.test(lessonSha||''))throw Error('Expected support SHA and lesson SHA');
+const base='https://dreams21st-wakamatsu-takasunishi.github.io/';
+const read=async url=>{const r=await fetch(url,{headers:{'Cache-Control':'no-cache'},signal:AbortSignal.timeout(30000)});if(!r.ok)throw Error(`Public asset unavailable: ${r.status}`);return r.text();};
+const asset=async path=>{const root=new URL(path,base),html=await read(root+'?contentVerify='+Date.now()),entry=html.match(/<script[^>]+src="((?:\.\/|\/)assets\/[^"?#]+\.js)"/)?.[1];if(!entry)throw Error('Public entry missing');return {html,js:await read(new URL(entry,root))};};
+const supportRoot=base+'shien-keika-kiroku-support/';
+const version=JSON.parse(await read(supportRoot+'version.json?contentVerify='+Date.now()));
+if(!String(version.version).startsWith(supportSha.slice(0,7)))throw Error('Support published version mismatch');
+const support=await asset('shien-keika-kiroku-support/');
+for(const marker of ['Dレッスン管理','文章課題の作成','ごほうびの作成','lesson-managed-content','manage_learning_content','対象学習グループ','配布方法','Word確認','事業所の一括課題履歴'])if(!support.js.includes(marker))throw Error('Support content feature missing: '+marker);
+const lesson=await asset('d-lesson-v4/');
+if(!lesson.js.includes(`BUILD_COMMIT = "${lessonSha}"`))throw Error('Lesson published commit mismatch');
+for(const marker of ['lesson_campus_content','lesson_reward_grants','campusLearningSettings','getLearningSettings','ct.distribution !== "present"','ce.distribution !== "present"'])if(!lesson.js.includes(marker))throw Error('Lesson runtime missing: '+marker);
+for(const marker of ['全体共通の文章課題','全体共通のごほうび'])if(!lesson.html.includes(marker))throw Error('Global scope label missing');
+console.log('PASS: both public versions and feature assets verified; no personal records read or changed');

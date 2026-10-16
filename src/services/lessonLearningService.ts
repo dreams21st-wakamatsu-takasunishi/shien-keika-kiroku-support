@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import {parseCampusContent,parseContentCampuses,parseContentItem,type CampusContent,type ContentKind,type ContentItem} from '../learning/managedContent';
 import { getAccessDeviceToken } from '../utils/accessDevice';
 import type { LessonHistory, LessonIdentity, LessonLink } from '../learning/contracts';
 import type {WordReviewRequest,WordReviewInbox} from '../learning/wordReviews';
@@ -31,7 +32,18 @@ async function invoke<T>(body: Record<string, unknown>, endpoint = 'lesson-learn
   return data as T;
 }
 
-export const loadLessonLinks = () => invoke<{ links: LessonLink[]; canManageLinks: boolean; canManageAccounts?: boolean; canIssueAccounts?: boolean; canViewTaskAudit?: boolean; configured: boolean }>({ action: 'list' });
+export const loadLessonLinks = () => invoke<{ links: LessonLink[]; canManageLinks: boolean; canManageAccounts?: boolean; canIssueAccounts?: boolean; canViewTaskAudit?: boolean; canManageContent?: boolean; configured: boolean }>({ action: 'list' });
+export const loadContentCampuses=async()=>parseContentCampuses(await invoke({action:'list'},'lesson-managed-content'));
+export const loadCampusContent=async(campusId:string,organizationId:string)=>parseCampusContent(await invoke({action:'get',campusId},'lesson-managed-content'),campusId,organizationId);
+export const saveCampusContent=async(snapshot:CampusContent,kind:ContentKind,item:ContentItem,operationId:string)=>{
+ const normalized=parseContentItem(kind,item);
+ const raw=await invoke<Record<string,unknown>>({action:'save',campusId:snapshot.campusId,revision:snapshot.revision,fingerprint:snapshot.fingerprint,kind,item:normalized,operationId,confirmed:true},'lesson-managed-content');
+ const saved=parseCampusContent(raw,snapshot.campusId,snapshot.organizationId);
+ const actual=saved.content[kind].find(row=>row.id===normalized.id);
+ if(saved.sourceProject!==snapshot.sourceProject||saved.revision!==snapshot.revision+1||raw.operationId!==operationId||!actual||JSON.stringify(actual)!==JSON.stringify(normalized)
+  ||!Number.isSafeInteger(raw.giftedCount)||Number(raw.giftedCount)<0)throw Error('保存結果を確認できません。再取得してください。');
+ return {snapshot:saved,giftedCount:Number(raw.giftedCount)};
+};
 export const loadTaskAuditPage=async(filters:AuditFilters,cursor:AuditCursor|null)=>parseAuditPage(await invoke({action:'list',filters,cursor},'lesson-task-audit'),filters,cursor);
 export const loadTaskAuditDetail=async(operationId:string,organizationId:string)=>parseAuditDetail(await invoke({action:'detail',operationId,filters:initialAuditFilters,cursor:null},'lesson-task-audit'),operationId,organizationId);
 export const loadTaskBatchConfiguration=async()=>parseBatchConfiguration(await invoke({action:'configuration'},'lesson-task-batches'));

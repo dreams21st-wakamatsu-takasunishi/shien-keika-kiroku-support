@@ -184,6 +184,7 @@ export default function App() {
   const organizationId = auth.profile?.organizationId;
   const [activeTab, setActiveTab] = useState<ActiveTab | 'preview'>('home');
   const [learningReviewFocus,setLearningReviewFocus]=useState(0);
+  const [learningDirty,setLearningDirty]=useState(false);
   const [meetingDirty, setMeetingDirty] = useState(false);
   const [activityDirty, setActivityDirty] = useState(false);
   const [facilityDirty, setFacilityDirty] = useState(false);
@@ -2147,6 +2148,7 @@ export default function App() {
   };
 
   const returnToHomeMenu = () => {
+    if(learningDirty&&!window.confirm('Dレッスン管理の変更が未保存です。破棄して移動しますか？'))return;
     if(documentDirty){alert('保管書類の入力が未保存です。先に保存するか入力を戻してください。');return;}
     if (trainingDirty && !window.confirm('法定研修の入力が未保存です。画面を移動しますか？')) return;
     if (activeTab === 'facilityWork' && facilityDirty && !window.confirm('施設業務の変更が保存されていません。画面を移動しますか？')) return;
@@ -2175,6 +2177,7 @@ export default function App() {
         activeTab={activeTab === 'preview' ? 'records' : activeTab}
         activeHomeWorkspace={homeWorkspace}
         setActiveTab={(tab) => {
+          if(tab!=='home'&&tab!=='learning'&&learningDirty&&!window.confirm('Dレッスン管理の変更が未保存です。破棄して移動しますか？'))return;
           if(documentDirty&&tab!=='children'){alert('保管書類の入力が未保存です。先に保存するか入力を戻してください。');return;}
           if (trainingDirty && !window.confirm('法定研修の入力が未保存です。画面を移動しますか？')) return;
           if (activeTab === 'facilityWork' && tab !== 'facilityWork' && tab !== 'home' && facilityDirty && !window.confirm('施設業務の変更が保存されていません。画面を移動しますか？')) return;
@@ -2190,11 +2193,12 @@ export default function App() {
           setActiveTab(tab);
         }}
         unapprovedCount={unapprovedCount}
-        onNewRecord={handleNewRecordClick}
+        onNewRecord={()=>{if(learningDirty&&!window.confirm('Dレッスン管理の変更が未保存です。破棄して移動しますか？'))return;handleNewRecordClick();}}
         currentUser={auth.profile}
         activeRecorder={activeRecorder}
         onSaveMenuPreferences={handleSaveRecorderMenuPreferences}
         onOpenHomeWorkspace={(workspace) => {
+          if(learningDirty&&!window.confirm('Dレッスン管理の変更が未保存です。破棄して移動しますか？'))return;
           if(documentDirty){alert('保管書類の入力が未保存です。先に保存するか入力を戻してください。');return;}
           if (trainingDirty && !window.confirm('法定研修の入力が未保存です。画面を移動しますか？')) return;
           if (activeTab === 'facilityWork' && facilityDirty && !window.confirm('施設業務の変更が保存されていません。画面を移動しますか？')) return;
@@ -2206,13 +2210,14 @@ export default function App() {
         }}
         onOpenFieldOperations={auth.profile?.recorderProfileId ? () => {if(documentDirty){alert('保管書類の入力が未保存です。先に保存するか入力を戻してください。');return;}if(trainingDirty&&!window.confirm('法定研修の入力が未保存です。送迎画面へ移動しますか？'))return;setFieldOperationsOpen(true);} : undefined}
         onSignOut={remoteMode ? async () => {
+          if(learningDirty&&!window.confirm('Dレッスン管理の変更が未保存です。破棄してログアウトしますか？'))return;
           if(documentDirty){alert('保管書類の入力が未保存です。先に保存するか入力を戻してください。');return;}
           sessionStorage.removeItem('support-record-list-view-v1');
           await auth.signOut();
         } : undefined}
         onSwitchUser={remoteMode?async()=>{
           await switchUserSafely({
-            dirtyAreas:[trainingDirty?'法定研修':'',activityDirty?'活動・指導案':'',facilityDirty?'施設業務':'',meetingDirty?'会議':'',documentDirty?'保管書類':''].filter(Boolean),
+            dirtyAreas:[trainingDirty?'法定研修':'',activityDirty?'活動・指導案':'',facilityDirty?'施設業務':'',meetingDirty?'会議':'',documentDirty?'保管書類':'',learningDirty?'Dレッスン管理':''].filter(Boolean),
             prepare:prepareUserSwitchRef.current,
             signOut:auth.signOut,
             reset:()=>{
@@ -2234,6 +2239,7 @@ export default function App() {
           announcement={activeInAppAnnouncement}
           queuedCount={inAppAnnouncementQueue.length}
           onOpen={() => {
+            if(learningDirty&&!window.confirm('Dレッスン管理の変更が未保存です。破棄して移動しますか？'))return;
             setActiveTab('home');
             setHomeWorkspace('communication');
             setAnnouncementFocusToken((current) => current + 1);
@@ -2485,7 +2491,7 @@ export default function App() {
           <ChildrenManager childrenList={childrenList} schools={schools} transportRouteSettings={transportRouteSettings} canEdit={canManageChildren} currentUser={auth.profile} onDocumentDirtyChange={setDocumentDirty} onAddChild={handleAddChild} onUpdateChild={handleUpdateChild} onDeleteChild={handleDeleteChild} />
         )}
         {activeTab === 'learning' && !auth.profile?.fieldModeOnly && (
-          <LessonLearningManager scopeKey={`${organizationId || 'local'}:${auth.profile?.id || 'local'}:${auth.profile?.role || 'local'}`} childrenList={childrenList} remoteMode={remoteMode} reviewFocus={learningReviewFocus}/>
+          <LessonLearningManager scopeKey={`${organizationId || 'local'}:${auth.profile?.id || 'local'}:${auth.profile?.role || 'local'}`} childrenList={childrenList} remoteMode={remoteMode} reviewFocus={learningReviewFocus} onDirtyChange={setLearningDirty}/>
         )}
         {activeTab === 'legalTraining' && <LegalTrainingWorkspace key={`${organizationId||'local'}:${auth.profile?.id||'local-demo'}`} user={auth.profile||{id:'local-demo',organizationId:'local',displayName:'試用者',role:'admin'}} onSignOut={remoteMode?auth.signOut:undefined} />}
         {FEATURE_FLAGS.supportPlansAndFiveDomains && activeTab === 'plans' && (
@@ -2631,7 +2637,7 @@ function ScreenContextBar({
     meetings: { title: '会議支援', description: '事前情報とTiroへの受け渡し・会議中の確認' },
     preview: { title: '記録確認', description: '内容確認・修正指摘・承認' },
     children: { title: '児童名簿', description: '児童情報・利用曜日の管理' },
-    learning: { title: '学習管理', description: 'Dレッスンの実績・アカウント連携' },
+    learning: { title: 'Dレッスン管理', description: '取り組み・課題・Word確認・教材とごほうび・アカウント' },
     trafficCost: { title: '交通費計算', description: '外出活動の費用をかんたんに計算' },
     activityPlans: { title: '活動・指導案', description: 'ひな形から作成・準備確認・振り返り・印刷' },
     facilityWork: { title: '施設業務', description: '日常点検・備品補充・おたより作成' },

@@ -14,17 +14,22 @@ import { LessonProgressPanel } from './LessonProgressPanel';
 import { LessonAccountPanel } from './LessonAccountPanel';
 import { LessonCredentialPanel } from './LessonCredentialPanel';
 import { LessonStudentRegistrationPanel } from './LessonStudentRegistrationPanel';
+import { LessonContentManager } from './LessonContentManager';
 
-export function LessonLearningManager({ childrenList, remoteMode, scopeKey,reviewFocus=0 }: { childrenList: ChildProfile[]; remoteMode: boolean; scopeKey: string;reviewFocus?:number }) {
-  const [tab, setTab] = useState<'history' | 'links'|'reviews'|'tasks'|'progress'>('history');
+export function LessonLearningManager({ childrenList, remoteMode, scopeKey,reviewFocus=0,onDirtyChange }: { childrenList: ChildProfile[]; remoteMode: boolean; scopeKey: string;reviewFocus?:number;onDirtyChange?:(dirty:boolean)=>void }) {
+  const [tab, setTab] = useState<'history' | 'links'|'reviews'|'tasks'|'progress'|'texts'|'rewards'>('history');
+  const contentDirty=useRef(false);
+  const contentDirtyChanged=useCallback((dirty:boolean)=>{contentDirty.current=dirty;onDirtyChange?.(dirty);},[onDirtyChange]);
+  const canLeaveContent=()=>!contentDirty.current||window.confirm('保存していない変更を破棄しますか？');
   const [taskMode,setTaskMode]=useState<'individual'|'batch'|'audit'>('individual');
-  useEffect(()=>{if(reviewFocus){setTab('reviews');setChildId('');}},[reviewFocus]);
+  useEffect(()=>{if(reviewFocus&&canLeaveContent()){setTab('reviews');setChildId('');}},[reviewFocus]);
   const [links, setLinks] = useState<LessonLink[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [canManage, setCanManage] = useState(false);
   const [canManageAccounts, setCanManageAccounts] = useState(false);
   const [canIssueAccounts, setCanIssueAccounts] = useState(false);
   const [canViewTaskAudit,setCanViewTaskAudit]=useState(false);
+  const [canManageContent,setCanManageContent]=useState(false);
   const [configured, setConfigured] = useState(false);
   const [childId, setChildId] = useState('');
   const [search, setSearch] = useState('');
@@ -46,12 +51,12 @@ export function LessonLearningManager({ childrenList, remoteMode, scopeKey,revie
 
   const refresh = useCallback(async () => {
     const version = ++listVersion.current;
-    setListBusy(remoteMode); setListError(''); setLoaded(false); setLinks([]); setCanManage(false); setCanManageAccounts(false); setCanIssueAccounts(false); setCanViewTaskAudit(false); setConfigured(false); setHistory(null); setCandidate(null); setConfirmed(false);
+    setListBusy(remoteMode); setListError(''); setLoaded(false); setLinks([]); setCanManage(false); setCanManageAccounts(false); setCanIssueAccounts(false); setCanViewTaskAudit(false); setCanManageContent(false); setConfigured(false); setHistory(null); setCandidate(null); setConfirmed(false);
     if (!remoteMode) return;
     try {
       const result = await loadLessonLinks();
       if (version !== listVersion.current) return;
-      setLinks(result.links); setCanManage(result.canManageLinks); setCanManageAccounts(result.canManageAccounts === true); setCanIssueAccounts(result.canIssueAccounts === true); setCanViewTaskAudit(result.canViewTaskAudit === true); setConfigured(result.configured); setLoaded(true);
+      setLinks(result.links); setCanManage(result.canManageLinks); setCanManageAccounts(result.canManageAccounts === true); setCanIssueAccounts(result.canIssueAccounts === true); setCanViewTaskAudit(result.canViewTaskAudit === true); setCanManageContent(result.canManageContent === true); setConfigured(result.configured); setLoaded(true);
     } catch (error) {
       if (version === listVersion.current) setListError(error instanceof Error ? error.message : '連携一覧を取得できませんでした。');
     } finally { if (version === listVersion.current) setListBusy(false); }
@@ -95,17 +100,18 @@ export function LessonLearningManager({ childrenList, remoteMode, scopeKey,revie
   return <div className="mx-auto max-w-[1400px] space-y-4">
     <ManualLinks screen="learning" section={tab === 'tasks' ? taskMode : tab} />
     <section className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 pb-3">
-      <h2 className="flex items-center gap-2 text-lg font-bold text-slate-950"><BookOpenCheck className="h-5 w-5 text-teal-700" />学習管理</h2>
-      <button type="button" onClick={() => void refresh()} disabled={!remoteMode || busy} title="連携一覧を更新" className="flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${busy ? 'animate-spin' : ''}`} />更新</button>
+      <h2 className="flex items-center gap-2 text-lg font-bold text-slate-950"><BookOpenCheck className="h-5 w-5 text-teal-700" />Dレッスン管理</h2>
+      <button type="button" onClick={() => {if(canLeaveContent())void refresh();}} disabled={!remoteMode || busy} title="連携一覧を更新" className="flex min-h-10 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${busy ? 'animate-spin' : ''}`} />更新</button>
     </section>
     {!remoteMode && <p role="status" className="border-l-4 border-amber-500 bg-amber-50 px-4 py-3 text-sm text-amber-950">学習連携には職員ログインとクラウド接続が必要です。</p>}
     {remoteMode && loaded && !configured && <p role="status" className="border-l-4 border-amber-500 bg-amber-50 px-4 py-3 text-sm text-amber-950">学習連携のサーバー設定が未完了です。</p>}
     {error && <p role="alert" className="border-l-4 border-rose-500 bg-rose-50 px-4 py-3 text-sm text-rose-900">{error}</p>}
     {listError && <p role="alert" className="border-l-4 border-rose-500 bg-rose-50 px-4 py-3 text-sm text-rose-900">{listError}</p>}
     {message && <p role="status" className="flex items-center gap-2 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"><Check className="h-4 w-4" />{message}</p>}
-    <div role="tablist" aria-label="学習管理の表示" className="flex flex-wrap gap-1 border-b border-slate-200">
-      {([['history', '当日の取り組み'], ['progress', '児童別進捗'], ['tasks','課題の指定'], ['reviews','Word確認'], ['links', 'アカウント連携']] as const).map(([value, label]) => <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => setTab(value)} className={`min-h-11 border-b-2 px-4 text-sm font-bold ${tab === value ? 'border-teal-700 text-teal-800' : 'border-transparent text-slate-600'}`}>{label}</button>)}
+    <div role="tablist" aria-label="Dレッスン管理の表示" className="flex flex-wrap gap-1 border-b border-slate-200">
+      {([['history', '当日の取り組み'], ['progress', '児童別進捗'], ['tasks','課題の指定'], ['reviews','Word確認'], ['links', 'アカウント連携'],['texts','文章課題の作成'],['rewards','ごほうびの作成']] as const).filter(([value])=>!['texts','rewards'].includes(value)||canManageContent).map(([value, label]) => <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => {if(tab===value||canLeaveContent())setTab(value);}} className={`min-h-11 border-b-2 px-4 text-sm font-bold ${tab === value ? 'border-teal-700 text-teal-800' : 'border-transparent text-slate-600'}`}>{label}</button>)}
     </div>
+    {(tab==='texts'||tab==='rewards')&&(loaded&&configured&&remoteMode&&canManageContent?<LessonContentManager key={`${scopeKey}:${tab}`} mode={tab} scopeKey={scopeKey} onDirtyChange={contentDirtyChanged}/>:<p role="status" className="py-6 text-sm text-slate-600">教材・ごほうび作成の権限と接続を確認してください。</p>)}
     {tab==='tasks'&&<div role="group" aria-label="課題指定の対象" className="flex gap-1 border-b border-slate-200 pb-3">{([['individual','児童ごと'],['batch','まとめて指定']] as const).map(([mode,label])=><button key={mode} type="button" aria-pressed={taskMode===mode} disabled={mode==='batch'&&(!loaded||!configured||!canManage||!remoteMode)} onClick={()=>setTaskMode(mode)} className={`min-h-10 rounded-lg border px-4 text-sm font-bold disabled:opacity-50 ${taskMode===mode?'border-teal-700 bg-teal-50 text-teal-900':'border-slate-300'}`}>{label}</button>)}</div>}
     {tab==='tasks'&&loaded&&canViewTaskAudit&&remoteMode&&<button type="button" aria-pressed={taskMode==='audit'} onClick={()=>setTaskMode(taskMode==='audit'?'individual':'audit')} className={`flex min-h-10 items-center gap-2 rounded-lg border px-3 text-sm font-bold ${taskMode==='audit'?'border-teal-700 bg-teal-50 text-teal-900':'border-slate-300'}`}><Search className="h-4 w-4"/>事業所の一括課題履歴</button>}
     {tab === 'tasks' && taskMode==='individual' && <div className="flex flex-wrap items-end gap-3">
@@ -117,7 +123,7 @@ export function LessonLearningManager({ childrenList, remoteMode, scopeKey,revie
       </label>
       <p role="status" className="py-2 text-xs text-slate-600">{listBusy ? '連携情報を読み込み中...' : loaded ? `${childrenList.length}名・連携済み ${links.filter(link => childrenList.some(child => child.id === link.child_id)).length}名` : remoteMode ? '連携情報を取得できていません。' : 'クラウド未接続'}</p>
     </div>}
-    <div className={`grid min-w-0 gap-5 ${tab === 'tasks' ? '' : 'lg:grid-cols-[280px_minmax(0,1fr)]'}`}>
+    {tab!=='texts'&&tab!=='rewards'&&<div className={`grid min-w-0 gap-5 ${tab === 'tasks' ? '' : 'lg:grid-cols-[280px_minmax(0,1fr)]'}`}>
       {tab !== 'tasks' && <aside className="min-w-0 border-b border-slate-200 pb-4 lg:border-b-0 lg:border-r lg:pr-5">
         <label className="relative block"><Search className="absolute left-3 top-3 h-4 w-4 text-slate-500" /><input aria-label="児童を検索" value={search} onChange={event => setSearch(event.target.value)} placeholder="児童名で検索" className="min-h-10 w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-3 text-sm" /></label>
         <p className="my-3 text-xs text-slate-600">{filtered.length}名・連携済み {loaded ? links.filter(link => childrenList.some(child => child.id === link.child_id)).length : '—'}名</p>
@@ -158,6 +164,6 @@ export function LessonLearningManager({ childrenList, remoteMode, scopeKey,revie
           {tab === 'links' && remoteMode && configured && loaded && canManage && canIssueAccounts && <div key={`register:${scopeKey}:${childId}`}><LessonStudentRegistrationPanel childId={childId} hasLink={Boolean(selectedLink)} onCompleted={() => void refresh()} /></div>}
         </>}
       </section>
-    </div>
+    </div>}
   </div>;
 }
