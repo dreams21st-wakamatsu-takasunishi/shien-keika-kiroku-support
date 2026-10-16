@@ -973,6 +973,21 @@ export default function App() {
     );
   }
   if (dataLoading || (remoteMode && auth.profile && loadedOrganizationIdRef.current !== auth.profile.organizationId && !dataError)) return <LoadingScreen text="事業所データを読み込んでいます..." />;
+  if (remoteMode && auth.profile && loadedOrganizationIdRef.current !== auth.profile.organizationId) {
+    // Never fall through to a previous account's in-memory data when the new
+    // account's first read fails. Only a successful scoped load opens the UI.
+    return <main className="flex min-h-screen items-center justify-center bg-slate-100 p-6">
+      <section role="alert" className="max-w-lg space-y-3 rounded-xl border border-amber-300 bg-white p-6 text-sm text-slate-800">
+        <h1 className="font-black">事業所データを読み込めませんでした</h1>
+        <p>{dataError || '通信状況を確認して再試行してください。'}</p>
+        <p>取得が完了するまで、以前のログインユーザーのデータは表示しません。記録や下書きは削除していません。</p>
+        <div className="flex flex-wrap gap-3">
+          <button type="button" className="min-h-11 rounded-lg bg-teal-700 px-4 font-bold text-white" onClick={() => void refreshRemoteData()}>事業所データの読み込みを再試行</button>
+          <button type="button" className="min-h-11 rounded-lg border px-4 font-bold" onClick={() => void auth.signOut()}>ログアウト</button>
+        </div>
+      </section>
+    </main>;
+  }
   const privacyRecorder = recorderProfiles.find((recorder) =>
     recorder.id === auth.profile?.recorderProfileId
   ) || activeRecorder || (auth.profile?.recorderProfileId ? {

@@ -10,6 +10,9 @@ test('personal-device mode still returns without loading the shared workspace an
   assert.ok(refresh.includes('!current()'));
   assert.equal((source.match(/table: 'recorder_profiles'.*scheduleRemoteRefresh/g)||[]).length,1);
   assert.ok(source.includes('previouslySubscribed && !workspaceRealtimeReadyRef.current'));
+  const gate=source.indexOf('事業所データを読み込めませんでした');
+  assert.ok(gate>0&&gate<source.indexOf('const privacyRecorder ='));
+  assert.ok(source.slice(gate,source.indexOf('const privacyRecorder =')).includes('事業所データの読み込みを再試行'));
 });
 test('optimized snapshot retains organization and complete overwrite content, while guarded writes and draft CAS remain',()=>{
   const source=read('src/services/dataService.ts'),snapshot=source.split('export async function loadRecordSaveSnapshot')[1].split('export function saveRecords')[0];
