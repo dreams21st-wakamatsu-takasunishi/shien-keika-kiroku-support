@@ -5,6 +5,8 @@ import { UserProfile } from '../types';
 import { getAccessDeviceLabel, getAccessDevicePlatform, getAccessDeviceToken } from '../utils/accessDevice';
 import { scanPersonalStaffQr } from '../services/staffQrService';
 import {selectFacilityStaff} from '../services/facilityLogin';
+import { measureOperation } from '../services/performanceMetrics';
+import { sameUserProfile } from '../utils/userProfileIdentity';
 
 function mapProfile(
   row: any,
@@ -53,13 +55,16 @@ async function fetchProfile(activeSession: Session): Promise<UserProfile> {
   if(facilityError||facilityState?.allowed!==true)throw new Error('このログインは利用できません。端末承認・利用権限を確認し、特別権限の職員はメールでログインしてください。');
 
   // 事業所名の取得だけに失敗しても、記録画面へのログインは妨げない。
-  const { data: organization } = await supabase
-    .from('organizations')
-    .select('name')
-    .eq('id', profileRow.organization_id)
-    .maybeSingle();
-
-  const { data: recorderProfileId, error: recorderError } = await supabase.rpc('current_recorder_profile_id');
+  // These reads are independent once facility access has been verified. Do
+  // not serialize organization labels, recorder binding and device policy.
+  const [{ data: organization }, { data: recorderProfileId, error: recorderError },
+    { data: deviceAccessRows, error: deviceAccessError }] = await Promise.all([
+    supabase.from('organizations').select('name').eq('id', profileRow.organization_id).maybeSingle(),
+    supabase.rpc('current_recorder_profile_id'),
+    facilityState.facilityLogin === true
+      ? Promise.resolve({ data: [{ access_allowed: true, field_mode_only: false, device_id: facilityState.deviceId, device_kind: 'facility_shared' }], error: null })
+      : supabase.rpc('get_current_staff_device_access', { p_device_token: getAccessDeviceToken() }),
+  ]);
   if (recorderError && recorderError.code !== 'PGRST202') {
     throw new Error(`職員情報を確認できませんでした: ${recorderError.message}`);
   }
@@ -71,10 +76,6 @@ async function fetchProfile(activeSession: Session): Promise<UserProfile> {
   let fieldModeOnly = false;
   let accessDeviceId: string | undefined;
   let accessDeviceKind: UserProfile['accessDeviceKind'];
-  const { data: deviceAccessRows, error: deviceAccessError } = facilityState.facilityLogin===true?{data:[{access_allowed:true,field_mode_only:false,device_id:facilityState.deviceId,device_kind:'facility_shared'}],error:null}:await supabase.rpc(
-    'get_current_staff_device_access',
-    { p_device_token: getAccessDeviceToken() },
-  );
   if (deviceAccessError && deviceAccessError.code !== 'PGRST202') {
     throw new Error(`端末の利用状態を確認できませんでした: ${deviceAccessError.message}`);
   }
@@ -179,10 +180,10 @@ export function useAuth() {
     // form inputs and unsaved edits are not destroyed by a full-screen loader.
     const blockingInitialLoad = profileRef.current === null;
     if (blockingInitialLoad) setLoading(true);
-    void fetchProfile(session)
+    void measureOperation('auth.profile', () => fetchProfile(session))
       .then((nextProfile) => {
         if (!active) return;
-        setProfile(nextProfile);
+        setProfile(previous => sameUserProfile(previous, nextProfile) ? previous : nextProfile);
         setError(null);
       })
       .catch((profileError: unknown) => {

@@ -63,6 +63,9 @@ import { currentSchoolHolidayPeriods } from '../utils/schoolHoliday';
 import { getLocalDateString } from '../utils/weekdays';
 import { getAccessDeviceLabel, getAccessDevicePlatform, getAccessDeviceToken } from '../utils/accessDevice';
 import { resolvedTransportArea } from '../utils/transportArea';
+import { runWorkspaceQueries, selectWorkspacePatch } from './workspaceLoadPlan';
+import { measureOperation } from './performanceMetrics';
+import { RECORD_DRAFT_SUMMARY_SELECT, recordSaveSnapshotFilter } from './recordReadModel';
 
 export interface WorkspaceData {
   children: ChildProfile[];
@@ -101,17 +104,15 @@ function assertSupabase() {
   return supabase;
 }
 
-async function loadSupportRecordsWithRetry(organizationId: string) {
+async function loadSupportRecordsWithRetry(organizationId: string, recordIds?: readonly string[]) {
   const client = assertSupabase();
   const retryDelays = [350, 900];
 
   for (let attempt = 0; ; attempt += 1) {
-    const result = await client
-      .from('support_records')
-      .select('*')
-      .eq('organization_id', organizationId)
-      .is('deleted_at', null)
-      .order('record_date', { ascending: false });
+    const query = client.from('support_records').select('*').eq('organization_id', organizationId);
+    const result = await (recordIds?.length
+      ? query.in('id', [...recordIds])
+      : query.is('deleted_at', null).order('record_date', { ascending: false }));
 
     const isTransientServerError = result.status >= 500 && result.status < 600;
     if (!result.error || !isTransientServerError || attempt >= retryDelays.length) return result;
@@ -768,7 +769,11 @@ function mapAiWritingSettings(row: any): AiWritingSettings {
   };
 }
 
-export async function loadWorkspaceData(organizationId: string): Promise<WorkspaceData> {
+export function loadWorkspaceData(organizationId: string, changedTables?: readonly string[], recordIds?: readonly string[]): Promise<WorkspaceData> {
+  return measureOperation(changedTables ? 'workspace.refresh' : 'workspace.initial', () => loadWorkspaceDataInternal(organizationId, changedTables, recordIds));
+}
+
+async function loadWorkspaceDataInternal(organizationId: string, changedTables?: readonly string[], recordIds?: readonly string[]): Promise<WorkspaceData> {
   const client = assertSupabase();
   const [
     childrenResult,
@@ -801,38 +806,47 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     transportRouteSettingsResult,
     transportMapLocationsResult,
     transportAreaZonesResult,
-  ] = await Promise.all([
-    client.from('children').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('name'),
-    client.from('schools').select('*').eq('organization_id', organizationId).order('name'),
-    client.from('child_regular_day_schedules').select('*').eq('organization_id', organizationId).order('effective_from'),
-    client.from('recorder_profiles').select('id, display_name, active, pin_configured, employee_code, job_title, employment_type, contracted_weekly_hours, part_time_weekday_work_days, part_time_weekday_start_time, part_time_weekday_end_time, part_time_holiday_work_days, part_time_holiday_start_time, part_time_holiday_end_time, shift_request_default_start_time, shift_request_default_end_time, individual_login_enabled, individual_login_role, menu_preferences, created_at').eq('organization_id', organizationId).eq('active', true).order('display_name'),
-    client.from('record_templates').select('*').eq('organization_id', organizationId).is('archived_at', null).order('created_at'),
-    loadSupportRecordsWithRetry(organizationId),
-    client.from('handover_items').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }),
-    client.from('handover_confirmations').select('*').eq('organization_id', organizationId).order('confirmed_at', { ascending: false }),
-    client.from('morning_meeting_records').select('*').eq('organization_id', organizationId).order('meeting_date', { ascending: false }),
-    client.from('morning_meeting_templates').select('*').eq('organization_id', organizationId).is('archived_at', null).order('updated_at', { ascending: false }),
-    client.from('morning_meeting_confirmations').select('*').eq('organization_id', organizationId).order('confirmed_at', { ascending: false }),
-    client.from('support_plans').select('*').eq('organization_id', organizationId).order('valid_from', { ascending: false }),
-    client.from('organization_ai_settings').select('*').eq('organization_id', organizationId).maybeSingle(),
-    client.from('announcements').select('*').eq('organization_id', organizationId).is('archived_at', null).order('published_at', { ascending: false }),
-    client.from('announcement_confirmations').select('*').eq('organization_id', organizationId).order('read_at', { ascending: false }),
-    client.from('staff_schedule_items').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }).order('start_time'),
-    client.from('calendar_events').select('*').eq('organization_id', organizationId).order('event_date', { ascending: false }).order('start_time'),
-    client.from('daily_child_plans').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }),
-    client.from('attendance_records').select('*').eq('organization_id', organizationId).order('work_date', { ascending: false }),
-    client.from('staff_shift_templates').select('*').eq('organization_id', organizationId).eq('active', true).order('name'),
-    client.from('staff_shift_requests').select('*').eq('organization_id', organizationId).order('requested_date', { ascending: false }),
-    client.from('organization_role_permissions').select('role, permissions, updated_at').eq('organization_id', organizationId),
-    client.from('attendance_correction_requests').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }),
-    client.from('vehicles').select('*').eq('organization_id', organizationId).order('name'),
-    client.from('transport_runs').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }).order('start_time'),
-    client.from('transport_plan_days').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }),
-    client.from('daily_transport_requirements').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }),
-    client.from('transport_route_settings').select('*').eq('organization_id', organizationId).eq('id', 'default').maybeSingle(),
-    client.from('transport_map_locations').select('*').eq('organization_id', organizationId).order('location_name'),
-    client.from('transport_area_zones').select('*').eq('organization_id', organizationId).order('priority').order('name'),
-  ]);
+  ] = await runWorkspaceQueries<any>(changedTables, [
+    () => client.from('children').select('*').eq('organization_id', organizationId).is('deleted_at', null).order('name'),
+    () => client.from('schools').select('*').eq('organization_id', organizationId).order('name'),
+    () => client.from('child_regular_day_schedules').select('*').eq('organization_id', organizationId).order('effective_from'),
+    () => client.from('recorder_profiles').select('id, display_name, active, pin_configured, employee_code, job_title, employment_type, contracted_weekly_hours, part_time_weekday_work_days, part_time_weekday_start_time, part_time_weekday_end_time, part_time_holiday_work_days, part_time_holiday_start_time, part_time_holiday_end_time, shift_request_default_start_time, shift_request_default_end_time, individual_login_enabled, individual_login_role, menu_preferences, created_at').eq('organization_id', organizationId).eq('active', true).order('display_name'),
+    () => client.from('record_templates').select('*').eq('organization_id', organizationId).is('archived_at', null).order('created_at'),
+    () => loadSupportRecordsWithRetry(organizationId, recordIds),
+    () => client.from('handover_items').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }),
+    () => client.from('handover_confirmations').select('*').eq('organization_id', organizationId).order('confirmed_at', { ascending: false }),
+    () => client.from('morning_meeting_records').select('*').eq('organization_id', organizationId).order('meeting_date', { ascending: false }),
+    () => client.from('morning_meeting_templates').select('*').eq('organization_id', organizationId).is('archived_at', null).order('updated_at', { ascending: false }),
+    () => client.from('morning_meeting_confirmations').select('*').eq('organization_id', organizationId).order('confirmed_at', { ascending: false }),
+    () => client.from('support_plans').select('*').eq('organization_id', organizationId).order('valid_from', { ascending: false }),
+    () => client.from('organization_ai_settings').select('*').eq('organization_id', organizationId).maybeSingle(),
+    () => client.from('announcements').select('*').eq('organization_id', organizationId).is('archived_at', null).order('published_at', { ascending: false }),
+    () => client.from('announcement_confirmations').select('*').eq('organization_id', organizationId).order('read_at', { ascending: false }),
+    () => client.from('staff_schedule_items').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }).order('start_time'),
+    () => client.from('calendar_events').select('*').eq('organization_id', organizationId).order('event_date', { ascending: false }).order('start_time'),
+    () => client.from('daily_child_plans').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }),
+    () => client.from('attendance_records').select('*').eq('organization_id', organizationId).order('work_date', { ascending: false }),
+    () => client.from('staff_shift_templates').select('*').eq('organization_id', organizationId).eq('active', true).order('name'),
+    () => client.from('staff_shift_requests').select('*').eq('organization_id', organizationId).order('requested_date', { ascending: false }),
+    () => client.from('organization_role_permissions').select('role, permissions, updated_at').eq('organization_id', organizationId),
+    () => client.from('attendance_correction_requests').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }),
+    () => client.from('vehicles').select('*').eq('organization_id', organizationId).order('name'),
+    () => client.from('transport_runs').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }).order('start_time'),
+    () => client.from('transport_plan_days').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }),
+    () => client.from('daily_transport_requirements').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }),
+    () => client.from('transport_route_settings').select('*').eq('organization_id', organizationId).eq('id', 'default').maybeSingle(),
+    () => client.from('transport_map_locations').select('*').eq('organization_id', organizationId).order('location_name'),
+    () => client.from('transport_area_zones').select('*').eq('organization_id', organizationId).order('priority').order('name'),
+  ], { data: null, error: null });
+
+  // A failed incremental request must leave the previously displayed state
+  // intact, not turn an optional resource into a misleading empty list.
+  if (changedTables) for (const result of [announcementsResult, announcementConfirmationsResult,
+    staffScheduleItemsResult, calendarEventsResult, dailyChildPlansResult, attendanceRecordsResult,
+    staffShiftTemplatesResult, staffShiftRequestsResult, rolePermissionsResult, attendanceCorrectionsResult,
+    vehiclesResult, transportRunsResult, transportPlanDaysResult, dailyTransportRequirementsResult, transportRouteSettingsResult]) {
+    if (result.error) throw result.error;
+  }
 
   const requiredResults = [
     childrenResult,
@@ -885,11 +899,11 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     schedulesByChild.set(row.child_id, schedules);
   }
 
-  const recorderProfiles = (recorderProfilesResult.data || []).map(mapRecorderProfile);
+  const recorderProfiles: RecorderProfile[] = (recorderProfilesResult.data || []).map(mapRecorderProfile);
   const recorderNames = new Map(recorderProfiles.map((profile) => [profile.id, profile.displayName]));
-  const vehicles = vehiclesResult.error ? [] : (vehiclesResult.data || []).map(mapVehicle);
+  const vehicles: Vehicle[] = vehiclesResult.error ? [] : (vehiclesResult.data || []).map(mapVehicle);
   const vehicleNames = new Map(vehicles.map((vehicle) => [vehicle.id, vehicle.name]));
-  const schools = (schoolsResult.data || []).map(mapSchool);
+  const schools: SchoolProfile[] = (schoolsResult.data || []).map(mapSchool);
   const schoolById = new Map(schools.map((school) => [school.id, school]));
 
   return {
@@ -911,7 +925,7 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
     schools,
     recorderProfiles,
     templates: (templatesResult.data || []).map(mapTemplate),
-    records: (recordsResult.data || []).map(mapRecord),
+    records: (recordsResult.data || []).filter(row => !row.deleted_at).map(mapRecord),
     handoverItems: (handoversResult.data || []).map((row) => mapHandoverItem(row, recorderNames)),
     handoverConfirmations: (handoverConfirmationsResult.data || []).map(mapHandoverConfirmation),
     morningMeetingRecords: (morningMeetingsResult.data || []).map(mapMorningMeetingRecord),
@@ -967,6 +981,10 @@ export async function loadWorkspaceData(organizationId: string): Promise<Workspa
       .map(mapTransportMapLocation),
     transportAreaZones: (transportAreaZonesResult.data || []).map(mapTransportAreaZone),
   };
+}
+
+export async function loadWorkspacePatch(organizationId: string, changedTables: readonly string[], recordIds?: readonly string[]) {
+  return selectWorkspacePatch(await loadWorkspaceData(organizationId, changedTables, recordIds), changedTables);
 }
 
 export async function saveStaffScheduleItem(
@@ -2105,16 +2123,21 @@ export async function loadRecordsForSave(organizationId: string, records: Suppor
 }
 
 export async function loadRecordSaveSnapshot(organizationId: string, records: SupportRecord[]) {
-  const active = await loadRecordsForSave(organizationId, records);
-  if (!records.length) return { records: active, deletedIds: [] as string[] };
-  const { data, error } = await assertSupabase().from('support_records').select('id')
-    .eq('organization_id', organizationId).not('deleted_at', 'is', null).in('id', records.map(record=>record.id));
-  if (error) throw error;
-  const deletedIds = (data || []).map(row=>String(row.id));
-  return { records: active.filter(record=>!deletedIds.includes(record.id)), deletedIds };
+  if (!records.length) return { records: [] as SupportRecord[], deletedIds: [] as string[] };
+  return measureOperation('record.snapshot', async () => {
+    const { data, error } = await assertSupabase().from('support_records').select('*')
+      .eq('organization_id', organizationId).or(recordSaveSnapshotFilter(records));
+    if (error) throw error;
+    return { records: (data || []).filter(row => !row.deleted_at).map(mapRecord),
+      deletedIds: (data || []).filter(row => row.deleted_at).map(row => String(row.id)) };
+  });
 }
 
-export async function saveRecords(organizationId: string, records: SupportRecord[]): Promise<SaveRecordResult[]> {
+export function saveRecords(organizationId: string, records: SupportRecord[]): Promise<SaveRecordResult[]> {
+  return measureOperation('record.write', () => saveRecordsInternal(organizationId, records));
+}
+
+async function saveRecordsInternal(organizationId: string, records: SupportRecord[]): Promise<SaveRecordResult[]> {
   if (records.length === 0) return [];
   const { data, error } = await assertSupabase().rpc('save_support_records_guarded', {
     p_organization_id: organizationId,
@@ -2349,17 +2372,15 @@ export async function mergeOwnRecordDrafts(organizationId:string,drafts:RecordDr
 export async function listRecordDrafts(organizationId: string): Promise<RecordDraftSummary[]> {
   const { data, error } = await assertSupabase()
     .from('record_drafts')
-    .select('user_id, draft_key, payload, updated_at, revision, device_id, recorder_profile_id')
+    .select(RECORD_DRAFT_SUMMARY_SELECT)
     .eq('organization_id', organizationId)
     .like('draft_key', 'record-%')
     .order('updated_at', { ascending: false });
   if (error) throw error;
 
-  return (data || []).flatMap((row) => {
-    const payload = row.payload && typeof row.payload === 'object'
-      ? row.payload as Record<string, unknown>
-      : null;
-    if (!payload || !Array.isArray(payload.selectedChildIds)) return [];
+  return (data || []).flatMap((row: any) => {
+    const payload = row as Record<string, unknown>;
+    if (!Array.isArray(payload.selectedChildIds)) return [];
     const takenOverFromDraftKeys = Array.isArray(payload.takenOverFromDraftKeys)
       ? payload.takenOverFromDraftKeys.filter((value): value is string => typeof value === 'string')
       : typeof payload.takenOverFromDraftKey === 'string'

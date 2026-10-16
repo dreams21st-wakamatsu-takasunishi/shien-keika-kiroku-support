@@ -1,7 +1,7 @@
 import React,{useRef,useState} from 'react';
 import {createRoot} from 'react-dom/client';
 import {Header} from '../../src/components/Header';
-import {RecordForm} from '../../src/components/RecordForm';
+import {RecordForm} from '../../src/components/DeferredAppScreens';
 import {AuthScreen} from '../../src/components/AuthScreen';
 import {switchUserSafely,type PrepareUserSwitch} from '../../src/utils/userSwitch';
 import {UNIFIED_TEMPLATE,UNIFIED_TEMPLATE_ID} from '../../src/data/unifiedTemplate';

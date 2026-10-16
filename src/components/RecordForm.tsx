@@ -1,4 +1,5 @@
 import { ManualLinks } from './ManualLinks';
+import { measureOperation } from '../services/performanceMetrics';
 import type {RecordEntrySignal} from '../utils/recordEntry';
 import type {PrepareUserSwitch} from '../utils/userSwitch';
 import {getLocalDateString} from '../utils/weekdays';
@@ -4594,7 +4595,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     setSaveNotice(null);
     try {
       // Flush pending edits before opening a potentially long-lived comparison.
-      await draftWrites.run(async () => {
+      await measureOperation('record.draft.flush', () => draftWrites.run(async () => {
         if (organizationId && userId) {
           const saved = await saveRecordDraft(organizationId, userId, draftKey, wizard, {
             deviceId, expectedRevision: remoteRevision.current, recorderId: wizard.recorderId || null,
@@ -4602,13 +4603,13 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           remoteRevision.current = saved.revision;
         }
         writeLocalDraft(wizard, Boolean(organizationId));
-      });
+      }));
       const outcome = await onSaveRecords(childIds.map((childId) => buildRecordForChild(childId, new Date().toISOString())));
       if (outcome.status === 'cancelled') return;
       const completion = { records: outcome.records, childIds };
       setPendingCompletion(completion);
       try {
-        await completeSavedRecords(completion);
+        await measureOperation('record.draft.cleanup', () => completeSavedRecords(completion));
       } catch (error) {
         recordDiagnostic('record.draft.cleanup',error);
         setSaveError('記録の保存は完了しています。入力中一覧の更新に失敗しました。「入力中一覧の更新を再試行」を押してください。記録を重ねて保存することはありません。');

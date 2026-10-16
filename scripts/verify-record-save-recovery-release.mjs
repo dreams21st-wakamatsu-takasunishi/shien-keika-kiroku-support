@@ -1,4 +1,5 @@
 // Public static release only. No credentials or private records are read or written.
+import {publishedRuntime} from './published-runtime.mjs';
 const expected=process.argv[2];
 if(!/^[a-f0-9]{7}$/.test(expected||''))throw Error('Expected short commit required');
 const base='https://dreams21st-wakamatsu-takasunishi.github.io/shien-keika-kiroku-support/';
@@ -11,7 +12,7 @@ if(manifest.version!==version.version)throw Error('Mixed release');
 const html=await(await read('?verify='+stamp)).text();
 const entry=html.match(/<script[^>]+src="(\.\/assets\/[^"?#]+\.js)"/)?.[1];
 if(!entry||!manifest.assets.includes(entry))throw Error('Missing entry');
-const js=await(await read(entry)).text();
+const js=await publishedRuntime(manifest,read);
 for(const marker of ['d-support:diagnostics:v1','エラー・操作履歴','履歴を書き出す','deleted_id_replaced','same_content_confirmed','save_result_rechecked','保存状態が繰り返し変化しているため停止しました。','編集中の保存済み記録は削除されています。'])if(!js.includes(marker))throw Error('Feature missing: '+marker);
 if(js.includes('保存直前に別端末で記録が保存されました。入力内容は残しています。もう一度保存を押し、最新の記録と比較してください。'))throw Error('Old misleading save failure remains');
 let assets=0;

@@ -51,23 +51,14 @@ import { defaultTemplates, requiredRecordTemplates } from './data/defaultTemplat
 import { UNIFIED_TEMPLATE_ID } from './data/unifiedTemplate';
 import { sampleRecords, sampleChildren, sampleRecorderProfiles } from './data/sampleData';
 import { Header, ActiveTab } from './components/Header';
-import { LessonLearningManager } from './components/LessonLearningManager';
+import { LessonLearningManager, RecordForm, RecordPreview, RecordList, MeetingWorkspace,
+  ChildrenManager, TeamManager, SettingsHub, TrafficCostCalculator, ActivityPlanWorkspace,
+  FacilityWorkspace, LegalTrainingWorkspace } from './components/DeferredAppScreens';
 import {LessonReviewNotice} from './components/LessonReviewNotice';
-import { RecordForm } from './components/RecordForm';
 import { RecordOverwriteDialog } from './components/RecordOverwriteDialog';
 import { runRecordSaveWorkflow, type RecordOverwritePair, type RecordSaveOutcome } from './services/recordSaveWorkflow';
 import { diagnosticAction, recordDiagnostic, setDiagnosticScreen } from './services/diagnostics';
-import { RecordPreview } from './components/RecordPreview';
-import { RecordList } from './components/RecordList';
-import { MeetingWorkspace } from './meeting/MeetingWorkspace';
-import { ChildrenManager } from './components/ChildrenManager';
 import { SupportPlanManager } from './components/SupportPlanManager';
-import { TeamManager } from './components/TeamManager';
-import { SettingsHub } from './components/SettingsHub';
-import { TrafficCostCalculator } from './components/TrafficCostCalculator';
-import { ActivityPlanWorkspace } from './components/ActivityPlanWorkspace';
-import { FacilityWorkspace } from './components/FacilityWorkspace';
-import { LegalTrainingWorkspace } from './components/LegalTrainingWorkspace';
 import { HomeScreen, type HomeWorkspace } from './components/HomeScreen';
 import type { DraftTakeoverSelection } from './components/DailyOperationsPanel';
 import { AuthScreen } from './components/AuthScreen';
@@ -104,6 +95,7 @@ import {
   deleteVehicle,
   listRecordDrafts,
   loadWorkspaceData,
+  loadWorkspacePatch,
   loadRecordSaveSnapshot,
   punchAttendance,
   requestAttendanceCorrection,
@@ -162,6 +154,10 @@ import {
 import { showAnnouncementNotification } from './utils/deviceNotifications';
 import { getLocalDateString } from './utils/weekdays';
 import { applySiblingSelection } from './utils/childSiblings';
+import { createWorkspaceRefreshQueue } from './services/workspaceRefreshQueue';
+import { workspaceLoadPlan } from './services/workspaceLoadPlan';
+import { clearPerformanceTimings } from './services/performanceMetrics';
+import { mergeRecordRefresh } from './utils/recordRefresh';
 
 const FIELD_MODE_REAUTH_AFTER_MS = 30_000;
 const RECENT_PASSWORD_AUTH_WINDOW_MS = 120_000;
@@ -344,10 +340,27 @@ export default function App() {
   const [privacyLocked, setPrivacyLocked] = useState(false);
   const privacyHiddenAt = useRef<number | null>(null);
   const privacySessionProfileId = useRef<string | null>(null);
-  const remoteRefreshInFlightRef = useRef(false);
-  const remoteRefreshQueuedRef = useRef(false);
+  const remoteRefreshQueueRef = useRef(createWorkspaceRefreshQueue());
+  const remoteRefreshTablesRef = useRef(new Set<string>());
+  const changedRecordIdsRef = useRef({ all: false, ids: new Set<string>() });
+  const draftRefreshQueueRef = useRef(createWorkspaceRefreshQueue());
+  const workspaceRealtimeReadyRef = useRef(false);
   const remoteRefreshTimerRef = useRef<number | null>(null);
   const loadedOrganizationIdRef = useRef<string | null>(remoteMode ? null : 'local');
+  const workspaceScope = JSON.stringify([organizationId, auth.profile?.id, auth.profile?.role,
+    auth.profile?.fieldModeOnly, auth.profile?.accessDeviceId, auth.profile?.accessDeviceKind, auth.profile?.facilityLogin]);
+  const workspaceScopeRef = useRef(workspaceScope);
+  const timingAccountRef = useRef(auth.profile?.id);
+  if (workspaceScopeRef.current !== workspaceScope) {
+    workspaceScopeRef.current = workspaceScope;
+    remoteRefreshQueueRef.current.reset(workspaceScope);
+    draftRefreshQueueRef.current.reset(workspaceScope);
+    remoteRefreshTablesRef.current.clear();
+    changedRecordIdsRef.current = { all: false, ids: new Set() };
+    loadedOrganizationIdRef.current = null;
+    if (timingAccountRef.current && timingAccountRef.current !== auth.profile?.id) clearPerformanceTimings();
+    timingAccountRef.current = auth.profile?.id;
+  }
   const [activeDraftKey, setActiveDraftKey] = useState(createRecordDraftKey);
   const [recordEntrySignal,setRecordEntrySignal]=useState<RecordEntrySignal|null>(null);
   const prepareUserSwitchRef=useRef<PrepareUserSwitch|null>(null);
@@ -532,22 +545,17 @@ export default function App() {
     if (!remoteMode) localStorage.setItem('support_schools_data', JSON.stringify(schools));
   }, [remoteMode, schools]);
 
-  const refreshRemoteData = useCallback(async (showLoading = true) => {
-    if (!auth.profile) return;
-    if (remoteRefreshInFlightRef.current) {
-      remoteRefreshQueuedRef.current = true;
-      return;
-    }
-    remoteRefreshInFlightRef.current = true;
+  const refreshRemoteData = useCallback(async (showLoading = true, changedTables?: readonly string[]) => {
+    if (!auth.profile || workspaceScopeRef.current !== workspaceScope) return;
     // Only the first load for an organization may replace the whole screen.
     // Realtime and visibility refreshes keep the current component mounted so
     // focused inputs and in-screen UI state are not discarded.
     const blockingInitialLoad = showLoading && loadedOrganizationIdRef.current !== auth.profile.organizationId;
     if (blockingInitialLoad) setDataLoading(true);
-    let loadedSuccessfully = false;
-    try {
-      do {
-        remoteRefreshQueuedRef.current = false;
+    await remoteRefreshQueueRef.current.request(changedTables, async (tables, current) => {
+      // A callback from an old debounce timer cannot enter a new user's scope.
+      if (workspaceScopeRef.current !== workspaceScope || !current()) return;
+      try {
         if (auth.profile.fieldModeOnly) {
           // Personal devices use the narrowly scoped transport RPC inside
           // PersonalTransportMode. Do not download records, drafts or rosters.
@@ -580,71 +588,94 @@ export default function App() {
           setSchools([]);
           setPendingSyncs([]);
           setDataError(null);
-          loadedSuccessfully = true;
+          loadedOrganizationIdRef.current = auth.profile.organizationId;
+          setDataLoading(false);
           return;
         }
-        let workspace = await loadWorkspaceData(auth.profile.organizationId);
+        const partial = tables && !workspaceLoadPlan(tables).full && loadedOrganizationIdRef.current === auth.profile.organizationId;
+        const recordsChanged = !partial || workspaceLoadPlan(tables).queries.has('support_records');
+        const recordIds = partial && !changedRecordIdsRef.current.all ? [...changedRecordIdsRef.current.ids] : [];
+        if (recordsChanged) changedRecordIdsRef.current = { all: false, ids: new Set() };
+        let workspace = partial
+          ? await loadWorkspacePatch(auth.profile.organizationId, tables, recordIds)
+          : await loadWorkspaceData(auth.profile.organizationId);
+        if (!current() || workspaceScopeRef.current !== workspaceScope) return;
         const missingRequiredTemplates = requiredRecordTemplates.filter(
-          (requiredTemplate) => !workspace.templates.some((template) => template.id === requiredTemplate.id),
+          (requiredTemplate) => workspace.templates && !workspace.templates.some((template) => template.id === requiredTemplate.id),
         );
         if (missingRequiredTemplates.length > 0 && auth.profile.role !== 'staff') {
           await seedDefaultTemplates(auth.profile.organizationId, missingRequiredTemplates);
-          workspace = await loadWorkspaceData(auth.profile.organizationId);
+          const templatePatch = await loadWorkspacePatch(auth.profile.organizationId, ['record_templates']);
+          workspace = { ...workspace, ...templatePatch };
+          if (!current() || workspaceScopeRef.current !== workspaceScope) return;
         }
         const queued = loadPendingRecordSyncs(auth.profile.organizationId, auth.profile.id);
         setPendingSyncs(queued);
-        setRecords(mergePendingRecords(workspace.records, queued));
-        setTemplates(workspace.templates.filter((template) => template.id !== UNIFIED_TEMPLATE_ID));
-        setChildrenList(workspace.children);
-        setSchools(workspace.schools);
-        setRecorderProfiles(workspace.recorderProfiles);
-        setHandoverItems(workspace.handoverItems);
-        setHandoverConfirmations(workspace.handoverConfirmations);
-        setMorningMeetingRecords(workspace.morningMeetingRecords);
-        setMorningMeetingTemplates(workspace.morningMeetingTemplates);
-        setMorningMeetingConfirmations(workspace.morningMeetingConfirmations);
-        setSupportPlans(workspace.supportPlans);
-        setAiWritingSettings(workspace.aiWritingSettings);
-        setAnnouncements(workspace.announcements);
-        setAnnouncementConfirmations(workspace.announcementConfirmations);
-        setStaffScheduleItems(workspace.staffScheduleItems);
-        setCalendarEvents(workspace.calendarEvents);
-        setDailyChildPlans(workspace.dailyChildPlans);
-        setAttendanceRecords(workspace.attendanceRecords);
-        setStaffShiftTemplates(workspace.staffShiftTemplates);
-        setStaffShiftRequests(workspace.staffShiftRequests);
-        setRolePermissions(workspace.rolePermissions);
-        setAttendanceCorrections(workspace.attendanceCorrectionRequests);
-        setVehicles(workspace.vehicles);
-        setTransportRuns(workspace.transportRuns);
-        setTransportPlanDays(workspace.transportPlanDays);
-        setDailyTransportRequirements(workspace.dailyTransportRequirements);
-        setTransportRouteSettings(workspace.transportRouteSettings);
-        setTransportMapLocations(workspace.transportMapLocations);
-        setTransportAreaZones(workspace.transportAreaZones);
+        if (workspace.records) setRecords(previous => mergePendingRecords(
+          partial && recordIds.length ? mergeRecordRefresh(previous, workspace.records!, recordIds) : workspace.records!, queued));
+        if (workspace.templates) setTemplates(workspace.templates.filter((template) => template.id !== UNIFIED_TEMPLATE_ID));
+        if (workspace.children) setChildrenList(workspace.children);
+        if (workspace.schools) setSchools(workspace.schools);
+        if (workspace.recorderProfiles) setRecorderProfiles(workspace.recorderProfiles);
+        if (workspace.handoverItems) setHandoverItems(workspace.handoverItems);
+        if (workspace.handoverConfirmations) setHandoverConfirmations(workspace.handoverConfirmations);
+        if (workspace.morningMeetingRecords) setMorningMeetingRecords(workspace.morningMeetingRecords);
+        if (workspace.morningMeetingTemplates) setMorningMeetingTemplates(workspace.morningMeetingTemplates);
+        if (workspace.morningMeetingConfirmations) setMorningMeetingConfirmations(workspace.morningMeetingConfirmations);
+        if (workspace.supportPlans) setSupportPlans(workspace.supportPlans);
+        if (workspace.aiWritingSettings) setAiWritingSettings(workspace.aiWritingSettings);
+        if (workspace.announcements) setAnnouncements(workspace.announcements);
+        if (workspace.announcementConfirmations) setAnnouncementConfirmations(workspace.announcementConfirmations);
+        if (workspace.staffScheduleItems) setStaffScheduleItems(workspace.staffScheduleItems);
+        if (workspace.calendarEvents) setCalendarEvents(workspace.calendarEvents);
+        if (workspace.dailyChildPlans) setDailyChildPlans(workspace.dailyChildPlans);
+        if (workspace.attendanceRecords) setAttendanceRecords(workspace.attendanceRecords);
+        if (workspace.staffShiftTemplates) setStaffShiftTemplates(workspace.staffShiftTemplates);
+        if (workspace.staffShiftRequests) setStaffShiftRequests(workspace.staffShiftRequests);
+        if (workspace.rolePermissions) setRolePermissions(workspace.rolePermissions);
+        if (workspace.attendanceCorrectionRequests) setAttendanceCorrections(workspace.attendanceCorrectionRequests);
+        if (workspace.vehicles) setVehicles(workspace.vehicles);
+        if (workspace.transportRuns) setTransportRuns(workspace.transportRuns);
+        if (workspace.transportPlanDays) setTransportPlanDays(workspace.transportPlanDays);
+        if (workspace.dailyTransportRequirements) setDailyTransportRequirements(workspace.dailyTransportRequirements);
+        if (workspace.transportRouteSettings) setTransportRouteSettings(workspace.transportRouteSettings);
+        if (workspace.transportMapLocations) setTransportMapLocations(workspace.transportMapLocations);
+        if (workspace.transportAreaZones) setTransportAreaZones(workspace.transportAreaZones);
         setDataError(null);
-        loadedSuccessfully = true;
-      } while (remoteRefreshQueuedRef.current);
-    } catch (error) {
-      setDataError(error instanceof Error ? error.message : '共有データを取得できませんでした。');
-    } finally {
-      remoteRefreshInFlightRef.current = false;
-      if (loadedSuccessfully) loadedOrganizationIdRef.current = auth.profile.organizationId;
-      if (blockingInitialLoad) setDataLoading(false);
-    }
-  }, [auth.profile]);
+        loadedOrganizationIdRef.current = auth.profile.organizationId;
+      } catch (error) {
+        if (current() && workspaceScopeRef.current === workspaceScope) setDataError(error instanceof Error ? error.message : '共有データを取得できませんでした。');
+      } finally {
+        // Release the initial loader after the first batch, even if other staff
+        // are continuously editing and enqueueing additional scoped updates.
+        if (current() && workspaceScopeRef.current === workspaceScope && blockingInitialLoad) setDataLoading(false);
+      }
+    });
+  }, [auth.profile, workspaceScope]);
 
-  const scheduleRemoteRefresh = useCallback(() => {
+  const scheduleRemoteRefresh = useCallback((payload?: { table?: string; new?: unknown; old?: unknown }) => {
+    if (workspaceScopeRef.current !== workspaceScope) return;
+    if (payload?.table === 'support_records') {
+      const row = payload.new && typeof payload.new === 'object' && 'id' in payload.new ? payload.new
+        : payload.old && typeof payload.old === 'object' && 'id' in payload.old ? payload.old : null;
+      if (row && typeof row.id === 'string') changedRecordIdsRef.current.ids.add(row.id);
+      else changedRecordIdsRef.current.all = true;
+    }
+    remoteRefreshTablesRef.current.add(payload?.table || 'unknown');
     if (remoteRefreshTimerRef.current !== null) {
-      window.clearTimeout(remoteRefreshTimerRef.current);
+      // Fixed batching window: continuous edits must not postpone refresh forever.
+      return;
     }
     remoteRefreshTimerRef.current = window.setTimeout(() => {
       remoteRefreshTimerRef.current = null;
-      void refreshRemoteData(false);
+      const tables = [...remoteRefreshTablesRef.current];
+      remoteRefreshTablesRef.current.clear();
+      void refreshRemoteData(false, tables);
     }, 350);
-  }, [refreshRemoteData]);
+  }, [refreshRemoteData, workspaceScope]);
 
   const refreshRecordDrafts = useCallback(async () => {
+    if (workspaceScopeRef.current !== workspaceScope) return;
     if (auth.profile?.fieldModeOnly) {
       setRecordDrafts([]);
       return;
@@ -677,13 +708,15 @@ export default function App() {
       setRecordDrafts(localDrafts);
       return;
     }
-    try {
-      const drafts = await listRecordDrafts(organizationId);
-      setRecordDrafts(drafts.filter((draft) => draft.selectedChildIds.length > 0));
-    } catch {
-      // Draft list failure does not block the main workspace.
-    }
-  }, [auth.profile?.fieldModeOnly, organizationId]);
+    await draftRefreshQueueRef.current.request(undefined, async (_tables, current) => {
+      try {
+        const drafts = await listRecordDrafts(organizationId);
+        if (current() && workspaceScopeRef.current === workspaceScope) setRecordDrafts(drafts.filter((draft) => draft.selectedChildIds.length > 0));
+      } catch {
+        // Draft list failure does not block the main workspace or empty it.
+      }
+    });
+  }, [auth.profile?.fieldModeOnly, organizationId, workspaceScope]);
 
   const recordEntry=useRecordEntry({
     identity:{userId:auth.profile?.id,recorderId:activeRecorder?.id},
@@ -712,7 +745,14 @@ export default function App() {
     if (activeTab !== 'form' || !remoteMode || !auth.profile) return;
     // Realtime handles normal updates. This slower poll is only a fallback for
     // temporarily disconnected clients and avoids constant duplicate reads.
-    const timer = window.setInterval(() => void refreshRecordDrafts(), 10000);
+    let lastFallback = Date.now();
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      if (!workspaceRealtimeReadyRef.current || Date.now() - lastFallback >= 60_000) {
+        lastFallback = Date.now();
+        void refreshRecordDrafts();
+      }
+    }, 10000);
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'visible') void refreshRecordDrafts();
     };
@@ -733,6 +773,7 @@ export default function App() {
   useEffect(() => {
     if (!supabase || !auth.profile || auth.profile.fieldModeOnly) return;
     const organizationId = auth.profile.organizationId;
+    let active = true, previouslySubscribed = false;
     const channel = supabase
       .channel(`workspace-${organizationId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'support_records', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
@@ -784,7 +825,7 @@ export default function App() {
             void showAnnouncementNotification(row.title || '新しいお知らせ', row.content || '', row.id);
           }
         }
-        scheduleRemoteRefresh();
+        scheduleRemoteRefresh({ table: 'announcements' });
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'announcement_confirmations', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_schedule_items', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
@@ -793,7 +834,6 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_shift_templates', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'staff_shift_requests', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'organization_role_permissions', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'recorder_profiles', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'attendance_correction_requests', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'vehicles', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_runs', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
@@ -812,15 +852,23 @@ export default function App() {
           help_requested: '送迎の応援要請があります',
         };
         setTransportUpdateToast(labels[row.event_type || ''] || '送迎状況が更新されました');
-        scheduleRemoteRefresh();
+        scheduleRemoteRefresh({ table: 'transport_runs' });
       })
       .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_run_covers', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_route_settings', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_map_locations', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'transport_area_zones', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'schools', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
-      .subscribe();
+      .subscribe(status => {
+        if (!active) return;
+        const ready = status === 'SUBSCRIBED';
+        if (ready && previouslySubscribed && !workspaceRealtimeReadyRef.current) scheduleRemoteRefresh();
+        workspaceRealtimeReadyRef.current = ready;
+        if (ready) previouslySubscribed = true;
+      });
     return () => {
+      active = false;
+      workspaceRealtimeReadyRef.current = false;
       if (remoteRefreshTimerRef.current !== null) {
         window.clearTimeout(remoteRefreshTimerRef.current);
         remoteRefreshTimerRef.current = null;
@@ -924,7 +972,7 @@ export default function App() {
       </div>
     );
   }
-  if (dataLoading) return <LoadingScreen text="事業所データを読み込んでいます..." />;
+  if (dataLoading || (remoteMode && auth.profile && loadedOrganizationIdRef.current !== auth.profile.organizationId && !dataError)) return <LoadingScreen text="事業所データを読み込んでいます..." />;
   const privacyRecorder = recorderProfiles.find((recorder) =>
     recorder.id === auth.profile?.recorderProfileId
   ) || activeRecorder || (auth.profile?.recorderProfileId ? {

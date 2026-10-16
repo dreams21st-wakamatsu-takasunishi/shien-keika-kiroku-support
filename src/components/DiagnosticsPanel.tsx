@@ -1,4 +1,11 @@
 import React, { useEffect, useState } from "react";
+import { readPerformanceSummary } from '../services/performanceMetrics';
+const phaseLabels: Record<string, string> = {
+  'auth.profile': 'ログイン・権限確認', 'workspace.initial': '事業所データ初回取得',
+  'workspace.refresh': '変更データの再取得', 'record.snapshot': '保存前の最新記録確認',
+  'record.write': '記録の保存通信', 'record.draft.flush': '保存前の下書き同期',
+  'record.draft.cleanup': '保存後の入力中一覧更新',
+};
 import {
   readDiagnostics,
   clearDiagnostics,
@@ -22,6 +29,7 @@ const codeLabels: Record<string, string> = {
 export function DiagnosticsPanel() {
   const [events, setEvents] = useState(readDiagnostics);
   const [copyMessage, setCopyMessage] = useState("");
+  const [timings, setTimings] = useState(readPerformanceSummary);
   const copy = async (event: (typeof events)[number]) => {
     try {
       await navigator.clipboard.writeText(formatDiagnosticReport(event));
@@ -32,7 +40,7 @@ export function DiagnosticsPanel() {
       );
     }
   };
-  const refresh = () => setEvents(readDiagnostics());
+  const refresh = () => { setEvents(readDiagnostics()); setTimings(readPerformanceSummary()); };
   useEffect(() => {
     window.addEventListener("d-support:diagnostics", refresh);
     return () => window.removeEventListener("d-support:diagnostics", refresh);
@@ -47,6 +55,7 @@ export function DiagnosticsPanel() {
               format: "d-support-diagnostics-v1",
               exportedAt: new Date().toISOString(),
               events: readDiagnostics(),
+              performance: readPerformanceSummary(),
             },
             null,
             2,
@@ -117,6 +126,16 @@ export function DiagnosticsPanel() {
         </p>
       )}
       <div className="space-y-2">
+        <details className="rounded-xl border border-slate-200 p-3">
+          <summary className="cursor-pointer text-sm font-bold">処理時間の確認（このログイン中）</summary>
+          <p className="mt-2 text-xs text-slate-600">最大100件の計測を集計します。画面を閉じる・再読み込み・ユーザー切り替えでリセットします。本文・名前・IDは含まず、サーバーへ送信しません。「再読み込み」で最新の集計を表示できます。</p>
+          {!timings.length ? <p className="mt-2 text-sm">計測データはまだありません。</p> :
+            <div className="mt-3 space-y-2">{timings.map(row => <div key={row.phase} className="rounded-lg bg-slate-50 p-3 text-xs">
+              <p className="font-bold">{phaseLabels[row.phase]}</p>
+              <p className="mt-1">直近 {(row.lastMs / 1000).toFixed(2)}秒 ／ 平均 {(row.averageMs / 1000).toFixed(2)}秒 ／ 最大 {(row.maxMs / 1000).toFixed(2)}秒</p>
+              <p>{row.count}回計測・失敗 {row.failed}回</p>
+            </div>)}</div>}
+        </details>
         {[...events].reverse().map((event) => (
           <details
             key={event.id}

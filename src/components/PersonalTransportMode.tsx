@@ -39,7 +39,7 @@ import { enableDeviceNotifications } from '../utils/deviceNotifications';
 import { getLocalDateString } from '../utils/weekdays';
 import { PersonalStaffQr } from './AttendanceQr';
 import { TransportScheduleBoard } from './TransportScheduleBoard';
-import {LegalTrainingWorkspace} from './LegalTrainingWorkspace';
+import {LegalTrainingWorkspace} from './DeferredAppScreens';
 
 interface PersonalTransportModeProps {
   currentUser: UserProfile;

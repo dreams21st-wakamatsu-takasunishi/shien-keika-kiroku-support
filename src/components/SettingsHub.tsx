@@ -12,7 +12,7 @@ import { RolePermissionManager } from './RolePermissionManager';
 import { StaffShiftTemplateSettings } from './StaffShiftTemplateSettings';
 import { VehicleLedger } from './VehicleLedger';
 import { OrganizationServicesSettings } from './OrganizationServicesSettings';
-import { LegalTrainingWorkspace } from './LegalTrainingWorkspace';
+import { LegalTrainingWorkspace } from './DeferredAppScreens';
 import {canManageTraining} from '../training/model';
 import {DiagnosticsPanel} from './DiagnosticsPanel';
 
