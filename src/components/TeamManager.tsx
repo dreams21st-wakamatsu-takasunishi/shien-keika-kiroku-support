@@ -1,5 +1,5 @@
 import { ManualLinks } from './ManualLinks';
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ClipboardList, Edit3, History, Laptop, MailPlus, RefreshCw, Save, ShieldCheck, Trash2, UserCheck, Users, X } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { UserProfile, UserRole } from '../types';
@@ -64,6 +64,8 @@ export const TeamManager: React.FC<{
   const [recorderLinks, setRecorderLinks] = useState<RecorderLinkRow[]>([]);
   const [invitations, setInvitations] = useState<InvitationRow[]>([]);
   const [audits, setAudits] = useState<AuditRow[]>([]);
+  const [auditLoading,setAuditLoading]=useState(false),[auditError,setAuditError]=useState('');
+  const auditRequest=useRef(0),auditController=useRef<AbortController|null>(null);
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [role, setRole] = useState<UserRole>('staff');
@@ -76,23 +78,49 @@ export const TeamManager: React.FC<{
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<TeamSection>('recorders');
+  const currentSection=useRef(activeSection),mounted=useRef(true);currentSection.current=activeSection;
+  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
 
   const refresh = async () => {
     if (!supabase) return;
     setLoading(true);
-    const [membersResult, recorderLinksResult, invitationsResult, auditResult] = await Promise.all([
+    const [membersResult, recorderLinksResult, invitationsResult] = await Promise.all([
       supabase.from('profiles').select('id, display_name, email, role, active, recorder_profile_id, created_at').eq('active', true).order('created_at'),
       supabase.from('recorder_profiles').select('id, display_name, active').eq('organization_id', currentUser.organizationId).eq('active', true).order('display_name'),
       supabase.from('member_invitations').select('id, email, role, created_at, expires_at, accepted_at').order('created_at', { ascending: false }),
-      supabase.from('audit_logs').select('id, actor_id, table_name, row_id, action, occurred_at').order('occurred_at', { ascending: false }).limit(30),
     ]);
     if (membersResult.error) setMessage(membersResult.error.message);
     else setMembers((membersResult.data || []) as TeamMemberRow[]);
     if (!recorderLinksResult.error) setRecorderLinks((recorderLinksResult.data || []) as RecorderLinkRow[]);
     if (!invitationsResult.error) setInvitations((invitationsResult.data || []) as InvitationRow[]);
-    if (!auditResult.error) setAudits((auditResult.data || []) as AuditRow[]);
     setLoading(false);
+    if(activeSection==='audit')void loadAudits();
   };
+
+  const loadAudits=useCallback(async()=>{
+    if(!supabase||!mounted.current||currentSection.current!=='audit')return;
+    const request=++auditRequest.current;
+    auditController.current?.abort();
+    const controller=new AbortController();auditController.current=controller;
+    setAuditLoading(true);setAuditError('');
+    try{
+      const result=await supabase.from('audit_logs').select('id, actor_id, table_name, row_id, action, occurred_at')
+        .eq('organization_id',currentUser.organizationId)
+        .order('occurred_at',{ascending:false}).order('id',{ascending:false}).limit(30).abortSignal(controller.signal);
+      if(controller.signal.aborted||request!==auditRequest.current)return;
+      if(result.error){setAudits([]);setAuditError(result.error.code==='57014'?'監査履歴の読み込みが時間制限に達しました。再試行しても続く場合はエラー履歴を管理者へお知らせください。':'監査履歴を取得できませんでした。通信状況・閲覧権限を確認し、再試行してください。');}
+      else setAudits((result.data||[]) as AuditRow[]);
+    }catch{
+      if(!controller.signal.aborted&&request===auditRequest.current){setAudits([]);setAuditError('監査履歴を取得できませんでした。通信状況を確認し、再試行してください。');}
+    }finally{
+      if(request===auditRequest.current&&!controller.signal.aborted)setAuditLoading(false);
+    }
+  },[currentUser.organizationId]);
+
+  useEffect(()=>{
+    if(activeSection==='audit')void loadAudits();
+    return()=>{auditRequest.current++;auditController.current?.abort();};
+  },[activeSection,loadAudits]);
 
   useEffect(() => { void refresh(); }, []);
 
@@ -297,7 +325,7 @@ export const TeamManager: React.FC<{
 
       {activeSection === 'audit' && <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
         <div className="p-4 border-b"><h3 className="text-xs font-bold">直近の監査履歴</h3></div>
-        {audits.length === 0 ? <p className="p-6 text-xs text-slate-500">表示できる履歴はありません。</p> : (
+        {auditLoading?<p role="status" className="p-6 text-sm text-slate-600">監査履歴を読み込んでいます…</p>:auditError?<div role="alert" className="space-y-3 bg-rose-50 p-4 text-sm text-rose-900"><p>{auditError}</p><button type="button" onClick={()=>void loadAudits()} className="min-h-10 rounded-lg border border-rose-300 bg-white px-3 font-bold">監査履歴の読み込みを再試行</button></div>:audits.length === 0 ? <p className="p-6 text-xs text-slate-500">表示できる履歴はありません。</p> : (
           <div className="overflow-x-auto max-h-80">
             <table className="w-full text-[11px]">
               <thead className="bg-slate-50 text-slate-600 sticky top-0"><tr><th className="p-2 text-left">日時</th><th className="p-2 text-left">実行者</th><th className="p-2 text-left">対象</th><th className="p-2 text-left">操作</th><th className="p-2 text-left">ID</th></tr></thead>

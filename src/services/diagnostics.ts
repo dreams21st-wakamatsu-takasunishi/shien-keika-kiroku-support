@@ -17,6 +17,9 @@ const resources = new Set(['support_records','record_drafts','children','recorde
   'replace_child_monthly_transport_requirements','replace_monthly_transport_requirements','request_attendance_correction','request_personal_staff_qr_device','review_attendance_correction','review_organization_device','revoke_personal_staff_qr',
   'save_morning_meeting_record_guarded','set_child_sibling_links','set_recorder_pin','set_transport_cover','set_transport_operation_event','take_over_record_draft_child','take_over_record_draft','update_shift_request_defaults',
   'update_staff_device_policy','update_transport_run_status','verify_recorder_pin']);
+for(const resource of ['get_child_document_register','save_child_document_settings','save_child_document_entry','lesson-learning','lesson-accounts','lesson-account-credentials','lesson-student-registration','lesson-task-batches','lesson-task-audit','lesson-managed-content','facility-login'])resources.add(resource);
+const serverCodes = new Set(['57014','42501','23505','23503','22023','40001','40P01','53300','53100','57P03','PGRST116','PGRST202','PGRST301','PGRST302']);
+const methods = new Set(['GET','HEAD','POST','PUT','PATCH','DELETE','OPTIONS']);
 const localOperations = new Set(['app.start','connection.online','connection.offline','record.save','record.save.complete','record.draft.cleanup','record.save.deleted_id_replaced','record.save.same_content_confirmed','record.save.save_result_rechecked','record.save.cancelled','record.overwrite.confirm','record.overwrite.cancel','record.save.single','record.save.all','diagnostics.export','runtime.error','runtime.rejection']);
 export type DiagnosticCode = 'NETWORK'|'CONFLICT'|'DUPLICATE'|'DELETED_RECORD'|'PERMISSION'|'VALIDATION'|'SERVER'|'UNEXPECTED'|'RECOVERY'|'OK';
 const codes = new Set<DiagnosticCode>(['NETWORK','CONFLICT','DUPLICATE','DELETED_RECORD','PERMISSION','VALIDATION','SERVER','UNEXPECTED','RECOVERY','OK']);
@@ -25,6 +28,7 @@ export interface DiagnosticEvent {
   id: string; at: string; version: string; screen: string; online: boolean;
   kind: 'error'|'recovery'|'connection'; code: DiagnosticCode; operation: string;
   httpStatus?: number; actions: DiagnosticAction[];
+  requestScreen?: string; requestMethod?: string; durationMs?: number; serverCode?: string;
 }
 const safeOperation = (value: unknown) => typeof value === 'string' && (localOperations.has(value) || (value.startsWith('api.') && resources.has(value.slice(4))) || (value.startsWith('screen.') && screens.has(value.slice(7)))) ? value : 'api.other';
 const validTime = (value: unknown) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(value) && Number.isFinite(Date.parse(value));
@@ -37,6 +41,10 @@ export function sanitizeDiagnostic(value: unknown): DiagnosticEvent | null {
     at: item.at, version: safeVersion(item.version), screen: screens.has(item.screen) ? item.screen : 'unknown',
     online: item.online === true, kind: item.kind, code: item.code, operation: safeOperation(item.operation || ''),
     ...(Number.isInteger(item.httpStatus) && item.httpStatus! >= 100 && item.httpStatus! <= 599 ? {httpStatus:item.httpStatus} : {}),
+    ...(typeof item.requestScreen==='string'?{requestScreen:screens.has(item.requestScreen)?item.requestScreen:'unknown'}:{}),
+    ...(methods.has(item.requestMethod||'')?{requestMethod:item.requestMethod}:{}),
+    ...(typeof item.durationMs==='number'&&Number.isFinite(item.durationMs)&&item.durationMs>=0&&item.durationMs<=3600000?{durationMs:Math.round(item.durationMs)}:{}),
+    ...(serverCodes.has(item.serverCode||'')?{serverCode:item.serverCode}:{}),
     actions: Array.isArray(item.actions) ? item.actions.slice(-MAX_ACTIONS).filter(action=>validTime(action?.at)).map(action=>({at:action.at,operation:safeOperation(action.operation || '')})) : [] };
 }
 export function createDiagnosticStore(storage: Pick<Storage,'getItem'|'setItem'|'removeItem'>, now = ()=>Date.now()) {
@@ -71,11 +79,13 @@ export function classifyDiagnosticError(error: unknown, status?: number): Diagno
   if (status && status>=400 || code==='22023' || code==='23503') return 'VALIDATION';
   return 'UNEXPECTED';
 }
-export function recordDiagnostic(operation: string, error?: unknown, options: {kind?:DiagnosticEvent['kind'];code?:DiagnosticCode;httpStatus?:number}={}) {
+export function recordDiagnostic(operation: string, error?: unknown, options: {kind?:DiagnosticEvent['kind'];code?:DiagnosticCode;httpStatus?:number;requestScreen?:string;requestMethod?:string;durationMs?:number}={}) {
   try {
     const event: DiagnosticEvent={id:crypto.randomUUID(),at:new Date().toISOString(),version,screen,
       online:typeof navigator==='undefined'||navigator.onLine,kind:options.kind||'error',
-      code:options.code||classifyDiagnosticError(error,options.httpStatus),operation:safeOperation(operation),httpStatus:options.httpStatus,actions:[...actions]};
+      code:options.code||classifyDiagnosticError(error,options.httpStatus),operation:safeOperation(operation),httpStatus:options.httpStatus,actions:[...actions],
+      requestScreen:options.requestScreen,requestMethod:options.requestMethod,durationMs:options.durationMs,
+      serverCode:error&&typeof error==='object'&&'code' in error&&typeof error.code==='string'&&serverCodes.has(error.code)?error.code:undefined};
     currentStore()?.append(event);
     if(typeof window!=='undefined') window.dispatchEvent(new Event('d-support:diagnostics'));
   } catch { /* Diagnostics must never break the user's operation. */ }
@@ -90,10 +100,25 @@ export function apiDiagnosticOperation(input: RequestInfo | URL): string {
 }
 export async function diagnosticFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const operation=apiDiagnosticOperation(input); diagnosticAction(operation);
+  const requestScreen=screen,started=performance.now(),requestMethod=(init?.method||(typeof Request!=='undefined'&&input instanceof Request?input.method:'GET')).toUpperCase();
   try {const response=await fetch(input,init);
-    if(!response.ok){let error:unknown;try{error=await response.clone().json();}catch{} recordDiagnostic(operation,error,{httpStatus:response.status});}
+    const durationMs=performance.now()-started;
+    if(!response.ok){let error:unknown;try{error=await response.clone().json();}catch{} recordDiagnostic(operation,error,{httpStatus:response.status,requestScreen,requestMethod,durationMs});}
     return response;
-  } catch(error) { recordDiagnostic(operation,error,{code:'NETWORK'});throw error; }
+  } catch(error) { if(!(error&&typeof error==='object'&&'name' in error&&error.name==='AbortError'))recordDiagnostic(operation,error,{code:'NETWORK',requestScreen,requestMethod,durationMs:performance.now()-started});throw error; }
+}
+export function formatDiagnosticReport(event: DiagnosticEvent): string {
+  const item=sanitizeDiagnostic(event);if(!item)return 'このエラー情報は読み出せません。';
+  return [
+    `発生日時：${new Date(item.at).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'})}（日本時間）`,
+    `${item.kind==='error'?'失敗した操作':'対象操作'}：${item.operation}`,
+    `要求開始画面：${item.requestScreen||'未記録（旧版）'} ／ エラー検知時の画面：${item.screen}`,
+    `版：${item.version} ／ 接続：${item.online?'オンライン':'オフライン'}${item.httpStatus?` ／ HTTP ${item.httpStatus}`:''}`,
+    ...(item.requestMethod?[`通信方式：${item.requestMethod}`]:[]),
+    ...(item.durationMs!==undefined?[`応答まで：${(item.durationMs/1000).toFixed(2)}秒`]:[]),
+    ...(item.serverCode?[`エラーコード：${item.serverCode}${item.serverCode==='57014'?'（データベース処理の時間制限）':''}`]:[]),
+    '直前の操作：',...item.actions.map((action,index)=>`${index+1}. ${new Date(action.at).toLocaleTimeString('ja-JP',{timeZone:'Asia/Tokyo'})} · ${action.operation}`),
+  ].join('\n');
 }
 const buttonActions: Record<string,string>={ 'この児童1名分のみ保存':'record.save.single','比較した内容で保存する':'record.overwrite.confirm','上書きせず入力に戻る':'record.overwrite.cancel','入力中一覧の更新を再試行':'record.draft.cleanup' };
 export function installDiagnostics(appVersion: string) {
