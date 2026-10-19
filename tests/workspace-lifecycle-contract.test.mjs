@@ -18,6 +18,9 @@ test('all six retention resources have live filters, delete controls and central
 });
 test('morning deletion stops autosave and preserves text without resurrecting the row',()=>{
  const source=read('src/components/MorningMeetingPanel.tsx');for(const token of ['deletedDateRef.current===targetDateRef.current','readOnly={deletedDate===targetDate}','入力は保持しています','d-support:workspace-item-deleted'])assert.ok(source.includes(token),token);
+ assert.ok(source.includes('deletedDateRef.current!==detail.id'));
+ assert.ok(source.includes('detail.id!==targetDateRef.current'));
+ assert.ok(read('src/App.tsx').includes('restore:payload.new.deleted_at===null'));
 });
 test('lifecycle service and error diagnostics cannot export document bodies or raw exceptions',()=>{
  const source=read('src/services/workspaceLifecycle.ts');assert.ok(!source.includes('error.message'));assert.ok(source.includes("eq('actor_id',userId)"));

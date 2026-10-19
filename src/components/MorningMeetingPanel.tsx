@@ -267,7 +267,13 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
   const [deletedDate,setDeletedDate]=useState('');
   const deletedDateRef=useRef('');
   useEffect(()=>{
-    const changed=(event:Event)=>{const detail=(event as CustomEvent).detail;if(detail?.resource==='morning_meeting_records'){deletedDateRef.current=detail.restore?'':detail.id;setDeletedDate(deletedDateRef.current);}};
+    const changed=(event:Event)=>{
+      const detail=(event as CustomEvent).detail;
+      if(detail?.resource!=='morning_meeting_records'||typeof detail.id!=='string')return;
+      if(detail.restore){if(deletedDateRef.current!==detail.id)return;}
+      else if(detail.id!==targetDateRef.current)return;
+      deletedDateRef.current=detail.restore?'':detail.id;setDeletedDate(deletedDateRef.current);
+    };
     window.addEventListener('d-support:workspace-item-deleted',changed);
     return()=>window.removeEventListener('d-support:workspace-item-deleted',changed);
   },[]);

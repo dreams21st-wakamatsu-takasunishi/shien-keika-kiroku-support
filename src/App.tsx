@@ -657,8 +657,8 @@ export default function App() {
 
   const scheduleRemoteRefresh = useCallback((payload?: { table?: string; new?: unknown; old?: unknown }) => {
     if (workspaceScopeRef.current !== workspaceScope) return;
-    if(payload?.table==='morning_meeting_records'&&payload.new&&typeof payload.new==='object'&&'deleted_at' in payload.new&&payload.new.deleted_at){
-      window.dispatchEvent(new CustomEvent('d-support:workspace-item-deleted',{detail:{resource:payload.table,id:'meeting_date' in payload.new?payload.new.meeting_date:''}}));
+    if(payload?.table==='morning_meeting_records'&&payload.new&&typeof payload.new==='object'&&'deleted_at' in payload.new){
+      window.dispatchEvent(new CustomEvent('d-support:workspace-item-deleted',{detail:{resource:payload.table,id:'meeting_date' in payload.new?payload.new.meeting_date:'',restore:payload.new.deleted_at===null}}));
     }
     if (payload?.table === 'support_records') {
       const row = payload.new && typeof payload.new === 'object' && 'id' in payload.new ? payload.new
