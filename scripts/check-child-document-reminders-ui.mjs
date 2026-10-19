@@ -110,6 +110,28 @@ async function check(page,url){
  for(const [name,width,height] of [['laptop',1366,900],['phone',390,844]]){
   await page.setViewportSize({width,height});await panel().scrollIntoViewIfNeeded();assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'specific issue layout no overflow '+name);await panel().screenshot({path:'output/playwright/document-specific-alerts-'+name+'.png'});
  }
+ await page.goto(url+'?mode=final-plan-states');await page.getByRole('button',{name:/^架空児童A /}).click();
+ await page.getByLabel('書類を絞り込み',{exact:true}).selectOption('plan_final');
+ const finalSummary=page.getByRole('button',{name:'個支本案の書類',exact:true});
+ const initialFinal=page.locator('[id="document-slot-plan_final|initial:2026-10-01"]');
+ const pendingFinal=page.locator('[id="document-slot-plan_final|extra:pending-final"]');
+ const completedFinal=page.locator('[id="document-slot-plan_final|extra:completed-final"]');
+ assert(await initialFinal.getAttribute('data-final-plan-state')==='not_created'&&(await initialFinal.getAttribute('class')).includes('bg-rose-50'),'uncreated plan red');
+ assert(await pendingFinal.getAttribute('data-final-plan-state')==='pending'&&(await pendingFinal.getAttribute('class')).includes('bg-amber-50'),'partially delivered/consented plan yellow');
+ assert(await completedFinal.getAttribute('data-final-plan-state')==='completed'&&(await completedFinal.getAttribute('class')).includes('bg-emerald-50'),'completed guardian procedures green');
+ assert((await finalSummary.innerText()).includes('未作成 1件')&&(await finalSummary.innerText()).includes('未交付・未同意 1件')&&(await finalSummary.innerText()).includes('交付・同意済み 1件'),'collapsed header has all three counts');
+ for(const [name,width,height] of [['laptop',1366,900],['phone',390,844]]){await page.setViewportSize({width,height});assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'plan progress no overflow '+name);await page.locator('#document-type-plan_final').screenshot({path:'output/playwright/final-plan-states-'+name+'.png'});}
+ await initialFinal.getByLabel('作成日',{exact:true}).fill('2026-10-01');await initialFinal.getByLabel('実物の保管を確認',{exact:true}).check();await initialFinal.getByRole('button',{name:'書類を登録',exact:true}).click();await dirty();
+ assert(await initialFinal.getAttribute('data-final-plan-state')==='pending','saved creation changes red to yellow');
+ await initialFinal.locator('summary').click();await initialFinal.getByLabel('保護者同意日',{exact:true}).fill('2026-10-01');await initialFinal.getByRole('button',{name:'訂正を保存',exact:true}).click();await dirty();
+ assert(await initialFinal.getAttribute('data-final-plan-state')==='pending'&&(await initialFinal.innerText()).includes('未入力：保護者交付日'),'one date alone stays yellow and identifies missing field');
+ await initialFinal.getByLabel('保護者交付日',{exact:true}).fill('2026-10-02');await initialFinal.getByRole('button',{name:'訂正を保存',exact:true}).click();await dirty();
+ assert(await initialFinal.getAttribute('data-final-plan-state')==='completed','both dates change yellow to green');
+ await page.getByLabel('未確認・未入力だけ表示',{exact:true}).check();
+ assert(await initialFinal.count()===0&&await completedFinal.count()===0&&await pendingFinal.isVisible(),'pending-only hides completed plans but keeps stored pending plan');
+ await pendingFinal.locator('summary').click();await pendingFinal.getByLabel('保護者交付日',{exact:true}).fill('2026-10-02');await pendingFinal.getByRole('button',{name:'訂正を保存',exact:true}).click();await dirty();
+ assert(await page.locator('[data-final-plan-state]').count()===0,'completed plan immediately leaves pending-only filter');
+ assert((await store()).entries.find(row=>row.id==='pending-final').guardianDeliveryDate==='','original plan history untouched');
  assert(!errors.length,'no browser exceptions '+errors.join(','));
  assert(!external.length,'no external or production requests');
  return {passed:true,checks,productionAccess:false,realChildDataWritten:false,virtualJstThreshold:true};

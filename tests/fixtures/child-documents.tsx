@@ -30,6 +30,11 @@ if(mode==='alert-details'){
  records.settings[0].contractDate='2026-10-01';records.settings[0].effectiveFrom='2026-10-01';
  records.entries=documentSlots('a',records,'2026-10-01').filter(slot=>slot.type!=='usage_plan').map((slot,index)=>({id:'filled-'+index,childId:'a',type:slot.type,cycleKey:slot.cycleKey,documentDate:'2026-10-01',validUntil:slot.type==='benefit'?'2027-11-30':'',confirmed:slot.type!=='assessment',title:'',note:'',consentDate:slot.type==='plan_final'?'2026-10-01':'',guardianDeliveryDate:'',consultationDeliveryDate:'',operation:'record',replacesId:null,createdAt:'2026-10-01T00:00:00Z',createdByName:'架空管理者'}));
 }
+if(mode==='final-plan-states'){
+ records.settings[0].contractDate='2026-10-01';records.settings[0].effectiveFrom='2026-10-01';
+ const base={childId:'a',type:'plan_final' as const,documentDate:'2026-10-01',validUntil:'',confirmed:true,title:'',note:'',consentDate:'2026-10-01',guardianDeliveryDate:'',consultationDeliveryDate:'',operation:'record' as const,replacesId:null,createdAt:'2026-10-01T00:00:00Z',createdByName:'架空管理者'};
+ records.entries.push({...base,id:'pending-final',cycleKey:'extra:pending-final'},{...base,id:'completed-final',cycleKey:'extra:completed-final',guardianDeliveryDate:'2026-10-02'});
+}
 const model={loads:0,writes:0,settingsWrites:0,failLoad:mode==='load-error',failSave:false,delay:0};
 const persist=()=>localStorage.setItem(store,JSON.stringify(records));persist();Object.assign(window,{__documentFixture:model});
 const wait=async()=>{if(model.delay)await new Promise(resolve=>setTimeout(resolve,model.delay));};

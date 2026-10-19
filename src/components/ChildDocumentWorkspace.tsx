@@ -25,6 +25,9 @@ import {
   latestBenefitEntry,
   newDocumentEntry,
   validDocumentDate,
+  finalPlanProgress,
+  FINAL_PLAN_LABELS,
+  isDocumentPending,
   type DocumentRegister,
   type ChildDocumentEntry,
   type DocumentEntryInput,
@@ -43,6 +46,11 @@ const today = () =>
   }).format(new Date());
 const input =
   "min-h-10 w-full min-w-0 rounded-lg border border-teal-300 bg-teal-50 px-2 text-sm text-slate-900";
+const finalPlanColors={
+  not_created:{card:'border-rose-400 bg-rose-50',badge:'bg-rose-100 text-rose-900'},
+  pending:{card:'border-amber-400 bg-amber-50',badge:'bg-amber-100 text-amber-950'},
+  completed:{card:'border-emerald-500 bg-emerald-50',badge:'bg-emerald-100 text-emerald-950'},
+};
 const categoryColors: Record<DocumentCategoryId, string> = {
   contracts: "border-sky-200 bg-sky-50 text-sky-950",
   assessment: "border-teal-200 bg-teal-50 text-teal-950",
@@ -165,7 +173,7 @@ function DocumentWorkspace({
         ? childrenList.map((child) => {
             const slots = documentSlots(child.id, data, asOf),
               missing = slots.filter(
-                (slot) => slot.required && slot.status !== "complete",
+                (slot) => slot.required && isDocumentPending(slot),
               ).length,
               warnings = childDocumentReminders(child, childrenList, data, asOf, slots).filter(row=>!row.reference);
             return {
@@ -552,7 +560,7 @@ function DocumentWorkspace({
                             const expanded = Boolean(expandedTypes[group.type]);
                             const visibleSlots = group.slots.filter(
                               (slot) =>
-                                !onlyMissing || slot.status !== "complete",
+                                !onlyMissing || isDocumentPending(slot),
                             );
                             const names = group.slots
                               .filter((slot) => slot.entry?.title)
@@ -585,6 +593,7 @@ function DocumentWorkspace({
                                     </span>
                                   </span>
                                   <span className="flex flex-wrap items-center gap-1 text-[11px] font-bold">
+                                    {group.type==='plan_final'&&Object.entries(FINAL_PLAN_LABELS).map(([state,label])=><span key={state} className={`rounded-md px-2 py-1 ${finalPlanColors[state as keyof typeof finalPlanColors].badge}`}>{label} {group.slots.filter(slot=>finalPlanProgress(slot.entry)===state).length}件</span>)}
                                     <span className="rounded-md bg-slate-100 px-2 py-1 text-slate-700">
                                       登録 {group.registered}件
                                     </span>
@@ -624,7 +633,7 @@ function DocumentWorkspace({
                                   {!visibleSlots.length && (
                                     <p className="p-2 text-xs text-slate-600">
                                       {group.slots.length
-                                        ? "この書類はすべて保管確認済みです。「未確認・未入力だけ表示」を外すと登録内容を確認できます。"
+                                        ? "この書類に未確認・未入力の項目はありません。「未確認・未入力だけ表示」を外すと登録内容を確認できます。"
                                         : "登録された書類はありません。必要に応じて下の追加登録を利用してください。"}
                                     </p>
                                   )}
@@ -890,6 +899,7 @@ function DocumentRow({
   onSave: (entry: DocumentEntryInput) => Promise<void>;
   onDirty: (dirty: boolean) => void;
 }) {
+  const finalState=slot.type==='plan_final'?finalPlanProgress(slot.entry):undefined;
   const base = () => ({
     ...newDocumentEntry(slot.type, slot.cycleKey),
     ...(slot.entry || {}),
@@ -982,8 +992,9 @@ function DocumentRow({
   return (
     <article
       id={'document-slot-'+slot.key}
+      data-final-plan-state={finalState}
       aria-label={`${DOCUMENT_TYPES[slot.type]} ${slot.label}`}
-      className={`rounded-xl border-l-4 bg-white p-3 shadow-xs ${slot.status === "complete" ? "border-emerald-500" : slot.status === "missing" ? "border-rose-400" : "border-amber-400"}`}
+      className={`rounded-xl border-l-4 p-3 shadow-xs ${finalState?finalPlanColors[finalState].card:slot.status === "complete" ? "border-emerald-500 bg-white" : slot.status === "missing" ? "border-rose-400 bg-white" : "border-amber-400 bg-white"}`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
@@ -993,8 +1004,8 @@ function DocumentRow({
             {!slot.required ? "（追加登録）" : ""}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-3"><span className="text-xs font-bold">
-          {slot.status === "complete"
+        <div className="flex flex-wrap items-center gap-3"><span className={`rounded-md px-2 py-1 text-xs font-bold ${finalState?finalPlanColors[finalState].badge:''}`}>
+          {finalState ? FINAL_PLAN_LABELS[finalState] : slot.status === "complete"
             ? "保管確認済み"
             : slot.status === "missing"
               ? "未入力"
@@ -1005,6 +1016,7 @@ function DocumentRow({
         {slot.entry && <button type="button" aria-label="この書類を削除" disabled={disabled || deleteDisabled} onClick={()=>void deleteRegistration()} title={deleteDisabled ? '未保存の入力を保存するか、入力を戻してから削除してください。' : '登録を一覧から削除します。元の情報と履歴は保持します。'} className="flex min-h-10 items-center gap-1 rounded-lg border border-rose-300 bg-white px-3 text-xs font-bold text-rose-800 disabled:opacity-40"><Trash2 aria-hidden="true" className="h-4 w-4"/>削除</button>}
         </div>
       </div>
+      {finalState&&<p className="mt-2 text-xs leading-relaxed">{finalState==='not_created'?'作成日を登録してください。':finalState==='pending'?`未入力：${[!slot.entry?.consentDate&&'保護者同意日',!slot.entry?.guardianDeliveryDate&&'保護者交付日'].filter(Boolean).join('・')}`:'保護者同意日・保護者交付日が登録されています。'}{slot.entry&&!slot.entry.confirmed?' 実物の保管は未確認です。':''}</p>}
       {slot.benefitRenewal && <p className="mt-2 rounded-lg bg-violet-50 p-2 text-xs text-violet-950">更新分の入力欄／受付開始 {slot.benefitRenewal.availableFrom}。以前の受給者証とは別に登録します。</p>}
       {slot.usagePlanRenewal && <p className="mt-2 rounded-lg bg-violet-50 p-2 text-xs text-violet-950">利用計画の更新分／表示開始 {slot.usagePlanRenewal.availableFrom}。受給者証の前回期限 {slot.usagePlanRenewal.previousValidUntil} に対応する作成日・保管確認を登録します。以前の利用計画は上書きしません。作成時期は相談支援等へ確認してください。</p>}
       <div className={`mt-3 grid items-end gap-2 ${slot.type === "benefit" ? "sm:grid-cols-2" : "sm:grid-cols-[minmax(0,1fr)_auto_auto]"}`}>

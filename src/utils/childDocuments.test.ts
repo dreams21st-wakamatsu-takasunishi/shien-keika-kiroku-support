@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {addDocumentMonths,activeDocumentEntries,benefitRenewalCycleKey,usagePlanRenewalCycleKey,latestBenefitEntry,canManageChildDocuments,DOCUMENT_CATEGORIES,DOCUMENT_TYPES,groupDocumentSlots,documentSlots,validDocumentDate,type DocumentRegister,type ChildDocumentSettings,type ChildDocumentEntry} from './childDocuments';
+import {addDocumentMonths,activeDocumentEntries,benefitRenewalCycleKey,usagePlanRenewalCycleKey,latestBenefitEntry,canManageChildDocuments,DOCUMENT_CATEGORIES,DOCUMENT_TYPES,groupDocumentSlots,documentSlots,validDocumentDate,finalPlanProgress,isDocumentPending,type DocumentRegister,type ChildDocumentSettings,type ChildDocumentEntry} from './childDocuments';
 const settings=(patch:Partial<ChildDocumentSettings>={}):ChildDocumentSettings=>({childId:'a',revision:1,contractDate:'2024-04-15',monitoringMonths:[4,10],effectiveFrom:'2024-04-15',createdAt:'2024-04-15T00:00:00Z',createdByName:'架空職員',...patch});
 const entry=(type:ChildDocumentEntry['type'],cycleKey:string,id='one',patch:Partial<ChildDocumentEntry>={}):ChildDocumentEntry=>({id,childId:'a',type,cycleKey,documentDate:'2026-04-01',title:'',confirmed:true,note:'',validUntil:'',consentDate:'',guardianDeliveryDate:'',consultationDeliveryDate:'',operation:'record',replacesId:null,createdAt:'2026-04-01T00:00:00Z',createdByName:'架空職員',...patch});
 const register=(entries:ChildDocumentEntry[]=[],versions=[settings()]):DocumentRegister=>({settings:versions,entries});
@@ -175,4 +175,22 @@ test('deleting an extra plan removes unsaved companion placeholders but never de
  assert.equal(slots.find(s=>s.entry?.id==='keep')?.entry?.title,'残す証明書');
  const meeting=entry('plan_meeting','extra:mistake','meeting');
  assert.equal(documentSlots('a',register([plan,meeting,cancel]),'2026-10-19').find(s=>s.type==='plan_final'&&s.cycleKey==='extra:mistake')?.status,'missing');
+});
+
+test('final plan progress distinguishes creation from both guardian procedures independently of storage confirmation',()=>{
+ assert.equal(finalPlanProgress(),'not_created');
+ const plan=entry('plan_final','extra:one');
+ assert.equal(finalPlanProgress({...plan,documentDate:''}),'not_created');
+ assert.equal(finalPlanProgress(plan),'pending');
+ assert.equal(finalPlanProgress({...plan,consentDate:'2026-04-02'}),'pending');
+ assert.equal(finalPlanProgress({...plan,guardianDeliveryDate:'2026-04-02'}),'pending');
+ assert.equal(finalPlanProgress({...plan,consentDate:'2026-04-02',guardianDeliveryDate:'2026-04-03',confirmed:false}),'completed');
+ assert.equal(finalPlanProgress({...plan,consentDate:'invalid',guardianDeliveryDate:'2026-04-03'}),'pending');
+});
+test('pending-only filter keeps stored final plans whose consent/delivery is incomplete',()=>{
+ const plan=entry('plan_final','extra:one'),data=register([plan]);
+ const row=documentSlots('a',data,'2026-10-19').find(s=>s.entry?.id===plan.id)!;
+ assert.equal(row.status,'complete');assert.equal(isDocumentPending(row),true);
+ assert.equal(isDocumentPending({...row,entry:{...plan,consentDate:'2026-04-02',guardianDeliveryDate:'2026-04-03'}}),false);
+ assert.equal(isDocumentPending({...row,status:'unconfirmed',entry:{...plan,confirmed:false,consentDate:'2026-04-02',guardianDeliveryDate:'2026-04-03'}}),true);
 });

@@ -65,6 +65,15 @@ export interface DocumentSlot {
   benefitRenewal?: { previousValidUntil: string; availableFrom: string };
   usagePlanRenewal?: { previousValidUntil: string; availableFrom: string };
 }
+export const FINAL_PLAN_LABELS = {not_created:'未作成',pending:'未交付・未同意',completed:'交付・同意済み'} as const;
+export type FinalPlanProgress = keyof typeof FINAL_PLAN_LABELS;
+export function finalPlanProgress(entry?:ChildDocumentEntry):FinalPlanProgress {
+  if(!entry||!validDocumentDate(entry.documentDate))return 'not_created';
+  return validDocumentDate(entry.consentDate)&&validDocumentDate(entry.guardianDeliveryDate)?'completed':'pending';
+}
+export function isDocumentPending(slot:DocumentSlot){
+  return slot.status!=='complete'||(slot.type==='plan_final'&&finalPlanProgress(slot.entry)!=='completed');
+}
 export const DOCUMENT_CATEGORIES = [
   {
     id: "contracts",
@@ -114,7 +123,7 @@ export function groupDocumentSlots(slots: DocumentSlot[]) {
         registered: rows.filter((slot) => slot.entry).length,
         confirmed: rows.filter((slot) => slot.status === "complete").length,
         required: rows.filter((slot) => slot.required).length,
-        pending: rows.filter((slot) => slot.status !== "complete").length,
+        pending: rows.filter(isDocumentPending).length,
         latestDate:
           rows
             .map((slot) => slot.entry?.documentDate || "")
