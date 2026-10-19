@@ -402,6 +402,7 @@ export interface OrganizationRolePermission {
 export type ShiftRequestStatus = '申請中' | '承認' | '却下';
 
 export interface StaffShiftRequest {
+  createdBy?:string;
   id: string;
   recorderProfileId: string;
   recorderName: string;
@@ -572,6 +573,7 @@ export interface AttendanceRecord {
 export type AttendanceCorrectionStatus = '申請中' | '承認' | '却下';
 
 export interface AttendanceCorrectionRequest {
+  createdBy?:string;
   id: string;
   attendanceRecordId: string;
   recorderProfileId: string;
@@ -946,6 +948,7 @@ export type HandoverPriority = '通常' | '重要' | '緊急';
 export type HandoverStatus = '未対応' | '対応中' | '完了';
 
 export interface HandoverItem {
+  revision?: number;
   id: string;
   childId?: string;
   transportRunId?: string;

@@ -16,7 +16,7 @@ function supplyRow(row: any): SupplyItem { return { id: row.id, organizationId: 
 function movementRow(row: any): SupplyMovement { return { id: row.id, itemId: row.item_id, kind: row.kind, delta: row.delta, quantityAfter: row.quantity_after, note: row.note, createdAt: row.created_at }; }
 export async function listFacilityDocuments(org: string, kind: FacilityKind): Promise<FacilityDocument[]> {
   if (isLocal(org)) return localData().documents.filter((d) => d.kind === kind).sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  const { data, error } = await requireClient().from('facility_documents').select('*').eq('organization_id', org).eq('kind', kind).order('updated_at', { ascending: false }).limit(500);
+  const { data, error } = await requireClient().from('facility_documents').select('*').eq('organization_id', org).is('deleted_at',null).eq('kind', kind).order('updated_at', { ascending: false }).limit(500);
   if (error) throw error;
   return (data || []).map(documentRow);
 }
@@ -34,7 +34,7 @@ export async function saveFacilityDocument(doc: FacilityDocument, org: string): 
 }
 export async function listSupplies(org: string): Promise<SupplyItem[]> {
   if (isLocal(org)) return localData().supplies.sort((a, b) => a.name.localeCompare(b.name, 'ja'));
-  const { data, error } = await requireClient().from('supply_items').select('*').eq('organization_id', org).order('name').limit(1000);
+  const { data, error } = await requireClient().from('supply_items').select('*').eq('organization_id', org).is('deleted_at',null).order('name').limit(1000);
   if (error) throw error; return (data || []).map(supplyRow);
 }
 export async function saveSupply(item: SupplyItem, org: string): Promise<SupplyItem> {

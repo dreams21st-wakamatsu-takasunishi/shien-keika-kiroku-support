@@ -1,4 +1,6 @@
 import { ManualLinks } from './ManualLinks';
+import {WorkspaceTrashPanel} from './WorkspaceLifecycle';
+import {canManageWorkspaceTrash} from '../services/workspaceLifecycle';
 import React, { useCallback, useState } from 'react';
 import { MenuSearch } from './MenuSearch';
 import { matchesMenuSearch } from '../utils/navigation';
@@ -50,7 +52,7 @@ interface SettingsHubProps {
   onDeleteVehicle: (vehicleId: string) => Promise<void> | void;
 }
 
-type SettingsPage = 'menu' | 'ai' | 'templates' | 'schools' | 'transportMap' | 'rolePermissions' | 'shiftTemplates' | 'vehicles' | 'serviceTypes' | 'legalTraining' | 'diagnostics';
+type SettingsPage = 'menu' | 'ai' | 'templates' | 'schools' | 'transportMap' | 'rolePermissions' | 'shiftTemplates' | 'vehicles' | 'serviceTypes' | 'legalTraining' | 'diagnostics' | 'trash';
 
 export const SettingsHub: React.FC<SettingsHubProps> = ({
   onTrainingDirtyChange,
@@ -94,6 +96,7 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
     title: string; description: string; visible: boolean;
     items: { page: Exclude<SettingsPage, 'menu'>; icon: React.ElementType; title: string; description: string; keywords: string }[];
   }[] = [
+    {title:'データの復元',description:'管理者・児発管が削除済みデータを確認',visible:canManageWorkspaceTrash(currentUser?.role),items:[{page:'trash',icon:ListChecks,title:'削除済みデータ',description:'会議・朝礼・申し送り・指導案・施設業務の削除済みデータを復元します。',keywords:'ごみ箱 削除 復元 履歴'}]},
     { title: '職員研修', description: '管理者・児発管が登録する研修', visible: canManageTraining(currentUser?.role), items: [
       { page: 'legalTraining', icon: ListChecks, title: '法定研修追加', description: '研修カテゴリ、動画タイトル、動画・資料のURLを登録します。', keywords: '研修 受講 動画 法定 資料' },
     ] },
@@ -142,6 +145,7 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
         {page === 'vehicles' && <VehicleLedger vehicles={vehicles} recorderProfiles={recorderProfiles} onSave={onSaveVehicle} onDelete={onDeleteVehicle} />}
         {page === 'serviceTypes' && currentUser?.role === 'admin' && <OrganizationServicesSettings organizationId={currentUser.organizationId} onDirtyChange={setServiceTypesDirty} />}
         {page === 'diagnostics' && currentUser?.role === 'admin' && <DiagnosticsPanel />}
+        {page === 'trash' && canManageWorkspaceTrash(currentUser?.role) && <WorkspaceTrashPanel/>}
         {page === 'legalTraining' && currentUser && canManageTraining(currentUser.role) && <LegalTrainingWorkspace key={`${currentUser.organizationId}:${currentUser.id}`} user={currentUser} manage onDirtyChange={trainingChanged} />}
       </div>
     );

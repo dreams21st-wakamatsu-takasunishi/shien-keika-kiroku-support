@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {DeleteWorkspaceItem} from './WorkspaceLifecycle';
 import {
   AlertTriangle,
   CalendarDays,
@@ -263,6 +264,13 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
   onSetConfirmation,
 }) => {
   const [targetDate, setTargetDate] = useState(getLocalDateString());
+  const [deletedDate,setDeletedDate]=useState('');
+  const deletedDateRef=useRef('');
+  useEffect(()=>{
+    const changed=(event:Event)=>{const detail=(event as CustomEvent).detail;if(detail?.resource==='morning_meeting_records'){deletedDateRef.current=detail.restore?'':detail.id;setDeletedDate(deletedDateRef.current);}};
+    window.addEventListener('d-support:workspace-item-deleted',changed);
+    return()=>window.removeEventListener('d-support:workspace-item-deleted',changed);
+  },[]);
   const selectedRecord = useMemo(
     () => records.find((record) => record.date === targetDate),
     [records, targetDate]
@@ -771,6 +779,7 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
   }, []);
 
   const persistPendingContent = async (showStatus: boolean): Promise<boolean> => {
+    if(deletedDateRef.current===targetDateRef.current)return false;
     if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
     saveTimerRef.current = null;
     if (!localPendingRef.current) return true;
@@ -1204,6 +1213,8 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
   return (
     <section className="overflow-hidden rounded-2xl border border-sky-200 bg-white shadow-sm">
       <div className="border-b border-sky-100 bg-sky-50/80 p-4">
+        {deletedDate===targetDate&&<p role="status" className="mb-2 rounded-lg bg-amber-50 p-3 text-sm font-bold">この日の朝礼記録は削除済みです。入力は保持しています。編集を再開する場合は「設定 → 削除済みデータ」から復元してください。</p>}
+        {selectedRecord&&<DeleteWorkspaceItem resource="morning_meeting_records" id={targetDate} revision={selectedRecord.revision} disabled={saveStatus==='saving'||content!==selectedRecord.content||Boolean(conflict)} onDeleted={()=>{deletedDateRef.current=targetDate;setDeletedDate(targetDate);if(saveTimerRef.current)window.clearTimeout(saveTimerRef.current);}}/>}
         <div className="flex items-center justify-between gap-3">
           <div>
             <h3 className="flex items-center gap-2 text-base font-black text-slate-900">
@@ -1651,6 +1662,7 @@ export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
         <div className="relative order-4 min-w-0 self-start">
           <textarea
             value={content}
+            readOnly={deletedDate===targetDate}
             onChange={(event) => {
               const editor = event.currentTarget;
               updateContent(editor.value, editor.selectionStart, editor.selectionEnd);

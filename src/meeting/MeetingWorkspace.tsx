@@ -1,4 +1,5 @@
 import { ManualLinks } from '../components/ManualLinks';
+import {DeleteWorkspaceItem} from '../components/WorkspaceLifecycle';
 import React, { useEffect, useId, useState } from 'react';
 import { ArrowLeft, ClipboardCopy, Download, LoaderCircle, Plus, RefreshCw, Save } from 'lucide-react';
 import type { CalendarEvent, ChildProfile, UserProfile } from '../types';
@@ -202,6 +203,7 @@ export function MeetingWorkspace({ organizationId, currentUser, childrenList, ca
     </header>
     {saveError && <div role="alert" className="rounded-xl border border-red-300 bg-red-50 p-4 text-sm font-bold text-red-900">{saveError}<button className="ml-2 underline disabled:opacity-50" disabled={saving || exporting || loading} onClick={() => void reloadCurrent()}>再読み込み</button></div>}
     {message && <div role="status" className="rounded-xl border border-teal-200 bg-teal-50 p-3 text-sm text-teal-900">{message}</div>}
+    {selected&&saved&&<DeleteWorkspaceItem resource="meeting_cases" id={saved.id} revision={saved.revision} disabled={saving||exporting||hasUnsavedChanges} onDeleted={()=>{setCases(rows=>rows.filter(row=>row.id!==selected.id));setSelected(null);setSaved(null);setMessage('会議を削除済みに移しました。設定から復元できます。');}}/>}
     {!selected ? <>
       <div className={panelClass}>
         <h2 className="text-lg font-black text-slate-900">新しい会議を準備</h2>

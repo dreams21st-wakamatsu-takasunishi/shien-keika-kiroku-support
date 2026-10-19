@@ -344,6 +344,7 @@ function mapStaffShiftTemplate(row: any): StaffShiftTemplate {
 
 function mapStaffShiftRequest(row: any, recorderNames?: Map<string, string>): StaffShiftRequest {
   return {
+    createdBy:row.created_by||undefined,
     id: row.id,
     recorderProfileId: row.recorder_profile_id,
     recorderName: recorderNames?.get(row.recorder_profile_id) || '職員',
@@ -362,6 +363,7 @@ function mapStaffShiftRequest(row: any, recorderNames?: Map<string, string>): St
 
 function mapHandoverItem(row: any, recorderNames?: Map<string, string>): HandoverItem {
   return {
+    revision:Number(row.revision||1),
     id: row.id,
     childId: row.child_id || undefined,
     transportRunId: row.transport_run_id || undefined,
@@ -532,6 +534,7 @@ function mapAttendanceCorrection(
   recorderNames?: Map<string, string>,
 ): AttendanceCorrectionRequest {
   return {
+    createdBy:row.created_by||undefined,
     id: row.id,
     attendanceRecordId: row.attendance_record_id,
     recorderProfileId: row.recorder_profile_id,
@@ -813,9 +816,9 @@ async function loadWorkspaceDataInternal(organizationId: string, changedTables?:
     () => client.from('recorder_profiles').select('id, display_name, active, pin_configured, employee_code, job_title, employment_type, contracted_weekly_hours, part_time_weekday_work_days, part_time_weekday_start_time, part_time_weekday_end_time, part_time_holiday_work_days, part_time_holiday_start_time, part_time_holiday_end_time, shift_request_default_start_time, shift_request_default_end_time, individual_login_enabled, individual_login_role, menu_preferences, created_at').eq('organization_id', organizationId).eq('active', true).order('display_name'),
     () => client.from('record_templates').select('*').eq('organization_id', organizationId).is('archived_at', null).order('created_at'),
     () => loadSupportRecordsWithRetry(organizationId, recordIds),
-    () => client.from('handover_items').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }),
+    () => client.from('handover_items').select('*').eq('organization_id', organizationId).is('deleted_at',null).order('created_at', { ascending: false }),
     () => client.from('handover_confirmations').select('*').eq('organization_id', organizationId).order('confirmed_at', { ascending: false }),
-    () => client.from('morning_meeting_records').select('*').eq('organization_id', organizationId).order('meeting_date', { ascending: false }),
+    () => client.from('morning_meeting_records').select('*').eq('organization_id', organizationId).is('deleted_at',null).order('meeting_date', { ascending: false }),
     () => client.from('morning_meeting_templates').select('*').eq('organization_id', organizationId).is('archived_at', null).order('updated_at', { ascending: false }),
     () => client.from('morning_meeting_confirmations').select('*').eq('organization_id', organizationId).order('confirmed_at', { ascending: false }),
     () => client.from('support_plans').select('*').eq('organization_id', organizationId).order('valid_from', { ascending: false }),
@@ -2510,6 +2513,7 @@ export async function saveMorningMeetingRecord(
         .select('*')
         .eq('organization_id', organizationId)
         .eq('meeting_date', record.date)
+        .is('deleted_at',null)
         .maybeSingle();
       throw new MorningMeetingConflictError(latestRow ? mapMorningMeetingRecord(latestRow) : undefined);
     }

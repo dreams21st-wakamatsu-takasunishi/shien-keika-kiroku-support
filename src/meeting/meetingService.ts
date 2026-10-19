@@ -53,7 +53,7 @@ function mapProgress(row: any): MeetingProgressRecord {
 export async function listMeetingCases(organizationId: string): Promise<MeetingCase[]> {
   if (isDemo(organizationId)) return [...demoCases].sort((a, b) => b.meetingDate.localeCompare(a.meetingDate));
   const { data, error } = await client().from('meeting_cases').select('*')
-    .eq('organization_id', organizationId).order('meeting_date', { ascending: false });
+    .eq('organization_id', organizationId).is('deleted_at',null).order('meeting_date', { ascending: false });
   if (error) throw error;
   return (data || []).map(mapCase);
 }

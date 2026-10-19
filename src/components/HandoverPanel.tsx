@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from 'react';
+import {DeleteWorkspaceItem} from './WorkspaceLifecycle';
 import {
   ChevronDown,
   ClipboardPlus,
@@ -455,6 +456,7 @@ export const HandoverPanel: React.FC<HandoverPanelProps> = ({
           );
           return (
             <article key={item.id} className={`p-3 sm:p-4 ${item.priority === '緊急' ? 'bg-rose-50/60' : ''}`}>
+              <DeleteWorkspaceItem resource="handover_items" id={item.id} revision={item.revision||1} disabled={Boolean(busyItemId)} onDeleted={()=>{window.dispatchEvent(new CustomEvent('d-support:workspace-lifecycle',{detail:{table:'handover_items'}}));}}/>
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className={`rounded-full px-2 py-1 text-[10px] font-black ${
                   item.priority === '緊急'

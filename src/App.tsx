@@ -158,6 +158,8 @@ import { createWorkspaceRefreshQueue } from './services/workspaceRefreshQueue';
 import { workspaceLoadPlan } from './services/workspaceLoadPlan';
 import { clearPerformanceTimings } from './services/performanceMetrics';
 import { mergeRecordRefresh } from './utils/recordRefresh';
+import {WorkspaceLifecycleProvider} from './components/WorkspaceLifecycle';
+import {canManageWorkspaceTrash} from './services/workspaceLifecycle';
 
 const FIELD_MODE_REAUTH_AFTER_MS = 30_000;
 const RECENT_PASSWORD_AUTH_WINDOW_MS = 120_000;
@@ -655,6 +657,9 @@ export default function App() {
 
   const scheduleRemoteRefresh = useCallback((payload?: { table?: string; new?: unknown; old?: unknown }) => {
     if (workspaceScopeRef.current !== workspaceScope) return;
+    if(payload?.table==='morning_meeting_records'&&payload.new&&typeof payload.new==='object'&&'deleted_at' in payload.new&&payload.new.deleted_at){
+      window.dispatchEvent(new CustomEvent('d-support:workspace-item-deleted',{detail:{resource:payload.table,id:'meeting_date' in payload.new?payload.new.meeting_date:''}}));
+    }
     if (payload?.table === 'support_records') {
       const row = payload.new && typeof payload.new === 'object' && 'id' in payload.new ? payload.new
         : payload.old && typeof payload.old === 'object' && 'id' in payload.old ? payload.old : null;
@@ -673,6 +678,12 @@ export default function App() {
       void refreshRemoteData(false, tables);
     }, 350);
   }, [refreshRemoteData, workspaceScope]);
+
+  useEffect(()=>{
+    const changed=(event:Event)=>{const table=(event as CustomEvent).detail?.table;if(['morning_meeting_records','handover_items','staff_shift_requests','attendance_correction_requests'].includes(table))scheduleRemoteRefresh({table});};
+    window.addEventListener('d-support:workspace-lifecycle',changed);
+    return()=>window.removeEventListener('d-support:workspace-lifecycle',changed);
+  },[scheduleRemoteRefresh]);
 
   const refreshRecordDrafts = useCallback(async () => {
     if (workspaceScopeRef.current !== workspaceScope) return;
@@ -2226,6 +2237,7 @@ export default function App() {
   };
 
   return (
+    <WorkspaceLifecycleProvider organizationId={organizationId} userId={auth.profile?.id} recorderId={auth.profile?.recorderProfileId} allowed={Boolean(organizationId&&canManageWorkspaceTrash(auth.profile?.role)&&!auth.profile?.fieldModeOnly)}>
     <div className="app-background min-h-screen pb-8 font-sans text-slate-900 antialiased sm:pb-12">
       {auth.profile?.fieldModeOnly && privacyShielded && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950 p-6 text-center text-white" role="presentation">
@@ -2604,6 +2616,7 @@ export default function App() {
       {recordEntry.busy&&!recordEntry.dialog&&<div role="status" className="fixed inset-0 z-[165] grid place-items-center bg-slate-950/40"><p className="rounded-xl bg-white p-5 font-bold">入力中の記録を確認しています…</p></div>}
       {recordEntry.dialog&&<RecordEntryDialog request={recordEntry.dialog.request} drafts={recordEntry.dialog.drafts} childrenList={childrenList} busy={recordEntry.busy} error={recordEntry.error} onDateChange={date=>void recordEntry.request({date,manage:true})} onChoose={key=>void recordEntry.choose(key)} onMerge={(keys,target)=>void recordEntry.merge(keys,target)} onClose={recordEntry.close}/>}
     </div>
+    </WorkspaceLifecycleProvider>
   );
 }
 

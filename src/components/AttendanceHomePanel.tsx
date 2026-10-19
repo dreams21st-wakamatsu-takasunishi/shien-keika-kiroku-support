@@ -8,6 +8,7 @@ import type {
   StaffShiftTemplate, TransportRun,
 } from '../types';
 import { getLocalDateString } from '../utils/weekdays';
+import {OwnRequestWithdrawals} from './WorkspaceLifecycle';
 import { AttendancePanel } from './AttendancePanel';
 import { StaffShiftManager } from './StaffShiftManager';
 
@@ -133,6 +134,7 @@ export const AttendanceHomePanel: React.FC<AttendanceHomePanelProps> = ({
   ];
 
   return <div className="space-y-4">
+    <OwnRequestWithdrawals shiftRequests={shiftRequests} corrections={corrections}/>
     <ManualLinks context={attendanceManualContext(activeTab)} />
     <nav className={`grid gap-1 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-sm ${tabs.length >= 4 ? 'grid-cols-2 lg:grid-cols-4' : tabs.length === 3 ? 'grid-cols-3' : 'grid-cols-2'}`} aria-label="出勤予定の機能">
       {tabs.map((tab) => <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)} className={`flex min-h-11 items-center justify-center gap-2 rounded-xl px-3 text-xs font-black transition-colors ${activeTab === tab.id ? 'bg-slate-950 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}><tab.icon className="h-4 w-4" />{tab.label}{Boolean(tab.badge) && <span className="rounded-full bg-amber-300 px-1.5 py-0.5 text-[9px] text-amber-950">{tab.badge}</span>}</button>)}

@@ -10,7 +10,7 @@ function map(row: any): ActivityPlan { return { id: row.id, organizationId: row.
 export async function listActivityPlans(organizationId: string): Promise<ActivityPlan[]> {
   if (!supabase && organizationId === 'local') return localPlans().sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   if (!supabase) throw new Error('ログイン状態を確認してください。');
-  const { data, error } = await supabase.from('activity_plans').select('*').eq('organization_id', organizationId).order('updated_at', { ascending: false }).limit(500);
+  const { data, error } = await supabase.from('activity_plans').select('*').eq('organization_id', organizationId).is('deleted_at',null).order('updated_at', { ascending: false }).limit(500);
   if (error) throw error;
   return (data || []).map(map);
 }
