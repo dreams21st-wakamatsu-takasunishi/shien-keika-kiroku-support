@@ -4,6 +4,7 @@ import {createRoot} from 'react-dom/client';
 import {ChildDocumentWorkspace} from '../../src/components/ChildDocumentWorkspace';
 import {ChildrenManager} from '../../src/components/ChildrenManager';
 import type {DocumentRegister} from '../../src/utils/childDocuments';
+import {documentSlots} from '../../src/utils/childDocuments';
 import type {ChildDocumentApi} from '../../src/services/childDocumentService';
 import '../../src/index.css';
 const mode=new URLSearchParams(location.search).get('mode')||'normal',role=new URLSearchParams(location.search).get('role')||'admin';
@@ -25,6 +26,10 @@ if(mode==='document-deletion'){
   {...base,id:'extra-plan',type:'plan_final',cycleKey:'extra:mistaken-plan',documentDate:'2026-10-01',title:''});
 }
 if(mode==='legacy-consultation')records.entries.push({id:'legacy-plan',childId:'a',type:'plan_final',cycleKey:'extra:legacy-plan',documentDate:'2026-10-01',validUntil:'',confirmed:true,title:'',note:'既存の記載',consentDate:'2026-10-01',guardianDeliveryDate:'2026-10-01',consultationDeliveryDate:'2026-10-02',operation:'record',replacesId:null,createdAt:'2026-10-02T00:00:00Z',createdByName:'架空管理者'});
+if(mode==='alert-details'){
+ records.settings[0].contractDate='2026-10-01';records.settings[0].effectiveFrom='2026-10-01';
+ records.entries=documentSlots('a',records,'2026-10-01').filter(slot=>slot.type!=='usage_plan').map((slot,index)=>({id:'filled-'+index,childId:'a',type:slot.type,cycleKey:slot.cycleKey,documentDate:'2026-10-01',validUntil:slot.type==='benefit'?'2027-11-30':'',confirmed:slot.type!=='assessment',title:'',note:'',consentDate:slot.type==='plan_final'?'2026-10-01':'',guardianDeliveryDate:'',consultationDeliveryDate:'',operation:'record',replacesId:null,createdAt:'2026-10-01T00:00:00Z',createdByName:'架空管理者'}));
+}
 const model={loads:0,writes:0,settingsWrites:0,failLoad:mode==='load-error',failSave:false,delay:0};
 const persist=()=>localStorage.setItem(store,JSON.stringify(records));persist();Object.assign(window,{__documentFixture:model});
 const wait=async()=>{if(model.delay)await new Promise(resolve=>setTimeout(resolve,model.delay));};

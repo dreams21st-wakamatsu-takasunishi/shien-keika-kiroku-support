@@ -35,9 +35,9 @@ async function check(page,url){
  await certificate.getByLabel('実物の保管を確認',{exact:true}).check();
  await certificate.getByRole('button',{name:'書類を登録',exact:true}).click();await dirty();
  assert(await renewal().count()===1,'new certificate does not hide pending plan');
- const pending=panel().getByRole('listitem').filter({has:page.getByText('更新後の利用計画を確認・登録してください',{exact:true})});
+ const pending=panel().locator('[data-document-issue="usage_plan|extra:usage-plan-renewal-2026-11-30"]');
  if(!await pending.isVisible())await panel().locator('summary').filter({hasText:'残りの確認案内を表示'}).click();
- await pending.getByRole('button',{name:'該当書類を確認',exact:true}).click();
+ await pending.getByRole('button',{name:'この欄へ移動',exact:true}).click();
  assert(await renewal().isVisible(),'reminder opens relevant plan input');
  await renewal().getByLabel('作成日',{exact:true}).fill('2026-10-30');
  assert(await page.getByRole('button',{name:'受給者証を入力・確認',exact:true}).isDisabled(),'cannot navigate away from unsaved renewal');
@@ -62,6 +62,7 @@ async function check(page,url){
  }
  await page.goto(url+'?mode=family-reminders');await page.getByRole('button',{name:/^架空児童A /}).click();await panel().waitFor();
  const more=panel().locator('summary').filter({hasText:'残りの確認案内を表示'});if(await more.count())await more.click();
+ await panel().locator('summary').filter({hasText:'参考情報（書類不足とは別'}).click();
  assert((await panel().innerText()).includes('登録きょうだい：1名'),'explicit sibling information displayed');
  assert((await panel().innerText()).includes('11月生まれ'),'eldest candidate birth month visible');
  const birthday=panel().getByRole('listitem').filter({has:page.getByText('誕生月を手掛かりに更新時期を確認',{exact:true})});
@@ -79,7 +80,7 @@ async function check(page,url){
  const legacy=page.getByRole('article',{name:'個支本案 追加・旧設定の計画',exact:true});
  await legacy.locator('summary').click();
  assert(await page.getByLabel('相談支援交付日',{exact:true}).count()===0,'consultation date input removed');
- assert(!await panel().getByText('個支本案 2026-10-01の同意・交付確認',{exact:true}).count(),'legacy plan with guardian dates does not prompt consultation date');
+ assert(!await panel().locator('[data-document-issue="plan_final|extra:legacy-plan"]').count(),'legacy plan with guardian dates does not prompt consultation date');
  await legacy.getByLabel('保護者交付日',{exact:true}).fill('2026-10-03');
  await legacy.getByRole('button',{name:'訂正を保存',exact:true}).click();await dirty();
  const legacyRows=(await store()).entries;
@@ -89,6 +90,26 @@ async function check(page,url){
  await legacy.locator('summary').click();
  assert(await legacy.getByLabel('保護者交付日',{exact:true}).inputValue()==='2026-10-03','visible guardian date change persists after reload');
  assert((await store()).entries.at(-1).consultationDeliveryDate==='2026-10-02','legacy hidden date survives reload');
+ await page.goto(url+'?mode=alert-details');await page.getByRole('button',{name:/^架空児童A /}).click();await panel().waitFor();
+ const issues=panel().locator('[data-document-issue]');
+ assert(await issues.count()===3,'only three actual missing documents, not duplicated initial and annual alerts');
+ const keys=await issues.evaluateAll(nodes=>nodes.map(node=>node.getAttribute('data-document-issue')));
+ assert(new Set(keys).size===keys.length,'one issue per document and cycle');
+ const initialUsage=panel().locator('[data-document-issue="usage_plan|annual:2026-10-01"]');
+ assert((await initialUsage.innerText()).includes('作成日・実物の保管確認'),'initial usage explicitly lists missing fields');
+ const assessmentIssue=panel().locator('[data-document-issue="assessment|annual:2026-10-01"]');
+ assert((await assessmentIssue.innerText()).includes('未入力・未確認：実物の保管確認')&&!(await assessmentIssue.innerText()).includes('作成日'),'registered creation date is not falsely listed as missing');
+ const guardianIssue=panel().locator('[data-document-issue="plan_final|initial:2026-10-01"]');
+ assert((await guardianIssue.innerText()).includes('保護者交付日')&&!(await guardianIssue.innerText()).includes('保護者同意日'),'only missing guardian date is listed');
+ await initialUsage.getByRole('button',{name:'この欄へ移動',exact:true}).click();
+ const initialForm=page.getByRole('article',{name:'利用計画 初回 2026-10-01',exact:true});
+ await initialForm.getByLabel('作成日',{exact:true}).fill('2026-10-01');await initialForm.getByLabel('実物の保管を確認',{exact:true}).check();
+ assert(await guardianIssue.getByRole('button',{name:'この欄へ移動',exact:true}).isDisabled(),'direct issue links protect dirty input');
+ await initialForm.getByRole('button',{name:'書類を登録',exact:true}).click();await dirty();
+ assert(await initialUsage.count()===0&&await issues.count()===2,'saving usage clears only its issue immediately');
+ for(const [name,width,height] of [['laptop',1366,900],['phone',390,844]]){
+  await page.setViewportSize({width,height});await panel().scrollIntoViewIfNeeded();assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'specific issue layout no overflow '+name);await panel().screenshot({path:'output/playwright/document-specific-alerts-'+name+'.png'});
+ }
  assert(!errors.length,'no browser exceptions '+errors.join(','));
  assert(!external.length,'no external or production requests');
  return {passed:true,checks,productionAccess:false,realChildDataWritten:false,virtualJstThreshold:true};

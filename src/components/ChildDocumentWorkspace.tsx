@@ -7,7 +7,6 @@ import {
   LoaderCircle,
   RefreshCw,
   Search,
-  ShieldCheck,
   Trash2,
 } from "lucide-react";
 import type { ChildProfile, UserProfile } from "../types";
@@ -168,7 +167,7 @@ function DocumentWorkspace({
               missing = slots.filter(
                 (slot) => slot.required && slot.status !== "complete",
               ).length,
-              warnings = childDocumentReminders(child, childrenList, data, asOf, slots).filter(row=>row.level!=="info");
+              warnings = childDocumentReminders(child, childrenList, data, asOf, slots).filter(row=>!row.reference);
             return {
               child,
               missing,
@@ -209,11 +208,11 @@ function DocumentWorkspace({
     setError("");
     setExpandedTypes((previous) => ({ ...previous, [type]: !previous[type] }));
   };
-  const openDocumentTypes = (types: DocumentType[]) => {
+  const openDocumentTypes = (types: DocumentType[], slotKey?: string) => {
     if (busy || dirtyCount || !types.length) return;
     setCategoryFilter("all");setFilterType("all");setOnlyMissing(false);
     setExpandedTypes(previous=>({...previous,...Object.fromEntries(types.map(type=>[type,true]))}));
-    window.requestAnimationFrame(()=>document.getElementById('document-type-'+types[0])?.scrollIntoView({behavior:'smooth',block:'start'}));
+    window.requestAnimationFrame(()=>document.getElementById(slotKey?'document-slot-'+slotKey:'document-type-'+types[0])?.scrollIntoView({behavior:'smooth',block:'start'}));
   };
   const writeEntry = async (entry: DocumentEntryInput) => {
     if (!child || busy) throw Error("保存中です。しばらくお待ちください。");
@@ -681,41 +680,13 @@ function DocumentWorkspace({
           </div>
         )
       )}
-      <details className="rounded-xl border bg-white p-3 text-xs leading-relaxed text-slate-700">
-        <summary className="flex min-h-9 cursor-pointer items-center gap-2 font-bold">
-          <ShieldCheck className="h-4 w-4" />
-          管理ルールと公的資料
-        </summary>
-        <p className="mt-2">
-          年1回のアセスメント・受給者証コピー・利用計画・別表の枠は事業所の確認ルールです。書類ごとの法定更新期限を一律1年と判定する機能ではありません。放デイ自身の計画見直しは受給者証の指定月と別に、概ね6か月に1回以上を確認します。必要に応じた追加作成も登録してください。個支本案は保護者同意日・保護者交付日を入力できます。その他の交付等の手続きは実際の運用に応じて確認してください。保管確認済みでも、内容の妥当性・運営基準への適合を保証するものではありません。
-        </p>
-        <p className="mt-2">
-          <a
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline"
-            href="https://www.cfa.go.jp/assets/contents/node/basic_page/field_ref_resources/32675809-3f98-486b-9c03-efc695ede0bb/842aaa30/20240710_policies_shougaijishien_shisaku_10.pdf"
-          >
-            こども家庭庁：放課後等デイサービスガイドライン
-          </a>{" "}
-          ／{" "}
-          <a
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline"
-            href="https://www.city.kitakyushu.lg.jp/contents/29800090.html"
-          >
-            北九州市：契約内容報告書
-          </a>
-          （確認日 2026-10-15。所在地の指定権者の取扱いも確認してください。）
-        </p>
-      </details>
     </div>
   );
 }
 
-function DocumentReminderPanel({child,childrenList,asOf,reminders,disabled,onOpen}:{child:ChildProfile;childrenList:ChildProfile[];asOf:string;reminders:DocumentReminder[];disabled:boolean;onOpen:(types:DocumentType[])=>void}) {
+function DocumentReminderPanel({child,childrenList,asOf,reminders,disabled,onOpen}:{child:ChildProfile;childrenList:ChildProfile[];asOf:string;reminders:DocumentReminder[];disabled:boolean;onOpen:(types:DocumentType[],slotKey?:string)=>void}) {
   const family=documentFamilyReference(child,childrenList,asOf);
+  const actions=reminders.filter(row=>!row.reference),references=reminders.filter(row=>row.reference);
   const colors={overdue:'border-rose-300 bg-rose-50 text-rose-950',soon:'border-amber-300 bg-amber-50 text-amber-950',info:'border-sky-200 bg-sky-50 text-sky-950'};
   const labels={overdue:'期限・目安超過',soon:'近日・未確認',info:'参考・情報不足'};
   const render=(reminder:DocumentReminder)=><li key={reminder.id} className={`rounded-lg border p-3 ${colors[reminder.level]}`}>
@@ -724,19 +695,25 @@ function DocumentReminderPanel({child,childrenList,asOf,reminders,disabled,onOpe
       <span className="rounded bg-white/80 px-2 py-1 text-[11px] font-bold">{labels[reminder.level]} ／ {reminder.basis}</span>
     </div>
     {reminder.date&&<p className="mt-1 text-xs font-bold">確認目安：{reminder.date}</p>}
+    {reminder.reviewNotes?.map(note=><p key={note} className="mt-1 text-xs leading-relaxed">併せて確認：{note}</p>)}
+    {reminder.items?.length?<ul className="mt-2 divide-y divide-current/15 rounded-lg bg-white/70 px-2">{reminder.items.map(item=><li key={item.slotKey} data-document-issue={item.slotKey} className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs">
+      <div className="min-w-0 flex-1 basis-52"><p className="break-words font-bold">{item.label}</p><p className="mt-1 break-words">未入力・未確認：{item.missing.join('・')}</p></div>
+      <button type="button" disabled={disabled} onClick={()=>onOpen([item.type],item.slotKey)} className="min-h-10 shrink-0 rounded-lg border border-current bg-white px-3 font-bold disabled:opacity-40">この欄へ移動</button>
+    </li>)}</ul>:<p className="mt-2 text-xs leading-relaxed">{reminder.detail}</p>}
     <div className="mt-2 flex flex-wrap items-start gap-3">
-      {reminder.types.length>0&&<button type="button" disabled={disabled} onClick={()=>onOpen(reminder.types)} className="min-h-10 shrink-0 rounded-lg border border-current bg-white px-3 text-xs font-bold disabled:opacity-40">該当書類を確認</button>}
-      <details className="min-w-0 flex-1 basis-44 text-xs leading-relaxed"><summary className="min-h-10 cursor-pointer py-3 font-bold">確認内容・根拠</summary>
-        <p>{reminder.detail}</p>
+      {!reminder.items?.length&&reminder.types.length>0&&<button type="button" disabled={disabled} onClick={()=>onOpen(reminder.types)} className="min-h-10 shrink-0 rounded-lg border border-current bg-white px-3 text-xs font-bold disabled:opacity-40">該当書類を確認</button>}
+      {(Boolean(reminder.items?.length)||reminder.source)&&<details className="min-w-0 flex-1 basis-44 text-xs leading-relaxed"><summary className="min-h-10 cursor-pointer py-3 font-bold">確認内容・根拠</summary>
+        {Boolean(reminder.items?.length)&&<p>{reminder.detail}</p>}
         {reminder.source&&<a href={DOCUMENT_RULE_SOURCES[reminder.source].url} target="_blank" rel="noreferrer noopener" className="mt-2 block underline">{DOCUMENT_RULE_SOURCES[reminder.source].label}</a>}
-      </details>
+      </details>}
     </div>
   </li>;
   return <section aria-label="書類の更新・追加の確認案内" className="rounded-xl border border-slate-200 bg-white p-3">
     <h4 className="text-sm font-black">書類の更新・追加の確認案内</h4>
     <p className="mt-1 text-xs leading-relaxed text-slate-600">契約日・有効期限・モニタリング月から自動確認します。書類の内容審査・法令適合の保証や、提出・交付の自動処理は行いません。</p>
     <p className="mt-2 rounded-lg bg-slate-50 p-2 text-xs leading-relaxed text-slate-700">本人の誕生月：{family.ownBirthMonth?`${family.ownBirthMonth}月`:'未登録'} ／ 登録きょうだい：{family.siblingCount?`${family.siblingCount}名`:'登録なし（無しとは断定しません）'}{family.siblingCount>0&&` ／ 名簿上の最年長候補：${family.eldest?`${Number(family.eldest.birthDate!.slice(5,7))}月生まれ`:'生年月日・利用状況の確認が必要'}`}。実際の受給者証の期限を優先します。</p>
-    {reminders.length?<><ul className="mt-3 space-y-2">{reminders.slice(0,4).map(render)}</ul>{reminders.length>4&&<details className="mt-2"><summary className="min-h-10 cursor-pointer py-2 text-xs font-bold text-teal-800">残りの確認案内を表示（{reminders.length-4}件）</summary><ul className="mt-2 space-y-2">{reminders.slice(4).map(render)}</ul></details>}</>:<p className="mt-3 text-xs text-slate-600">登録情報に基づく今回の確認案内はありません。状況の変化や自治体の個別指示がある場合は別途確認してください。</p>}
+    {actions.length?<><ul className="mt-3 space-y-2">{actions.slice(0,3).map(render)}</ul>{actions.length>3&&<details className="mt-2"><summary className="min-h-10 cursor-pointer py-2 text-xs font-bold text-teal-800">残りの確認案内を表示（{actions.length-3}件）</summary><ul className="mt-2 space-y-2">{actions.slice(3).map(render)}</ul></details>}</>:<p className="mt-3 text-xs text-slate-600">登録情報に基づく今回の確認案内はありません。状況の変化や自治体の個別指示がある場合は別途確認してください。</p>}
+    {references.length>0&&<details className="mt-3"><summary className="min-h-10 cursor-pointer py-2 text-xs font-bold text-sky-800">参考情報（書類不足とは別・{references.length}件）</summary><ul className="space-y-2">{references.map(render)}</ul></details>}
     <details className="mt-3 text-xs leading-relaxed text-slate-600"><summary className="min-h-9 cursor-pointer py-2 font-bold">判定の考え方・地域差について</summary>
       <p>1か月前の案内開始・契約日からの年次枠・指定月の月末表示は、このアプリの管理目安です。アセスメントや同意書などに、一律の年次更新義務があると判定するものではありません。</p>
       <p className="mt-2">放デイのモニタリング・計画見直しは受給者証の指定月と分けて確認します。誕生月やきょうだいの参考表示は、自治体、他事業所での利用、卒業・利用終了を確定できないため期限には変換しません。北九州市では、きょうだい利用時に最年長児の誕生月へ期限を合わせる取扱いがあります。適用は受給者証・自治体へ確認してください。</p>
@@ -1004,6 +981,7 @@ function DocumentRow({
   };
   return (
     <article
+      id={'document-slot-'+slot.key}
       aria-label={`${DOCUMENT_TYPES[slot.type]} ${slot.label}`}
       className={`rounded-xl border-l-4 bg-white p-3 shadow-xs ${slot.status === "complete" ? "border-emerald-500" : slot.status === "missing" ? "border-rose-400" : "border-amber-400"}`}
     >

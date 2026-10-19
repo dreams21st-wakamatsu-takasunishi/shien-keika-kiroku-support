@@ -361,61 +361,6 @@ export function documentSlots(
         Object.keys(DOCUMENT_TYPES).indexOf(b.type),
   );
 }
-export function documentWarnings(
-  childId: string,
-  register: DocumentRegister,
-  today: string,
-  dayService = true,
-) {
-  const settings = latestDocumentSettings(register.settings, childId),
-    active = activeDocumentEntries(
-      register.entries.filter((row) => row.childId === childId),
-    ),
-    warnings: string[] = [];
-  if (!settings) return ["契約日が未登録のため、必要書類の計算は未完了です。"];
-  if (settings.contractDate > today)
-    return ["契約開始前です。必要書類は契約日から表示します。"];
-  const currentSchedule = register.settings
-    .filter((row) => row.childId === childId && row.effectiveFrom <= today)
-    .sort((a, b) => b.revision - a.revision)[0];
-  if (!currentSchedule?.monitoringMonths.length)
-    warnings.push(
-      "受給者証のモニタリング更新月が未登録です。更新月の書類枠は計算できていません。",
-    );
-  if (dayService) {
-    const last =
-      active
-        .filter(
-          (row) =>
-            row.type === "monitoring" &&
-            row.confirmed &&
-            row.documentDate <= today,
-        )
-        .map((row) => row.documentDate)
-        .sort()
-        .at(-1) || settings.contractDate;
-    if (addDocumentMonths(last, 6) <= today)
-      warnings.push(
-        "放デイ自身の計画見直し・モニタリングが6か月以上確認できていません。受給者証の更新月とは別に確認してください。",
-      );
-  }
-  const certificate = latestBenefitEntry(childId, register, today);
-  if (certificate?.validUntil && certificate.validUntil < today)
-    warnings.push(
-      "最新の受給者証の有効期限を過ぎています。更新・保管状況を確認してください。",
-    );
-  else if (certificate?.validUntil && addDocumentMonths(certificate.validUntil, -1) <= today)
-    warnings.push("受給者証の有効期限まで1か月以内です。更新後の受給者証を登録する欄を表示しています。");
-  for (const plan of active.filter(
-    (row) => row.type === "plan_final" && row.confirmed,
-  )) {
-    if (!plan.consentDate || !plan.guardianDeliveryDate)
-      warnings.push(
-        `${plan.documentDate}の個支本案：保護者の同意・交付日の確認が残っています。`,
-      );
-  }
-  return warnings;
-}
 export function newDocumentEntry(
   type: DocumentType,
   cycleKey: string,
