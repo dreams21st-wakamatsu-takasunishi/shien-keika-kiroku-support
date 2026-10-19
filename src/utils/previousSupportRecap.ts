@@ -43,7 +43,7 @@ export function supportRecapLines(record:SupportRecord):string[] {
 
 export function buildPreviousSupportRecaps(children:ChildProfile[],records:SupportRecord[],date:string){
  return children.map(child=>({child,records:records.filter(r=>r.childId===child.id&&r.date===date)
-  .sort((a,b)=>a.createdAt.localeCompare(b.createdAt))}));
+  .sort((a,b)=>a.createdAt.localeCompare(b.createdAt))})).filter(row=>row.records.length>0);
 }
 
 export function shortRecapLine(line:string,max=200):string {

@@ -11,12 +11,23 @@ test('morning recap defaults to Friday on Monday and yesterday on other days',()
  assert.equal(previousSupportDate('2026-01-01'),'2025-12-31');
  assert.throws(()=>previousSupportDate('invalid'));
 });
-test('recap is scoped to supplied roster and exact date, preserving multiple records and missing records',()=>{
- const records=[record,{...record,id:'second',createdAt:'2026-10-02T01:00:00Z'},{...record,id:'yesterday',date:'2026-10-01'},{...record,id:'other',childId:'outside'}];
+test('recap only includes recorded children from supplied roster and exact date, preserving multiple records',()=>{
+ const records=[record,{...record,id:'second',createdAt:'2026-10-02T01:00:00Z'},{...record,id:'yesterday',childId:'b',date:'2026-10-01'},{...record,id:'other',childId:'outside'}];
  const before=structuredClone(records);
  const result=buildPreviousSupportRecaps([{id:'a',name:'架空A'},{id:'b',name:'架空B'}],records,'2026-10-02');
  assert.deepEqual(result[0].records.map(r=>r.id),['fixture','second']);
- assert.deepEqual(result[1].records,[]);assert.deepEqual(records,before);
+ assert.deepEqual(result.map(row=>row.child.id),['a']);assert.deepEqual(records,before);
+});
+test('recap preserves roster order and both approval statuses among recorded children',()=>{
+ const result=buildPreviousSupportRecaps([{id:'b',name:'架空B'},{id:'c',name:'架空C'},{id:'a',name:'架空A'}],[record,{...record,id:'approved',childId:'b',approvalStatus:'確認済み'}],'2026-10-02');
+ assert.deepEqual(result.map(row=>row.child.id),['b','a']);
+ assert.deepEqual(result.map(row=>row.records[0].approvalStatus),['確認済み','未確認']);
+});
+test('recap has no child rows when the selected date has no records',()=>{
+ const children=[{id:'a',name:'架空A'},{id:'b',name:'架空B'}];
+ assert.deepEqual(buildPreviousSupportRecaps(children,[],'2026-10-02'),[]);
+ assert.deepEqual(buildPreviousSupportRecaps(children,[record],'2026-10-03'),[]);
+ assert.deepEqual(buildPreviousSupportRecaps([], [record],'2026-10-02'),[]);
 });
 test('recap uses explicit observations and does not invent mood from learning results or drop negation',()=>{
  const lines=supportRecapLines(record);

@@ -20,7 +20,9 @@ async function check(page,url){
  assert((await recap.textContent()).includes('記録あり 2名'),'two recorded children');
  assert((await recap.textContent()).includes('自力で課題を完了していない。'),'preserve negation in summary');
  assert((await recap.textContent()).includes('未確認'),'unreviewed source is labeled');
- assert((await recap.textContent()).includes('この日の支援記録はありません。'),'missing source is explicit');
+ assert(await recap.getByRole('region').count()===2,'only recorded children have rows');
+ assert(!(await recap.textContent()).includes('架空児童 そら'),'child without records is hidden');
+ assert(!(await recap.textContent()).includes('この日の支援記録はありません。'),'no per-child missing record placeholders');
  await recap.locator('summary').first().click();
  await recap.getByText('パソコン取り組み内容：Dレッスン（マウス練習）',{exact:true}).waitFor();
  assert(await editor.inputValue()===original,'opening original does not change morning notes');
@@ -28,6 +30,10 @@ async function check(page,url){
  assert(await recap.getByRole('region').count()===1,'child name filter');
  assert((await recap.textContent()).includes('友だちと順番を確認'),'selected child observations');
  assert(await editor.inputValue()===original,'filter does not replace notes');
+ await recap.getByRole('searchbox').fill('そら');
+ assert(await recap.getByRole('region').count()===0,'search cannot reveal a child without records');
+ assert((await recap.textContent()).includes('該当する児童はいません。'),'search empty state is distinct');
+ assert(await editor.inputValue()===original,'empty search leaves notes untouched');
  await recap.getByRole('searchbox').fill('');
  await page.setViewportSize({width:1280,height:900});
  const a=await editor.boundingBox(),b=await recap.boundingBox();
@@ -47,8 +53,9 @@ async function check(page,url){
  await recap.getByText(/2026-10-02 \/ 記録あり/).waitFor();
  await meetingDate.fill('2026-10-06');
  await recap.getByText('2026-10-05 / 記録あり 0名',{exact:true}).waitFor();
- assert(await recap.getByText('この日の支援記録はありません。',{exact:true}).count()===3,'no silent fallback to other record dates');
+ assert(await recap.getByText('この日の支援記録はありません。',{exact:true}).count()===1,'one empty-day notice without silent fallback to other dates');
+ assert(await recap.getByRole('region').count()===0,'empty day has no child rows');
  assert(errors.length===0,errors.join('\n'));
- return {passed:true,cases:['previous day defaults','child source excerpts','negation preserved','approval labels','missing records','source expansion preserves notes','search while editing','invalid meeting date preserves input','Monday to Friday','no silent date fallback','desktop side-by-side','mobile stacked without overflow','no backend writes']};
+ return {passed:true,cases:['previous day defaults','child source excerpts','negation preserved','approval labels','recorded children only','source expansion preserves notes','search while editing','search cannot reveal recordless children','invalid meeting date preserves input','Monday to Friday','one empty-day notice','no silent date fallback','desktop side-by-side','mobile stacked without overflow','no backend writes']};
 }
 try{command('open',url.href);command('snapshot');const output=command('run-code',`async(page)=>await (${check.toString()})(page,${JSON.stringify(url.href)})`);const result=output.match(/### Result\s+([\s\S]*?)\s+### Ran/);if(!result||JSON.parse(result[1]).passed!==true)throw Error(`Regression incomplete: ${output}`);console.log(result[1]);}finally{command('close');}
