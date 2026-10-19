@@ -31,3 +31,9 @@ test('renewal prompts reuse append-only document storage and do not infer or upl
  assert.ok(ui.includes('disabled={busy || dirtyCount > 0}'));
  assert.ok(ui.includes('判定の考え方・地域差について'));
 });
+
+test('visible document deletion preserves history and cannot discard other dirty forms',()=>{
+ const ui=read('src/components/ChildDocumentWorkspace.tsx');
+ for(const marker of ['この書類を削除','deleteDisabled={busy || dirtyCount > 0}','deletionInFlight.current','operation: "void"','replacesId: slot.entry.id','元の情報と削除の履歴は残します'])assert.ok(ui.includes(marker),marker);
+ assert.doesNotMatch(read('src/services/childDocumentService.ts'),/\.delete\(/);
+});

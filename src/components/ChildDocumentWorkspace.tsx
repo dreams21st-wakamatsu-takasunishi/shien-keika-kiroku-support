@@ -8,6 +8,7 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
+  Trash2,
 } from "lucide-react";
 import type { ChildProfile, UserProfile } from "../types";
 import {
@@ -236,7 +237,7 @@ function DocumentWorkspace({
       if (mounted.current && request === generation.current)
         setMessage(
           entry.operation === "void"
-            ? "取消を履歴に追加しました。元の登録は履歴に残っています。"
+            ? "書類の登録を一覧から削除しました。元の情報と削除履歴は残しています。自動生成の入力欄は未入力に戻ります。"
             : "保存しました。対応するカテゴリの登録件数を更新しました。書類名を押すと登録内容を確認できます。",
         );
     } finally {
@@ -490,7 +491,7 @@ function DocumentWorkspace({
                   </select>
                 </label>
                 <p className="text-xs leading-relaxed text-slate-600">
-                  カテゴリごとに登録件数・保管確認状況を表示します。書類名を押すと、過去年分も含めて確認・入力できます。登録件数には保管未確認の書類も含まれます。
+                  カテゴリごとに登録件数・保管確認状況を表示します。書類名を押すと、過去年分も含めて確認・入力できます。誤登録は各書類の「削除」から取り消せます。元の情報と削除履歴は保持します。登録件数には保管未確認の書類も含まれます。
                 </p>
                 {categories
                   .filter(
@@ -614,6 +615,7 @@ function DocumentWorkspace({
                                       key={slot.key}
                                       slot={slot}
                                       disabled={busy}
+                                      deleteDisabled={busy || dirtyCount > 0}
                                       onSave={writeEntry}
                                       onDirty={(dirty) =>
                                         markDirty(slot.key, dirty)
@@ -643,7 +645,7 @@ function DocumentWorkspace({
                 <details className="rounded-xl border bg-white p-3">
                   <summary className="flex min-h-10 cursor-pointer items-center gap-2 text-sm font-bold">
                     <History className="h-4 w-4" />
-                    登録・訂正・取消履歴（削除せず保存）
+                    登録・訂正・削除履歴（元の情報を保持）
                   </summary>
                   <ul className="mt-2 max-h-96 space-y-2 overflow-y-auto text-xs">
                     {data.entries
@@ -658,7 +660,7 @@ function DocumentWorkspace({
                           </strong>
                           <p>
                             {row.operation === "void"
-                              ? "取消"
+                              ? "削除（登録取消）"
                               : row.replacesId
                                 ? "訂正追加"
                                 : "登録"}
@@ -900,12 +902,14 @@ function DocumentSettings({
 function DocumentRow({
   slot,
   disabled,
+  deleteDisabled,
   onSave,
   onDirty,
 }: {
   key?: string;
   slot: DocumentSlot;
   disabled: boolean;
+  deleteDisabled: boolean;
   onSave: (entry: DocumentEntryInput) => Promise<void>;
   onDirty: (dirty: boolean) => void;
 }) {
@@ -920,6 +924,7 @@ function DocumentRow({
     [dirty, setDirty] = useState(false),
     [error, setError] = useState("");
   const cancellationId = useRef(crypto.randomUUID());
+  const deletionInFlight = useRef(false);
   useEffect(() => {
     setDraft(base());
     setDirty(false);
@@ -972,14 +977,17 @@ function DocumentRow({
       setError(e instanceof Error ? e.message : "保存できませんでした。");
     }
   };
-  const cancel = async () => {
+  const deleteRegistration = async () => {
+    if (disabled || deleteDisabled || deletionInFlight.current) return;
     if (
       !slot.entry ||
       !window.confirm(
-        "この登録の取消を履歴に残します。元の情報は削除しません。よろしいですか？",
+        `${DOCUMENT_TYPES[slot.type]}${slot.entry.title ? '「'+slot.entry.title+'」' : ''}（${slot.entry.documentDate || '日付なし'}）の登録を一覧から削除しますか？\n\n元の情報と削除の履歴は残します。自動生成の入力欄や、同じ計画に紐づく別の書類がある場合は、未入力欄が残ります。ほかの書類は削除しません。`,
       )
     )
       return;
+    deletionInFlight.current = true;
+    setError("");
     try {
       await onSave({
         ...slot.entry,
@@ -989,7 +997,9 @@ function DocumentRow({
       });
       setDirty(false);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "取消できませんでした。");
+      setError(e instanceof Error ? e.message : "削除できませんでした。登録内容は残しています。");
+    } finally {
+      deletionInFlight.current = false;
     }
   };
   return (
@@ -1005,7 +1015,7 @@ function DocumentRow({
             {!slot.required ? "（追加登録）" : ""}
           </p>
         </div>
-        <span className="text-xs font-bold">
+        <div className="flex flex-wrap items-center gap-3"><span className="text-xs font-bold">
           {slot.status === "complete"
             ? "保管確認済み"
             : slot.status === "missing"
@@ -1014,6 +1024,8 @@ function DocumentRow({
                 ? "保管未確認"
                 : slot.benefitRenewal || slot.usagePlanRenewal ? "更新待ち" : "今月確認"}
         </span>
+        {slot.entry && <button type="button" aria-label="この書類を削除" disabled={disabled || deleteDisabled} onClick={()=>void deleteRegistration()} title={deleteDisabled ? '未保存の入力を保存するか、入力を戻してから削除してください。' : '登録を一覧から削除します。元の情報と履歴は保持します。'} className="flex min-h-10 items-center gap-1 rounded-lg border border-rose-300 bg-white px-3 text-xs font-bold text-rose-800 disabled:opacity-40"><Trash2 aria-hidden="true" className="h-4 w-4"/>削除</button>}
+        </div>
       </div>
       {slot.benefitRenewal && <p className="mt-2 rounded-lg bg-violet-50 p-2 text-xs text-violet-950">更新分の入力欄／受付開始 {slot.benefitRenewal.availableFrom}。以前の受給者証とは別に登録します。</p>}
       {slot.usagePlanRenewal && <p className="mt-2 rounded-lg bg-violet-50 p-2 text-xs text-violet-950">利用計画の更新分／表示開始 {slot.usagePlanRenewal.availableFrom}。受給者証の前回期限 {slot.usagePlanRenewal.previousValidUntil} に対応する作成日・保管確認を登録します。以前の利用計画は上書きしません。作成時期は相談支援等へ確認してください。</p>}
@@ -1120,16 +1132,6 @@ function DocumentRow({
               className="min-h-10 rounded-lg border px-3"
             >
               入力を戻す
-            </button>
-          )}
-          {slot.entry && (
-            <button
-              type="button"
-              disabled={disabled || dirty}
-              onClick={() => void cancel()}
-              className="min-h-10 rounded-lg border border-rose-200 px-3 text-rose-800"
-            >
-              登録を取り消す（履歴は残す）
             </button>
           )}
         </div>

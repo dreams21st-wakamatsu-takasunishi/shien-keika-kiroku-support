@@ -174,3 +174,14 @@ test('usage-plan renewals deduplicate same expiry copies and ignore unknown, voi
  assert.equal(documentSlots('a',register([benefit,{...benefit,id:'copy',cycleKey:'extra:two'}]),'2026-10-30').filter(s=>s.usagePlanRenewal).length,1);
  for(const rows of [[{...benefit,validUntil:''}],[{...benefit,childId:'b'}],[benefit,{...benefit,id:'void',operation:'void' as const,replacesId:'b'}]])assert.ok(!documentSlots('a',register(rows),'2026-12-01').some(s=>s.usagePlanRenewal));
 });
+
+test('deleting an extra plan removes unsaved companion placeholders but never deletes another saved document',()=>{
+ const plan=entry('plan_final','extra:mistake','plan'),keep=entry('certificate','extra:keep','keep',{title:'残す証明書',documentDate:''});
+ const cancel={...plan,id:'void',operation:'void' as const,replacesId:'plan'};
+ assert.equal(documentSlots('a',register([plan,keep]),'2026-10-19').filter(s=>s.cycleKey==='extra:mistake').length,3);
+ const slots=documentSlots('a',register([plan,keep,cancel]),'2026-10-19');
+ assert.equal(slots.filter(s=>s.cycleKey==='extra:mistake').length,0);
+ assert.equal(slots.find(s=>s.entry?.id==='keep')?.entry?.title,'残す証明書');
+ const meeting=entry('plan_meeting','extra:mistake','meeting');
+ assert.equal(documentSlots('a',register([plan,meeting,cancel]),'2026-10-19').find(s=>s.type==='plan_final'&&s.cycleKey==='extra:mistake')?.status,'missing');
+});

@@ -17,6 +17,13 @@ if(mode==='family-reminders'){
  children[0].birthDate='2016-04-15';children[0].siblingIds=['b'];
  children[1].birthDate='2014-11-20';children[1].siblingIds=['a'];
 }
+if(mode==='document-deletion'){
+ const base={childId:'a',type:'certificate' as const,cycleKey:'extra:mistake',documentDate:'',validUntil:'',confirmed:true,title:'誤追加の証明書',note:'',consentDate:'',guardianDeliveryDate:'',consultationDeliveryDate:'',operation:'record' as const,replacesId:null,createdAt:'2026-10-01T00:00:00Z',createdByName:'架空管理者'};
+ records.entries.push({...base,id:'mistake'},{...base,id:'keep',cycleKey:'extra:keep',title:'残す証明書'},
+  {...base,id:'other-child',childId:'b',cycleKey:'extra:other',title:'別児童の証明書'},
+  {...base,id:'annual',type:'assessment',cycleKey:'annual:2026-04-15',documentDate:'2026-04-15',title:''},
+  {...base,id:'extra-plan',type:'plan_final',cycleKey:'extra:mistaken-plan',documentDate:'2026-10-01',title:''});
+}
 const model={loads:0,writes:0,settingsWrites:0,failLoad:mode==='load-error',failSave:false,delay:0};
 const persist=()=>localStorage.setItem(store,JSON.stringify(records));persist();Object.assign(window,{__documentFixture:model});
 const wait=async()=>{if(model.delay)await new Promise(resolve=>setTimeout(resolve,model.delay));};
