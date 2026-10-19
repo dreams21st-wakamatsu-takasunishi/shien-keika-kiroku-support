@@ -92,7 +92,7 @@ export function childDocumentReminders(child:ChildProfile,children:ChildProfile[
   }
  }
  for(const plan of active.filter(row=>row.type==='plan_final'&&row.confirmed)){
-  if(!plan.consentDate||!plan.guardianDeliveryDate||!plan.consultationDeliveryDate)add({id:'delivery:'+plan.id,title:`個支本案 ${plan.documentDate}の同意・交付確認`,detail:'保護者の同意・保護者への交付・相談支援への交付について、未登録の確認日があります。該当する交付先・実施状況を確認してください。',date:plan.documentDate,level:'soon',basis:'ガイドライン',types:['plan_final'],source:'guideline'});
+  if(!plan.consentDate||!plan.guardianDeliveryDate)add({id:'delivery:'+plan.id,title:`個支本案 ${plan.documentDate}の同意・交付確認`,detail:'保護者の同意・保護者への交付について、未登録の確認日があります。実施状況を確認してください。',date:plan.documentDate,level:'soon',basis:'ガイドライン',types:['plan_final'],source:'guideline'});
  }
  const family=documentFamilyReference(child,children,today);
  if(family.siblingCount>0)add({id:'siblings',title:'きょうだい利用・世帯情報の確認',detail:'登録されたきょうだいのサービス利用状況、利用者負担上限額管理の該当有無・管理事業所を確認してください。きょうだいがいるだけで必要書類や期限は確定しません。事業所外の利用・卒業等も確認が必要です。',level:'info',basis:'条件の確認',types:['benefit'],source:'household'});

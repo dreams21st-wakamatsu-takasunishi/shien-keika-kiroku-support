@@ -74,6 +74,21 @@ async function check(page,url){
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'reminders no horizontal overflow '+name);
   await panel().screenshot({path:'output/playwright/document-reminders-'+name+'.png'});
  }
+ await page.goto(url+'?mode=legacy-consultation');await page.getByRole('button',{name:/^架空児童A /}).click();
+ await page.getByRole('button',{name:'個支本案の書類',exact:true}).click();
+ const legacy=page.getByRole('article',{name:'個支本案 追加・旧設定の計画',exact:true});
+ await legacy.locator('summary').click();
+ assert(await page.getByLabel('相談支援交付日',{exact:true}).count()===0,'consultation date input removed');
+ assert(!await panel().getByText('個支本案 2026-10-01の同意・交付確認',{exact:true}).count(),'legacy plan with guardian dates does not prompt consultation date');
+ await legacy.getByLabel('保護者交付日',{exact:true}).fill('2026-10-03');
+ await legacy.getByRole('button',{name:'訂正を保存',exact:true}).click();await dirty();
+ const legacyRows=(await store()).entries;
+ assert(legacyRows.length===2&&legacyRows.every(row=>row.consultationDeliveryDate==='2026-10-02'),'editing visible dates preserves original and corrected legacy consultation dates');
+ assert(legacyRows.find(row=>row.id==='legacy-plan').guardianDeliveryDate==='2026-10-01','original guardian date remains in history');
+ await page.getByRole('button',{name:'再読込',exact:true}).click();await legacy.waitFor();
+ await legacy.locator('summary').click();
+ assert(await legacy.getByLabel('保護者交付日',{exact:true}).inputValue()==='2026-10-03','visible guardian date change persists after reload');
+ assert((await store()).entries.at(-1).consultationDeliveryDate==='2026-10-02','legacy hidden date survives reload');
  assert(!errors.length,'no browser exceptions '+errors.join(','));
  assert(!external.length,'no external or production requests');
  return {passed:true,checks,productionAccess:false,realChildDataWritten:false,virtualJstThreshold:true};

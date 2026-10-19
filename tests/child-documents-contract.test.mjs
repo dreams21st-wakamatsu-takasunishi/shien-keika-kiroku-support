@@ -37,3 +37,10 @@ test('visible document deletion preserves history and cannot discard other dirty
  for(const marker of ['この書類を削除','deleteDisabled={busy || dirtyCount > 0}','deletionInFlight.current','operation: "void"','replacesId: slot.entry.id','元の情報と削除の履歴は残します'])assert.ok(ui.includes(marker),marker);
  assert.doesNotMatch(read('src/services/childDocumentService.ts'),/\.delete\(/);
 });
+
+test('consultation delivery input is removed while stored legacy dates remain supported',()=>{
+ const ui=read('src/components/ChildDocumentWorkspace.tsx');
+ assert.doesNotMatch(ui,/consultationDeliveryDate|相談支援交付日/);
+ assert.match(read('src/utils/childDocumentData.ts'),/consultationDeliveryDate: text\(row.consultation_delivery_date\)/);
+ assert.match(ui,/\.\.\.\(slot.entry \|\| \{\}\)/);
+});

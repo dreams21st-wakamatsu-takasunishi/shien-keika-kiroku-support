@@ -24,6 +24,7 @@ if(mode==='document-deletion'){
   {...base,id:'annual',type:'assessment',cycleKey:'annual:2026-04-15',documentDate:'2026-04-15',title:''},
   {...base,id:'extra-plan',type:'plan_final',cycleKey:'extra:mistaken-plan',documentDate:'2026-10-01',title:''});
 }
+if(mode==='legacy-consultation')records.entries.push({id:'legacy-plan',childId:'a',type:'plan_final',cycleKey:'extra:legacy-plan',documentDate:'2026-10-01',validUntil:'',confirmed:true,title:'',note:'既存の記載',consentDate:'2026-10-01',guardianDeliveryDate:'2026-10-01',consultationDeliveryDate:'2026-10-02',operation:'record',replacesId:null,createdAt:'2026-10-02T00:00:00Z',createdByName:'架空管理者'});
 const model={loads:0,writes:0,settingsWrites:0,failLoad:mode==='load-error',failSave:false,delay:0};
 const persist=()=>localStorage.setItem(store,JSON.stringify(records));persist();Object.assign(window,{__documentFixture:model});
 const wait=async()=>{if(model.delay)await new Promise(resolve=>setTimeout(resolve,model.delay));};

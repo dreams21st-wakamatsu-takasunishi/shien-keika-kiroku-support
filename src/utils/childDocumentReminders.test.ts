@@ -70,10 +70,13 @@ test('unknown and future sibling birthdays never determine an eldest birthday; D
  const jan={...child,birthDate:'2016-01-20'};
  assert.ok(childDocumentReminders(jan,[jan],data(),'2026-12-01').some(r=>r.id==='birthday'));
 });
-test('consent and both deliveries are prompted without rewriting stored history or borrowing another child data',()=>{
+test('only guardian consent and delivery prompt dates; removed consultation field is ignored and history retained',()=>{
  const final=entry({id:'p',type:'plan_final',cycleKey:'extra:plan',validUntil:'',consentDate:'2026-04-02',guardianDeliveryDate:'2026-04-02'});
  const store=data([final]),before=JSON.stringify(store);
- assert.ok(reminders(store).some(r=>r.id==='delivery:p'));
+ assert.ok(!reminders(store).some(r=>r.id==='delivery:p'));
+ const missing=reminders(data([{...final,guardianDeliveryDate:''}])).find(r=>r.id==='delivery:p')!;
+ assert.ok(missing);assert.ok(!missing.detail.includes('相談支援'));
+ assert.ok(reminders(data([{...final,consentDate:''}])).some(r=>r.id==='delivery:p'));
  assert.ok(!reminders(data([{...final,consultationDeliveryDate:'2026-04-02'}])).some(r=>r.id==='delivery:p'));
  assert.equal(JSON.stringify(store),before);
  assert.ok(!reminders(data([{...final,childId:'b'}])).some(r=>r.id==='delivery:p'));
