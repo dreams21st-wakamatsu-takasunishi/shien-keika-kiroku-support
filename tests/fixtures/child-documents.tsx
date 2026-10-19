@@ -11,6 +11,7 @@ const children=[{id:'a',name:'架空児童A',careType:'放課後等デイサー�
 const user={id:'synthetic-manager',organizationId:'synthetic-org',displayName:'架空管理者',role} as any;
 const store='fixture-child-documents-v1';
 let records:DocumentRegister={settings:mode==='empty'?[]:[{childId:'a',revision:1,contractDate:'2024-04-15',monitoringMonths:[4,10],effectiveFrom:'2024-04-15',createdAt:'2024-04-15T00:00:00Z',createdByName:'架空管理者'}],entries:[]};
+if(mode==='benefit-expiry')records.entries.push({id:'fictional-benefit',childId:'a',type:'benefit',cycleKey:'annual:2026-04-15',documentDate:'2026-04-01',validUntil:'2026-11-30',confirmed:true,title:'',note:'既存の保管場所',consentDate:'',guardianDeliveryDate:'',consultationDeliveryDate:'',operation:'record',replacesId:null,createdAt:'2026-04-01T00:00:00Z',createdByName:'架空管理者'});
 const model={loads:0,writes:0,settingsWrites:0,failLoad:mode==='load-error',failSave:false,delay:0};
 const persist=()=>localStorage.setItem(store,JSON.stringify(records));persist();Object.assign(window,{__documentFixture:model});
 const wait=async()=>{if(model.delay)await new Promise(resolve=>setTimeout(resolve,model.delay));};

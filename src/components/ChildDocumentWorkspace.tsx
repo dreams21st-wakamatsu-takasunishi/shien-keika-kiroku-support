@@ -16,12 +16,14 @@ import {
 } from "../services/childDocumentService";
 import {
   canManageChildDocuments,
+  addDocumentMonths,
   DOCUMENT_TYPES,
   DOCUMENT_CATEGORIES,
   documentSlots,
   documentWarnings,
   groupDocumentSlots,
   latestDocumentSettings,
+  latestBenefitEntry,
   newDocumentEntry,
   validDocumentDate,
   type DocumentRegister,
@@ -154,6 +156,7 @@ function DocumentWorkspace({
         ? latestDocumentSettings(data.settings, child.id)
         : undefined;
   const slots = child && data ? documentSlots(child.id, data, asOf) : [];
+  const benefit = child && data ? latestBenefitEntry(child.id, data, asOf) : undefined;
   const categories = groupDocumentSlots(slots);
   const summaries = useMemo(
     () =>
@@ -384,6 +387,22 @@ function DocumentWorkspace({
                     }
                   }}
                 />
+                <section aria-label="受給者証の期限と更新" className={`rounded-xl border p-3 ${benefit?.validUntil && benefit.validUntil < asOf ? "border-rose-300 bg-rose-50" : benefit?.validUntil && addDocumentMonths(benefit.validUntil,-1) <= asOf ? "border-amber-300 bg-amber-50" : "border-violet-200 bg-violet-50"}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                      <h4 className="text-sm font-bold">受給者証の有効期限：{benefit?.validUntil || "未登録"}</h4>
+                      <p className="mt-1 text-xs leading-relaxed">
+                        {benefit?.validUntil ? `更新分の入力欄は ${addDocumentMonths(benefit.validUntil,-1)} から自動表示します。` : "受給者証の書類欄に、記載された有効期限を入力してください。期限は推測で補完しません。"}
+                        更新分は別の書類として保存し、以前の作成日・有効期限は履歴に残します。
+                      </p>
+                    </div>
+                    <button type="button" disabled={busy || dirtyCount > 0} className="min-h-10 rounded-lg border border-violet-300 bg-white px-3 text-xs font-bold disabled:opacity-40" onClick={()=>{
+                      setCategoryFilter("benefits");setFilterType("benefit");setOnlyMissing(false);
+                      setExpandedTypes(previous=>({...previous,benefit:true}));
+                      window.requestAnimationFrame(()=>document.getElementById('document-type-benefit')?.scrollIntoView({behavior:'smooth',block:'start'}));
+                    }}>受給者証を入力・確認</button>
+                  </div>
+                </section>
                 {documentWarnings(
                   child.id,
                   data,
@@ -426,7 +445,7 @@ function DocumentWorkspace({
                 </div>
                 {settings && (
                   <p className="text-xs text-slate-500">
-                    年次書類は契約日を起点に1年ごとに表示します。更新月の枠は月初に表示し、月末を確認目安にします。過去の枠は新しい書類で上書きしません。
+                    年次書類は契約日を起点に1年ごとに表示します。受給者証は登録された有効期限の1か月前から、別に更新分の欄も表示します。更新月の枠は月初に表示し、月末を確認目安にします。過去の枠は新しい書類で上書きしません。
                   </p>
                 )}
                 <nav
@@ -668,6 +687,7 @@ function DocumentWorkspace({
                           {row.note && (
                             <p className="whitespace-pre-wrap">{row.note}</p>
                           )}
+                          {row.type === "benefit" && <p>有効期限：{row.validUntil || "未登録"}</p>}
                         </li>
                       ))}
                   </ul>
@@ -924,6 +944,14 @@ function DocumentRow({
       setError("未来の作成日は保管済みとして登録できません。");
       return;
     }
+    if (slot.type === "benefit" && draft.validUntil) {
+      if (!validDocumentDate(draft.validUntil) || draft.validUntil < draft.documentDate) {
+        setError("受給者証の有効期限は作成日以降の日付で入力してください。");return;
+      }
+      if (slot.benefitRenewal && draft.validUntil <= slot.benefitRenewal.previousValidUntil) {
+        setError("更新分には前回の期限より後の有効期限を入力してください。元の期限の訂正は、以前の受給者証の欄で行ってください。");return;
+      }
+    }
     try {
       await onSave(draft);
       setDirty(false);
@@ -971,10 +999,11 @@ function DocumentRow({
               ? "未入力"
               : slot.status === "unconfirmed"
                 ? "保管未確認"
-                : "今月確認"}
+                : slot.benefitRenewal ? "更新待ち" : "今月確認"}
         </span>
       </div>
-      <div className="mt-3 grid items-end gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
+      {slot.benefitRenewal && <p className="mt-2 rounded-lg bg-violet-50 p-2 text-xs text-violet-950">更新分の入力欄／受付開始 {slot.benefitRenewal.availableFrom}。以前の受給者証とは別に登録します。</p>}
+      <div className={`mt-3 grid items-end gap-2 ${slot.type === "benefit" ? "sm:grid-cols-2" : "sm:grid-cols-[minmax(0,1fr)_auto_auto]"}`}>
         <label className="text-xs font-bold">
           {slot.type === "certificate" || slot.type === "additional"
             ? "証明書名"
@@ -1000,6 +1029,13 @@ function DocumentRow({
             />
           )}
         </label>
+        {slot.type === "benefit" && (
+          <label className="text-xs font-bold">受給者証の有効期限
+            <input aria-label="受給者証の有効期限" type="date" value={draft.validUntil}
+              min={draft.documentDate || "1900-01-01"} max="2100-12-31" disabled={disabled}
+              onChange={e=>change({validUntil:e.target.value})} className={input}/>
+          </label>
+        )}
         <label className="flex min-h-10 items-center gap-2 rounded-lg bg-slate-50 px-3 text-xs font-bold">
           <input
             aria-label="実物の保管を確認"
@@ -1024,19 +1060,6 @@ function DocumentRow({
           補足・同意／交付確認・訂正
         </summary>
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
-          {slot.type === "benefit" && (
-            <label>
-              受給者証の有効期限
-              <input
-                aria-label="受給者証の有効期限"
-                type="date"
-                value={draft.validUntil}
-                disabled={disabled}
-                onChange={(e) => change({ validUntil: e.target.value })}
-                className={input}
-              />
-            </label>
-          )}
           {slot.type === "plan_final" &&
             (
               [

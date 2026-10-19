@@ -11,3 +11,10 @@ test('document entry parser whitelists metadata and rejects malformed values',()
  assert.equal(JSON.stringify(parseDocumentEntry(source)).includes('NEVER_COPY'),false);
  for(const patch of [{document_type:'invalid'},{confirmed:'yes'},{operation:'delete'},{document_date:'2026-02-30'},{consent_date:'bad'}])assert.throws(()=>parseDocumentEntry({...source,...patch}));
 });
+
+test('benefit renewal uses the existing extra-cycle format and carries its own expiry',()=>{
+ const row=parseDocumentEntry({id:'renewed',child_id:'a',document_type:'benefit',cycle_key:'extra:benefit-renewal-2026-11-30',document_date:'2026-10-30',valid_until:'2027-11-30',confirmed:true,operation:'record',replaces_id:null});
+ assert.equal(row.validUntil,'2027-11-30');assert.equal(row.replacesId,null);
+ assert.match(row.cycleKey,/^(initial:|annual:|plan:|extra:)[A-Za-z0-9-]+$/);
+ assert.throws(()=>parseDocumentEntry({id:'bad',child_id:'a',document_type:'benefit',cycle_key:row.cycleKey,document_date:'2026-10-30',valid_until:'2027-02-30',confirmed:true,operation:'record'}));
+});

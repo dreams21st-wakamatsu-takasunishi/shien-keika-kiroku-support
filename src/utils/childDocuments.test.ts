@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {addDocumentMonths,activeDocumentEntries,canManageChildDocuments,DOCUMENT_CATEGORIES,DOCUMENT_TYPES,groupDocumentSlots,documentSlots,documentWarnings,validDocumentDate,type DocumentRegister,type ChildDocumentSettings,type ChildDocumentEntry} from './childDocuments';
+import {addDocumentMonths,activeDocumentEntries,benefitRenewalCycleKey,latestBenefitEntry,canManageChildDocuments,DOCUMENT_CATEGORIES,DOCUMENT_TYPES,groupDocumentSlots,documentSlots,documentWarnings,validDocumentDate,type DocumentRegister,type ChildDocumentSettings,type ChildDocumentEntry} from './childDocuments';
 const settings=(patch:Partial<ChildDocumentSettings>={}):ChildDocumentSettings=>({childId:'a',revision:1,contractDate:'2024-04-15',monitoringMonths:[4,10],effectiveFrom:'2024-04-15',createdAt:'2024-04-15T00:00:00Z',createdByName:'架空職員',...patch});
 const entry=(type:ChildDocumentEntry['type'],cycleKey:string,id='one',patch:Partial<ChildDocumentEntry>={}):ChildDocumentEntry=>({id,childId:'a',type,cycleKey,documentDate:'2026-04-01',title:'',confirmed:true,note:'',validUntil:'',consentDate:'',guardianDeliveryDate:'',consultationDeliveryDate:'',operation:'record',replacesId:null,createdAt:'2026-04-01T00:00:00Z',createdByName:'架空職員',...patch});
 const register=(entries:ChildDocumentEntry[]=[],versions=[settings()]):DocumentRegister=>({settings:versions,entries});
@@ -76,4 +76,61 @@ test('category summaries do not count canceled history or treat undated certific
  const original=entry('certificate','extra:one','cert',{documentDate:'',title:'診断書'}),cancel={...original,id:'void',operation:'void' as const,replacesId:'cert'},other=entry('certificate','extra:two','other',{documentDate:'',title:'手帳コピー'});
  const certificate=groupDocumentSlots(documentSlots('a',register([original,cancel,other]),'2026-10-15')).find(category=>category.id==='other')!.groups.find(group=>group.type==='certificate')!;
  assert.equal(certificate.registered,1);assert.equal(certificate.confirmed,1);assert.equal(certificate.required,0);assert.equal(certificate.pending,0);assert.equal(certificate.latestDate,'');assert.equal(certificate.slots[0].entry?.title,'手帳コピー');
+});
+
+test('benefit renewal appears exactly one calendar month before expiry without changing stored history',()=>{
+ const data=register([entry('benefit','annual:2026-04-15','b',{validUntil:'2026-11-30'})]),before=JSON.stringify(data);
+ assert.equal(documentSlots('a',data,'2026-10-29').filter(s=>s.benefitRenewal).length,0);
+ const rows=documentSlots('a',data,'2026-10-30').filter(s=>s.benefitRenewal);
+ assert.equal(rows.length,1);assert.equal(rows[0].cycleKey,benefitRenewalCycleKey('2026-11-30'));
+ assert.equal(rows[0].entry,undefined);assert.equal(rows[0].dueDate,'2026-11-30');assert.equal(rows[0].status,'upcoming');
+ assert.equal(rows[0].benefitRenewal?.availableFrom,'2026-10-30');assert.equal(JSON.stringify(data),before);
+ assert.ok(documentWarnings('a',data,'2026-10-30').some(w=>w.includes('1か月以内')));
+ assert.ok(!documentWarnings('a',data,'2026-10-29').some(w=>w.includes('1か月以内')));
+});
+test('benefit renewal month-end thresholds clamp leap days and cross the year correctly',()=>{
+ for(const [expiry,dayBefore,first] of [['2026-03-31','2026-02-27','2026-02-28'],['2028-03-31','2028-02-28','2028-02-29'],['2027-01-31','2026-12-30','2026-12-31']]){
+  const data=register([entry('benefit','extra:old','b',{documentDate:'2024-05-01',validUntil:expiry,confirmed:false})]);
+  assert.ok(!documentSlots('a',data,dayBefore).some(s=>s.benefitRenewal));
+  assert.equal(documentSlots('a',data,first).find(s=>s.benefitRenewal)?.benefitRenewal?.availableFrom,first);
+ }
+});
+test('duplicate copies with the same expiry produce one renewal and no other child is used',()=>{
+ const old=entry('benefit','extra:a','a',{validUntil:'2026-11-30'}),other=entry('benefit','extra:b','b',{validUntil:'2026-11-30'}),foreign={...old,id:'foreign',childId:'b',validUntil:'2026-10-31'};
+ const rows=documentSlots('a',register([old,other,foreign]),'2026-10-30').filter(s=>s.benefitRenewal);
+ assert.equal(rows.length,1);assert.equal(rows[0].dueDate,'2026-11-30');
+});
+test('missing or voided expiry does not manufacture dates or renewal documents',()=>{
+ const old=entry('benefit','extra:old','b',{validUntil:'2026-11-30'}),voided={...old,id:'void',operation:'void' as const,replacesId:'b'};
+ for(const entries of [[{...old,validUntil:''}],[old,voided]])assert.ok(!documentSlots('a',register(entries),'2026-12-01').some(s=>s.benefitRenewal));
+ assert.equal(latestBenefitEntry('a',register([old,voided]),'2026-12-01'),undefined);
+});
+test('a saved renewed certificate remains independent and only the next expiry opens a new slot',()=>{
+ const old=entry('benefit','annual:2026-04-15','old',{validUntil:'2026-11-30'});
+ const renewed=entry('benefit',benefitRenewalCycleKey(old.validUntil),'new',{documentDate:'2026-10-30',validUntil:'2027-11-30',createdAt:'2026-10-30T00:00:00Z'});
+ const data=register([old,renewed]),rows=documentSlots('a',data,'2026-10-30').filter(s=>s.benefitRenewal);
+ assert.equal(rows.length,1);assert.equal(rows[0].entry?.id,'new');assert.equal(rows[0].status,'complete');
+ assert.equal(latestBenefitEntry('a',data,'2026-10-30')?.validUntil,'2027-11-30');
+ assert.equal(documentSlots('a',data,'2027-10-30').filter(s=>s.benefitRenewal).length,2);
+ assert.equal(old.validUntil,'2026-11-30');assert.equal(old.documentDate,'2026-04-01');
+});
+test('an already registered successor avoids historical missing renewal rows but preserves saved renewals after source cancellation',()=>{
+ const old=entry('benefit','extra:old','old',{validUntil:'2026-11-30'}),next=entry('benefit','extra:new','new',{documentDate:'2026-10-30',validUntil:'2027-11-30'});
+ assert.ok(!documentSlots('a',register([old,next]),'2026-12-01').some(s=>s.benefitRenewal));
+ const saved={...next,cycleKey:benefitRenewalCycleKey(old.validUntil)},voided={...old,id:'void',operation:'void' as const,replacesId:'old'};
+ assert.equal(documentSlots('a',register([old,saved,voided]),'2026-12-01').find(s=>s.cycleKey===saved.cycleKey)?.label,'更新分（前回期限 2026-11-30）');
+});
+test('expiry day stays valid, the following day is expired, and corrections use the corrected expiry only',()=>{
+ const old=entry('benefit','extra:old','old',{validUntil:'2026-11-30'});
+ assert.ok(!documentWarnings('a',register([old]),'2026-11-30').some(w=>w.includes('過ぎています')));
+ assert.ok(documentWarnings('a',register([old]),'2026-12-01').some(w=>w.includes('過ぎています')));
+ const correction={...old,id:'corrected',replacesId:'old',validUntil:'2026-12-31'};
+ assert.ok(!documentSlots('a',register([old,correction]),'2026-10-30').some(s=>s.benefitRenewal));
+ assert.equal(documentSlots('a',register([old,correction]),'2026-11-30').filter(s=>s.benefitRenewal).length,1);
+});
+test('current certificate is chosen by issue history, not by the longest expiry or storage confirmation',()=>{
+ const old=entry('benefit','extra:old','old',{validUntil:'2027-12-31'}),current=entry('benefit','extra:current','current',{documentDate:'2026-09-01',validUntil:'2026-11-30',confirmed:false});
+ assert.equal(documentSlots('a',register([old,current]),'2026-10-30').find(s=>s.benefitRenewal)?.dueDate,'2026-11-30');
+ assert.ok(documentWarnings('a',register([old,current]),'2026-10-30').some(w=>w.includes('1か月以内')));
+ assert.ok(!documentSlots('a',register([old,{...current,validUntil:''}]),'2027-12-31').some(s=>s.benefitRenewal));
 });

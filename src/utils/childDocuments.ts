@@ -62,6 +62,7 @@ export interface DocumentSlot {
   required: boolean;
   entry?: ChildDocumentEntry;
   status: "missing" | "unconfirmed" | "complete" | "upcoming";
+  benefitRenewal?: { previousValidUntil: string; availableFrom: string };
 }
 export const DOCUMENT_CATEGORIES = [
   {
@@ -162,6 +163,18 @@ export function activeDocumentEntries(rows: ChildDocumentEntry[]) {
   return rows.filter(
     (row) => row.operation === "record" && !replaced.has(row.id),
   );
+}
+export const benefitRenewalCycleKey = (validUntil: string) =>
+  "extra:benefit-renewal-" + validUntil;
+export function latestBenefitEntry(
+  childId: string,
+  register: DocumentRegister,
+  today: string,
+) {
+  return activeDocumentEntries(register.entries.filter(row => row.childId === childId))
+    .filter(row => row.type === "benefit" && row.documentDate <= today)
+    .sort((a,b) => b.documentDate.localeCompare(a.documentDate)
+      || b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))[0];
 }
 export function documentSlots(
   childId: string,
@@ -265,6 +278,31 @@ export function documentSlots(
           add(type, "plan:" + period, period + " 更新月", last);
       }
   }
+  // Renewal windows use an explicit expiry, not the contract anniversary.
+  // A stable, already-supported extra key keeps each renewal independent.
+  const certificates = active.filter(row => row.type === "benefit"
+    && validDocumentDate(row.validUntil) && row.documentDate <= today);
+  const latestExpiry = latestBenefitEntry(childId, register, today)?.validUntil;
+  for (const certificate of certificates) {
+    const cycleKey = benefitRenewalCycleKey(certificate.validUntil);
+    const availableFrom = addDocumentMonths(certificate.validUntil, -1);
+    const registered = active.some(row => row.type === "benefit" && row.cycleKey === cycleKey);
+    // A newer certificate entered elsewhere already fulfils an older renewal.
+    // Retain saved renewal rows, but do not manufacture historical missing rows.
+    if (!registered && (availableFrom > today || certificate.validUntil !== latestExpiry)) continue;
+    add("benefit", cycleKey, "更新分（前回期限 " + certificate.validUntil + "）", certificate.validUntil);
+    const slot = slots.find(row => row.type === "benefit" && row.cycleKey === cycleKey)!;
+    slot.benefitRenewal = { previousValidUntil: certificate.validUntil, availableFrom };
+  }
+  // A saved renewal must retain its label even if the source is later voided.
+  for (const row of active.filter(row => row.type === "benefit")) {
+    const expiry = row.cycleKey.match(/^extra:benefit-renewal-(\d{4}-\d{2}-\d{2})$/)?.[1];
+    if (!expiry || !validDocumentDate(expiry)) continue;
+    add("benefit", row.cycleKey, "更新分（前回期限 " + expiry + "）", expiry);
+    slots.find(slot => slot.type === "benefit" && slot.cycleKey === row.cycleKey)!.benefitRenewal = {
+      previousValidUntil: expiry, availableFrom: addDocumentMonths(expiry, -1),
+    };
+  }
   // Ad-hoc plans are linked as a set: every final plan has its own draft and meeting.
   for (const row of active.filter((row) =>
     ["plan_draft", "plan_meeting", "plan_final"].includes(row.type),
@@ -330,13 +368,13 @@ export function documentWarnings(
         "放デイ自身の計画見直し・モニタリングが6か月以上確認できていません。受給者証の更新月とは別に確認してください。",
       );
   }
-  const certificate = active
-    .filter((row) => row.type === "benefit" && row.confirmed)
-    .sort((a, b) => b.documentDate.localeCompare(a.documentDate))[0];
+  const certificate = latestBenefitEntry(childId, register, today);
   if (certificate?.validUntil && certificate.validUntil < today)
     warnings.push(
       "最新の受給者証の有効期限を過ぎています。更新・保管状況を確認してください。",
     );
+  else if (certificate?.validUntil && addDocumentMonths(certificate.validUntil, -1) <= today)
+    warnings.push("受給者証の有効期限まで1か月以内です。更新後の受給者証を登録する欄を表示しています。");
   for (const plan of active.filter(
     (row) => row.type === "plan_final" && row.confirmed,
   )) {
