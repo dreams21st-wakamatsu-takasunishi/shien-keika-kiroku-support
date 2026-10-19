@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {addDocumentMonths,activeDocumentEntries,benefitRenewalCycleKey,latestBenefitEntry,canManageChildDocuments,DOCUMENT_CATEGORIES,DOCUMENT_TYPES,groupDocumentSlots,documentSlots,documentWarnings,validDocumentDate,type DocumentRegister,type ChildDocumentSettings,type ChildDocumentEntry} from './childDocuments';
+import {addDocumentMonths,activeDocumentEntries,benefitRenewalCycleKey,usagePlanRenewalCycleKey,latestBenefitEntry,canManageChildDocuments,DOCUMENT_CATEGORIES,DOCUMENT_TYPES,groupDocumentSlots,documentSlots,documentWarnings,validDocumentDate,type DocumentRegister,type ChildDocumentSettings,type ChildDocumentEntry} from './childDocuments';
 const settings=(patch:Partial<ChildDocumentSettings>={}):ChildDocumentSettings=>({childId:'a',revision:1,contractDate:'2024-04-15',monitoringMonths:[4,10],effectiveFrom:'2024-04-15',createdAt:'2024-04-15T00:00:00Z',createdByName:'架空職員',...patch});
 const entry=(type:ChildDocumentEntry['type'],cycleKey:string,id='one',patch:Partial<ChildDocumentEntry>={}):ChildDocumentEntry=>({id,childId:'a',type,cycleKey,documentDate:'2026-04-01',title:'',confirmed:true,note:'',validUntil:'',consentDate:'',guardianDeliveryDate:'',consultationDeliveryDate:'',operation:'record',replacesId:null,createdAt:'2026-04-01T00:00:00Z',createdByName:'架空職員',...patch});
 const register=(entries:ChildDocumentEntry[]=[],versions=[settings()]):DocumentRegister=>({settings:versions,entries});
@@ -133,4 +133,44 @@ test('current certificate is chosen by issue history, not by the longest expiry 
  assert.equal(documentSlots('a',register([old,current]),'2026-10-30').find(s=>s.benefitRenewal)?.dueDate,'2026-11-30');
  assert.ok(documentWarnings('a',register([old,current]),'2026-10-30').some(w=>w.includes('1か月以内')));
  assert.ok(!documentSlots('a',register([old,{...current,validUntil:''}]),'2027-12-31').some(s=>s.benefitRenewal));
+});
+
+test('usage-plan renewal opens one calendar month before the registered expiry and never copies dates',()=>{
+ const data=register([entry('benefit','annual:2026-04-15','b',{validUntil:'2026-11-30'})]);
+ assert.ok(!documentSlots('a',data,'2026-10-29').some(s=>s.usagePlanRenewal));
+ const renewal=documentSlots('a',data,'2026-10-30').find(s=>s.usagePlanRenewal)!;
+ assert.equal(renewal.cycleKey,usagePlanRenewalCycleKey('2026-11-30'));
+ assert.equal(renewal.entry,undefined);assert.equal(renewal.status,'upcoming');
+ assert.equal(renewal.usagePlanRenewal?.availableFrom,'2026-10-30');
+ assert.equal(renewal.dueDate,'2026-11-30');
+});
+test('registering a new certificate does not erase its pending usage-plan renewal',()=>{
+ const old=entry('benefit','extra:old','old',{validUntil:'2026-11-30'}),next=entry('benefit',benefitRenewalCycleKey(old.validUntil),'next',{documentDate:'2026-10-30',validUntil:'2027-11-30'});
+ const data=register([old,next]),before=JSON.stringify(data);
+ assert.equal(documentSlots('a',data,'2026-10-30').find(s=>s.usagePlanRenewal)?.status,'upcoming');
+ assert.equal(documentSlots('a',data,'2026-12-01').find(s=>s.usagePlanRenewal)?.status,'missing');
+ assert.equal(JSON.stringify(data),before);
+});
+test('saved usage-plan renewals stay separate from originals and survive certificate cancellation',()=>{
+ const benefit=entry('benefit','extra:old','b',{validUntil:'2026-11-30'}),oldPlan=entry('usage_plan','annual:2026-04-15','oldPlan');
+ const renewal=entry('usage_plan',usagePlanRenewalCycleKey(benefit.validUntil),'renewal',{documentDate:'2026-10-30',confirmed:false});
+ const data=register([benefit,oldPlan,renewal,{...benefit,id:'void',operation:'void',replacesId:'b'}]);
+ const slot=documentSlots('a',data,'2026-12-01').find(s=>s.usagePlanRenewal)!;
+ assert.equal(slot.entry?.id,'renewal');assert.equal(slot.status,'unconfirmed');
+ assert.equal(slot.usagePlanRenewal?.previousValidUntil,'2026-11-30');
+ assert.equal(documentSlots('a',data,'2026-12-01').find(s=>s.entry?.id==='oldPlan')?.status,'complete');
+});
+test('explicit expiry suppresses only unsaved anniversary placeholders; saved annual history is retained',()=>{
+ const benefit=entry('benefit','annual:2026-04-15','b',{validUntil:'2026-11-30'});
+ const plan=entry('usage_plan','annual:2025-04-15','p',{documentDate:'2025-04-15'});
+ const slots=documentSlots('a',register([benefit,plan]),'2026-10-30');
+ assert.ok(!slots.some(s=>s.type==='usage_plan'&&s.cycleKey==='annual:2026-04-15'));
+ assert.equal(slots.find(s=>s.cycleKey==='annual:2025-04-15'&&s.type==='usage_plan')?.entry?.id,'p');
+ assert.ok(slots.some(s=>s.type==='usage_plan'&&s.cycleKey==='annual:2024-04-15'));
+ assert.equal(slots.filter(s=>s.usagePlanRenewal).length,1);
+});
+test('usage-plan renewals deduplicate same expiry copies and ignore unknown, voided and other-child sources',()=>{
+ const benefit=entry('benefit','extra:one','b',{validUntil:'2026-11-30'});
+ assert.equal(documentSlots('a',register([benefit,{...benefit,id:'copy',cycleKey:'extra:two'}]),'2026-10-30').filter(s=>s.usagePlanRenewal).length,1);
+ for(const rows of [[{...benefit,validUntil:''}],[{...benefit,childId:'b'}],[benefit,{...benefit,id:'void',operation:'void' as const,replacesId:'b'}]])assert.ok(!documentSlots('a',register(rows),'2026-12-01').some(s=>s.usagePlanRenewal));
 });

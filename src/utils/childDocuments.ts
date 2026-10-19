@@ -63,6 +63,7 @@ export interface DocumentSlot {
   entry?: ChildDocumentEntry;
   status: "missing" | "unconfirmed" | "complete" | "upcoming";
   benefitRenewal?: { previousValidUntil: string; availableFrom: string };
+  usagePlanRenewal?: { previousValidUntil: string; availableFrom: string };
 }
 export const DOCUMENT_CATEGORIES = [
   {
@@ -166,6 +167,8 @@ export function activeDocumentEntries(rows: ChildDocumentEntry[]) {
 }
 export const benefitRenewalCycleKey = (validUntil: string) =>
   "extra:benefit-renewal-" + validUntil;
+export const usagePlanRenewalCycleKey = (validUntil: string) =>
+  "extra:usage-plan-renewal-" + validUntil;
 export function latestBenefitEntry(
   childId: string,
   register: DocumentRegister,
@@ -188,6 +191,7 @@ export function documentSlots(
     );
   const slots: DocumentSlot[] = [],
     seen = new Set<string>();
+  const hasRegisteredExpiry = validDocumentDate(latestBenefitEntry(childId, register, today)?.validUntil || "");
   const add = (
     type: DocumentType,
     cycleKey: string,
@@ -242,13 +246,18 @@ export function documentSlots(
         "benefit",
         "usage_plan",
         "annex",
-      ] as DocumentType[])
+      ] as DocumentType[]) {
+        // Once a real expiry is known, it supersedes unsaved anniversary
+        // placeholders for certificates and usage plans. Saved rows stay below.
+        if (year > 0 && ["benefit", "usage_plan"].includes(type) && hasRegisteredExpiry
+          && !active.some(row=>row.type===type&&row.cycleKey==="annual:"+due)) continue;
         add(
           type,
           "annual:" + due,
           year ? "年次更新 " + due : "初回 " + start,
           due,
         );
+      }
     }
     for (const type of [
       "plan_draft",
@@ -300,6 +309,28 @@ export function documentSlots(
     if (!expiry || !validDocumentDate(expiry)) continue;
     add("benefit", row.cycleKey, "更新分（前回期限 " + expiry + "）", expiry);
     slots.find(slot => slot.type === "benefit" && slot.cycleKey === row.cycleKey)!.benefitRenewal = {
+      previousValidUntil: expiry, availableFrom: addDocumentMonths(expiry, -1),
+    };
+  }
+  // Usage-plan renewals are independent of certificate registration: entering
+  // the next certificate must not hide a still-unregistered usage plan.
+  for (const certificate of certificates) {
+    const expiry = certificate.validUntil;
+    const availableFrom = addDocumentMonths(expiry, -1);
+    const cycleKey = usagePlanRenewalCycleKey(expiry);
+    const registered = active.some(row => row.type === "usage_plan" && row.cycleKey === cycleKey);
+    if (!registered && availableFrom > today) continue;
+    add("usage_plan", cycleKey, "受給者証更新に伴う利用計画（前回期限 " + expiry + "）", expiry);
+    slots.find(row => row.type === "usage_plan" && row.cycleKey === cycleKey)!.usagePlanRenewal = {
+      previousValidUntil: expiry, availableFrom,
+    };
+  }
+  // Keep saved renewal rows intelligible after a certificate correction/void.
+  for (const row of active.filter(row => row.type === "usage_plan")) {
+    const expiry = row.cycleKey.match(/^extra:usage-plan-renewal-(\d{4}-\d{2}-\d{2})$/)?.[1];
+    if (!expiry || !validDocumentDate(expiry)) continue;
+    add("usage_plan", row.cycleKey, "受給者証更新に伴う利用計画（前回期限 " + expiry + "）", expiry);
+    slots.find(slot => slot.type === "usage_plan" && slot.cycleKey === row.cycleKey)!.usagePlanRenewal = {
       previousValidUntil: expiry, availableFrom: addDocumentMonths(expiry, -1),
     };
   }

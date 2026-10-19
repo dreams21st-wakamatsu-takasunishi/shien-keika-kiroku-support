@@ -20,7 +20,6 @@ import {
   DOCUMENT_TYPES,
   DOCUMENT_CATEGORIES,
   documentSlots,
-  documentWarnings,
   groupDocumentSlots,
   latestDocumentSettings,
   latestBenefitEntry,
@@ -33,6 +32,7 @@ import {
   type DocumentType,
   type DocumentCategoryId,
 } from "../utils/childDocuments";
+import {childDocumentReminders, documentFamilyReference, DOCUMENT_RULE_SOURCES, type DocumentReminder} from "../utils/childDocumentReminders";
 
 const today = () =>
   new Intl.DateTimeFormat("sv-SE", {
@@ -157,6 +157,7 @@ function DocumentWorkspace({
         : undefined;
   const slots = child && data ? documentSlots(child.id, data, asOf) : [];
   const benefit = child && data ? latestBenefitEntry(child.id, data, asOf) : undefined;
+  const reminders = child && data ? childDocumentReminders(child, childrenList, data, asOf, slots) : [];
   const categories = groupDocumentSlots(slots);
   const summaries = useMemo(
     () =>
@@ -166,12 +167,7 @@ function DocumentWorkspace({
               missing = slots.filter(
                 (slot) => slot.required && slot.status !== "complete",
               ).length,
-              warnings = documentWarnings(
-                child.id,
-                data,
-                asOf,
-                child.careType !== "保育所等訪問支援",
-              );
+              warnings = childDocumentReminders(child, childrenList, data, asOf, slots).filter(row=>row.level!=="info");
             return {
               child,
               missing,
@@ -211,6 +207,12 @@ function DocumentWorkspace({
     }
     setError("");
     setExpandedTypes((previous) => ({ ...previous, [type]: !previous[type] }));
+  };
+  const openDocumentTypes = (types: DocumentType[]) => {
+    if (busy || dirtyCount || !types.length) return;
+    setCategoryFilter("all");setFilterType("all");setOnlyMissing(false);
+    setExpandedTypes(previous=>({...previous,...Object.fromEntries(types.map(type=>[type,true]))}));
+    window.requestAnimationFrame(()=>document.getElementById('document-type-'+types[0])?.scrollIntoView({behavior:'smooth',block:'start'}));
   };
   const writeEntry = async (entry: DocumentEntryInput) => {
     if (!child || busy) throw Error("保存中です。しばらくお待ちください。");
@@ -392,37 +394,17 @@ function DocumentWorkspace({
                     <div>
                       <h4 className="text-sm font-bold">受給者証の有効期限：{benefit?.validUntil || "未登録"}</h4>
                       <p className="mt-1 text-xs leading-relaxed">
-                        {benefit?.validUntil ? `更新分の入力欄は ${addDocumentMonths(benefit.validUntil,-1)} から自動表示します。` : "受給者証の書類欄に、記載された有効期限を入力してください。期限は推測で補完しません。"}
+                        {benefit?.validUntil ? `受給者証・利用計画の更新分の入力欄は ${addDocumentMonths(benefit.validUntil,-1)} から自動表示します。` : "受給者証の書類欄に、記載された有効期限を入力してください。期限は推測で補完しません。"}
                         更新分は別の書類として保存し、以前の作成日・有効期限は履歴に残します。
                       </p>
                     </div>
-                    <button type="button" disabled={busy || dirtyCount > 0} className="min-h-10 rounded-lg border border-violet-300 bg-white px-3 text-xs font-bold disabled:opacity-40" onClick={()=>{
-                      setCategoryFilter("benefits");setFilterType("benefit");setOnlyMissing(false);
-                      setExpandedTypes(previous=>({...previous,benefit:true}));
-                      window.requestAnimationFrame(()=>document.getElementById('document-type-benefit')?.scrollIntoView({behavior:'smooth',block:'start'}));
-                    }}>受給者証を入力・確認</button>
+                    <div className="flex flex-wrap gap-2">
+                      <button type="button" disabled={busy || dirtyCount > 0} className="min-h-10 rounded-lg border border-violet-300 bg-white px-3 text-xs font-bold disabled:opacity-40" onClick={()=>openDocumentTypes(['benefit'])}>受給者証を入力・確認</button>
+                      <button type="button" disabled={busy || dirtyCount > 0} className="min-h-10 rounded-lg border border-violet-300 bg-white px-3 text-xs font-bold disabled:opacity-40" onClick={()=>openDocumentTypes(['usage_plan'])}>利用計画を入力・確認</button>
+                    </div>
                   </div>
                 </section>
-                {documentWarnings(
-                  child.id,
-                  data,
-                  asOf,
-                  child.careType !== "保育所等訪問支援",
-                ).length > 0 && (
-                  <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-xs leading-relaxed text-amber-950">
-                    <p className="font-bold">確認が必要な情報</p>
-                    <ul className="mt-1 list-disc space-y-1 pl-5">
-                      {documentWarnings(
-                        child.id,
-                        data,
-                        asOf,
-                        child.careType !== "保育所等訪問支援",
-                      ).map((message) => (
-                        <li key={message}>{message}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+                <DocumentReminderPanel child={child} childrenList={childrenList} asOf={asOf} reminders={reminders} disabled={busy || dirtyCount > 0} onOpen={openDocumentTypes}/>
                 <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-white p-3">
                   <p className="text-sm font-bold">
                     必要枠 {slots.filter((s) => s.required).length}
@@ -445,7 +427,7 @@ function DocumentWorkspace({
                 </div>
                 {settings && (
                   <p className="text-xs text-slate-500">
-                    年次書類は契約日を起点に1年ごとに表示します。受給者証は登録された有効期限の1か月前から、別に更新分の欄も表示します。更新月の枠は月初に表示し、月末を確認目安にします。過去の枠は新しい書類で上書きしません。
+                    年次枠は契約日を起点にした事業所の管理目安であり、一律の法定期限ではありません。受給者証・利用計画は登録された有効期限を優先し、1か月前から別の更新欄を表示します。モニタリング指定月の枠は月初に表示し、月末は確認目安として扱います。過去の登録は上書きしません。
                   </p>
                 )}
                 <nav
@@ -730,6 +712,37 @@ function DocumentWorkspace({
   );
 }
 
+function DocumentReminderPanel({child,childrenList,asOf,reminders,disabled,onOpen}:{child:ChildProfile;childrenList:ChildProfile[];asOf:string;reminders:DocumentReminder[];disabled:boolean;onOpen:(types:DocumentType[])=>void}) {
+  const family=documentFamilyReference(child,childrenList,asOf);
+  const colors={overdue:'border-rose-300 bg-rose-50 text-rose-950',soon:'border-amber-300 bg-amber-50 text-amber-950',info:'border-sky-200 bg-sky-50 text-sky-950'};
+  const labels={overdue:'期限・目安超過',soon:'近日・未確認',info:'参考・情報不足'};
+  const render=(reminder:DocumentReminder)=><li key={reminder.id} className={`rounded-lg border p-3 ${colors[reminder.level]}`}>
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <p className="min-w-0 text-sm font-bold">{reminder.title}</p>
+      <span className="rounded bg-white/80 px-2 py-1 text-[11px] font-bold">{labels[reminder.level]} ／ {reminder.basis}</span>
+    </div>
+    {reminder.date&&<p className="mt-1 text-xs font-bold">確認目安：{reminder.date}</p>}
+    <div className="mt-2 flex flex-wrap items-start gap-3">
+      {reminder.types.length>0&&<button type="button" disabled={disabled} onClick={()=>onOpen(reminder.types)} className="min-h-10 shrink-0 rounded-lg border border-current bg-white px-3 text-xs font-bold disabled:opacity-40">該当書類を確認</button>}
+      <details className="min-w-0 flex-1 basis-44 text-xs leading-relaxed"><summary className="min-h-10 cursor-pointer py-3 font-bold">確認内容・根拠</summary>
+        <p>{reminder.detail}</p>
+        {reminder.source&&<a href={DOCUMENT_RULE_SOURCES[reminder.source].url} target="_blank" rel="noreferrer noopener" className="mt-2 block underline">{DOCUMENT_RULE_SOURCES[reminder.source].label}</a>}
+      </details>
+    </div>
+  </li>;
+  return <section aria-label="書類の更新・追加の確認案内" className="rounded-xl border border-slate-200 bg-white p-3">
+    <h4 className="text-sm font-black">書類の更新・追加の確認案内</h4>
+    <p className="mt-1 text-xs leading-relaxed text-slate-600">契約日・有効期限・モニタリング月から自動確認します。書類の内容審査・法令適合の保証や、提出・交付の自動処理は行いません。</p>
+    <p className="mt-2 rounded-lg bg-slate-50 p-2 text-xs leading-relaxed text-slate-700">本人の誕生月：{family.ownBirthMonth?`${family.ownBirthMonth}月`:'未登録'} ／ 登録きょうだい：{family.siblingCount?`${family.siblingCount}名`:'登録なし（無しとは断定しません）'}{family.siblingCount>0&&` ／ 名簿上の最年長候補：${family.eldest?`${Number(family.eldest.birthDate!.slice(5,7))}月生まれ`:'生年月日・利用状況の確認が必要'}`}。実際の受給者証の期限を優先します。</p>
+    {reminders.length?<><ul className="mt-3 space-y-2">{reminders.slice(0,4).map(render)}</ul>{reminders.length>4&&<details className="mt-2"><summary className="min-h-10 cursor-pointer py-2 text-xs font-bold text-teal-800">残りの確認案内を表示（{reminders.length-4}件）</summary><ul className="mt-2 space-y-2">{reminders.slice(4).map(render)}</ul></details>}</>:<p className="mt-3 text-xs text-slate-600">登録情報に基づく今回の確認案内はありません。状況の変化や自治体の個別指示がある場合は別途確認してください。</p>}
+    <details className="mt-3 text-xs leading-relaxed text-slate-600"><summary className="min-h-9 cursor-pointer py-2 font-bold">判定の考え方・地域差について</summary>
+      <p>1か月前の案内開始・契約日からの年次枠・指定月の月末表示は、このアプリの管理目安です。アセスメントや同意書などに、一律の年次更新義務があると判定するものではありません。</p>
+      <p className="mt-2">放デイのモニタリング・計画見直しは受給者証の指定月と分けて確認します。誕生月やきょうだいの参考表示は、自治体、他事業所での利用、卒業・利用終了を確定できないため期限には変換しません。北九州市では、きょうだい利用時に最年長児の誕生月へ期限を合わせる取扱いがあります。適用は受給者証・自治体へ確認してください。</p>
+      <ul className="mt-2 space-y-2">{Object.values(DOCUMENT_RULE_SOURCES).map(source=><li key={source.url}><a href={source.url} target="_blank" rel="noreferrer noopener" className="underline">{source.label}</a></li>)}</ul>
+    </details>
+  </section>;
+}
+
 function DocumentSettings({
   childId,
   data,
@@ -999,10 +1012,11 @@ function DocumentRow({
               ? "未入力"
               : slot.status === "unconfirmed"
                 ? "保管未確認"
-                : slot.benefitRenewal ? "更新待ち" : "今月確認"}
+                : slot.benefitRenewal || slot.usagePlanRenewal ? "更新待ち" : "今月確認"}
         </span>
       </div>
       {slot.benefitRenewal && <p className="mt-2 rounded-lg bg-violet-50 p-2 text-xs text-violet-950">更新分の入力欄／受付開始 {slot.benefitRenewal.availableFrom}。以前の受給者証とは別に登録します。</p>}
+      {slot.usagePlanRenewal && <p className="mt-2 rounded-lg bg-violet-50 p-2 text-xs text-violet-950">利用計画の更新分／表示開始 {slot.usagePlanRenewal.availableFrom}。受給者証の前回期限 {slot.usagePlanRenewal.previousValidUntil} に対応する作成日・保管確認を登録します。以前の利用計画は上書きしません。作成時期は相談支援等へ確認してください。</p>}
       <div className={`mt-3 grid items-end gap-2 ${slot.type === "benefit" ? "sm:grid-cols-2" : "sm:grid-cols-[minmax(0,1fr)_auto_auto]"}`}>
         <label className="text-xs font-bold">
           {slot.type === "certificate" || slot.type === "additional"

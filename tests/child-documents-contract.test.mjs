@@ -22,3 +22,12 @@ test('category layout includes registered documents and cannot collapse unsaved 
  const source=read('src/components/ChildDocumentWorkspace.tsx');
  for(const marker of ['[onlyMissing, setOnlyMissing] = useState(false)','groupDocumentSlots(slots)','保管書類のカテゴリ','dirtyRows.current.has(slot.key)','hidden={!expanded}','aria-expanded={expanded}'])assert.ok(source.includes(marker),marker);
 });
+
+test('renewal prompts reuse append-only document storage and do not infer or upload family data',()=>{
+ const rules=read('src/utils/childDocumentReminders.ts'),slots=read('src/utils/childDocuments.ts'),ui=read('src/components/ChildDocumentWorkspace.tsx');
+ for(const marker of ['事業所の管理目安','地域の参考','受給者証','6か月','buildSiblingGroupByChild'])assert.ok(rules.includes(marker),marker);
+ assert.doesNotMatch(rules,/fetch\(|supabase|functions\.invoke|localStorage|openai|tiro|\.name\.split/);
+ assert.ok(slots.includes('extra:usage-plan-renewal-'));
+ assert.ok(ui.includes('disabled={busy || dirtyCount > 0}'));
+ assert.ok(ui.includes('判定の考え方・地域差について'));
+});
