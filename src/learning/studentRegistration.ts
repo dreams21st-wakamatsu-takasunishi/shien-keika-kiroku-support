@@ -18,7 +18,7 @@ export function parseHandoffResult(value: unknown, childId: string, operationId:
     || !credentialUuid(requestId) || row.revision !== previousRevision + 1) return fail();
   return { operationId, requestId, revision: row.revision as number };
 }
-export type RegistrationConfig = { sourceProject: string; fingerprint: string; name: string; birthDate: string; allowNew: boolean; campuses: { id: string; name: string }[]; operations: RegistrationOperation[] };
+export type RegistrationConfig = { sourceProject: string; fingerprint: string; name: string; birthDate: string; allowNew: boolean; campuses: { id: string; name: string; registrationEnabled: boolean }[]; operations: RegistrationOperation[] };
 const fail = () => { throw Error('新規登録の応答を照合できません。同じ操作を再確認してください。'); };
 const object = (value: unknown): Record<string, unknown> => value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : fail();
 const campusId = (value: unknown) => typeof value === 'string' && /^[a-zA-Z0-9_-]{1,80}$/.test(value) && value !== 'public';
@@ -32,7 +32,7 @@ export function parseRegistrationConfig(value: unknown): RegistrationConfig {
     || typeof raw.birthDate !== 'string' || (raw.birthDate !== '' && !isServiceDate(raw.birthDate)) || typeof raw.allowNew !== 'boolean'
     || !Array.isArray(raw.campuses) || raw.campuses.length > 100 || !Array.isArray(raw.operations) || raw.operations.length > 20) return fail();
   const seen = new Set<string>();
-  const campuses = raw.campuses.map(item => { const row = object(item); if (!campusId(row.id) || seen.has(row.id as string) || typeof row.name !== 'string' || !row.name || row.name.length > 160) return fail(); seen.add(row.id as string); return { id: row.id as string, name: row.name }; });
+  const campuses = raw.campuses.map(item => { const row = object(item); if (!campusId(row.id) || seen.has(row.id as string) || typeof row.name !== 'string' || !row.name || row.name.length > 160 || (row.registrationEnabled !== undefined && typeof row.registrationEnabled !== 'boolean')) return fail(); seen.add(row.id as string); return { id: row.id as string, name: row.name, registrationEnabled:row.registrationEnabled!==false }; });
   const operations = raw.operations.map(item => { const row = object(item);
     if (!credentialUuid(row.id) || !campusId(row.campusId) || !['requested', 'source-created', 'linked', 'completed', 'denied'].includes(String(row.phase))
       || !isAccountTimestamp(row.at) || typeof row.canResume !== 'boolean' || typeof row.canTakeOver !== 'boolean'

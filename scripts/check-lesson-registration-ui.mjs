@@ -41,7 +41,7 @@ async function check(page) {
   await panel.getByText('2016-01-01', { exact: true }).waitFor();
   const button = panel.getByRole('button', { name: '新規登録してカード表示', exact: true });
   assert(await button.isDisabled(), 'explicit confirmation required');
-  assert(await panel.getByRole('option').count() === 2, 'authorized campus list');
+  assert(await panel.getByRole('option').count() === 3, 'authorized campus list with explicit selection placeholder');
   await panel.getByLabel('新規登録先校舎', { exact: true }).selectOption('school');
   const confirm = async () => { await panel.getByLabel('新規登録対象児童の氏名', { exact: true }).fill(name); await panel.getByRole('checkbox').check(); };
   await confirm(); await button.click(); await page.getByText('試験用：登録結果未確定', { exact: true }).waitFor();

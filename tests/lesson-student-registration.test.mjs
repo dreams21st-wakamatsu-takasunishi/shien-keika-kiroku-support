@@ -14,7 +14,9 @@ test('registration fingerprint changes with child identity snapshot', async () =
   for (const args of [['other', expected.name, expected.birthDate], [childId, 'other', expected.birthDate], [childId, expected.name, '2015-01-01']]) assert.notEqual(await registrationFingerprint(...args), hash);
 });
 test('configuration validates dates campuses bounded receipts and strips extras', () => {
-  assert.deepEqual(parseRegistrationConfig({ ...config, passcode: 'secret' }), config);
+  assert.deepEqual(parseRegistrationConfig({ ...config, passcode: 'secret' }), {...config,campuses:config.campuses.map(row=>({...row,registrationEnabled:true}))});
+  assert.equal(parseRegistrationConfig({...config,campuses:[{id:'main',name:'本校',registrationEnabled:false}]}).campuses[0].registrationEnabled,false);
+  assert.throws(()=>parseRegistrationConfig({...config,campuses:[{id:'main',name:'本校',registrationEnabled:'false'}]}));
   for (const patch of [{ birthDate: '2026-02-30' }, { campuses: [{ id: 'public', name: 'public' }] }, { campuses: [...config.campuses, ...config.campuses] }, { campuses: Array(101).fill(config.campuses[0]) }, { operations: [{ id, campusId: 'main', phase: 'requested', at: new Date().toISOString(), canResume: true }] }]) assert.throws(() => parseRegistrationConfig({ ...config, ...patch }));
 });
 test('prepared identity must match every reservation field and login range', () => {

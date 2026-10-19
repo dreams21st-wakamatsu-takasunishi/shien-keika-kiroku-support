@@ -1,0 +1,14 @@
+<!doctype html><html lang="ja"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>模擬文章の架空表示検証</title>
+<!-- Copied by the test script to D Lesson's ignored output directory. -->
+<body><main id="game-container" style="max-width:1180px;margin:auto;padding:16px">
+<section class="screen" id="screen-text-menu"><h1>文章入力練習</h1><div id="text-menu-content"></div></section>
+<section class="screen" id="screen-text-game"><h1 id="text-title-display"></h1><p id="text-timer-display"></p><div style="display:flex;gap:12px"><button id="btn-toggle-ruby" onclick="toggleRuby()">よみがな</button><button id="btn-toggle-navi" onclick="toggleNavi()">ナビ</button></div><div id="ref-text-box" style="height:42vh;overflow:auto;margin:16px 0;padding:12px;background:white;border:1px solid #ccc;white-space:pre-wrap"></div><label>入力欄<textarea id="type-text-box" style="width:100%;height:20vh"></textarea></label><button id="btn-submit-text">検証中のため保存しません</button><div id="text-result-overlay"></div></section>
+</main><script type="module">
+import '../src/style.css';import '../src/styles/interface.css';
+import {users,setCurrentUser} from '../src/api/user.js';import {replaceCampusCatalogs} from '../src/utils/managed-content.js';
+import {goToTextMenu,confirmStartTextPractice,closeTextPrepModal,toggleRubyInPrep,toggleNaviInPrep,toggleRuby,toggleNavi} from '../src/games/text.js';
+const tasks=await(await fetch('/output/speed-input-questions.json')).json();
+users.__GLOBAL_SETTINGS__={textTasks:[],globalMistakes:{}};users.student_mock={campusId:'fictional-speed',group:'fixture',textRecords:{},items:[]};
+replaceCampusCatalogs([{campus_id:'fictional-speed',content:{textTasks:tasks,customThemes:[],customEffects:[]}}]);setCurrentUser('student_mock');
+Object.assign(window,{confirmStartTextPractice,closeTextPrepModal,toggleRubyInPrep,toggleNaviInPrep,toggleRuby,toggleNavi,__speedInputTasks:tasks});goToTextMenu();
+</script></body></html>

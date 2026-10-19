@@ -26,7 +26,8 @@ export function LessonStudentRegistrationPanel({ childId, hasLink, onCompleted }
     try {
       const result = await loadStudentRegistrationConfig(childId);
       if (request !== version.current) return;
-      setConfig(result); setCampus(previous => result.campuses.some(row => row.id === previous) ? previous : result.campuses[0]?.id || '');
+      const available=result.campuses.filter(row=>row.registrationEnabled);
+      setConfig(result); setCampus(previous => available.some(row => row.id === previous) ? previous : available.length===1?available[0].id:'');
       setPending(previous => result.operations.some(row => row.id === previous?.id) ? null : previous);
       setHandoff(previous => previous && result.operations.some(row => row.id === previous.operation.id && row.canTakeOver && row.handoffRevision === previous.operation.handoffRevision) ? previous : null);
     } catch (cause) { if (request === version.current) setError(cause instanceof Error ? cause.message : '登録設定を取得できません。'); }
@@ -96,7 +97,8 @@ export function LessonStudentRegistrationPanel({ childId, hasLink, onCompleted }
     {config ? <>
       <dl className="grid gap-2 text-sm sm:grid-cols-[120px_minmax(0,1fr)]"><dt className="text-slate-600">名簿の氏名</dt><dd className="break-words font-bold">{config.name}</dd><dt className="text-slate-600">生年月日</dt><dd>{config.birthDate || '未登録'}</dd></dl>
       {!config.allowNew && !unresolved && <p role="status" className="border-l-4 border-amber-500 bg-amber-50 p-3 text-sm">新規登録できません。生年月日の登録状態、過去の連携・登録履歴を確認してください。既存の学習IDがある場合は、そのIDを連携します。</p>}
-      <label className="flex max-w-sm flex-col gap-1 text-sm font-bold">登録先校舎<select aria-label="新規登録先校舎" value={campus} disabled={busy || Boolean(unresolved) || !config.allowNew} onChange={event => setCampus(event.target.value)} className="min-h-10 rounded-lg border border-slate-300 bg-white px-3">{config.campuses.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>
+      {config.campuses.filter(row=>row.registrationEnabled).length===1?<p className="rounded-lg bg-teal-50 p-3 text-sm font-bold text-teal-900">登録先：{config.campuses.find(row=>row.registrationEnabled)?.name}</p>:<label className="flex max-w-sm flex-col gap-1 text-sm font-bold">登録先校舎<select aria-label="新規登録先校舎" value={campus} disabled={busy || Boolean(unresolved) || !config.allowNew} onChange={event => setCampus(event.target.value)} className="min-h-10 rounded-lg border border-slate-300 bg-white px-3"><option value="">登録先を選択してください</option>{config.campuses.filter(row=>row.registrationEnabled).map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select></label>}
+      {!config.campuses.some(row=>row.registrationEnabled)&&<p role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">新規登録できる運用校舎がありません。管理者に校舎の連携設定を確認してください。既存の登録履歴は保持しています。</p>}
       <label className="flex max-w-sm flex-col gap-1 text-sm font-bold">対象児童の氏名を入力<input aria-label="新規登録対象児童の氏名" value={confirmation} disabled={busy || Boolean(card)} onChange={event => setConfirmation(event.target.value)} autoComplete="off" className="min-h-10 rounded-lg border border-slate-300 px-3" /></label>
       <label className="flex items-start gap-2 text-sm"><input type="checkbox" checked={acknowledged} disabled={busy || Boolean(card)} onChange={event => setAcknowledged(event.target.checked)} className="mt-1 h-4 w-4" />{config.allowNew ? '既存の学習アカウントがないこと、対象児童と共有先が正しいこと、学習情報の共有について説明・同意を確認しました' : '対象児童・共有先・説明同意と登録履歴を確認し、同じ学習IDの登録を再開することを確認しました'}</label>
       <button type="button" disabled={!confirmed || !config.allowNew || !campus || Boolean(unresolved) || Boolean(card)} onClick={() => void run({ id: crypto.randomUUID(), campusId: campus })} className="flex min-h-10 items-center gap-2 rounded-lg bg-teal-700 px-3 text-sm font-bold text-white disabled:opacity-50">{busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}新規登録してカード表示</button>
