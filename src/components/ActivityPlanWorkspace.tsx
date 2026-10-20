@@ -6,6 +6,7 @@ import { EditorActionBar } from './EditorActionBar';
 import { ActivityPlanSheet } from './ActivityPlanSheet';
 import { listActivityPlans, saveActivityPlan } from '../services/activityPlanService';
 import { activityDuration, activityKinds, activityStatuses, activityTemplates, activityText, activityTimeline, copyActivity, emptyActivity, restoreActivityDraft, validateActivity, type ActivityContent, type ActivityPlan } from '../utils/activityPlans';
+import { activityDraftStorageKey, installActivityDraftCloseWarning } from '../utils/activityDraftWarning';
 
 const field = 'mt-1 w-full min-h-11 rounded-xl border border-slate-300 bg-white px-3 py-2 text-base text-slate-950 focus:border-teal-500';
 const button = 'min-h-11 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-700 disabled:opacity-40';
@@ -18,10 +19,18 @@ const editorSteps = [
 type EditorStep = typeof editorSteps[number]['id'];
 type Props = { organizationId: string; userId: string; onDirtyChange: (dirty: boolean) => void; onOpenTrafficCost: () => void; onOpenCalendar: () => void };
 export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, onOpenTrafficCost, onOpenCalendar }: Props) {
-  const storageKey = `d-support-activity-draft-v1:${organizationId}:${userId}`;
+  const storageKey = activityDraftStorageKey(organizationId, userId);
   const [restored] = useState(() => { try { return restoreActivityDraft(sessionStorage.getItem(storageKey)); } catch { return null; } });
   const [plan, setPlan] = useState<ActivityPlan>(restored || emptyActivity);
-  const [dirty, setDirty] = useState(Boolean(restored));
+  const [dirty, setDirtyState] = useState(Boolean(restored));
+  const dirtyRef = useRef(Boolean(restored));
+  const setDirty = (next: boolean) => {
+    // Close/reload can start immediately after an input/save event, before an
+    // effect has run. Keep the native warning in sync within that same event.
+    dirtyRef.current = next;
+    setDirtyState(next);
+    if (!next) { try { sessionStorage.removeItem(storageKey); } catch { setStorageError(true); } }
+  };
   const [list, setList] = useState<ActivityPlan[]>([]);
   const [tab, setTab] = useState<EditorStep>('基本情報');
   const panelRef = useRef<HTMLDivElement>(null);
@@ -54,10 +63,7 @@ export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, o
     try { if (dirty) sessionStorage.setItem(storageKey, JSON.stringify(plan)); else sessionStorage.removeItem(storageKey); }
     catch { setStorageError(true); }
   }, [plan, dirty, storageKey]);
-  useEffect(() => {
-    const warn = (event: BeforeUnloadEvent) => { if (dirty) { event.preventDefault(); event.returnValue = ''; } };
-    window.addEventListener('beforeunload', warn); return () => window.removeEventListener('beforeunload', warn);
-  }, [dirty]);
+  useEffect(() => installActivityDraftCloseWarning(window, () => dirtyRef.current), []);
   const update = (patch: Partial<ActivityPlan>) => { setPlan((p) => ({ ...p, ...patch })); setDirty(true); setMessage(''); };
   const content = (patch: Partial<ActivityContent>) => update({ content: { ...plan.content, ...patch } });
   const choose = (p: ActivityPlan) => {
@@ -104,7 +110,7 @@ export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, o
       </section>
       <div className="min-w-0 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-teal-50 p-3 text-sm"><b>{dirty ? '未保存の変更があります' : plan.id ? '保存済み' : '新しい案・入力を開始できます'}</b><span>計{activityDuration(plan)}分 · 準備{completed}/{plan.content.preparations.length}件</span></div>
-        <p className="text-xs text-slate-600">未保存の入力はこのタブに保持します。職員への共有は「保存」後です。個別支援計画・支援経過記録は自動で変更しません。</p>
+        <p className="text-xs text-slate-600">未保存の入力はこのタブに保持します。未保存のままタブ・ブラウザを閉じる、または再読み込みすると、ブラウザ標準の確認が表示されます。職員への共有は「保存」後です。個別支援計画・支援経過記録は自動で変更しません。</p>
         {storageError && <p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm">このブラウザでは未保存の入力を保持できません。画面を閉じる前に保存してください。</p>}
         {error && <p role="alert" className="whitespace-pre-wrap rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
         {message && <p role="status" className="rounded-xl bg-teal-50 p-3 text-sm text-teal-900">{message}</p>}

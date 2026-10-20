@@ -4,6 +4,7 @@ import {RecordEntryDialog} from './components/RecordEntryDialog';
 import {localInputDrafts,mergeLocalInputDrafts,type RecordEntryLaunch,type RecordEntrySignal} from './utils/recordEntry';
 import {mergeOwnRecordDrafts} from './services/dataService';
 import {switchUserSafely,type PrepareUserSwitch} from './utils/userSwitch';
+import {activityDraftStorageKey,hasPendingActivityDraft,installActivityDraftCloseWarning} from './utils/activityDraftWarning';
 import { AlertTriangle, BellRing, ChevronRight, HardDrive, House, LoaderCircle, RefreshCw, ShieldCheck, WifiOff, X } from 'lucide-react';
 import {
   AiWritingSettings,
@@ -186,6 +187,16 @@ export default function App() {
   const [learningDirty,setLearningDirty]=useState(false);
   const [meetingDirty, setMeetingDirty] = useState(false);
   const [activityDirty, setActivityDirty] = useState(false);
+  useEffect(() => {
+    if (remoteMode && !auth.profile?.id) return;
+    const key = activityDraftStorageKey(organizationId || 'local', auth.profile?.id || 'local');
+    // The editor's immediate guard covers the input event itself. This scoped
+    // guard also remains after navigating to traffic cost/calendar/home while
+    // the unsaved activity draft is still kept in this tab.
+    return installActivityDraftCloseWarning(window, () => {
+      try { return hasPendingActivityDraft(sessionStorage, key); } catch { return false; }
+    });
+  }, [organizationId, auth.profile?.id, remoteMode]);
   const [facilityDirty, setFacilityDirty] = useState(false);
   const [trainingDirty,setTrainingDirty] = useState(false);
   const [documentDirty,setDocumentDirty]=useState(false);

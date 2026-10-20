@@ -19,8 +19,14 @@ test('remote saves are optimistic, drafts are scoped and cleared on signout, chi
   assert.ok(service.includes(".eq('revision', plan.revision)"));
   assert.ok(!service.includes("from('support_records')"));
   const component = read('src/components/ActivityPlanWorkspace.tsx');
-  assert.ok(component.includes('d-support-activity-draft-v1:${organizationId}:${userId}'));
-  assert.ok(component.includes("window.addEventListener('beforeunload', warn)"));
+  const guard = read('src/utils/activityDraftWarning.ts');
+  assert.ok(component.includes('activityDraftStorageKey(organizationId, userId)'));
+  assert.ok(guard.includes('d-support-activity-draft-v1:${organizationId}:${userId}'));
+  assert.ok(component.includes('installActivityDraftCloseWarning(window, () => dirtyRef.current)'));
+  assert.ok(guard.includes("target.addEventListener('beforeunload', warn)"));
+  assert.ok(guard.includes('event.preventDefault()'));
+  assert.ok(guard.includes("event.returnValue = ''"));
+  assert.ok(read('src/App.tsx').includes('hasPendingActivityDraft(sessionStorage, key)'));
   assert.ok(read('src/hooks/useAuth.ts').includes("key.startsWith('d-support-activity-draft-v1:')"));
   assert.ok(read('src/App.tsx').includes("activeTab === 'activityPlans' && !auth.profile?.fieldModeOnly"));
 });
