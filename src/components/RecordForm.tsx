@@ -74,7 +74,7 @@ import {
   TemplateField,
 } from '../types';
 import { summarizeABCWithAI } from '../utils/aiHelper';
-import { deleteRecordDraft, finishRecordDraftSave, loadRecordDraft, saveRecordDraft } from '../services/dataService';
+import { deleteRecordDraft, finishRecordDraftSave, loadRecordDraft, saveRecordDraft, takeOverRecordDraftChildrenIntoExisting } from '../services/dataService';
 import { diagnosticAction, recordDiagnostic } from '../services/diagnostics';
 import { createDraftWriteQueue, removeSavedDraftChildren, type RecordSaveOutcome } from '../services/recordSaveWorkflow';
 import { QuickMemoPad } from './QuickMemoPad';
@@ -1943,6 +1943,11 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const [copiedHandoverId, setCopiedHandoverId] = useState<string | null>(null);
   const [childSearch, setChildSearch] = useState('');
   const [addingChildren,setAddingChildren]=useState(false);
+  const [childTakeover, setChildTakeover] = useState<{ childId: string; childName: string; sourceDraftKey: string; ownerName: string; date: string } | null>(null);
+  const [childTakeoverBusy, setChildTakeoverBusy] = useState(false);
+  const [childTakeoverError, setChildTakeoverError] = useState<string | null>(null);
+  const childTakeoverInProgress = useRef(false);
+  const childTakeoverDialog = useRef<HTMLDivElement | null>(null);
   const [preparingEntry,setPreparingEntry]=useState(false);
   const [preparingUserSwitch,setPreparingUserSwitch]=useState(false);
   const entryApplied=useRef('');
@@ -1963,7 +1968,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   );
   const [takeoverNotice, setTakeoverNotice] = useState<TakeoverNotice | null>(null);
   const draftWriteBlocked = draftStatus === 'locked' || draftStatus === 'taken-over' || Boolean(takeoverNotice);
-  const editingDisabled = readOnly || draftWriteBlocked || Boolean(pendingCompletion)||entryManagerOpen||preparingEntry||preparingUserSwitch||conflictResolutionBusy;
+  const editingDisabled = readOnly || draftWriteBlocked || Boolean(pendingCompletion)||entryManagerOpen||preparingEntry||preparingUserSwitch||conflictResolutionBusy||childTakeoverBusy;
   const [questionIndexMode, setQuestionIndexMode] = useState<'unanswered' | 'all'>('unanswered');
   const draftCleared = useRef(false);
   const skipNextDraftSave = useRef(false);
@@ -3000,6 +3005,105 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       return { ...previous, date, childTemplateIds, childDrafts };
     });
   };
+
+  const takeoverSourceForChild = (childId: string) => organizationId && userId && !initialRecord && !readOnly
+    ? readOnlyDrafts.find(source => source.draftKey !== draftKey && source.date === wizard.date
+      && source.selectedTemplateId === wizard.selectedTemplateId && source.selectedChildIds.includes(childId))
+    : undefined;
+
+  const chooseChild = (child: ChildProfile) => {
+    if (editingDisabled || !draftReady || isSaving || savingChildId || childTakeoverInProgress.current) return;
+    const source = !wizard.selectedChildIds.includes(child.id) && takeoverSourceForChild(child.id);
+    if (lockedChildren[`${wizard.date}:${child.id}`] && source) {
+      setChildTakeoverError(null);
+      setChildTakeover({ childId: child.id, childName: child.name, sourceDraftKey: source.draftKey,
+        ownerName: source.recorderName || '別の職員', date: wizard.date });
+      return;
+    }
+    toggleChild(child.id);
+  };
+
+  const confirmChildTakeover = async () => {
+    if (!childTakeover || !organizationId || !userId || childTakeoverInProgress.current || saveInProgress.current) return;
+    const selection = childTakeover;
+    childTakeoverInProgress.current = true; saveInProgress.current = true;
+    setChildTakeoverBusy(true); setChildTakeoverError(null);
+    try {
+      if (syncConflict.current) throw Error('先に別端末との下書きの競合を確認してください。入力内容は保持しています。');
+      const current = currentWizard.current;
+      if (current.date !== selection.date || current.selectedChildIds.includes(selection.childId)) throw Error('選択状態が変わりました。児童を選び直してください。');
+      await draftWrites.run(async () => {
+        const source = await loadRecordDraft(organizationId, selection.sourceDraftKey);
+        const incoming = source && normalizeWizardDraft(source.payload);
+        if (!incoming || incoming.date !== selection.date || !incoming.selectedChildIds.includes(selection.childId)) {
+          throw Error('この児童の入力状況が変わりました。引き継ぎは行っていません。最新の入力状況を確認してください。');
+        }
+        if ((incoming.recorderName || '別の職員') !== selection.ownerName) throw Error('入力担当者が変わりました。児童を選び直し、引き継ぎ元を確認してください。');
+        if (incoming.selectedTemplateId !== current.selectedTemplateId) throw Error('記録形式が異なるため、この画面へ追加できません。記録状況から確認してください。');
+        if (!sameDraftContent(current, currentWizard.current)) throw Error('この画面の入力が更新されました。内容を保持しています。もう一度引き継ぎを確認してください。');
+        // Flush this form first. A stale revision aborts before transferring;
+        // the RPC then atomically merges into the latest owned target row.
+        const payload = { ...current, updatedAt: new Date().toISOString() };
+        if (!writeLocalDraft(payload)) throw Error('入力内容を端末に保持できません。引き継ぎは行っていません。');
+        const saved = await saveRecordDraft(organizationId, userId, draftKey, payload, {
+          deviceId, expectedRevision: remoteRevision.current, recorderId: current.recorderId || null,
+        });
+        acknowledgeDraft(payload, saved); writeLocalDraft(payload, true);
+        const transferred = await takeOverRecordDraftChildrenIntoExisting(organizationId,
+          [{ sourceDraftKey: selection.sourceDraftKey, childId: selection.childId }], draftKey, current.recorderId || undefined);
+        const restored = normalizeWizardDraft(transferred.payload);
+        if (!restored || !restored.selectedChildIds.includes(selection.childId)) throw Error('引き継ぎ結果を確認できませんでした。入力状況を再取得してください。');
+        if (!applyRemoteDraft({ ...transferred, deviceId, recorderId: current.recorderId || null })) throw Error('引き継ぎは完了していますが、別端末との変更内容の確認が必要です。この確認画面を閉じ、下書きの競合を確認してください。');
+      });
+      setChildTakeover(null);
+      setStepError(null);
+      setSaveNotice(`${selection.childName}の入力済み記録を${selection.ownerName}から引き継ぎ、この画面へ追加しました。`);
+      onDraftChanged?.();
+    } catch (error) {
+      // A response can be lost after the atomic transfer committed. Re-read the
+      // target, never retry the mutation blindly or replace it with a blank child.
+      let recovered = false;
+      try {
+        const remote = await draftWrites.run(() => loadRecordDraft(organizationId, draftKey));
+        const restored = remote && normalizeWizardDraft(remote.payload);
+        if (remote && restored) {
+          const applied = applyRemoteDraft(remote);
+          recovered = restored.selectedChildIds.includes(selection.childId) && applied;
+          if (recovered) { setChildTakeover(null); setSaveNotice(`${selection.childName}の引き継ぎ済み内容を再取得しました。`); }
+        }
+      } catch { /* Keep both the current input and confirmation available. */ }
+      if (!recovered) {
+        const message = String((error as { message?: unknown })?.message || '引き継げませんでした。入力内容は保持しています。通信状態・端末の権限を確認し、再試行してください。');
+        setChildTakeoverError(message.includes('DRAFT_CONFLICT')
+          ? 'この画面の下書きが別端末で更新されています。入力内容は保持しています。確認画面を閉じ、最新の下書きを確認してから再試行してください。'
+          : message);
+      }
+      onDraftChanged?.();
+    } finally {
+      childTakeoverInProgress.current = false; saveInProgress.current = false;
+      setChildTakeoverBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!childTakeover) return;
+    const opener = document.activeElement;
+    childTakeoverDialog.current?.querySelector<HTMLButtonElement>('button')?.focus();
+    const keydown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault(); event.stopPropagation();
+        if (!childTakeoverInProgress.current) setChildTakeover(null);
+      }
+      if (event.key === 'Tab') {
+        const buttons = [...(childTakeoverDialog.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') || [])];
+        if (!buttons.length) { event.preventDefault(); return; }
+        if (event.shiftKey && document.activeElement === buttons[0]) { event.preventDefault(); buttons.at(-1)?.focus(); }
+        else if (!event.shiftKey && document.activeElement === buttons.at(-1)) { event.preventDefault(); buttons[0].focus(); }
+      }
+    };
+    document.addEventListener('keydown', keydown, true);
+    return () => { document.removeEventListener('keydown', keydown, true); if (opener instanceof HTMLElement && opener.isConnected) opener.focus({ preventScroll: true }); };
+  }, [childTakeover]);
 
   const toggleChild = (childId: string) => {
     if (initialRecord) return;
@@ -4242,6 +4346,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             <div className="rounded-xl border border-teal-200 bg-teal-50 p-3 text-sm text-teal-900">
               <strong>{wizard.date}（{targetWeekday}）の利用予定児童</strong>
               <p className="mt-1 text-xs text-teal-700">「利用予定／送迎管理」の追加利用・欠席を反映しています。</p>
+              {organizationId&&userId&&!initialRecord&&<p className="mt-1 text-xs text-amber-900">他職員が入力中の児童は「引き継いで追加」から、確認後に入力済み内容を引き継げます。</p>}
               {addingChildren&&<><p className="mt-2 text-sm font-bold">追加する児童を選んでください。選択済みの児童・入力内容はそのまま残ります。</p><button type="button" disabled={!wizard.selectedChildIds.length} onClick={()=>{setAddingChildren(false);setWizard(previous=>({...previous,currentStepIndex:Math.min(entryReturnStep.current,steps.length-1)}));}} className="mt-3 min-h-11 rounded-xl bg-teal-700 px-4 font-bold text-white disabled:opacity-40">追加を完了して入力へ戻る（{wizard.selectedChildIds.length}名）</button></>}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[50vh] overflow-y-auto pr-1">
@@ -4249,11 +4354,12 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                 const selected = wizard.selectedChildIds.includes(child.id);
                 const dayPlan = dayPlans.find((plan) => plan.childId === child.id);
                 const isAdditional = dayPlan?.attendancePlan === '追加利用' || additionalSelected.some((item) => item.id === child.id);
-                const lockOwner = lockedChildren[`${wizard.date}:${child.id}`];
+                const lockOwner = !selected && lockedChildren[`${wizard.date}:${child.id}`];
+                const canTakeOver = Boolean(lockOwner && takeoverSourceForChild(child.id));
                 const planSummary = dayPlan
                   ? [dayPlan.hasLunch && '昼食', dayPlan.hasSnack && 'おやつ', dayPlan.arrivalTime && `来所 ${dayPlan.arrivalTime}`].filter(Boolean).join('・') || '日別予定あり'
                   : isAdditional ? '追加利用' : formatRegularDays(getRegularDaysForDate(child, wizard.date));
-                return <button key={child.id} type="button" disabled={Boolean(initialRecord) || Boolean(lockOwner)} onClick={() => toggleChild(child.id)} className={`${choiceClass} flex items-center justify-between text-left ${selected ? 'bg-teal-600 border-teal-600 text-white' : lockOwner ? 'border-amber-300 bg-amber-50 text-amber-900' : 'bg-white border-slate-300 text-slate-700'} disabled:opacity-80`}><span>{child.name}<span className="block text-[11px] font-normal opacity-75">{lockOwner ? `${lockOwner}が入力中` : `${calculateSchoolGrade(child.birthDate) || child.grade || '学年未設定'}・${planSummary}`}</span></span>{selected && <Check className="w-5 h-5" />}</button>;
+                return <button key={child.id} type="button" disabled={Boolean(initialRecord) || editingDisabled || Boolean(lockOwner && !canTakeOver)} onClick={() => chooseChild(child)} className={`${choiceClass} flex items-center justify-between gap-2 text-left ${selected ? 'bg-teal-600 border-teal-600 text-white' : lockOwner ? 'border-amber-300 bg-amber-50 text-amber-900' : 'bg-white border-slate-300 text-slate-700'} disabled:opacity-80`}><span>{child.name}<span className="block text-[11px] font-normal opacity-75">{lockOwner ? `${lockOwner}が入力中${!canTakeOver ? '・記録状況から確認' : ''}` : `${calculateSchoolGrade(child.birthDate) || child.grade || '学年未設定'}・${planSummary}`}</span></span>{canTakeOver&&<span className="flex shrink-0 items-center gap-1 rounded-lg border border-amber-400 bg-white px-2 py-1 text-[11px] font-black"><ArrowLeftRight className="h-3.5 w-3.5"/>引き継いで追加</span>}{selected && <Check className="w-5 h-5" />}</button>;
               })}
             </div>
             {displayedChildren.length === 0 && <p className="rounded-xl border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">この曜日の定期利用児童は登録されていません。</p>}
@@ -4314,8 +4420,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                     <div className="mt-3 max-h-[55vh] space-y-2 overflow-y-auto">
                       {pickerChildren.map((child) => {
                         const selected = wizard.selectedChildIds.includes(child.id);
-                        const lockOwner = lockedChildren[`${wizard.date}:${child.id}`];
-                        return <button key={child.id} type="button" disabled={Boolean(lockOwner)} onClick={() => toggleChild(child.id)} className={`w-full min-h-14 rounded-xl border p-3 text-left flex items-center gap-3 disabled:opacity-80 ${selected ? 'border-teal-500 bg-teal-50 text-teal-900' : lockOwner ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-slate-200 bg-white text-slate-700'}`}><span className={`h-6 w-6 shrink-0 rounded-md border flex items-center justify-center ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300'}`}>{selected && <Check className="w-4 h-4" />}</span><span><strong className="block text-sm">{child.name}</strong><span className="text-[11px] text-slate-500">{lockOwner ? `${lockOwner}が入力中` : `${calculateSchoolGrade(child.birthDate) || child.grade || '学年未設定'}・${wizard.date}時点の定期利用 ${formatRegularDays(getRegularDaysForDate(child, wizard.date))}`}</span></span></button>;
+                        const lockOwner = !selected && lockedChildren[`${wizard.date}:${child.id}`];
+                        const canTakeOver = Boolean(lockOwner && takeoverSourceForChild(child.id));
+                        return <button key={child.id} type="button" disabled={editingDisabled || Boolean(lockOwner && !canTakeOver)} onClick={() => chooseChild(child)} className={`w-full min-h-14 rounded-xl border p-3 text-left flex items-center gap-3 disabled:opacity-80 ${selected ? 'border-teal-500 bg-teal-50 text-teal-900' : lockOwner ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-slate-200 bg-white text-slate-700'}`}><span className={`h-6 w-6 shrink-0 rounded-md border flex items-center justify-center ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300'}`}>{selected && <Check className="w-4 h-4" />}</span><span className="min-w-0 flex-1"><strong className="block text-sm">{child.name}</strong><span className="text-[11px] text-slate-500">{lockOwner ? `${lockOwner}が入力中${!canTakeOver ? '・記録状況から確認' : ''}` : `${calculateSchoolGrade(child.birthDate) || child.grade || '学年未設定'}・${wizard.date}時点の定期利用 ${formatRegularDays(getRegularDaysForDate(child, wizard.date))}`}</span></span>{canTakeOver&&<span className="shrink-0 rounded-lg bg-amber-100 px-2 py-1 text-[11px] font-black text-amber-950">引き継いで追加</span>}</button>;
                       })}
                       {pickerChildren.length === 0 && <p className="py-8 text-center text-sm text-slate-400">一致する児童がいません。</p>}
                     </div>
@@ -4942,6 +5049,23 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       className="mx-auto w-full min-w-0 max-w-4xl space-y-4 scroll-mt-20"
     >
       <ManualLinks screen={readOnly ? 'operations' : 'record'} section={currentStep?.kind} />
+      {childTakeover && createPortal(
+        <div className="fixed inset-0 z-[180] flex items-center justify-center bg-slate-950/60 p-3">
+          <div ref={childTakeoverDialog} role="alertdialog" aria-modal="true" aria-labelledby="child-takeover-title" aria-describedby="child-takeover-description" aria-busy={childTakeoverBusy} className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-2xl border border-amber-300 bg-white p-5 shadow-2xl">
+            <h2 id="child-takeover-title" className="flex items-center gap-2 text-lg font-black text-amber-950"><ArrowLeftRight className="h-5 w-5"/>入力中の児童を引き継ぎますか？</h2>
+            <div id="child-takeover-description" className="mt-3 space-y-3 text-sm leading-relaxed text-slate-800">
+              <p><strong>{childTakeover.date}・{childTakeover.childName}</strong>の記録は、<strong>{childTakeover.ownerName}</strong>が入力中です。</p>
+              <p>入力済みの内容を保持したまま、<strong>{wizard.recorderName || userDisplayName || '現在の職員'}</strong>のこの入力画面へ追加します。今この画面で入力中の児童もそのまま残ります。</p>
+              <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs font-bold text-amber-950">引き継ぐのはこの児童1名だけです。元の職員は、この児童の入力を続けられなくなります。まだ共有保存されていない入力は移らないため、必要に応じて元の職員へ保存状況を確認してください。</p>
+            </div>
+            {childTakeoverError&&<p role="alert" className="mt-3 rounded-xl border border-rose-300 bg-rose-50 p-3 text-sm font-bold text-rose-900">{childTakeoverError}</p>}
+            <div className="mt-5 flex flex-wrap justify-end gap-2">
+              <button type="button" disabled={childTakeoverBusy} onClick={()=>setChildTakeover(null)} className="min-h-12 rounded-xl border border-slate-300 bg-white px-4 text-sm font-bold text-slate-700 disabled:opacity-40">キャンセル</button>
+              <button type="button" disabled={childTakeoverBusy} onClick={()=>void confirmChildTakeover()} className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-amber-700 px-4 text-sm font-black text-white disabled:opacity-50">{childTakeoverBusy&&<LoaderCircle className="h-4 w-4 animate-spin"/>}{childTakeoverBusy?'引き継ぎ中…':'入力済み内容を引き継いで追加'}</button>
+            </div>
+          </div>
+        </div>, document.body,
+      )}
       {!readOnly&&!initialRecord&&<section aria-label="同じ入力画面で児童をまとめて記録" className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-xl border border-teal-200 bg-white/95 px-3 py-2"><p className="text-xs font-bold text-teal-900"><span className="mr-2 text-slate-500">{wizard.date}</span>この画面で{wizard.selectedChildIds.length}名を入力中</p><div className="flex flex-wrap gap-2"><button type="button" aria-label="この画面に児童を追加" title="別画面を作らず、ここから児童を追加できます。" disabled={editingDisabled||!draftReady||isSaving||Boolean(savingChildId)} onClick={openChildAddition} className="flex min-h-11 items-center gap-1.5 rounded-lg bg-teal-700 px-3 text-xs font-bold text-white disabled:opacity-40"><UserPlus className="h-4 w-4"/>児童を追加</button>{onManageOwnDrafts&&<button type="button" aria-label="分かれた自分の記録をまとめる／別日を開く" disabled={editingDisabled||!draftReady||isSaving||Boolean(savingChildId)} onClick={()=>void manageOwnEntries()} className="min-h-11 rounded-lg border border-teal-300 px-3 text-xs font-bold text-teal-800 disabled:opacity-40">まとめる・別日</button>}</div></section>}
       {initialRecord&&!readOnly&&<p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">保存済み記録の再編集は、この児童1名のみが対象です。複数児童の新しい記録は「記録作成」から開いてください。</p>}
       {saveNotice && <div role="status" className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-900"><Check className="h-5 w-5 shrink-0" />{saveNotice}</div>}
