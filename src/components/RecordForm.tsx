@@ -47,6 +47,7 @@ import {
   MessageSquareText,
   NotebookPen,
   Palette,
+  RefreshCw,
   Save,
   Search,
   SkipForward,
@@ -104,6 +105,7 @@ import {
   normalizeHomeworkDetails,
 } from '../utils/homeworkField';
 import { getCurrentDraftCycleKey } from '../utils/draftExpiry';
+import { reconcileRecordDraft, sameDraftContent, withoutDraftSyncMetadata, type SharedDraftBase } from '../utils/recordDraftSync';
 import { createRecordDraftKey, getDeviceId } from '../utils/deviceId';
 import {
   isStructuredWeekdayTemplate,
@@ -1749,7 +1751,7 @@ function migrateLegacyHolidayDraft(draft: WizardDraft) {
 
 function normalizeWizardDraft(value: unknown): WizardDraft | null {
   if (!value || typeof value !== 'object') return null;
-  const draft = value as Partial<WizardDraft> & { version?: number };
+  const draft = withoutDraftSyncMetadata(value as Partial<WizardDraft> & { version?: number });
   if (![2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].includes(draft.version || 0) || !Array.isArray(draft.selectedChildIds) || !draft.childDrafts) return null;
   const previousStepIndex = draft.currentStepIndex || 0;
   const currentStepIndex = (draft.version || 0) < 4
@@ -1777,7 +1779,7 @@ function normalizeWizardDraft(value: unknown): WizardDraft | null {
 }
 
 function describeDraftSaveError(error: unknown, allowLocalSensitiveStorage = true) {
-  const message = error instanceof Error ? error.message : String(error || '原因不明のエラー');
+  const message = error instanceof Error ? error.message : String((error as { message?: unknown })?.message || error || '原因不明のエラー');
   if (/failed to fetch|network|load failed|通信|offline/i.test(message)) {
     return allowLocalSensitiveStorage
       ? '通信状態を確認できず、共有データベースへ保存できませんでした。入力内容はこの端末内に残っています。'
@@ -1843,9 +1845,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       || (initialRecord ? `record-edit-${initialRecord.id}` : createRecordDraftKey())
   ).current;
   const storageKey = `support-record-draft-v2:${organizationId || 'local'}:${userId || 'local'}:${draftKey}`;
+  const sharedDraftBase = useRef<SharedDraftBase<WizardDraft> | null>(null);
   const writeLocalDraft = (payload: WizardDraft, remoteConfirmed = false) => {
     try {
-      if (allowLocalSensitiveStorage) localStorage.setItem(storageKey, JSON.stringify(payload));
+      if (allowLocalSensitiveStorage) localStorage.setItem(storageKey, JSON.stringify({ ...payload, __cloudSync: sharedDraftBase.current }));
       else if (remoteConfirmed) localStorage.removeItem(storageKey);
       return true;
     } catch {
@@ -1899,7 +1902,12 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       if (local) {
         const parsed = JSON.parse(local) as unknown;
         const restored = normalizeWizardDraft(parsed);
-        if (restored) return restored;
+        if (restored) {
+          const marker = (parsed as { __cloudSync?: SharedDraftBase<unknown> }).__cloudSync;
+          const baseline = marker && Number.isInteger(marker.revision) && marker.revision > 0 ? normalizeWizardDraft(marker.payload) : null;
+          if (baseline && marker) sharedDraftBase.current = { revision: marker.revision, payload: baseline };
+          return restored;
+        }
         localStorage.removeItem(storageKey);
       }
     } catch {
@@ -1909,6 +1917,13 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   };
 
   const [wizard, setWizard] = useState<WizardDraft>(createInitialDraft);
+  const currentWizard = useRef(wizard); currentWizard.current = wizard;
+  const syncConflict = useRef(false);
+  const conflictResolutionInProgress = useRef(false);
+  const [conflictResolutionBusy, setConflictResolutionBusy] = useState(false);
+  const requestDraftSync = useRef<(() => Promise<void>) | null>(null);
+  const [draftSyncing, setDraftSyncing] = useState(false);
+  const [draftSyncError, setDraftSyncError] = useState<string | null>(null);
   const [draftReady, setDraftReady] = useState(!organizationId || !userId);
   const [draftStatus, setDraftStatus] = useState<'restored' | 'saving' | 'saved' | 'deleted' | 'conflict' | 'locked' | 'taken-over' | 'error' | null>(null);
   const [draftSaveError, setDraftSaveError] = useState<string | null>(null);
@@ -1948,12 +1963,12 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   );
   const [takeoverNotice, setTakeoverNotice] = useState<TakeoverNotice | null>(null);
   const draftWriteBlocked = draftStatus === 'locked' || draftStatus === 'taken-over' || Boolean(takeoverNotice);
-  const editingDisabled = readOnly || draftWriteBlocked || Boolean(pendingCompletion)||entryManagerOpen||preparingEntry||preparingUserSwitch;
+  const editingDisabled = readOnly || draftWriteBlocked || Boolean(pendingCompletion)||entryManagerOpen||preparingEntry||preparingUserSwitch||conflictResolutionBusy;
   const [questionIndexMode, setQuestionIndexMode] = useState<'unanswered' | 'all'>('unanswered');
   const draftCleared = useRef(false);
   const skipNextDraftSave = useRef(false);
   const deviceId = useRef(getDeviceId()).current;
-  const remoteRevision = useRef<number | null>(null);
+  const remoteRevision = useRef<number | null>(sharedDraftBase.current?.revision ?? null);
   const initialStepApplied = useRef(false);
   const formElement = useRef<HTMLFormElement | null>(null);
   const focusedEditor = useRef<{
@@ -2119,24 +2134,62 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       return rank[left.priority] - rank[right.priority] || right.updatedAt.localeCompare(left.updatedAt);
     }), [activeChild?.id, handoverItems]);
 
+  const syncState = useRef({ blocked: false });
+  syncState.current.blocked = editingDisabled || isSaving || Boolean(savingChildId) || saveInProgress.current || draftCleared.current;
+  function acknowledgeDraft(payload: WizardDraft, saved: { revision: number; updatedAt: string }) {
+    sharedDraftBase.current = { revision: saved.revision, payload: { ...withoutDraftSyncMetadata(payload), updatedAt: saved.updatedAt } };
+    remoteRevision.current = saved.revision;
+  }
+  function applyRemoteDraft(remote: NonNullable<Awaited<ReturnType<typeof loadRecordDraft>>>) {
+    const restored = normalizeWizardDraft(remote.payload);
+    if (!restored) throw Error('別端末の下書きを読み込めませんでした。入力内容は保持しています。');
+    const base = sharedDraftBase.current;
+    if (base && remote.revision < base.revision) return true;
+    if (base && remote.revision === base.revision && sameDraftContent(base.payload, restored)) {
+      // A failed/offline save may have exhausted its retry timer. Reconnection
+      // must resume dirty input even when the other device made no changes.
+      if (!sameDraftContent(currentWizard.current, restored)) {
+        setDraftRetryToken(value => value + 1);
+        setDraftStatus('saving');
+      }
+      setDraftStatus(previous => previous === 'conflict' ? (sameDraftContent(currentWizard.current, restored) ? 'restored' : 'saving') : previous);
+      setDraftSyncError(null); return true;
+    }
+    const result = reconcileRecordDraft(base?.payload || null, currentWizard.current, restored);
+    if (result.conflicts.length) {
+      syncConflict.current = true;
+      setDraftStatus('conflict'); setDraftSyncError(null);
+      return false;
+    }
+    acknowledgeDraft(restored, remote);
+    const latest = { ...result.payload, updatedAt: remote.updatedAt };
+    syncConflict.current = false;
+    skipNextDraftSave.current = !result.dirty;
+    currentWizard.current = latest;
+    setWizard(latest);
+    writeLocalDraft(latest, true);
+    setDraftSyncError(null); setDraftSaveError(null);
+    setDraftStatus(result.dirty ? 'saving' : 'restored');
+    return true;
+  }
+
   useEffect(() => {
     if (!organizationId || !userId) return;
     let alive = true;
     void loadRecordDraft(organizationId, draftKey)
       .then((remote) => {
-        if (!alive || !remote) return;
-        remoteRevision.current = remote.revision;
-        const restored = normalizeWizardDraft(remote.payload);
-        if (!restored) {
-          if (!readOnly) {
-            localStorage.removeItem(storageKey);
-            void deleteRecordDraft(organizationId, draftKey);
-          }
+        if (!alive) return;
+        if (!remote) {
+          if (!readOnly && sharedDraftBase.current) { syncConflict.current = true;setDraftStatus('conflict');setDraftSyncError('共有下書きが見つかりません。この端末の入力は保持しています。記録状況から保存済み・担当変更の状態を確認してください。'); }
           return;
         }
-        const remoteTime = new Date(remote.updatedAt).getTime();
-        const localTime = wizard.updatedAt ? new Date(wizard.updatedAt).getTime() : 0;
-        if (readOnly || remoteTime > localTime) {
+        const restored = normalizeWizardDraft(remote.payload);
+        if (!restored) {
+          throw Error('共有下書きを読み込めませんでした。この端末の入力内容は保持しています。');
+        }
+        if (!readOnly && !initialRecord) { applyRemoteDraft(remote); return; }
+        acknowledgeDraft(restored, remote);
+        if (readOnly || new Date(remote.updatedAt).getTime() > new Date(currentWizard.current.updatedAt || 0).getTime()) {
           setWizard({ ...restored, updatedAt: remote.updatedAt });
           if (!readOnly) {
             writeLocalDraft({ ...restored, updatedAt: remote.updatedAt }, true);
@@ -2145,12 +2198,13 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         }
       })
       .catch((error) => {
+        if (!alive) return;
         setDraftSaveError(describeDraftSaveError(error, allowLocalSensitiveStorage));
         setDraftStatus('error');
       })
       .finally(() => { if (alive) setDraftReady(true); });
     return () => { alive = false; };
-    // The initial local draft is intentionally compared once per form session.
+    // Revisions/baselines, not device clocks, decide how editable drafts resume.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [organizationId, userId, draftKey, storageKey, readOnly, allowLocalSensitiveStorage]);
 
@@ -2201,7 +2255,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
         const restored = normalizeWizardDraft(remote.payload);
         if (!restored) throw new Error('引き継ぎ後の最新下書きを読み込めませんでした。');
-        remoteRevision.current = remote.revision;
+        acknowledgeDraft(restored, remote);
         skipNextDraftSave.current = true;
         const latest = { ...restored, updatedAt: remote.updatedAt };
         setWizard(latest);
@@ -2266,16 +2320,11 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         if (!alive || !remote) throw new Error('統合後の下書きを取得できませんでした。');
         const restored = normalizeWizardDraft(remote.payload);
         if (!restored) throw new Error('統合後の下書きを読み込めませんでした。');
-        remoteRevision.current = remote.revision;
-        skipNextDraftSave.current = true;
-        const latest = { ...restored, updatedAt: remote.updatedAt };
-        setWizard(latest);
-        writeLocalDraft(latest, true);
+        if (!applyRemoteDraft(remote)) { setTakeoverNotice(null); return; }
         setTakeoverNotice((previous) => previous?.kind === 'received' ? {
           ...previous,
           syncing: false,
         } : previous);
-        setDraftStatus('restored');
         onDraftChanged?.();
       })
       .catch(() => {
@@ -2302,6 +2351,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
   useEffect(() => {
     if (editingDisabled || !draftReady || draftCleared.current || isSaving || savingChildId || saveInProgress.current) return;
+    if (syncConflict.current) return;
     if (!initialRecord && wizard.selectedChildIds.length === 0) {
       setDraftStatus(null);
       return;
@@ -2310,6 +2360,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       skipNextDraftSave.current = false;
       return;
     }
+    if (sharedDraftBase.current && sameDraftContent(wizard, sharedDraftBase.current.payload)) return;
     setDraftStatus('saving');
     setDraftSaveError(null);
     let cancelled = false;
@@ -2329,13 +2380,14 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         const saveSharedDraft = async (attempt: number) => {
           try {
             const saved = await draftWrites.run(async () => {
-              if (cancelled || saveInProgress.current) return null;
+              if (cancelled || saveInProgress.current || syncConflict.current || !sameDraftContent(payload, currentWizard.current)) return null;
               const result = await saveRecordDraft(organizationId, userId, draftKey, payload, {
                 deviceId,
                 expectedRevision: remoteRevision.current,
                 recorderId: wizard.recorderId || null,
               });
-              remoteRevision.current = result.revision;
+              acknowledgeDraft(payload, result);
+              writeLocalDraft(currentWizard.current, true);
               return result;
             });
             if (cancelled || !saved) return;
@@ -2345,7 +2397,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             onDraftChanged?.();
           } catch (error) {
             if (cancelled) return;
-            const message = error instanceof Error ? error.message : String(error);
+            const message = error instanceof Error ? error.message : String((error as { message?: unknown })?.message || error);
             const knownStatus = message.includes('DRAFT_CHILD_LOCKED')
               ? 'locked' as const
               : message.includes('DRAFT_TAKEN_OVER') || message.includes('DRAFT_OWNED_BY_ANOTHER_RECORDER')
@@ -2356,6 +2408,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             if (knownStatus) {
               setDraftSaveError(null);
               setDraftStatus(knownStatus);
+              if (knownStatus === 'conflict') void requestDraftSync.current?.();
               return;
             }
             if (attempt < 2 && navigator.onLine) {
@@ -2379,6 +2432,52 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       if (retryTimer) window.clearTimeout(retryTimer);
     };
   }, [wizard, draftReady, storageKey, organizationId, userId, draftKey, deviceId, onDraftChanged, editingDisabled, initialRecord, draftRetryToken, allowLocalSensitiveStorage, isSaving, savingChildId]);
+
+  useEffect(() => {
+    if (!organizationId || !userId || !draftReady || readOnly || initialRecord) return;
+    let alive = true, busy = false;
+    const refresh = async () => {
+      if (!alive || busy || syncConflict.current || syncState.current.blocked || saveInProgress.current
+        || document.visibilityState === 'hidden' || !navigator.onLine) return;
+      busy = true; setDraftSyncing(true);
+      try {
+        // Serialize reads with draft writes. An older queued autosave is also
+        // checked against currentWizard before it may submit its payload.
+        await draftWrites.run(async () => {
+          if (!alive || syncState.current.blocked || saveInProgress.current || syncConflict.current) return;
+          const remote = await loadRecordDraft(organizationId, draftKey);
+          if (!alive || syncState.current.blocked || saveInProgress.current) return;
+          if (!remote) {
+            if (sharedDraftBase.current) { syncConflict.current = true;setDraftStatus('conflict');setDraftSyncError('共有下書きが見つかりません。この端末の入力は保持しています。記録状況から保存済み・担当変更の状態を確認してください。'); }
+            else if (currentWizard.current.selectedChildIds.length) setDraftRetryToken(value => value + 1);
+            return;
+          }
+          applyRemoteDraft(remote);
+        });
+      } catch {
+        if (alive) setDraftSyncError('別端末の入力を確認できませんでした。この端末の入力内容は保持しています。通信状態を確認し、再取得してください。');
+      } finally { busy = false; if (alive) setDraftSyncing(false); }
+    };
+    requestDraftSync.current = refresh;
+    const changed = () => { void refresh(); };
+    const timer = window.setInterval(changed, 5000);
+    document.addEventListener('visibilitychange', changed);
+    window.addEventListener('focus', changed);
+    window.addEventListener('pageshow', changed);
+    window.addEventListener('online', changed);
+    return () => {
+      alive = false; window.clearInterval(timer);
+      if (requestDraftSync.current === refresh) requestDraftSync.current = null;
+      document.removeEventListener('visibilitychange', changed);
+      window.removeEventListener('focus', changed); window.removeEventListener('pageshow', changed); window.removeEventListener('online', changed);
+    };
+  }, [organizationId, userId, draftKey, draftReady, readOnly, initialRecord, storageKey, allowLocalSensitiveStorage, draftWrites]);
+  useEffect(() => {
+    if (!liveCurrentDraft || !draftReady || liveCurrentDraft.revision <= (remoteRevision.current || 0)) return;
+    // The existing takeover flow handles newly added children and ownership.
+    if (liveCurrentDraft.selectedChildIds.some(id => !currentWizard.current.selectedChildIds.includes(id))) return;
+    void requestDraftSync.current?.();
+  }, [liveCurrentDraftSignature, draftReady]);
 
   useEffect(() => {
     if (!readOnly || !organizationId) return;
@@ -2727,16 +2826,15 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       : isStructuredHolidayTemplate(activeTemplate)
         ? 22
         : 21;
-  const progress = currentStep?.kind === 'review'
-    ? 100
-    : isUnifiedTemplate(activeTemplate)
-      ? steps.length > 0 ? ((wizard.currentStepIndex + 1) / steps.length) * 100 : 0
-      : currentStep?.displayNumber
-        ? (currentStep.displayNumber / questionTotal) * 100
-        : steps.length > 0
-          ? ((wizard.currentStepIndex + 1) / steps.length) * 100
-          : 0;
   const isChildStep = currentStep && !['template', 'children', 'date', 'recorder', 'review'].includes(currentStep.kind);
+  const childSwitchViewport = useRef<{ childId: string; top: number; left: number } | null>(null);
+  useLayoutEffect(() => {
+    const position = childSwitchViewport.current;
+    if (!position || position.childId !== wizard.activeChildId) return;
+    childSwitchViewport.current = null;
+    // Restore before paint; switching a child is not navigation to the form top.
+    window.scrollTo({ top: position.top, left: position.left, behavior: 'instant' });
+  }, [wizard.activeChildId]);
 
   const updateWizard = (updates: Partial<WizardDraft>) => {
     if (editingDisabled) return;
@@ -2968,7 +3066,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       await draftWrites.idle();
       if(organizationId&&userId&&wizard.selectedChildIds.length){
         const saved=await saveRecordDraft(organizationId,userId,draftKey,payload,{deviceId,expectedRevision:remoteRevision.current,recorderId:wizard.recorderId||null});
-        remoteRevision.current=saved.revision;
+        acknowledgeDraft(payload,saved);writeLocalDraft(currentWizard.current,true);
       }
       await onManageOwnDrafts(wizard.date);
     }catch(error){setStepError(describeDraftSaveError(error,allowLocalSensitiveStorage));}
@@ -2989,7 +3087,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         await draftWrites.idle();
         if(organizationId&&userId){
           const saved=await saveRecordDraft(organizationId,userId,draftKey,payload,{deviceId,expectedRevision:remoteRevision.current,recorderId:wizard.recorderId||null});
-          remoteRevision.current=saved.revision;
+          acknowledgeDraft(payload,saved);writeLocalDraft(currentWizard.current,true);
         }
         return release;
       }catch(cause){release();throw Error(describeDraftSaveError(cause,allowLocalSensitiveStorage)+' ユーザーは切り替えていません。');}
@@ -3680,6 +3778,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   };
 
   const switchChild = (childId: string) => {
+    if (childId === wizard.activeChildId) return;
+    childSwitchViewport.current = { childId, top: window.scrollY, left: window.scrollX };
     const rememberedStepId = wizard.childStepIds[childId];
     const targetTemplateSteps = buildStepsForTemplate(templateForChild(childId), wizard.childDrafts[childId]);
     // The module picker is intentionally excluded from unanswered-question
@@ -3706,7 +3806,6 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       },
     }));
     document.getElementById('question-index')?.removeAttribute('open');
-    document.getElementById('record-wizard')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   const handleChildTabDragStart = ({ active }: DragStartEvent) => {
@@ -4569,6 +4668,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           remoteRevision.current = await finishRecordDraftSave(
             organizationId, userId, draftKey, remote.revision, remaining, deviceId,
           );
+          acknowledgeDraft(remaining, { revision: remoteRevision.current, updatedAt: new Date().toISOString() });
         }
       }
     });
@@ -4589,6 +4689,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   };
 
   const persistAndComplete = async (childIds: string[]) => {
+    if (syncConflict.current || conflictResolutionInProgress.current) {
+      setSaveError('別端末と同じ項目に変更があります。共有下書きの内容を選択してから保存してください。');
+      return;
+    }
     diagnosticAction(childIds.length===1?'record.save.single':'record.save.all');
     diagnosticAction('record.save');
     saveInProgress.current = true;
@@ -4600,7 +4704,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           const saved = await saveRecordDraft(organizationId, userId, draftKey, wizard, {
             deviceId, expectedRevision: remoteRevision.current, recorderId: wizard.recorderId || null,
           });
-          remoteRevision.current = saved.revision;
+          acknowledgeDraft(wizard, saved);
         }
         writeLocalDraft(wizard, Boolean(organizationId));
       }));
@@ -4704,6 +4808,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
     skipNextDraftSave.current = true;
     remoteRevision.current = null;
+    sharedDraftBase.current = null; syncConflict.current = false; setDraftSyncError(null);
     localStorage.removeItem(storageKey);
     setWizard(createBaseDraft());
     setStepError(null);
@@ -4724,43 +4829,50 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const resolveDraftConflict = async (preferLocal: boolean) => {
     if (readOnly) return;
     if (!organizationId || !userId) return;
+    if (conflictResolutionInProgress.current) return;
+    conflictResolutionInProgress.current = true; setConflictResolutionBusy(true);
     try {
       const remote = await loadRecordDraft(organizationId, draftKey);
       if (!remote) {
-        remoteRevision.current = null;
-        setDraftStatus(null);
+        setDraftSyncError('共有下書きが見つかりません。この端末の入力は保持しています。記録状況から担当・保存状態を確認してください。');
         return;
       }
+      const restored = normalizeWizardDraft(remote.payload);
+      if (!restored) throw Error('別端末の下書きを読み込めませんでした。');
       if (preferLocal) {
-        if (!window.confirm('別端末の更新内容を、この端末の入力内容で置き換えますか？')) return;
-        remoteRevision.current = remote.revision;
+        if (!window.confirm('両端末で変更した項目はこの端末の内容を優先して保存しますか？競合していない別端末の入力は可能な限り保持します。')) return;
+        const reconciled = reconcileRecordDraft(sharedDraftBase.current?.payload || null, currentWizard.current, restored);
         const payload: WizardDraft = {
-          ...wizard,
+          ...reconciled.payload,
           version: 12,
           draftCycleKey: getCurrentDraftCycleKey(),
           updatedAt: new Date().toISOString(),
         };
-        const saved = await saveRecordDraft(organizationId, userId, draftKey, payload, {
+        const saved = await draftWrites.run(() => saveRecordDraft(organizationId, userId, draftKey, payload, {
           deviceId,
           expectedRevision: remote.revision,
           recorderId: wizard.recorderId || null,
-        });
-        remoteRevision.current = saved.revision;
+        }));
+        acknowledgeDraft(payload, saved);syncConflict.current = false;
+        currentWizard.current = payload;setWizard(payload);
         writeLocalDraft(payload, true);
         setDraftStatus('saved');
       } else {
         if (!window.confirm('この端末の未保存変更を破棄して、別端末の最新内容を読み込みますか？')) return;
-        const restored = normalizeWizardDraft(remote.payload);
-        if (!restored) throw new Error('別端末の下書きは期限切れ、または読み込めない形式です。');
-        remoteRevision.current = remote.revision;
+        acknowledgeDraft(restored, remote);syncConflict.current = false;
         skipNextDraftSave.current = true;
-        setWizard({ ...restored, updatedAt: remote.updatedAt });
-        writeLocalDraft({ ...restored, updatedAt: remote.updatedAt }, true);
+        const latest = { ...reconcileRecordDraft(currentWizard.current, currentWizard.current, restored).payload, updatedAt: remote.updatedAt };
+        currentWizard.current = latest;setWizard(latest);
+        writeLocalDraft(latest, true);
         setDraftStatus('restored');
       }
+      setDraftSyncError(null);setDraftSaveError(null);
       onDraftChanged?.();
     } catch {
-      setDraftStatus('error');
+      setDraftSyncError('最新の共有下書きを確認・保存できませんでした。入力内容は保持しています。通信回復後にもう一度選択してください。');
+      setDraftStatus('conflict');
+    } finally {
+      conflictResolutionInProgress.current = false; setConflictResolutionBusy(false);
     }
   };
 
@@ -4830,7 +4942,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       className="mx-auto w-full min-w-0 max-w-4xl space-y-4 scroll-mt-20"
     >
       <ManualLinks screen={readOnly ? 'operations' : 'record'} section={currentStep?.kind} />
-      {!readOnly&&!initialRecord&&<section aria-label="同じ入力画面で児童をまとめて記録" className="flex flex-wrap items-center justify-between gap-2 rounded-xl border-2 border-teal-300 bg-white/95 p-3 shadow-sm backdrop-blur"><div><p className="text-sm font-black text-teal-900">{wizard.date}・この画面で{wizard.selectedChildIds.length}名を入力中</p><p className="mt-1 text-xs text-slate-600">別画面を作らず、ここから児童を追加できます。</p></div><div className="flex flex-wrap gap-2"><button type="button" disabled={editingDisabled||!draftReady||isSaving||Boolean(savingChildId)} onClick={openChildAddition} className="flex min-h-11 items-center gap-2 rounded-lg bg-teal-700 px-3 text-sm font-bold text-white disabled:opacity-40"><UserPlus className="h-4 w-4"/>この画面に児童を追加</button>{onManageOwnDrafts&&<button type="button" disabled={editingDisabled||!draftReady||isSaving||Boolean(savingChildId)} onClick={()=>void manageOwnEntries()} className="min-h-11 rounded-lg border border-teal-300 px-3 text-xs font-bold text-teal-800 disabled:opacity-40">分かれた自分の記録をまとめる／別日を開く</button>}</div></section>}
+      {!readOnly&&!initialRecord&&<section aria-label="同じ入力画面で児童をまとめて記録" className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-xl border border-teal-200 bg-white/95 px-3 py-2"><p className="text-xs font-bold text-teal-900"><span className="mr-2 text-slate-500">{wizard.date}</span>この画面で{wizard.selectedChildIds.length}名を入力中</p><div className="flex flex-wrap gap-2"><button type="button" aria-label="この画面に児童を追加" title="別画面を作らず、ここから児童を追加できます。" disabled={editingDisabled||!draftReady||isSaving||Boolean(savingChildId)} onClick={openChildAddition} className="flex min-h-11 items-center gap-1.5 rounded-lg bg-teal-700 px-3 text-xs font-bold text-white disabled:opacity-40"><UserPlus className="h-4 w-4"/>児童を追加</button>{onManageOwnDrafts&&<button type="button" aria-label="分かれた自分の記録をまとめる／別日を開く" disabled={editingDisabled||!draftReady||isSaving||Boolean(savingChildId)} onClick={()=>void manageOwnEntries()} className="min-h-11 rounded-lg border border-teal-300 px-3 text-xs font-bold text-teal-800 disabled:opacity-40">まとめる・別日</button>}</div></section>}
       {initialRecord&&!readOnly&&<p className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">保存済み記録の再編集は、この児童1名のみが対象です。複数児童の新しい記録は「記録作成」から開いてください。</p>}
       {saveNotice && <div role="status" className="flex items-start gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-900"><Check className="h-5 w-5 shrink-0" />{saveNotice}</div>}
       {(isSaving || savingChildId) && <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/30 p-4" role="status" aria-live="polite"><div className="flex items-center gap-3 rounded-xl bg-white p-5 font-bold text-slate-800 shadow-xl"><LoaderCircle className="h-5 w-5 animate-spin" />保存内容を確認・処理しています…</div></div>}
@@ -5022,9 +5134,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           >
             <Cloud className="h-4 w-4" />{draftStatusLabel}
           </span>
+          {organizationId&&userId&&!readOnly&&!initialRecord&&<button type="button" aria-label="別端末の最新入力を確認" title="別端末の最新入力を確認（表示位置は変わりません）" disabled={!draftReady||draftSyncing||isSaving||Boolean(savingChildId)||editingDisabled||draftStatus==='conflict'} onClick={()=>void requestDraftSync.current?.()} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-slate-300 bg-white text-teal-800 disabled:opacity-40"><RefreshCw className="h-4 w-4"/></button>}
         </div>
-        <div className="h-2 rounded-full bg-slate-100 overflow-hidden"><div className="h-full bg-teal-500 transition-all" style={{ width: `${progress}%` }} /></div>
-        <div className="mt-3 flex flex-col gap-2 border-t border-slate-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
+        {draftSyncError&&<p role="alert" className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs font-bold text-amber-950">{draftSyncError}</p>}
+        <div className="mt-2 flex items-center justify-between gap-3 border-t border-slate-100 pt-2">
           <p className="text-xs leading-relaxed text-slate-600">
             {wizard.selectedChildIds.length === 0
               ? '児童を選択するまでは入力中の記録として保存されません。'
@@ -5034,11 +5147,12 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           </p>
           {!editingDisabled && (wizard.selectedChildIds.length > 0 || Boolean(initialRecord)) && <button
             type="button"
+            aria-label="入力中の記録を削除"
+            title="入力中の記録を削除（保存済み記録は削除されません）"
             onClick={() => void clearCurrentDraft()}
-            className="flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl border border-rose-300 bg-white px-4 text-sm font-bold text-rose-700 hover:bg-rose-50"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-rose-300 bg-white text-rose-700 hover:bg-rose-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-600"
           >
-            <Trash2 className="h-4 w-4" />
-            入力中の記録を削除
+            <Trash2 aria-hidden="true" className="h-5 w-5" />
           </button>}
         </div>
         {draftStatus === 'error' && draftSaveError && !takeoverNotice && (
@@ -5058,7 +5172,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           <div className="mt-3 rounded-xl border-2 border-rose-300 bg-rose-50 p-4">
             <p className="text-sm font-black text-rose-900">同じ下書きが別端末で更新されています</p>
             <p className="mt-1 text-xs leading-relaxed text-rose-800">
-              自動上書きを停止しました。残したい内容を選択してください。
+              別端末の新しい入力と、この端末の未送信内容を確認する必要があります。両方の内容は保持し、自動上書きを停止しています。残したい内容を選択してください。
             </p>
             <div className="mt-3 grid gap-2 sm:grid-cols-2">
               <button
@@ -5163,13 +5277,13 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         </div>
       )}
 
-      {lessonImportEnabled&&organizationId&&userId&&!readOnly&&wizard.selectedChildIds.length>0&&<section aria-label="Dレッスンの自動反映" className="rounded-xl border border-teal-200 bg-teal-50 p-3 text-sm text-teal-950">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <label className="flex min-h-10 items-center gap-2 font-bold"><input type="checkbox" checked={automaticLessonEnabled} disabled={editingDisabled||isSaving||Boolean(savingChildId)} onChange={event=>setAutomaticLessonEnabled(event.target.checked)} className="h-4 w-4 accent-teal-700"/>Dレッスンの実績を自動反映</label>
-          <button type="button" disabled={!automaticLessonEnabled||editingDisabled||isSaving||Boolean(savingChildId)||Object.values(lessonAuto.results).some(row=>row.status==='loading')} onClick={()=>lessonAuto.refresh()} className="min-h-10 rounded-lg border border-teal-400 bg-white px-3 font-bold disabled:opacity-50">最新の実績を再取得</button>
+      {lessonImportEnabled&&organizationId&&userId&&!readOnly&&wizard.selectedChildIds.length>0&&<section aria-label="Dレッスンの自動反映" className="rounded-xl border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs text-teal-950">
+        <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
+          <label className="flex min-h-11 items-center gap-2 font-bold"><input type="checkbox" checked={automaticLessonEnabled} disabled={editingDisabled||isSaving||Boolean(savingChildId)} onChange={event=>setAutomaticLessonEnabled(event.target.checked)} className="h-4 w-4 accent-teal-700"/>Dレッスンの実績を自動反映</label>
+          {automaticLessonEnabled&&<div className="order-last min-w-0 basis-full sm:order-none sm:flex-1 sm:basis-auto"><LessonAutoStatus compact description={`選択した児童の${wizard.date}の練習内容を「パソコン」に追加します。手入力・観察は保持し、記録の確定保存は職員が行います。`} results={lessonAuto.results} issues={lessonAutoIssues} childrenList={childrenList} disabled={editingDisabled||isSaving||Boolean(savingChildId)} onRefresh={lessonAuto.refresh}/></div>}
+          <button type="button" aria-label="最新の実績を再取得" title="最新の実績を再取得" disabled={!automaticLessonEnabled||editingDisabled||isSaving||Boolean(savingChildId)||Object.values(lessonAuto.results).some(row=>row.status==='loading')} onClick={()=>lessonAuto.refresh()} className="ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-teal-300 bg-white font-bold disabled:opacity-50"><RefreshCw aria-hidden="true" className="h-4 w-4"/></button>
         </div>
-        <p className="text-xs leading-relaxed">選択した児童の{wizard.date}の練習内容を「パソコン」に追加します。手入力・観察は保持し、記録の確定保存は職員が行います。{initialRecord&&!automaticLessonEnabled?'保存済み記録は自動変更しません。必要な場合のみオンにしてください。':''}</p>
-        {automaticLessonEnabled&&<LessonAutoStatus results={lessonAuto.results} issues={lessonAutoIssues} childrenList={childrenList} disabled={editingDisabled||isSaving||Boolean(savingChildId)} onRefresh={lessonAuto.refresh}/>}
+        {initialRecord&&!automaticLessonEnabled&&<p className="pb-1 text-xs">保存済み記録は自動変更しません。必要な場合のみオンにしてください。</p>}
       </section>}
 
       <section className="w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">

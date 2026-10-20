@@ -2,13 +2,15 @@ import type { ChildProfile } from '../types';
 import type { AutomaticLessonResult } from '../services/useLessonAutoHistory';
 import { formatLessonCheckTime } from '../learning/lessonCheckTime';
 
-export function LessonAutoStatus({results,issues,childrenList,disabled,onRefresh}:{
+export function LessonAutoStatus({results,issues,childrenList,disabled,onRefresh,compact=false,description}:{
   results:Record<string,AutomaticLessonResult>;issues:{childId:string;message:string}[];
   childrenList:ChildProfile[];disabled:boolean;onRefresh:(childId?:string)=>void;
+  compact?:boolean;description?:string;
 }) {
   const rows=Object.values(results),loading=rows.some(row=>row.status==='loading');
   return <>
-    <details className="mt-2"><summary className="cursor-pointer py-1 text-xs font-bold">取得状況：{rows.filter(row=>row.status==='ready').length}名の実績あり{issues.length>0?`・要確認 ${issues.length}名`:''}{loading?'・取得中':''}</summary>
+    <details className={compact?'min-w-0':'mt-2'}><summary className={`cursor-pointer text-xs font-bold ${compact?'min-h-11 py-3':'py-1'}`}>取得状況：{rows.filter(row=>row.status==='ready').length}名の実績あり{issues.length>0?`・要確認 ${issues.length}名`:''}{loading?'・取得中':''}</summary>
+      {description&&<p className="mt-1 text-xs leading-relaxed">{description}</p>}
       <ul className="mt-2 divide-y divide-teal-200 text-xs">{rows.map(row=>{
         const name=childrenList.find(child=>child.id===row.childId)?.name||'児童';
         const issue=issues.find(item=>item.childId===row.childId);

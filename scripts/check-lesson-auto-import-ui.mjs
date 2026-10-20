@@ -13,12 +13,13 @@ async function check(page,url){
  const org='22222222-2222-4222-8222-222222222222';
  const links=['a','b'].map(child=>({id:`link-ui-${child}`,organization_id:org,child_id:`child-import-${child}`,source_project_ref:'abcdefghijklmnopqrst',source_table:'user_data',source_student_id:`student_ui_${child}`,source_campus_id:'main',source_display_name:'架空児童',active:true,revision:1,verified_at:'2026-10-01T00:00:00Z'}));
  let latestDraft=null,fail=false,empty=false,revoked=false,extra=false,changed=false,delay=0,afterRead=false,topics=false;
+ const drafts=new Map();
  const errors=[],calls=[];
  page.on('pageerror',error=>errors.push(error.message));
  await page.context().route('https://*.supabase.co/**',route=>route.abort());
  await page.context().route('**/rest/v1/**',async route=>{
-  if(route.request().url().includes('rpc/save_record_draft_guarded')){latestDraft=route.request().postDataJSON().p_payload;return route.fulfill({json:[{new_revision:1,saved_at:new Date().toISOString()}]});}
-  if(route.request().url().includes('record_drafts'))return route.fulfill({json:null});
+  if(route.request().url().includes('rpc/save_record_draft_guarded')){const body=route.request().postDataJSON();latestDraft=body.p_payload;const row={payload:latestDraft,revision:(drafts.get(body.p_draft_key)?.revision||0)+1,updated_at:new Date().toISOString(),device_id:body.p_device_id};drafts.set(body.p_draft_key,row);return route.fulfill({json:[{new_revision:row.revision,saved_at:row.updated_at}]});}
+  if(route.request().url().includes('record_drafts')){const key=new URL(route.request().url()).searchParams.get('draft_key')?.replace(/^eq\./,'');return route.fulfill({json:drafts.get(key)||null});}
   throw Error('Unexpected REST fixture operation');
  });
  await page.context().route('**/functions/v1/lesson-learning',async route=>{
@@ -84,7 +85,7 @@ async function check(page,url){
  empty=false;revoked=true;afterRead=false;await refresh.click();await page.getByText(/学習連携が変更されました/).first().waitFor();
  assert(evidence('child-import-a').length===3,'revoked link retains draft');
  revoked=false;afterRead=false;
- await page.goto(url);await page.evaluate(()=>localStorage.clear());latestDraft=null;
+ await page.goto(url);await page.evaluate(()=>localStorage.clear());latestDraft=null;drafts.clear();
  await page.goto(url);await page.getByRole('checkbox',{name:'Dレッスンの実績を自動反映',exact:true}).waitFor();
  assert(!await page.getByRole('checkbox',{name:'Dレッスンの実績を自動反映',exact:true}).isChecked(),'saved records default off');
  await page.getByRole('checkbox',{name:'Dレッスンの実績を自動反映',exact:true}).check();
@@ -94,13 +95,13 @@ async function check(page,url){
  count=calls.filter(call=>call.action==='history').length;await new Promise(r=>setTimeout(r,600));
  assert(calls.filter(call=>call.action==='history').length===count,'read-only performs no automatic reads');
  // Start an automatic read, then turn it off while the server response is pending.
- await page.evaluate(()=>localStorage.clear());delay=600;latestDraft=null;
+ await page.evaluate(()=>localStorage.clear());delay=600;latestDraft=null;drafts.clear();
  await page.goto(url+'?new=true');
  await wait(()=>calls.filter(call=>call.action==='history').length>count);
  await page.getByRole('checkbox',{name:'Dレッスンの実績を自動反映',exact:true}).uncheck();
  await new Promise(r=>setTimeout(r,1000));
  assert(evidence('child-import-a').length===0,'late response after disabling is ignored');
- delay=0;topics=true;latestDraft=null;
+ delay=0;topics=true;latestDraft=null;drafts.clear();
  await page.evaluate(()=>localStorage.clear());await page.goto(url);
  await page.getByRole('checkbox',{name:'Dレッスンの実績を自動反映',exact:true}).check();
  const legacyAnswer=()=>latestDraft?.childDrafts?.['child-import-a']?.sectionAnswers?.pc?.answers?.pc_content;
