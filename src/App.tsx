@@ -55,6 +55,7 @@ import { LessonLearningManager, RecordForm, RecordPreview, RecordList, MeetingWo
   ChildrenManager, TeamManager, SettingsHub, TrafficCostCalculator, ActivityPlanWorkspace,
   FacilityWorkspace, LegalTrainingWorkspace } from './components/DeferredAppScreens';
 import {LessonReviewNotice} from './components/LessonReviewNotice';
+import {canLoadWordNotice} from './learning/reviewNotice';
 import { RecordOverwriteDialog } from './components/RecordOverwriteDialog';
 import { runRecordSaveWorkflow, type RecordOverwritePair, type RecordSaveOutcome } from './services/recordSaveWorkflow';
 import { diagnosticAction, recordDiagnostic, setDiagnosticScreen } from './services/diagnostics';
@@ -2359,7 +2360,7 @@ export default function App() {
         </div>
         )}
         {dataError && <div className="mb-4 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-lg p-3">{dataError}</div>}
-        <LessonReviewNotice enabled={remoteMode&&Boolean(auth.profile)&&!auth.profile?.fieldModeOnly} scopeKey={`${organizationId||''}:${auth.profile?.id||''}:${auth.profile?.role||''}`} onOpen={()=>{
+        <LessonReviewNotice enabled={remoteMode&&canLoadWordNotice(auth.profile)} scopeKey={`${organizationId||''}:${auth.profile?.id||''}:${auth.profile?.role||''}:${auth.profile?.accessDeviceKind||''}:${auth.profile?.recorderProfileId||''}`} onOpen={()=>{
           if(activeTab==='meetings'&&meetingDirty&&!window.confirm('会議支援の未保存の内容を残したまま、Word確認へ移動しますか？'))return;
           setLearningReviewFocus(value=>value+1);setActiveTab('learning');
         }}/>

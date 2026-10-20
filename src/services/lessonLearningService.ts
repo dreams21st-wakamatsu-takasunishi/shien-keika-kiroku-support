@@ -10,6 +10,7 @@ import { parseTimedAccountCheck, parseAccountAudits } from '../learning/accounts
 import {initialAuditFilters,parseAuditDetail,parseAuditPage,type AuditCursor,type AuditFilters} from '../learning/taskBatchAudit';
 import { parseCredentialOperations, parseCredentialResult, type CredentialAction } from '../learning/accountCredentials';
 import { parseHandoffResult, parseRegistrationConfig, parseRegistrationResult, type HandoffReason, type RegistrationConfig, type RegistrationOperation } from '../learning/studentRegistration';
+import { LessonRequestError } from '../learning/reviewNotice';
 
 export const loadStudentRegistrationConfig = async (childId: string) => parseRegistrationConfig(await invoke({ action: 'configuration', childId }, 'lesson-student-registration'));
 export const registerLessonStudent = async (childId: string, config: RegistrationConfig, operationId: string, campusId: string) => parseRegistrationResult(
@@ -26,7 +27,7 @@ async function invoke<T>(body: Record<string, unknown>, endpoint = 'lesson-learn
   if (error) {
     let message = '学習連携を取得できませんでした。通信とサーバー設定を確認してください。';
     try { const payload = await error.context.clone().json(); if (typeof payload.error === 'string') message = payload.error; } catch { /* Network errors have no response body. */ }
-    throw new Error(message);
+    throw new LessonRequestError(message, error.context instanceof Response ? error.context.status : undefined);
   }
   if (!data || data.error) throw new Error(data?.error || '学習連携の応答を確認できません。');
   return data as T;
@@ -95,7 +96,14 @@ export const saveLearningTask=async(childId:string,task:Omit<LearningTask,'updat
    ||saved.title!==task.title.trim()||saved.instructions!==task.instructions||saved.startsOn!==task.startsOn||saved.endsOn!==task.endsOn||saved.active!==task.active)throw Error('課題の保存結果を確認できません。再取得してください。');
   return saved;
 };
-export const loadWordReviewInbox=()=>invoke<WordReviewInbox>({action:'word-inbox'});
+export const loadWordReviewInbox=async()=>{
+  const result=await invoke<WordReviewInbox>({action:'word-inbox'});
+  if(!Array.isArray(result.requests)||typeof result.canReviewWord!=='boolean'
+    ||result.requests.some(row=>!row||!['pending','approved','returned','expired'].includes(row.status))) {
+    throw new LessonRequestError('Word申請の取得形式を確認できません。学習連携の公開状況を管理者に確認してください。',422);
+  }
+  return result;
+};
 export interface WordArtifact {url:string;fileType:string;requestId:string;revision:number;fileHash:string}
 export const loadWordArtifact=(request:WordReviewRequest)=>invoke<WordArtifact>({action:'word-artifact',childId:request.childId,requestId:request.id});
 export const decideWordRequest=(request:WordReviewRequest,artifact:WordArtifact,decision:'approved'|'returned',reason:string)=>invoke<{request:WordReviewRequest}>({
