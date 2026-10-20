@@ -36,18 +36,26 @@ async function check(page, url) {
   const remote = (await data()).rows.length > 0;
   if (remote) await page.evaluate(()=>window.__meetingPreviewTest.saveDelay=800);
   await page.getByLabel('目的',{exact:true}).fill('最初の編集');
-  await page.getByText('保存中',{exact:true}).waitFor();
+  if (remote) await page.waitForFunction(()=>window.__meetingPreviewTest.activeSaves===1);
   await page.getByLabel('目的',{exact:true}).fill('保存通信中に追加入力した目的');
   await consent.check();
   assert(await copy.isDisabled(), 'cannot export unsaved changes');
-  await page.waitForFunction(()=>!window.__meetingPreviewTest.dirty);
+  await page.waitForFunction(()=>!window.__meetingPreviewTest.dirty, null, {timeout:15000});
   assert(await page.getByLabel('目的',{exact:true}).inputValue() === '保存通信中に追加入力した目的', 'new edit remains after earlier save');
   if (remote) {
     const model = await data();
     assert(model.rows[0].content.purpose === '保存通信中に追加入力した目的', 'new edit saved in next revision');
     assert(model.rows[0].content.outcome.agreements === '以前に保存された合意（保持確認用）' && model.rows[0].content.childWishes['demo-child-a'] === '以前の本人の意向（保持確認用）', 'hidden historical outcome and wishes preserved');
     await page.evaluate(()=>window.__meetingPreviewTest.saveDelay=0);
+    const writes = model.calls.filter(c=>c.table==='meeting_cases'&&c.method==='PATCH').length;
+    assert(writes === 2, 'edits during save use exactly two sequential writes despite JSONB key reordering');
+    assert(model.maxConcurrentSaves === 1, 'save requests never overlap');
+    await page.waitForTimeout(3300);
+    assert((await data()).calls.filter(c=>c.table==='meeting_cases'&&c.method==='PATCH').length === writes, 'idle meeting does not repeatedly save unchanged content');
   }
+  assert(await page.getByText('自動保存：有効',{exact:true}).isVisible(), 'stable autosave indicator');
+  assert(!await page.getByText('保存中',{exact:true}).count() && !await page.getByText('未保存',{exact:true}).count(), 'normal save labels do not flicker');
+  assert(await page.getByRole('button',{name:'今すぐ保存',exact:true}).isDisabled(), 'save button remains mounted after saving');
   await copy.click();
   const copied = await page.evaluate(()=>window.__copied);
   assert(copied.length === 1 && copied[0].includes('保存通信中に追加入力した目的') && copied[0].includes('架空児童 ひなた'), 'copy includes latest saved preparation and both children');
@@ -84,6 +92,41 @@ async function check(page, url) {
   }
   await page.setViewportSize({width:1366,height:768});
   await nav.getByRole('button',{name:'会議中',exact:true}).click();
+  if (remote) {
+    const memo = page.getByLabel('発言の要点・メモ',{exact:true});
+    const saveNow = page.getByRole('button',{name:'今すぐ保存',exact:true});
+    const before = (await data()).calls.filter(c=>c.table==='meeting_cases'&&c.method==='PATCH').length;
+    for (let i=0; i<5; i++) { await memo.fill('まとめて保存するメモ '+i); await page.waitForTimeout(350); }
+    assert((await data()).calls.filter(c=>c.table==='meeting_cases'&&c.method==='PATCH').length===before, 'short typing pauses are batched');
+    await page.waitForFunction(()=>!window.__meetingPreviewTest.dirty);
+    assert((await data()).calls.filter(c=>c.table==='meeting_cases'&&c.method==='PATCH').length===before+1, 'typing burst sends one save');
+    await page.evaluate(()=>window.__meetingPreviewTest.failUpdate=true);
+    await memo.fill('通信失敗でも残すメモ');
+    await saveNow.click();
+    await page.getByRole('alert').filter({hasText:'保存できませんでした'}).waitFor();
+    const failed = (await data()).calls.length;
+    await page.waitForTimeout(3000);
+    assert((await data()).calls.length===failed && await memo.inputValue()==='通信失敗でも残すメモ', 'failed save keeps input and stops retry loop');
+    await page.evaluate(()=>window.__meetingPreviewTest.failUpdate=false);
+    await saveNow.click();
+    await page.waitForFunction(()=>!window.__meetingPreviewTest.dirty);
+    assert((await data()).rows[0].content.agenda[0].memo==='通信失敗でも残すメモ', 'explicit retry saves retained input');
+    const continuousStart = (await data()).calls.filter(c=>c.table==='meeting_cases'&&c.method==='PATCH').length;
+    for (let i=0; i<13; i++) { await memo.fill('連続入力 '+i); await page.waitForTimeout(900); }
+    assert((await data()).calls.filter(c=>c.table==='meeting_cases'&&c.method==='PATCH').length>continuousStart, 'continuous typing is saved within bounded wait');
+    await page.waitForFunction(()=>!window.__meetingPreviewTest.dirty);
+    await page.evaluate(()=>window.__meetingPreviewTest.saveDelay=18000);
+    await memo.fill('遅い通信中も入力を保護');
+    const beforeDouble = (await data()).calls.filter(c=>c.table==='meeting_cases'&&c.method==='PATCH').length;
+    await saveNow.evaluate(button=>{button.click();button.click();});
+    await page.getByText('まだ保存が完了していません。この画面を閉じずに通信状態を確認してください。',{exact:true}).waitFor({timeout:20000});
+    assert(await memo.inputValue()==='遅い通信中も入力を保護' && (await data()).dirty, 'long-running save warns and retains dirty input');
+    assert((await data()).calls.filter(c=>c.table==='meeting_cases'&&c.method==='PATCH').length===beforeDouble+1, 'rapid manual clicks create only one request');
+    await page.waitForFunction(()=>!window.__meetingPreviewTest.dirty);
+    await page.evaluate(()=>window.__meetingPreviewTest.saveDelay=0);
+    assert(!await page.getByText('まだ保存が完了していません。この画面を閉じずに通信状態を確認してください。',{exact:true}).count(), 'warning clears after save succeeds');
+    await page.screenshot({path:'output/playwright/meeting-autosave-laptop.png',fullPage:true});
+  }
   await page.getByLabel('発言の要点・メモ',{exact:true}).fill('会議中の確認メモ（架空）');
   await page.getByRole('button',{name:'会議終了にする',exact:true}).click();
   await page.waitForFunction(()=>!window.__meetingPreviewTest.dirty);

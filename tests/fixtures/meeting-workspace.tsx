@@ -13,7 +13,12 @@ const children = [
   { id: 'demo-child-b', name: '架空児童 ひなた', kana: 'かくうじどう ひなた', schoolName: '確認用小学校' },
 ] as ChildProfile[];
 const user = { id: 'local-demo', organizationId: supabase ? 'demo-organization' : 'local', displayName: '架空職員', role: 'admin' } as UserProfile;
-const model = { rows: [] as any[], calls: [] as Array<{table: string; method: string}>, exports: [] as string[], dirty: false, failExport: false, failUpdate: false, saveDelay: 0, ready: false, conflict: async () => {} };
+const model = { rows: [] as any[], calls: [] as Array<{table: string; method: string}>, exports: [] as string[], dirty: false, failExport: false, failUpdate: false, saveDelay: 0, activeSaves: 0, maxConcurrentSaves: 0, ready: false, conflict: async () => {} };
+function jsonbOrder(value: any): any {
+  if (Array.isArray(value)) return value.map(jsonbOrder);
+  if (value && typeof value === 'object') return Object.fromEntries(Object.keys(value).sort().map(key => [key, jsonbOrder(value[key])]));
+  return value;
+}
 const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 const nativeFetch = window.fetch.bind(window);
 window.fetch = async (input, init) => {
@@ -35,11 +40,15 @@ window.fetch = async (input, init) => {
       model.rows.unshift(row); return response(row, 201);
     }
     if (method === 'PATCH') {
+      model.activeSaves++;
+      model.maxConcurrentSaves = Math.max(model.maxConcurrentSaves, model.activeSaves);
+      try {
       if (model.saveDelay) await new Promise(resolve => setTimeout(resolve, model.saveDelay));
       if (model.failUpdate) return response({ message: '保存できませんでした。', code: '42501' }, 403);
       const row = model.rows.find(item => `eq.${item.id}` === url.searchParams.get('id'));
       if (!row || `eq.${row.revision}` !== url.searchParams.get('revision')) return response(null);
-      Object.assign(row, payload, { updated_at: new Date().toISOString() }); return response(structuredClone(row));
+      Object.assign(row, payload, { content: jsonbOrder(payload.content), updated_at: new Date().toISOString() }); return response(structuredClone(row));
+      } finally { model.activeSaves--; }
     }
   }
   return response({ message: 'Fixture blocks this external request.' }, 403);

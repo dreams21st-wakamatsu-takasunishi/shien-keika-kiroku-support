@@ -19,11 +19,20 @@ if (manifest.version !== version.version) throw Error('Mixed release');
 const html = await (await read(`?verify=${stamp}`)).text();
 const entry = html.match(/<script[^>]+src="(\.\/assets\/[^"?#]+\.js)"/)?.[1];
 if (!entry || !manifest.assets.includes(entry)) throw Error('Entry module not found in release');
-const js = await (await read(entry)).text();
+// Workspace modules are lazy-loaded. Inspect the exact manifest's chunks, not
+// only the entry bundle, and verify all runtime assets belong to this release.
+let assets = 0;
+const runtime = await Promise.all(manifest.assets.filter(path => /\.(js|css|mjs)$/.test(path)).map(async path => {
+  if (!/^\.\/assets\/[A-Za-z0-9_.-]+$/.test(path)) throw Error('Unexpected asset path');
+  const source = await (await read(path)).text(); assets++;
+  return /\.(js|mjs)$/.test(path) ? source : '';
+}));
+const js = runtime.join('\n');
 for (const marker of ['準備・Tiroへ渡す', '事前情報とTiroへの受け渡し・会議中の確認',
   'Tiroへ渡す情報', '渡す文章を確認', '説明・同意を確認するとコピーできます。',
   '変更の保存が完了するとコピーできます。', '会議終了にする',
-  '閲覧・編集する職員の設定', 'コピーする内容']) {
+  '閲覧・編集する職員の設定', 'コピーする内容', '自動保存：有効', '最終保存：',
+  'まだ保存が完了していません。この画面を閉じずに通信状態を確認してください。']) {
   if (!js.includes(marker)) throw Error(`Meeting feature absent: ${marker}`);
 }
 for (const marker of ['Tiroの文字起こしを取り込む', '修正版を新しい版として保存',
@@ -40,12 +49,8 @@ const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 if (hash(screenshot) !== hash(readFileSync(new URL('../public/manuals/d-support/images/meetings.png', import.meta.url)))) {
   throw Error('Published meeting screenshot differs from verified screenshot');
 }
-let assets = 0;
-await Promise.all(manifest.assets.filter(path => /\.(js|css|mjs)$/.test(path)).map(async path => {
-  if (!/^\.\/assets\/[A-Za-z0-9_.-]+$/.test(path)) throw Error('Unexpected asset path');
-  await (await read(path)).arrayBuffer(); assets++;
-}));
 console.log(JSON.stringify({ version: version.version, mergedPreparationIncluded: true,
+  calmAutosaveIncluded: true,
   retiredMeetingUIAbsent: true, manualUpdated: true, screenshotMatches: true,
   runtimeAssetsResponding: assets, readsPrivateData: false, writesDatabase: false,
   realAccountOperationsVerified: false }));

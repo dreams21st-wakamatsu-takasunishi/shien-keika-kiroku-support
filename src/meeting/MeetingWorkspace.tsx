@@ -1,11 +1,12 @@
 import { ManualLinks } from '../components/ManualLinks';
 import {DeleteWorkspaceItem} from '../components/WorkspaceLifecycle';
-import React, { useEffect, useId, useState } from 'react';
-import { ArrowLeft, ClipboardCopy, Download, LoaderCircle, Plus, RefreshCw, Save } from 'lucide-react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { ArrowLeft, ClipboardCopy, Download, Plus, RefreshCw, Save } from 'lucide-react';
 import type { CalendarEvent, ChildProfile, UserProfile } from '../types';
 import { getLocalDateString } from '../utils/weekdays';
 import { createMeetingCase, listMeetingCases, listMeetingEditors, logMeetingExport, updateMeetingCase } from './meetingService';
 import { buildTiroContext, buildTiroSheet, downloadTiroSheet } from './tiroExport';
+import { sameMeetingCase as sameCase, meetingSaveDelay, MEETING_SAVE_WARNING_MS } from './meetingAutosave';
 import { emptyMeetingContent, type MeetingAgenda, type MeetingCase, type MeetingParticipant, type MeetingTerm, type MeetingType } from './types';
 
 type Step = '準備・Tiroへ渡す' | '会議中';
@@ -38,14 +39,6 @@ function Field({ label, value, onChange, multiline = false, type = 'text' }: {
   </div>;
 }
 
-function sameCase(left: MeetingCase, right: MeetingCase) {
-  return left.title === right.title && left.meetingDate === right.meetingDate
-    && left.meetingType === right.meetingType && left.status === right.status
-    && JSON.stringify(left.content) === JSON.stringify(right.content)
-    && JSON.stringify(left.editorUserIds) === JSON.stringify(right.editorUserIds)
-    && JSON.stringify(left.childIds) === JSON.stringify(right.childIds);
-}
-
 // Keep the existing stored status for compatibility; no transcript workflow remains in the UI.
 function statusLabel(status: MeetingCase['status']) {
   return status === '文字起こし待ち' ? '会議終了' : status;
@@ -76,6 +69,13 @@ export function MeetingWorkspace({ organizationId, currentUser, childrenList, ca
   const [showSheet, setShowSheet] = useState(false);
   const [search, setSearch] = useState('');
   const [staffUsers, setStaffUsers] = useState<Array<{ id: string; name: string }>>([]);
+  const inFlight = useRef(false);
+  const mounted = useRef(false);
+  const dirtySince = useRef<number | null>(null);
+  const [saveOverdue, setSaveOverdue] = useState(false);
+  const activeContext = useRef('');
+  activeContext.current = `${organizationId}:${currentUser?.id}:${selected?.id}`;
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
   const hasUnsavedChanges = Boolean(selected && saved && !sameCase(selected, saved));
 
   async function reloadList() {
@@ -98,22 +98,40 @@ export function MeetingWorkspace({ organizationId, currentUser, childrenList, ca
   }
 
   async function persistCase(draft: MeetingCase, base: MeetingCase) {
+    if (inFlight.current || sameCase(draft, base) || draft.organizationId !== organizationId) return;
+    const context = activeContext.current;
+    inFlight.current = true;
     setSaving(true);
     try {
       const updated = await updateMeetingCase({ ...draft, revision: base.revision });
+      if (!mounted.current || activeContext.current !== context) return;
+      dirtySince.current = null;
       setSaved(updated);
       setSelected((current) => current?.id === updated.id ? { ...current, revision: updated.revision } : current);
       setCases((current) => current.map((item) => item.id === updated.id ? updated : item));
       setSaveError('');
-    } catch (error) { setSaveError(errorText(error)); }
-    finally { setSaving(false); }
+    } catch (error) {
+      if (mounted.current && activeContext.current === context) setSaveError(errorText(error));
+    } finally {
+      inFlight.current = false;
+      if (mounted.current) setSaving(false);
+    }
   }
   // Preserve edits made while an earlier optimistic save is in flight.
   useEffect(() => {
-    if (!selected || !saved || sameCase(selected, saved) || saving || saveError) return;
-    const timer = window.setTimeout(() => { void persistCase(selected, saved); }, 850);
+    if (!selected || !saved || sameCase(selected, saved)) { dirtySince.current = null; return; }
+    if (saving || saveError || loading || selected.organizationId !== organizationId) return;
+    dirtySince.current ??= Date.now();
+    const timer = window.setTimeout(() => { void persistCase(selected, saved); }, meetingSaveDelay(dirtySince.current, Date.now()));
     return () => window.clearTimeout(timer);
-  }, [selected, saved, saving, saveError]);
+  }, [selected, saved, saving, saveError, loading, organizationId]);
+  // Normal short saves stay quiet. A prolonged unsaved state must remain visible.
+  useEffect(() => {
+    setSaveOverdue(false);
+    if (!hasUnsavedChanges) return;
+    const timer = window.setTimeout(() => setSaveOverdue(true), MEETING_SAVE_WARNING_MS);
+    return () => window.clearTimeout(timer);
+  }, [hasUnsavedChanges, saved]);
   useEffect(() => {
     if (!hasUnsavedChanges) return;
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ''; };
@@ -123,9 +141,9 @@ export function MeetingWorkspace({ organizationId, currentUser, childrenList, ca
   useEffect(() => { onDirtyChange?.(hasUnsavedChanges); }, [hasUnsavedChanges, onDirtyChange]);
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange]);
 
-  const meetingChildren = childrenList.filter((item) => selected?.childIds.includes(item.id));
-  const contextText = selected ? buildTiroContext(selected, meetingChildren) : '';
-  const sheetText = selected ? buildTiroSheet(selected, meetingChildren) : '';
+  const meetingChildren = useMemo(() => childrenList.filter((item) => selected?.childIds.includes(item.id)), [childrenList, selected?.childIds]);
+  const contextText = useMemo(() => selected && step === '準備・Tiroへ渡す' ? buildTiroContext(selected, meetingChildren) : '', [selected, meetingChildren, step]);
+  const sheetText = useMemo(() => selected && step === '準備・Tiroへ渡す' ? buildTiroSheet(selected, meetingChildren) : '', [selected, meetingChildren, step]);
   const visibleCases = cases.filter((item) => {
     const childNames = childrenList.filter((candidate) => item.childIds.includes(candidate.id)).map((item) => item.name).join(' ');
     return `${item.title} ${childNames} ${item.meetingDate}`.includes(search.trim());
@@ -220,7 +238,8 @@ export function MeetingWorkspace({ organizationId, currentUser, childrenList, ca
         <div className="mt-3 space-y-2">{loading && <p className="text-sm text-slate-500">読み込み中…</p>}{!loading && visibleCases.length === 0 && <p className="text-sm text-slate-500">表示できる会議はありません。</p>}{visibleCases.map((item) => <button key={item.id} disabled={loading} className="flex w-full items-center justify-between gap-3 rounded-xl border border-slate-200 p-4 text-left hover:border-teal-400" onClick={() => openCase(item)}><span className="min-w-0 break-words"><span className="font-bold text-slate-900">{item.title}</span><span className="mt-1 block text-xs text-slate-600">{item.meetingDate}／{childrenList.filter((child) => item.childIds.includes(child.id)).map((child) => child.name).join('・') || '児童'}／{item.meetingType}</span></span><span className="shrink-0 rounded-full bg-teal-50 px-3 py-1 text-xs font-bold text-teal-800">{statusLabel(item.status)}</span></button>)}</div>
       </div>
     </> : <>
-      <div className={panelClass}><div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><h2 className="break-words font-black text-slate-900">{selected.title}</h2><p className="mt-1 break-words text-sm text-slate-600">{meetingChildren.map((item) => item.name).join('・') || '児童'}／{selected.meetingDate}／{statusLabel(selected.status)}</p></div><div className="flex shrink-0 flex-wrap items-center gap-3 text-xs font-bold text-slate-600"><span role="status">{saving ? <span className="inline-flex items-center gap-1"><LoaderCircle className="h-4 w-4 animate-spin" />保存中</span> : hasUnsavedChanges ? '未保存' : '保存済み'}</span><button className="underline disabled:opacity-50" disabled={saving || exporting || loading} onClick={() => void reloadCurrent()}>再読み込み</button>{hasUnsavedChanges && saved && <button className={secondaryButton} disabled={saving} onClick={() => void persistCase(selected, saved)}><Save className="h-4 w-4" />今すぐ保存</button>}</div></div>
+      <div className={panelClass}><div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between"><div className="min-w-0"><h2 className="break-words font-black text-slate-900">{selected.title}</h2><p className="mt-1 break-words text-sm text-slate-600">{meetingChildren.map((item) => item.name).join('・') || '児童'}／{selected.meetingDate}／{statusLabel(selected.status)}</p></div><div className="flex shrink-0 flex-wrap items-center gap-3 text-xs text-slate-500"><div aria-label="自動保存の状態"><p>自動保存：有効</p><p className="mt-1 tabular-nums">最終保存：{saved?.updatedAt ? new Date(saved.updatedAt).toLocaleTimeString('ja-JP', { hour12: false }) : '—'}</p></div><button className="underline disabled:opacity-50" disabled={saving || exporting || loading} onClick={() => void reloadCurrent()}>再読み込み</button><button className={secondaryButton} disabled={!hasUnsavedChanges || saving || exporting || loading || !saved} onClick={() => { if (saved) void persistCase(selected, saved); }}><Save className="h-4 w-4" />今すぐ保存</button></div></div>
+        <p className={`mt-2 min-h-5 text-xs ${saveError ? 'text-red-700' : saveOverdue ? 'text-amber-800' : 'text-slate-500'}`} role={saveError || saveOverdue ? 'status' : undefined}>{saveError ? '自動保存を停止しています。入力内容は画面に残っています。エラーを確認してください。' : saveOverdue ? 'まだ保存が完了していません。この画面を閉じずに通信状態を確認してください。' : '入力を止めると自動保存します。画面を閉じる前に最終保存を確認してください。'}</p>
         <nav className="mt-4 grid grid-cols-2 gap-2" aria-label="会議の手順">{steps.map((item) => <button key={item} aria-pressed={step === item} className={`min-h-11 rounded-xl px-3 py-2 text-sm font-bold ${step === item ? 'bg-teal-700 text-white' : 'bg-slate-100 text-slate-700'}`} onClick={() => { setStep(item); setMessage(''); }}>{item}</button>)}</nav>
       </div>
       {step === '準備・Tiroへ渡す' && <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
