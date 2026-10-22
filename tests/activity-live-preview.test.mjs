@@ -32,7 +32,8 @@ test('UI focus and size are transient; the print sheet never receives active foc
   const source=readFileSync(new URL('../src/components/ActivityPlanWorkspace.tsx',import.meta.url),'utf8');
   assert.match(source,/<article className="activity-print-only"><ActivityPlanSheet plan=\{plan\} dirty=\{dirty\} \/>/);
   assert.ok(source.includes('scroller.scrollTo('));
-  assert.ok(source.includes('ResizeObserver(grow)'));
+  assert.ok(source.includes('width === lastWidth'));
+  assert.ok(source.includes('growTextareaToContent(element)'));
   assert.ok(source.includes('observer.disconnect()'));
   assert.ok(source.includes('activity-auto-textarea min-h-28 resize-y'));
   assert.ok(source.includes('sessionStorage.setItem(storageKey, JSON.stringify(plan))'));

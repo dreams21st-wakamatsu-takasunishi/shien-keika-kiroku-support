@@ -16,6 +16,12 @@ const html = await (await read('?verify=' + stamp)).text();
 const entry = html.match(/<script[^>]+src="(\.\/assets\/[^"?#]+\.js)"/)?.[1];
 if (!entry || !manifest.assets.includes(entry)) throw Error('Entry/manifest mismatch');
 const runtime = await publishedRuntime(manifest, read);
+const activityAsset = manifest.assets.find(path => /\/ActivityPlanWorkspace-[^/]+\.js$/.test(path));
+if (!activityAsset) throw Error('Missing activity editor asset');
+const activityCode = await (await read(activityAsset)).text();
+for (const marker of ['style.height="auto"', 'contentRect.width', 'paddingBottom', 'border-box']) {
+  if (!activityCode.includes(marker)) throw Error('Missing stable textarea sizing marker ' + marker);
+}
 for (const marker of ['仕上がりプレビュー', '入力を即時反映', 'data-activity-preview', 'data-preview-step', 'activity-auto-textarea', 'activity-preview-scroll', 'beforeunload']) {
   if (!runtime.includes(marker)) throw Error('Missing runtime marker ' + marker);
 }
@@ -23,4 +29,4 @@ const css = (await Promise.all(manifest.assets.filter(path => path.endsWith('.cs
 for (const marker of ['.activity-edit-layout.has-preview', '.activity-preview-scroll', '[data-active]', '.activity-auto-textarea']) {
   if (!css.includes(marker)) throw Error('Missing style marker ' + marker);
 }
-console.log(JSON.stringify({passed:true,version:version.version,livePreviewAssetsPublished:true,privateDataRead:false,databaseWrites:false,physicalDeviceVerified:false}));
+console.log(JSON.stringify({passed:true,version:version.version,livePreviewAssetsPublished:true,stableTextareaSizingPublished:true,privateDataRead:false,databaseWrites:false,physicalDeviceVerified:false}));

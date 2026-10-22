@@ -7,6 +7,7 @@ import { ActivityPlanSheet } from './ActivityPlanSheet';
 import { listActivityPlans, saveActivityPlan } from '../services/activityPlanService';
 import { activityDuration, activityKinds, activityStatuses, activityTemplates, activityText, activityTimeline, copyActivity, emptyActivity, restoreActivityDraft, validateActivity, type ActivityContent, type ActivityPlan } from '../utils/activityPlans';
 import { activityDraftStorageKey, installActivityDraftCloseWarning } from '../utils/activityDraftWarning';
+import { growTextareaToContent } from '../utils/textareaSizing';
 
 const field = 'mt-1 w-full min-h-11 rounded-xl border border-slate-300 bg-white px-3 py-2 text-base text-slate-950 focus:border-teal-500';
 const button = 'min-h-11 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-700 disabled:opacity-40';
@@ -213,17 +214,21 @@ function TextArea({ label, value, onChange, placeholder, maxLength = 10000 }: { 
   const ref = useRef<HTMLTextAreaElement>(null);
   const grow = useCallback(() => {
     const element = ref.current;
-    if (!element || !element.clientWidth) return;
-    const style = getComputedStyle(element);
-    const needed = Math.ceil(element.scrollHeight + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth));
-    // Preserve a larger manual size; expand for longer content or narrower widths.
-    if (needed > element.offsetHeight) element.style.height = `${needed}px`;
+    if (element) growTextareaToContent(element);
   }, []);
   useLayoutEffect(grow, [value, grow]);
   useEffect(() => {
     const element = ref.current;
     if (!element) return;
-    const observer = new ResizeObserver(grow); observer.observe(element);
+    let lastWidth: number | undefined;
+    const observer = new ResizeObserver(entries => {
+      const width = entries[0]?.contentRect.width;
+      if (width === undefined || width === lastWidth) return;
+      lastWidth = width;
+      // Height changes include our own writes and manual resizing. Only a
+      // changed width can reflow text and needs another content measurement.
+      grow();
+    }); observer.observe(element);
     return () => observer.disconnect();
   }, [grow]);
   return <label className="block text-sm font-bold">{label}<textarea ref={ref} aria-label={label} rows={4} className={`${field} activity-auto-textarea min-h-28 resize-y font-normal leading-relaxed`} value={value} maxLength={maxLength} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} /></label>;
