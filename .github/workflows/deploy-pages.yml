@@ -30,7 +30,7 @@ jobs:
         run: npm ci --no-audit
 
       - name: Check runtime and development dependencies for known vulnerabilities
-        run: npm audit --audit-level=high --fetch-timeout=20000 --fetch-retries=1
+        run: node scripts/audit-dependencies.mjs
 
       - name: Lint
         run: npm run lint

@@ -22,5 +22,5 @@ jobs:
           cache: npm
       - run: npm ci --no-audit
       - name: Check runtime and development dependencies for known vulnerabilities
-        run: npm audit --audit-level=high --fetch-timeout=20000 --fetch-retries=1
+        run: node scripts/audit-dependencies.mjs
       - run: npm run check
