@@ -1,6 +1,10 @@
 {
   "name": "d-support",
   "private": true,
+  "overrides": {
+    "dompurify": "^3.4.16",
+    "source-map-js": "^1.2.2"
+  },
   "version": "0.0.0",
   "type": "module",
   "scripts": {
@@ -40,6 +44,6 @@
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.3"
+    "vite": "^6.4.5"
   }
 }
