@@ -1,6 +1,6 @@
 import { ManualLinks } from './ManualLinks';
 import {DeleteWorkspaceItem} from './WorkspaceLifecycle';
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowLeft, ArrowRight, BookOpenCheck, ChevronDown, Copy, Plus, Printer, Search, Trash2 } from 'lucide-react';
 import { EditorActionBar } from './EditorActionBar';
 import { ActivityPlanSheet } from './ActivityPlanSheet';
@@ -17,6 +17,14 @@ const editorSteps = [
   {id:'振り返り',description:'実施後の気づきを次回につなげる'},
 ] as const;
 type EditorStep = typeof editorSteps[number]['id'];
+const previewFields: Record<string, string> = {
+  '活動名（必須）': 'title', '種類': 'supportItem', '実施日（必須）': 'date', '状態': 'status',
+  '活動のねらい': 'goal', '支援項目': 'supportItem', '内容（概要）': 'summary',
+  '対象・人数': 'targetLocation', '活動場所': 'targetLocation', '主担当': 'leader', '開始時刻': 'startTime',
+  '職員人数（名）': 'staffCount', '児童人数（名）': 'childCount', '往復時間（分）': 'travelMinutes',
+  '職員の役割分担': 'roles', '参加しやすくする配慮': 'considerations', '安全確認・緊急時の対応': 'safety',
+  '実施後の振り返り': 'reflection', '次回に活かすこと': 'nextTime',
+};
 type Props = { organizationId: string; userId: string; onDirtyChange: (dirty: boolean) => void; onOpenTrafficCost: () => void; onOpenCalendar: () => void };
 export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, onOpenTrafficCost, onOpenCalendar }: Props) {
   const storageKey = activityDraftStorageKey(organizationId, userId);
@@ -36,7 +44,7 @@ export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, o
   const panelRef = useRef<HTMLDivElement>(null);
   const stepIndex = editorSteps.findIndex((step) => step.id === tab);
   const goStep = (next: EditorStep) => {
-    setTab(next);
+    setTab(next); setActiveField(null);
     requestAnimationFrame(() => {
       panelRef.current?.focus({preventScroll:true});
       panelRef.current?.scrollIntoView({block:'start',behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
@@ -48,7 +56,33 @@ export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, o
   const [message, setMessage] = useState(restored ? 'このタブに残っていた未保存の入力を復元しました。' : '');
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [preview, setPreview] = useState(false);
+  const [preview, setPreview] = useState(true);
+  const [activeField, setActiveField] = useState<string | null>(null);
+  const previewScrollRef = useRef<HTMLDivElement>(null);
+  const highlightInput = (event: React.FocusEvent<HTMLFieldSetElement>) => {
+    const control = event.target;
+    if (!(control instanceof HTMLElement) || !control.matches('input,textarea,select')) return;
+    const label = control.getAttribute('aria-label') || Array.from(control.closest('label')?.childNodes || []).filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent).join('').trim();
+    const preparation = control.closest<HTMLElement>('[data-preview-preparation]')?.dataset.previewPreparation;
+    const step = control.closest<HTMLElement>('[data-preview-step]')?.dataset.previewStep;
+    setActiveField(preparation ? `prep:${preparation}` : step ? `step:${step}:${label.includes('番目の活動内容') ? 'title' : label === '支援・声かけ・配慮' ? 'support' : 'time'}` : previewFields[label] || null);
+  };
+  useEffect(() => {
+    if (!preview || !activeField) return;
+    const frame = requestAnimationFrame(() => {
+      const scroller = previewScrollRef.current;
+      if (!scroller) return;
+      const target = Array.from<HTMLElement>(scroller.querySelectorAll('[data-activity-preview]')).find(node => node.dataset.activityPreview === activeField);
+      if (!target) return;
+      const bounds = scroller.getBoundingClientRect(), rect = target.getBoundingClientRect();
+      // Move only the paper viewport, never the page or the input.
+      let delta = 0;
+      if (rect.top < bounds.top + 12 || rect.height > scroller.clientHeight - 24) delta = rect.top - bounds.top - 12;
+      else if (rect.bottom > bounds.bottom - 12) delta = rect.bottom - bounds.bottom + 12;
+      if (delta) scroller.scrollTo({top:scroller.scrollTop + delta,behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeField, preview]);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [storageError, setStorageError] = useState(false);
   const load = useCallback(async () => {
@@ -68,7 +102,7 @@ export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, o
   const content = (patch: Partial<ActivityContent>) => update({ content: { ...plan.content, ...patch } });
   const choose = (p: ActivityPlan) => {
     if (busy || (dirty && !window.confirm('未保存の入力を置き換えますか？保存する場合はキャンセルしてください。'))) return;
-    setPlan(structuredClone(p)); setDirty(!p.id || p.id.startsWith('builtin-')); setTab('基本情報'); setError(''); setMessage(''); setPreview(false); setLibraryOpen(false);
+    setPlan(structuredClone(p)); setDirty(!p.id || p.id.startsWith('builtin-')); setTab('基本情報'); setError(''); setMessage(''); setPreview(true); setActiveField(null); setLibraryOpen(false);
   };
   const create = (template?: ActivityPlan) => { const p = template ? copyActivity(template) : emptyActivity(); if (template) p.title = template.title.replace(/（ひな形）$/, ''); choose(p); };
   const save = async () => {
@@ -108,13 +142,19 @@ export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, o
         </div>)}</div>
         </div>
       </section>
-      <div className="min-w-0 space-y-3">
+      <div className={`activity-edit-layout ${preview ? 'has-preview' : ''}`}>
+        {preview && <aside className="activity-live-preview" aria-label="入力内容の仕上がりプレビュー">
+          <div className="activity-preview-toolbar"><div><h2 className="text-sm font-black text-slate-900">仕上がりプレビュー</h2><p className="mt-1 text-xs text-slate-600">入力を即時反映 · 入力中の箇所を枠線で表示</p></div><div className="flex flex-wrap gap-2"><button className={button} onClick={() => void navigator.clipboard.writeText(text).then(() => setMessage('指導案の文章をコピーしました。')).catch(() => setError('コピーできませんでした。ブラウザの権限を確認してください。'))}><Copy className="mr-1 inline h-4 w-4" />文章コピー</button><button className={button} onClick={() => window.print()}><Printer className="mr-1 inline h-4 w-4" />印刷・PDF保存</button></div></div>
+          <div ref={previewScrollRef} className="activity-preview-scroll" tabIndex={0} aria-label="指導案プレビューのスクロール領域"><ActivityPlanSheet plan={plan} dirty={dirty} activeField={activeField} /></div>
+          <p className="border-t border-slate-200 bg-white p-3 text-xs text-slate-600">A4縦の表形式です。強調枠は印刷されません。長い内容は印刷時に続きのページへ表示します。</p>
+        </aside>}
+      <div className="activity-input-pane min-w-0 space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-teal-50 p-3 text-sm"><b>{dirty ? '未保存の変更があります' : plan.id ? '保存済み' : '新しい案・入力を開始できます'}</b><span>計{activityDuration(plan)}分 · 準備{completed}/{plan.content.preparations.length}件</span></div>
         <p className="text-xs text-slate-600">未保存の入力はこのタブに保持します。未保存のままタブ・ブラウザを閉じる、または再読み込みすると、ブラウザ標準の確認が表示されます。職員への共有は「保存」後です。個別支援計画・支援経過記録は自動で変更しません。</p>
         {storageError && <p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm">このブラウザでは未保存の入力を保持できません。画面を閉じる前に保存してください。</p>}
         {error && <p role="alert" className="whitespace-pre-wrap rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
         {message && <p role="status" className="rounded-xl bg-teal-50 p-3 text-sm text-teal-900">{message}</p>}
-        <fieldset disabled={busy} className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+        <fieldset disabled={busy} onFocusCapture={highlightInput} className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
           <legend className="sr-only">活動案の編集</legend>
           <div role="tablist" aria-label="指導案の作成手順" className="mb-5 grid grid-cols-2 gap-2 rounded-xl bg-slate-50 p-2 sm:grid-cols-4">{editorSteps.map((step,index) => <button key={step.id} id={`activity-step-${index}`} aria-controls={`activity-panel-${index}`} type="button" role="tab" aria-selected={tab===step.id} tabIndex={tab===step.id?0:-1} className={`flex min-h-16 items-center gap-2 rounded-xl border px-3 py-2 text-left ${tab===step.id?'border-teal-700 bg-teal-700 text-white':'border-slate-200 bg-white text-slate-600'}`} onClick={() => setTab(step.id)} onKeyDown={event=>{let next=index;if(event.key==='ArrowRight')next=(index+1)%editorSteps.length;else if(event.key==='ArrowLeft')next=(index+editorSteps.length-1)%editorSteps.length;else if(event.key==='Home')next=0;else if(event.key==='End')next=editorSteps.length-1;else return;event.preventDefault();setTab(editorSteps[next].id);document.getElementById(`activity-step-${next}`)?.focus();}}><span className={`grid h-7 w-7 shrink-0 place-items-center rounded-full text-sm font-black ${tab===step.id?'bg-white text-teal-800':'bg-slate-100 text-slate-600'}`}>{index+1}</span><span className="text-sm font-bold">{step.id}</span></button>)}</div>
           <div ref={panelRef} tabIndex={-1} className="scroll-mt-28 outline-none">
@@ -122,13 +162,13 @@ export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, o
           {tab === '基本情報' && <div className="space-y-4" role="tabpanel" id="activity-panel-0" aria-labelledby="activity-step-0">
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="text-sm font-bold">活動名（必須）<input value={plan.title} maxLength={160} onChange={(e) => update({ title: e.target.value })} className={field} placeholder="例：秋の工作・公園での運動" /></label>
-            <label className="text-sm font-bold">種類<select className={field} value={plan.kind} onChange={(e) => update({ kind: e.target.value as ActivityPlan['kind'] })}>{activityKinds.map((k) => <option key={k}>{k}</option>)}</select></label>
+            <label className="text-sm font-bold">種類<select aria-label="種類" className={field} value={plan.kind} onChange={(e) => update({ kind: e.target.value as ActivityPlan['kind'] })}>{activityKinds.map((k) => <option key={k}>{k}</option>)}</select></label>
             {!plan.isTemplate && <label className="text-sm font-bold">実施日（必須）<input type="date" className={field} value={plan.date} onChange={(e) => update({ date: e.target.value })} /></label>}
-            <label className="text-sm font-bold">状態<select className={field} value={plan.status} onChange={(e) => update({ status: e.target.value as ActivityPlan['status'] })}>{activityStatuses.map((s) => <option key={s}>{s}</option>)}</select></label>
+            <label className="text-sm font-bold">状態<select aria-label="状態" className={field} value={plan.status} onChange={(e) => update({ status: e.target.value as ActivityPlan['status'] })}>{activityStatuses.map((s) => <option key={s}>{s}</option>)}</select></label>
           </div>
             <h3 className="border-t border-slate-200 pt-4 text-sm font-black text-slate-800">ねらいと内容</h3>
             <TextArea label="活動のねらい" value={plan.content.goal} onChange={(goal) => content({ goal })} placeholder="どんな経験や力につなげたいか" />
-            <div className="grid gap-3 sm:grid-cols-2"><label className="text-sm font-bold">支援項目<input className={field} value={plan.content.supportItem || ''} maxLength={160} placeholder="未入力の場合は活動の種類を表示" onChange={(e) => content({ supportItem: e.target.value })} /></label><label className="text-sm font-bold">内容（概要）<input className={field} value={plan.content.summary || ''} maxLength={2000} placeholder="企画の概要" onChange={(e) => content({ summary: e.target.value })} /></label></div>
+            <label className="block text-sm font-bold">支援項目<input className={field} value={plan.content.supportItem || ''} maxLength={160} placeholder="未入力の場合は活動の種類を表示" onChange={(e) => content({ supportItem: e.target.value })} /></label><TextArea label="内容（概要）" value={plan.content.summary || ''} maxLength={2000} onChange={(summary)=>content({summary})} placeholder="企画の概要" />
             <h3 className="border-t border-slate-200 pt-4 text-sm font-black text-slate-800">実施条件・担当</h3>
             <div className="grid gap-3 sm:grid-cols-2">{([['target','対象・人数','例：小学部 8名'],['location','活動場所','例：教室・近隣公園'],['leader','主担当','担当職員名']] as const).map(([key,label,placeholder]) => <label key={key} className="text-sm font-bold">{label}<input className={field} value={plan.content[key]} maxLength={160} placeholder={placeholder} onChange={(e) => content({ [key]: e.target.value })} /></label>)}<label className="text-sm font-bold">開始時刻<input className={field} type="time" value={plan.content.startTime} onChange={(e) => content({ startTime: e.target.value })} /></label></div>
             <div className="grid gap-3 sm:grid-cols-3">{([['staffCount','職員人数（名）',1000],['childCount','児童人数（名）',1000],['travelMinutes','往復時間（分）',1440]] as const).map(([key,label,max]) => <label key={key} className="text-sm font-bold">{label}<input className={field} type="number" min={0} max={max} step={1} value={plan.content[key] || ''} onChange={(e) => content({ [key]: e.target.value })} /></label>)}</div>
@@ -136,17 +176,17 @@ export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, o
           {tab === '活動の流れ' && <div className="space-y-4" role="tabpanel" id="activity-panel-1" aria-labelledby="activity-step-1">
             <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2"><label className="text-sm font-bold">開始時刻<input className={field} type="time" value={plan.content.startTime} onChange={(e) => content({startTime:e.target.value})}/></label><div className="self-center text-sm text-slate-600">開始時刻と所要時間から、各段階の時刻を自動表示します。</div></div>
             <h2 className="font-black">活動の流れ <span className="text-sm text-teal-700">計{activityDuration(plan)}分</span></h2>
-            {plan.content.steps.map((s, i) => <div key={s.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+            {plan.content.steps.map((s, i) => <div key={s.id} data-preview-step={s.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
               <div className="mb-2 flex items-center justify-between gap-2"><b className="text-sm">{i + 1}. {times[i]}</b><div className="flex gap-1"><button className={button} disabled={!i} aria-label={`${i + 1}番目の流れを上へ`} onClick={() => { const steps = [...plan.content.steps]; [steps[i - 1], steps[i]] = [steps[i], steps[i - 1]]; content({ steps }); }}>上へ</button><button className={button} aria-label={`${i + 1}番目の流れを削除`} onClick={() => content({ steps: plan.content.steps.filter((x) => x.id !== s.id) })}><Trash2 className="h-4 w-4" /></button></div></div>
               <label className="mb-2 block text-sm font-bold">段階<input className={field} value={s.stage || ''} maxLength={100} placeholder="例：導入・展開・まとめ" onChange={(e) => content({ steps: plan.content.steps.map((x) => x.id === s.id ? { ...x, stage: e.target.value } : x) })} /></label>
-              <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_110px]"><label className="text-sm font-bold">内容<input className={field} aria-label={`${i + 1}番目の活動内容`} value={s.title} maxLength={200} onChange={(e) => content({ steps: plan.content.steps.map((x) => x.id === s.id ? { ...x, title: e.target.value } : x) })} /></label><label className="text-sm font-bold">所要時間（分）<input className={field} type="number" min={1} max={600} value={s.minutes || ''} onChange={(e) => content({ steps: plan.content.steps.map((x) => x.id === s.id ? { ...x, minutes: Number(e.target.value) } : x) })} /></label></div>
-              <label className="mt-2 block text-sm font-bold">支援・声かけ・配慮<input className={field} value={s.support} maxLength={2000} onChange={(e) => content({ steps: plan.content.steps.map((x) => x.id === s.id ? { ...x, support: e.target.value } : x) })} /></label>
+              <TextArea label={`${i + 1}番目の活動内容`} value={s.title} maxLength={200} placeholder="活動の内容" onChange={(title) => content({ steps: plan.content.steps.map((x) => x.id === s.id ? { ...x, title } : x) })} /><label className="mt-2 block max-w-48 text-sm font-bold">所要時間（分）<input className={field} type="number" min={1} max={600} value={s.minutes || ''} onChange={(e) => content({ steps: plan.content.steps.map((x) => x.id === s.id ? { ...x, minutes: Number(e.target.value) } : x) })} /></label>
+              <div className="mt-2"><TextArea label="支援・声かけ・配慮" value={s.support} maxLength={2000} placeholder="声かけ、見守り、個別の配慮" onChange={(support) => content({ steps: plan.content.steps.map((x) => x.id === s.id ? { ...x, support } : x) })} /></div>
             </div>)}
             <button className={button} disabled={plan.content.steps.length >= 40} onClick={() => content({ steps: [...plan.content.steps, { id: crypto.randomUUID(), title: '', minutes: 10, support: '' }] })}><Plus className="mr-1 inline h-4 w-4" />流れを追加</button>
           </div>}
           {tab === '準備・安全' && <div className="space-y-4" role="tabpanel" id="activity-panel-2" aria-labelledby="activity-step-2">
             <h2 className="font-black">準備チェック <span className="text-sm text-teal-700">{completed}/{plan.content.preparations.length}件</span></h2>
-            {plan.content.preparations.map((p, i) => <div key={p.id} className={`rounded-xl border p-3 ${p.done ? 'border-teal-300 bg-teal-50' : 'border-slate-200'}`}>
+            {plan.content.preparations.map((p, i) => <div key={p.id} data-preview-preparation={p.id} className={`rounded-xl border p-3 ${p.done ? 'border-teal-300 bg-teal-50' : 'border-slate-200'}`}>
               <div className="mb-2 flex justify-between"><label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" className="h-5 w-5 accent-teal-600" checked={p.done} onChange={(e) => content({ preparations: plan.content.preparations.map((x) => x.id === p.id ? { ...x, done: e.target.checked } : x) })} />{i + 1}. 準備済み</label><button className={button} aria-label={`${i + 1}番目の準備物を削除`} onClick={() => content({ preparations: plan.content.preparations.filter((x) => x.id !== p.id) })}><Trash2 className="h-4 w-4" /></button></div>
               <div className="grid gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">{([['name','準備物・確認事項',200],['quantity','数量',100],['owner','担当',160]] as const).map(([key,label,maxLength]) => <label key={key} className="text-sm font-bold">{label}<input className={field} value={p[key]} maxLength={maxLength} onChange={(e) => content({ preparations: plan.content.preparations.map((x) => x.id === p.id ? { ...x, [key]: e.target.value } : x) })} /></label>)}</div>
             </div>)}
@@ -163,13 +203,31 @@ export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, o
           { label: '別の案として複製', onClick: () => choose(copyActivity(plan)) },
           { label: 'ひな形として再利用', onClick: () => choose(copyActivity(plan, true)) },
         ]} />
-        {preview && <div className="rounded-2xl border border-slate-200 bg-white p-4"><div className="flex flex-wrap justify-end gap-2"><button className={button} onClick={() => void navigator.clipboard.writeText(text).then(() => setMessage('指導案の文章をコピーしました。')).catch(() => setError('コピーできませんでした。ブラウザの権限を確認してください。'))}><Copy className="mr-1 inline h-4 w-4" />文章コピー</button><button className={button} onClick={() => window.print()}><Printer className="mr-1 inline h-4 w-4" />印刷・PDF保存</button></div><p className="my-3 text-xs text-slate-600">原本に合わせた表形式です。A4縦で印刷します。長い内容や補足事項は続きのページに表示されます。</p><div className="overflow-x-auto"><ActivityPlanSheet plan={plan} dirty={dirty} /></div></div>}
+      </div>
       </div>
     </div>
     <article className="activity-print-only"><ActivityPlanSheet plan={plan} dirty={dirty} /></article>
   </section>;
 }
-function TextArea({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder: string }) { return <label className="block text-sm font-bold">{label}<textarea aria-label={label} className={`${field} min-h-28 resize-y font-normal leading-relaxed`} value={value} maxLength={10000} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} /></label>; }
+function TextArea({ label, value, onChange, placeholder, maxLength = 10000 }: { label: string; value: string; onChange: (value: string) => void; placeholder: string; maxLength?: number }) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const grow = useCallback(() => {
+    const element = ref.current;
+    if (!element || !element.clientWidth) return;
+    const style = getComputedStyle(element);
+    const needed = Math.ceil(element.scrollHeight + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth));
+    // Preserve a larger manual size; expand for longer content or narrower widths.
+    if (needed > element.offsetHeight) element.style.height = `${needed}px`;
+  }, []);
+  useLayoutEffect(grow, [value, grow]);
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const observer = new ResizeObserver(grow); observer.observe(element);
+    return () => observer.disconnect();
+  }, [grow]);
+  return <label className="block text-sm font-bold">{label}<textarea ref={ref} aria-label={label} rows={4} className={`${field} activity-auto-textarea min-h-28 resize-y font-normal leading-relaxed`} value={value} maxLength={maxLength} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} /></label>;
+}
 function describeError(e: unknown) {
   const message = e instanceof Error ? e.message : (e as { message?: string })?.message || '操作を完了できませんでした。';
   if (/activity_plans.*schema|Could not find.*activity_plans|relation.*activity_plans.*does not exist/i.test(message)) return '活動・指導案の保存先が未設定です。管理者によるデータベース更新が必要です。入力は残っています。';

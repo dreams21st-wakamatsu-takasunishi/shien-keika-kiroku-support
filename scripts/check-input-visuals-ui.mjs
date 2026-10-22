@@ -35,8 +35,8 @@ async function check(page,url){
  const expectFill=async(locator,state)=>{await page.waitForFunction(({label,state})=>document.querySelector(`[aria-label="${label}"]`)?.dataset.inputFill===state,{label:await locator.getAttribute('aria-label'),state});};
  assert(await bg(page.getByLabel('活動名（必須）',{exact:true}))===yellow,'empty activity field highlighted yellow');
  assert(await bg(page.getByLabel('実施日（必須）',{exact:true}))===blue,'default date is filled');
- const editorWidth=await page.getByLabel('活動名（必須）',{exact:true}).evaluate(el=>el.closest('fieldset').getBoundingClientRect().width);assert(editorWidth>1200,'full-width editor without side library');
- coverage.push('collapsed saved library','four numbered workflow steps','full-width editor','activity input color');
+ const editorWidth=await page.getByLabel('活動名（必須）',{exact:true}).evaluate(el=>el.closest('fieldset').getBoundingClientRect().width);assert(editorWidth>550&&editorWidth<900,'roomy editor alongside live preview');
+ coverage.push('collapsed saved library','four numbered workflow steps','split preview and editor','activity input color');
  await page.getByRole('button',{name:'工作のひな形',exact:true}).click();await page.getByLabel('活動名（必須）',{exact:true}).fill('架空の工作活動');await page.getByLabel('活動のねらい',{exact:true}).fill('架空のねらい');await page.getByLabel('職員人数（名）',{exact:true}).fill('2');await page.getByLabel('児童人数（名）',{exact:true}).fill('8');
  assert(await bg(page.getByLabel('活動名（必須）',{exact:true}))===blue,'typed activity field filled blue');
  assert(await bg(page.getByRole('tabpanel').getByRole('combobox').first())===blue,'template selected value filled blue');
