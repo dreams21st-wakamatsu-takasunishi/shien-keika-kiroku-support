@@ -17,9 +17,9 @@ window.fetch=async(input,init)=>{
   if(resource===model.fail)return new Response(JSON.stringify({code:'42501',message:'synthetic denied'}),{status:403,headers:{'Content-Type':'application/json'}});
   let rows:any=[];
   if(resource==='organization_ai_settings'||resource==='transport_route_settings')rows=null;
-  if(resource==='support_records')rows=model.requests.at(-1)?.filter?[record,{...record,id:'deleted-record',deleted_at:'2026-10-16T00:00:00Z'}]:[record];
+  if(resource==='support_records'){const filter=url.searchParams.get('or')||'';rows=filter.includes('child_id.in.')?[record,{...record,id:'deleted-record',deleted_at:'2026-10-16T00:00:00Z'}]:filter.includes('id.lt.')?[]:[record];}
   if(resource==='record_drafts')rows=[{user_id:'fixture-user',draft_key:'record-fixture',revision:4,device_id:'fixture-device',recorder_profile_id:'fixture-recorder',selectedChildIds:['fixture-child'],recorderName:'架空職員',date:'2026-10-16',currentStepIndex:2,takenOverFromDraftKey:'record-old'}];
-  return new Response(JSON.stringify(rows),{headers:{'Content-Type':'application/json'}});
+  return new Response(JSON.stringify(rows),{headers:{'Content-Type':'application/json',...(resource==='support_records'&&url.searchParams.has('id')?{'Content-Range':`0-${Math.max(0,rows.length-1)}/${rows.length}`}:{})}});
 };
 clearPerformanceTimings();
 const queue=createWorkspaceRefreshQueue();queue.reset('test-account');

@@ -34,3 +34,7 @@
 本番適用は承認後、`node scripts/deploy-record-read-access.mjs --apply`。DDLのロールバック試行後に適用し、migration履歴とSELECTポリシーだけを変更する。問題時は元の条件 `alter policy records_select on public.support_records using (organization_id=public.current_organization_id());` で判定方式を戻せる（事前に現在の条件を照合する）。本番にテスト記録は作成しない。
 
 この変更は初回データの期間制限・ページングを導入するものではなく、端末上の秒数短縮も保証しない。公開後の実際の保存・初回読み込みは「処理時間の確認」で評価する。
+
+## 後続対応：期間別読み込み
+
+`docs/record-history-loading.md` に取得範囲・各画面への反映・分割取得・競合対策を整理した。初期取得を直近90日＋未確認・要修正の全件とし、一覧・記録状況・朝礼・月間PDFは選択範囲を追加取得する。以前の「履歴のページング・期間指定は未実装」という制約は、この後続実装で対応する。公開の完了は該当コミットのActionsと `verify-record-period-release.mjs` で別途照合する。

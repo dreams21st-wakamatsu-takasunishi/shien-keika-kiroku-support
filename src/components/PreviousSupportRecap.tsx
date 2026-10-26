@@ -2,18 +2,22 @@ import {useMemo,useState} from 'react';
 import {History,Search} from 'lucide-react';
 import type {ChildProfile,SupportRecord} from '../types';
 import {buildPreviousSupportRecaps,previousSupportDate,shortRecapLine,supportRecapLines} from '../utils/previousSupportRecap';
+import {useRecordPeriod,RecordPeriodNotice} from './RecordHistory';
+import {validRecordDate} from '../services/recordPeriods';
 
 export function PreviousSupportRecap({meetingDate,childrenList,records}:{meetingDate:string;childrenList:ChildProfile[];records:SupportRecord[]}){
- const date=previousSupportDate(meetingDate);
+ const date=validRecordDate(meetingDate)?previousSupportDate(meetingDate):'invalid';
+ const period=useRecordPeriod({from:date,to:date});
  const [query,setQuery]=useState('');
  const rows=useMemo(()=>buildPreviousSupportRecaps(childrenList,records,date),[childrenList,records,date]);
  const visible=rows.filter(row=>row.child.name.replace(/\s/g,'').includes(query.replace(/\s/g,'')));
  return <aside aria-label="前回の支援の振り返り" className="min-w-0 border-t border-slate-200 pt-4 lg:border-l lg:border-t-0 lg:pl-4 lg:pt-0">
   <h4 className="flex items-center gap-2 text-sm font-bold text-slate-900"><History className="h-4 w-4 text-teal-700"/>前回の支援の振り返り</h4>
-  <p className="mt-1 text-sm text-slate-700">{date} / 記録あり {rows.length}名</p>
+  <p className="mt-1 text-sm text-slate-700">{date} / {period.ready?`記録あり ${rows.length}名`:'記録を確認中'}</p>
+  <RecordPeriodNotice state={period}/>
   <p className="mt-1 text-xs text-slate-500">支援記録のある児童のみ表示します。内容は要点の抜粋です。</p>
   <label className="relative mt-3 block"><Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-500"/><input aria-label="振り返りの児童を検索" type="search" value={query} onChange={e=>setQuery(e.target.value)} placeholder="児童名" className="min-h-11 w-full rounded-lg border border-slate-300 bg-white pl-9 pr-3 text-sm"/></label>
-  <div className="mt-3 max-h-[34rem] divide-y divide-slate-200 overflow-y-auto pr-2">
+  <div style={{display:period.ready?undefined:'none'}} className="mt-3 max-h-[34rem] divide-y divide-slate-200 overflow-y-auto pr-2">
    {visible.length===0&&<p className="py-3 text-sm text-slate-600">{rows.length===0?'この日の支援記録はありません。':'該当する児童はいません。'}</p>}
    {visible.map(({child,records:childRecords})=><section key={child.id} aria-label={`${child.name}の振り返り`} className="py-3">
     <h5 className="break-words text-sm font-bold text-slate-900">{child.name}</h5>

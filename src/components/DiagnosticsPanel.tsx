@@ -5,6 +5,7 @@ const phaseLabels: Record<string, string> = {
   'workspace.refresh': '変更データの再取得', 'record.snapshot': '保存前の最新記録確認',
   'record.write': '記録の保存通信', 'record.draft.flush': '保存前の下書き同期',
   'record.draft.cleanup': '保存後の入力中一覧更新',
+  'record.history': '選択期間の支援記録取得',
 };
 import {
   readDiagnostics,

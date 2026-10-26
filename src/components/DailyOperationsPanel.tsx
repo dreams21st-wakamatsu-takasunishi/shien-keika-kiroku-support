@@ -5,6 +5,7 @@ import type { ChildProfile, DailyChildPlan, DailyTransportRequirement, RecordDra
 import { getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
 import { ChildInfoDialog } from './ChildInfoDialog';
 import {ownInputDrafts} from '../utils/recordEntry';
+import {useRecordPeriod,RecordPeriodNotice} from './RecordHistory';
 
 interface DailyOperationsPanelProps {
   childrenList: ChildProfile[];
@@ -53,6 +54,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
   onManageOwnDrafts,
 }) => {
   const [infoChild, setInfoChild] = useState<ChildProfile | null>(null);
+  const recordPeriod=useRecordPeriod({from:targetDate||'invalid',to:targetDate||'invalid'});
   const [takeoverSelectionMode, setTakeoverSelectionMode] = useState(false);
   const [selectedTakeoverKeys, setSelectedTakeoverKeys] = useState<string[]>([]);
   const [takingOver, setTakingOver] = useState(false);
@@ -188,13 +190,13 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
             />
           </label>
         </div>
-        <div className="mt-4 grid grid-cols-3 gap-2">
+        <div style={{display:recordPeriod.ready?undefined:'none'}} className="mt-4 grid grid-cols-3 gap-2">
           <StatusCount label="未入力" value={counts.missing} tone="rose" />
           <StatusCount label="入力中" value={counts.drafting} tone="amber" />
           <StatusCount label="保存済み" value={counts.saved} tone="emerald" />
         </div>
         {ownGroups.length>1&&onManageOwnDrafts&&<div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border-2 border-teal-300 bg-white p-3"><div><p className="text-sm font-black text-teal-900">自分の入力中記録が{ownGroups.length}画面に分かれています</p><p className="mt-1 text-xs text-slate-600">入力内容を保持して、児童を同じ画面にまとめられます。</p></div><button type="button" onClick={()=>onManageOwnDrafts(targetDate)} className="min-h-11 rounded-xl bg-teal-700 px-4 text-sm font-bold text-white">自分の記録をまとめる</button></div>}
-        {takeoverCandidates.length > 0 && (
+        {recordPeriod.ready && takeoverCandidates.length > 0 && (
           <div className="mt-4 rounded-xl border border-amber-300 bg-white p-3">
             {!takeoverSelectionMode ? (
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -250,7 +252,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
         )}
       </div>
 
-      {rows.length === 0 ? (
+      {!recordPeriod.ready ? <RecordPeriodNotice state={recordPeriod}/> : rows.length === 0 ? (
         <p className="p-8 text-center text-sm text-slate-500">
           {targetDate}（{weekday}）の利用予定児童はいません。
         </p>
@@ -452,7 +454,7 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
         <div aria-hidden="true" className="h-24" />
       )}
       {/* A portal keeps this fixed to the viewport, outside animated/overflow-hidden panels. */}
-      {takeoverSelectionMode && !infoChild && createPortal(
+      {recordPeriod.ready && takeoverSelectionMode && !infoChild && createPortal(
         <button
           type="button"
           disabled={selectedTakeovers.length === 0 || takingOver}

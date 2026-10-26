@@ -66,6 +66,7 @@ import { resolvedTransportArea } from '../utils/transportArea';
 import { runWorkspaceQueries, selectWorkspacePatch } from './workspaceLoadPlan';
 import { measureOperation } from './performanceMetrics';
 import { RECORD_DRAFT_SUMMARY_SELECT, recordSaveSnapshotFilter } from './recordReadModel';
+import {collectRecordPages,initialRecordDate,inRecordPeriod,RECORD_PAGE_SIZE,recordReadLogic,throwIfRecordReadAborted,validateRecordPeriod,type RecordChanges,type RecordCursor,type RecordPeriod,type RecordPeriodResult} from './recordPeriods';
 
 export interface WorkspaceData {
   children: ChildProfile[];
@@ -104,21 +105,45 @@ function assertSupabase() {
   return supabase;
 }
 
-async function loadSupportRecordsWithRetry(organizationId: string, recordIds?: readonly string[]) {
+async function loadSupportRecordsWithRetry(organizationId: string, recordIds?: readonly string[],period?:RecordPeriod,signal?:AbortSignal) {
   const client = assertSupabase();
   const retryDelays = [350, 900];
+  const range=period?validateRecordPeriod(period):undefined;
+  const initialFrom=range?undefined:initialRecordDate(getLocalDateString());
+  const read=async(cursor?:RecordCursor)=>{
+    for(let attempt=0;;attempt++){
+      throwIfRecordReadAborted(signal);let query=client.from('support_records').select('*',recordIds?.length?{count:'exact'}:undefined).eq('organization_id',organizationId);
+      if(recordIds?.length){query=query.in('id',[...recordIds]).order('record_date',{ascending:false}).order('id',{ascending:false}).limit(RECORD_PAGE_SIZE);const logic=recordReadLogic(undefined,cursor);if(logic)query=query.or(logic);}
+      else{
+        query=query.is('deleted_at',null).order('record_date',{ascending:false}).order('id',{ascending:false}).limit(RECORD_PAGE_SIZE);
+        if(range?.from)query=query.gte('record_date',range.from);if(range?.to)query=query.lte('record_date',range.to);
+        const logic=recordReadLogic(initialFrom,cursor);if(logic)query=query.or(logic);
+      }
+      if(signal)query=query.abortSignal(signal);
+      const result=await query;
+      if(!result.error||result.status<500||result.status>=600||attempt>=retryDelays.length)return result;
+      await new Promise(resolve=>setTimeout(resolve,retryDelays[attempt]));
+    }
+  };
+  return collectRecordPages(read,signal,Boolean(recordIds?.length));
+}
 
-  for (let attempt = 0; ; attempt += 1) {
-    const query = client.from('support_records').select('*').eq('organization_id', organizationId);
-    const result = await (recordIds?.length
-      ? query.in('id', [...recordIds])
-      : query.is('deleted_at', null).order('record_date', { ascending: false }));
-
-    const isTransientServerError = result.status >= 500 && result.status < 600;
-    if (!result.error || !isTransientServerError || attempt >= retryDelays.length) return result;
-
-    await new Promise((resolve) => window.setTimeout(resolve, retryDelays[attempt]));
+export async function loadSupportRecordPeriod(organizationId:string,period:RecordPeriod,signal?:AbortSignal,changes?:RecordChanges):Promise<RecordPeriodResult>{
+ return measureOperation('record.history',async()=>{
+  let marker=changes?.mark()||0;
+  const result=await loadSupportRecordsWithRetry(organizationId,undefined,period,signal);if(result.error)throw result.error;
+  const rows=result.data||[];if(rows.some(row=>row.organization_id!==organizationId||row.deleted_at||!inRecordPeriod({date:row.record_date},period)))throw Error('Unexpected record period scope');
+  const current=new Map(rows.map(row=>[row.id,row])),refreshed=new Map<string,any>(),changedIds=new Set<string>();
+  for(let round=0;round<4;round++){
+   throwIfRecordReadAborted(signal);const update=changes?.since(marker);if(!update?.ids.length)return {records:[...current.values()].map(mapRecord),refreshed:[...refreshed.values()].map(mapRecord),changedIds:[...changedIds]};
+   marker=update.marker;
+   for(let i=0;i<update.ids.length;i+=100){
+    const ids=update.ids.slice(i,i+100),latest=await loadSupportRecordsWithRetry(organizationId,ids,undefined,signal);throwIfRecordReadAborted(signal);if(latest.error)throw latest.error;
+    ids.forEach(id=>{current.delete(id);refreshed.delete(id);changedIds.add(id);});for(const row of latest.data||[]){if(row.organization_id!==organizationId||!ids.includes(row.id))throw Error('Unexpected changed record scope');if(!row.deleted_at){refreshed.set(row.id,row);if(inRecordPeriod({date:row.record_date},period))current.set(row.id,row);}}
+   }
   }
+  throw Error('記録が連続して変更されています。もう一度読み込んでください。');
+ },{ignoreAbort:true});
 }
 
 function mapChild(row: any): ChildProfile {

@@ -161,6 +161,8 @@ import { workspaceLoadPlan } from './services/workspaceLoadPlan';
 import { clearPerformanceTimings } from './services/performanceMetrics';
 import { mergeRecordRefresh } from './utils/recordRefresh';
 import {WorkspaceLifecycleProvider} from './components/WorkspaceLifecycle';
+import {RecordHistoryProvider} from './components/RecordHistory';
+import {createRecordChanges,initialRecordDate,mergeInitialRecordWindow,mergeRecordPeriod,type RecordPeriod,type RecordPeriodResult} from './services/recordPeriods';
 import {canManageWorkspaceTrash} from './services/workspaceLifecycle';
 
 const FIELD_MODE_REAUTH_AFTER_MS = 30_000;
@@ -361,6 +363,8 @@ export default function App() {
   const workspaceRealtimeReadyRef = useRef(false);
   const remoteRefreshTimerRef = useRef<number | null>(null);
   const loadedOrganizationIdRef = useRef<string | null>(remoteMode ? null : 'local');
+  const [recordHistoryRevision,setRecordHistoryRevision]=useState(0);
+  const recordHistoryChanges=useRef(createRecordChanges());
   const workspaceScope = JSON.stringify([organizationId, auth.profile?.id, auth.profile?.role,
     auth.profile?.fieldModeOnly, auth.profile?.accessDeviceId, auth.profile?.accessDeviceKind, auth.profile?.facilityLogin]);
   const workspaceScopeRef = useRef(workspaceScope);
@@ -372,6 +376,7 @@ export default function App() {
     remoteRefreshTablesRef.current.clear();
     changedRecordIdsRef.current = { all: false, ids: new Set() };
     loadedOrganizationIdRef.current = null;
+    recordHistoryChanges.current=createRecordChanges();
     if (timingAccountRef.current && timingAccountRef.current !== auth.profile?.id) clearPerformanceTimings();
     timingAccountRef.current = auth.profile?.id;
   }
@@ -380,6 +385,10 @@ export default function App() {
   const prepareUserSwitchRef=useRef<PrepareUserSwitch|null>(null);
   const [online, setOnline] = useState(() => navigator.onLine);
   const [pendingSyncs, setPendingSyncs] = useState<PendingRecordSync[]>([]);
+  const publishRecordPeriod=useCallback((period:RecordPeriod,result:RecordPeriodResult,baseline:SupportRecord[])=>{
+    if(workspaceScopeRef.current!==workspaceScope)return;
+    setRecords(previous=>mergePendingRecords(mergeRecordRefresh(mergeRecordPeriod(previous,result.records,period,baseline),result.refreshed,result.changedIds),organizationId&&auth.profile?loadPendingRecordSyncs(organizationId,auth.profile.id):[]));
+  },[workspaceScope,organizationId,auth.profile?.id]);
   const [syncing, setSyncing] = useState(false);
   const [supportPlans, setSupportPlans] = useState<SupportPlan[]>(() => {
     if (remoteMode) return [];
@@ -625,8 +634,12 @@ export default function App() {
         }
         const queued = loadPendingRecordSyncs(auth.profile.organizationId, auth.profile.id);
         setPendingSyncs(queued);
-        if (workspace.records) setRecords(previous => mergePendingRecords(
-          partial && recordIds.length ? mergeRecordRefresh(previous, workspace.records!, recordIds) : workspace.records!, queued));
+        if (workspace.records) {
+          const preserveLoadedHistory=loadedOrganizationIdRef.current===auth.profile.organizationId;
+          setRecords(previous => mergePendingRecords(partial&&recordIds.length?mergeRecordRefresh(previous,workspace.records!,recordIds)
+            :preserveLoadedHistory?mergeInitialRecordWindow(previous,workspace.records!,initialRecordDate(getLocalDateString())):workspace.records!,queued));
+          if(!partial||!recordIds.length)setRecordHistoryRevision(value=>value+1);
+        }
         if (workspace.templates) setTemplates(workspace.templates.filter((template) => template.id !== UNIFIED_TEMPLATE_ID));
         if (workspace.children) setChildrenList(workspace.children);
         if (workspace.schools) setSchools(workspace.schools);
@@ -675,6 +688,7 @@ export default function App() {
     if (payload?.table === 'support_records') {
       const row = payload.new && typeof payload.new === 'object' && 'id' in payload.new ? payload.new
         : payload.old && typeof payload.old === 'object' && 'id' in payload.old ? payload.old : null;
+      recordHistoryChanges.current.add(row&&typeof row.id==='string'?row.id:undefined);
       if (row && typeof row.id === 'string') changedRecordIdsRef.current.ids.add(row.id);
       else changedRecordIdsRef.current.all = true;
     }
@@ -2249,6 +2263,7 @@ export default function App() {
   };
 
   return (
+    <RecordHistoryProvider organizationId={remoteMode&&!auth.profile?.fieldModeOnly?organizationId:undefined} scopeKey={workspaceScope} revision={recordHistoryRevision} initialFrom={initialRecordDate(getLocalDateString())} records={records} onLoaded={publishRecordPeriod} changes={recordHistoryChanges.current}>
     <WorkspaceLifecycleProvider organizationId={organizationId} userId={auth.profile?.id} recorderId={auth.profile?.recorderProfileId} allowed={Boolean(organizationId&&canManageWorkspaceTrash(auth.profile?.role)&&!auth.profile?.fieldModeOnly)}>
     <div className="app-background min-h-screen pb-8 font-sans text-slate-900 antialiased sm:pb-12">
       {auth.profile?.fieldModeOnly && privacyShielded && (
@@ -2629,6 +2644,7 @@ export default function App() {
       {recordEntry.dialog&&<RecordEntryDialog request={recordEntry.dialog.request} drafts={recordEntry.dialog.drafts} childrenList={childrenList} busy={recordEntry.busy} error={recordEntry.error} onDateChange={date=>void recordEntry.request({date,manage:true})} onChoose={key=>void recordEntry.choose(key)} onMerge={(keys,target)=>void recordEntry.merge(keys,target)} onClose={recordEntry.close}/>}
     </div>
     </WorkspaceLifecycleProvider>
+    </RecordHistoryProvider>
   );
 }
 

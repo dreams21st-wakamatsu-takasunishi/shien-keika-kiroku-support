@@ -6,6 +6,8 @@ import { downloadRecordsCsv } from '../utils/recordCsv';
 import { getLocalDateString } from '../utils/weekdays';
 import { MonthlyRecordsPDFDocument } from './MonthlyRecordsPDFDocument';
 import { generatePagedPDFFromElement } from '../utils/pdfGenerator';
+import {useRecordPeriod,RecordPeriodNotice} from './RecordHistory';
+import {recordMonthPeriod} from '../services/recordPeriods';
 
 interface RecordListProps {
   records: SupportRecord[];
@@ -88,6 +90,9 @@ export const RecordList: React.FC<RecordListProps> = ({
   const [exportingPdf, setExportingPdf] = useState(false);
   const [pdfError, setPdfError] = useState('');
   const [copyMessage, setCopyMessage] = useState('');
+  const periodState=useRecordPeriod(dateMode==='day'?{from:selectedDate||'invalid',to:selectedDate||'invalid'}:{from:dateFrom,to:dateTo});
+  const pdfPeriod=(()=>{try{return recordMonthPeriod(pdfMonth);}catch{return {from:'invalid',to:'invalid'};}})();
+  const pdfPeriodState=useRecordPeriod(monthlyPdfOpen?pdfPeriod:null);
   const [sortRules, setSortRules] = useState<RecordSortRule[]>(initialState.current.sortRules);
 
   const childOptions = useMemo(() => Array.from(new Map<string, string>(
@@ -137,7 +142,7 @@ export const RecordList: React.FC<RecordListProps> = ({
   };
 
   const exportMonthlyPdf = async () => {
-    if (!pdfChildId || monthlyPdfRecords.length === 0) return;
+    if (!pdfPeriodState.ready || !pdfChildId || monthlyPdfRecords.length === 0) return;
     setExportingPdf(true);
     setPdfError('');
     try {
@@ -201,6 +206,7 @@ export const RecordList: React.FC<RecordListProps> = ({
     return direction === 'asc' ? '文字順（先頭から）' : '文字順（末尾から）';
   };
   const copyDisplayedRecords = async () => {
+    if(!periodState.ready)return;
     const text = displayedRecords.map((record) => [
       `${record.date}　${record.childName}`,
       `記録者：${record.recorderName}`,
@@ -243,14 +249,14 @@ export const RecordList: React.FC<RecordListProps> = ({
             )}
           </div>
           <p className="text-xs text-slate-500 mt-1">
-            全{records.length}件・条件に一致 {filteredRecords.length}件
+            {periodState.remote?(periodState.ready?`選択期間・条件に一致 ${filteredRecords.length}件`:'選択期間を確認中'): `全${records.length}件・条件に一致 ${filteredRecords.length}件`}
           </p>
         </div>
 
         <div className="grid w-full grid-cols-2 gap-2 md:flex md:w-auto">
           <button
             type="button"
-            disabled={displayedRecords.length === 0}
+            disabled={!periodState.ready || displayedRecords.length === 0}
             onClick={() => void copyDisplayedRecords()}
             className="flex min-h-11 items-center justify-center gap-2 rounded-lg border border-indigo-200 bg-indigo-50 px-4 text-xs font-black text-indigo-800 disabled:opacity-40"
           >
@@ -258,8 +264,8 @@ export const RecordList: React.FC<RecordListProps> = ({
           </button>
           <button
             type="button"
-            disabled={filteredRecords.length === 0}
-            onClick={() => downloadRecordsCsv(filteredRecords)}
+            disabled={!periodState.ready || filteredRecords.length === 0}
+            onClick={() => {if(periodState.ready)downloadRecordsCsv(filteredRecords);}}
             className="flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-4 text-xs font-bold text-slate-700 disabled:opacity-40 md:flex-none"
           >
             <Download className="h-4 w-4" />表示中をCSV出力
@@ -310,13 +316,14 @@ export const RecordList: React.FC<RecordListProps> = ({
             <label className="text-xs font-black text-slate-600">対象月
               <input type="month" value={pdfMonth} onChange={(event) => setPdfMonth(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm lg:w-44" />
             </label>
-            <button type="button" disabled={exportingPdf || monthlyPdfRecords.length === 0} onClick={() => void exportMonthlyPdf()} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-teal-700 px-5 text-sm font-black text-white disabled:bg-slate-300">
+            <button type="button" disabled={!pdfPeriodState.ready || exportingPdf || monthlyPdfRecords.length === 0} onClick={() => void exportMonthlyPdf()} className="flex min-h-11 items-center justify-center gap-2 rounded-xl bg-teal-700 px-5 text-sm font-black text-white disabled:bg-slate-300">
               {exportingPdf ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-              {exportingPdf ? '作成中…' : `${monthlyPdfRecords.length}件をPDF出力`}
+              {exportingPdf ? '作成中…' : !pdfPeriodState.ready?'記録を確認中':`${monthlyPdfRecords.length}件をPDF出力`}
             </button>
           </div>
           {pdfError && <p className="mt-3 rounded-xl bg-rose-50 p-3 text-xs font-bold text-rose-800" role="alert">{pdfError}</p>}
-          {pdfChildId && monthlyPdfRecords.length === 0 && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs font-bold text-amber-900">選択した月の保存済み記録はありません。</p>}
+          <RecordPeriodNotice state={pdfPeriodState}/>
+          {pdfPeriodState.ready && pdfChildId && monthlyPdfRecords.length === 0 && <p className="mt-3 rounded-xl bg-amber-50 p-3 text-xs font-bold text-amber-900">選択した月の保存済み記録はありません。</p>}
         </section>
       )}
 
@@ -330,7 +337,7 @@ export const RecordList: React.FC<RecordListProps> = ({
           {dateMode === 'day' ? (
             <label className="flex min-w-0 flex-1 items-center gap-2 text-xs font-black text-slate-600">
               対象日
-              <input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} className="min-h-10 min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2 font-bold sm:max-w-48" />
+              <input aria-label="表示する記録日" type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} className="min-h-10 min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-2 font-bold sm:max-w-48" />
             </label>
           ) : (
             <div className="grid min-w-0 flex-1 grid-cols-[1fr_auto_1fr] items-center gap-2">
@@ -339,7 +346,7 @@ export const RecordList: React.FC<RecordListProps> = ({
               <input aria-label="終了日" type="date" value={dateTo} onChange={(event) => setDateTo(event.target.value)} className="min-h-10 min-w-0 rounded-lg border border-slate-300 bg-white px-2 text-xs font-bold" />
             </div>
           )}
-          <span className="shrink-0 rounded-lg bg-teal-100 px-3 py-2 text-center text-xs font-black text-teal-800">{filteredRecords.length}件</span>
+          <span className="shrink-0 rounded-lg bg-teal-100 px-3 py-2 text-center text-xs font-black text-teal-800">{periodState.ready?`${filteredRecords.length}件`:'確認中'}</span>
         </div>
         <button
           type="button"
@@ -392,7 +399,7 @@ export const RecordList: React.FC<RecordListProps> = ({
         </div>
           {activeFilterCount > 0 && (
             <div className="mt-3 flex items-center justify-between gap-3 border-t border-slate-100 pt-3">
-              <p className="text-xs font-bold text-slate-600">{filteredRecords.length}件を表示</p>
+              <p className="text-xs font-bold text-slate-600">{periodState.ready?`${filteredRecords.length}件を表示`:'選択期間を確認中'}</p>
               <button type="button" onClick={clearFilters} className="min-h-9 rounded-lg px-3 text-xs font-black text-rose-700 hover:bg-rose-50">条件を解除</button>
             </div>
           )}
@@ -400,7 +407,7 @@ export const RecordList: React.FC<RecordListProps> = ({
       </div>
 
       {/* Records Table / Cards */}
-      {filteredRecords.length === 0 ? (
+      {!periodState.ready ? <RecordPeriodNotice state={periodState}/> : filteredRecords.length === 0 ? (
         <div className="bg-white rounded-xl border border-slate-200 p-12 text-center text-slate-500 space-y-3">
           <FileText className="w-10 h-10 mx-auto text-slate-300" />
           <p className="text-sm font-semibold">条件に一致する支援経過記録が見つかりませんでした。</p>
@@ -577,7 +584,7 @@ export const RecordList: React.FC<RecordListProps> = ({
           </div>
         </div>
       )}
-      {pdfChildId && monthlyPdfRecords.length > 0 && (
+      {pdfPeriodState.ready && pdfChildId && monthlyPdfRecords.length > 0 && (
         <MonthlyRecordsPDFDocument id={monthlyPdfTargetId} records={monthlyPdfRecords} childName={pdfChildName} month={pdfMonth} />
       )}
     </div>
