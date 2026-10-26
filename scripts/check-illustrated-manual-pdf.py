@@ -1,12 +1,14 @@
 """Verify every source paragraph, PDF navigation and rendered page of both guides."""
 import json
 import re
+import sys
 import unicodedata
 from pathlib import Path
 from PIL import Image, ImageDraw
 from pypdf import PdfReader
 
 root = Path(__file__).resolve().parent.parent
+render_base = Path(sys.argv[1]) if len(sys.argv) == 2 else root / "output/pdf"
 guides = [
     ("sections.json", "Dサポート_図解操作マニュアル.pdf", "manual-current"),
     ("troubleshooting.json", "Dサポート_トラブル対応ガイド.pdf", "troubleshooting-current"),
@@ -19,7 +21,7 @@ results = []
 for source, filename, render_dir in guides:
     sections = json.loads((root / "docs/manuals" / source).read_text(encoding="utf-8"))
     pdf = root / "public/manuals/d-support" / filename
-    rendered = root / "output/pdf" / render_dir
+    rendered = render_base / render_dir
     reader = PdfReader(pdf)
     assert len(reader.pages) == len(sections) + 2, (filename, "Unexpected pagination", len(reader.pages))
     for index, section in enumerate(sections, start=2):

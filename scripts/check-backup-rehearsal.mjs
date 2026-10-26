@@ -1,0 +1,40 @@
+// Isolated, in-memory PostgreSQL rehearsal. No credentials or production exports.
+import assert from 'node:assert/strict';
+import {pathToFileURL} from 'node:url';
+import {resolve} from 'node:path';
+import {createHash} from 'node:crypto';
+import {mkdirSync,writeFileSync} from 'node:fs';
+const args=process.argv.slice(2),index=args.indexOf('--pglite');
+if(index<0||!args[index+1]||args.length!==2)throw Error('Only --pglite <local-runtime> is accepted; no remote connection arguments.');
+const {PGlite}=await import(pathToFileURL(resolve(args[index+1])).href);
+globalThis.fetch=async()=>{throw Error('Network is disabled during this rehearsal');};
+const source=new PGlite();let restored;
+const org='11111111-1111-4111-8111-111111111111',other='22222222-2222-4222-8222-222222222222';
+let checks=0;
+try{
+ await source.exec(`create role authenticated;create role anon;
+ create table public.children(id text primary key,organization_id uuid not null,name text not null);
+ create table public.support_records(id text primary key,organization_id uuid not null,child_id text references public.children(id),version int not null,content jsonb not null);
+ create table public.record_drafts(id text primary key,organization_id uuid not null,revision int not null,payload jsonb not null);
+ insert into public.children values('child-a','${org}','架空児童A'),('child-b','${other}','架空児童B');
+ insert into public.support_records values('record-a','${org}','child-a',3,'{"note":"架空の観察記録","values":[1,2,3]}'),('record-b','${other}','child-b',7,'{"note":"他事業所の架空記録"}');
+ insert into public.record_drafts values('draft-a','${org}',4,'{"selectedChildIds":["child-a"],"memo":"架空の入力途中"}');`);
+ for(const table of ['children','support_records','record_drafts'])await source.exec(`alter table public.${table} enable row level security;grant select on public.${table} to authenticated;create policy scope on public.${table} for select to authenticated using(organization_id=nullif(current_setting('rehearsal.org',true),'')::uuid);`);
+ const snapshot=async db=>JSON.stringify((await db.query(`select jsonb_build_object('children',(select jsonb_agg(c order by id) from public.children c),'records',(select jsonb_agg(r order by id) from public.support_records r),'drafts',(select jsonb_agg(d order by id) from public.record_drafts d)) as data`)).rows);
+ const before=await snapshot(source),archive=await source.dumpDataDir();
+ const bytes=Buffer.from(await archive.arrayBuffer()),digest=createHash('sha256').update(bytes).digest('hex');
+ assert.ok(bytes.length>1000);checks++;
+ restored=new PGlite({loadDataDir:new Blob([bytes])});
+ assert.equal(await snapshot(restored),before);checks++;
+ assert.equal((await restored.query("select version from public.support_records where id='record-a'")).rows[0].version,3);checks++;
+ assert.equal((await restored.query("select revision from public.record_drafts where id='draft-a'")).rows[0].revision,4);checks++;
+ await restored.query("select set_config('rehearsal.org',$1,false)",[org]);await restored.exec('set role authenticated');
+ assert.deepEqual((await restored.query('select id from public.support_records')).rows,[{id:'record-a'}]);checks++;
+ await restored.query("select set_config('rehearsal.org',$1,false)",[other]);
+ assert.deepEqual((await restored.query('select id from public.support_records')).rows,[{id:'record-b'}]);checks++;
+ await restored.query("select set_config('rehearsal.org','',false)");assert.equal((await restored.query('select id from public.support_records')).rows.length,0);checks++;
+ await restored.exec('reset role;set role anon');await assert.rejects(()=>restored.query('select * from public.support_records'));checks++;
+ const damaged=Buffer.from(bytes);damaged[damaged.length-1]^=1;assert.notEqual(createHash('sha256').update(damaged).digest('hex'),digest);checks++;
+ const report={format:'d-support-synthetic-restore-v1',checkedAt:new Date().toISOString(),passed:true,checks,inMemoryPostgreSQL:true,archiveBytes:bytes.length,archiveSha256:digest,rowsAndRevisionsPreserved:true,organizationIsolationPreserved:true,networkAllowed:false,realDataExported:false,productionRestoreVerified:false,limitations:['PGlite archive only, not Supabase CLI pg_dump/psql','No real Auth, Storage, Functions, secrets, encryption media or scheduled backups tested']};
+ mkdirSync('output/backup-rehearsal',{recursive:true});writeFileSync('output/backup-rehearsal/result.json',JSON.stringify(report,null,2)+'\n');console.log(JSON.stringify(report));
+}finally{await restored?.close();await source.close();}

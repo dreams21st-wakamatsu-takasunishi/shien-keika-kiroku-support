@@ -24,3 +24,13 @@
 
 初回は既存機能との整合性のため、支援記録の履歴を含め30種のデータを取得する。履歴のページングや期間指定取得は未実装。今回の変更だけで実機の10〜60秒が何秒になるかは保証せず、公開後に上記計測で評価する。
 実データでの保存・アカウント変更を検証のために行わない。
+
+## 2026-10-26：支援記録の読み取り権限判定
+
+既存の事業所・日付／児童別インデックスは維持し、重複するインデックスは増設しない。`records_select` の事業所判定だけを `(select public.current_organization_id())` にし、既存のSTABLEヘルパーをSQL文ごとに評価する。現在の所属・利用状態・施設端末／個人端末・セッション確認、対象ロール、記録内容、更新・保存・競合防止の処理は変更しない。
+
+`scripts/check-record-read-access-sql.mjs <PGliteのdist/index.js>`：1,201行の架空データで12項目。事業所別と許可なしの結果一致、匿名・書込みの拒否、版番号と全行の保持、InitPlan、再適用、想定外の既存ポリシーの上書き拒否を確認する。
+
+本番適用は承認後、`node scripts/deploy-record-read-access.mjs --apply`。DDLのロールバック試行後に適用し、migration履歴とSELECTポリシーだけを変更する。問題時は元の条件 `alter policy records_select on public.support_records using (organization_id=public.current_organization_id());` で判定方式を戻せる（事前に現在の条件を照合する）。本番にテスト記録は作成しない。
+
+この変更は初回データの期間制限・ページングを導入するものではなく、端末上の秒数短縮も保証しない。公開後の実際の保存・初回読み込みは「処理時間の確認」で評価する。
