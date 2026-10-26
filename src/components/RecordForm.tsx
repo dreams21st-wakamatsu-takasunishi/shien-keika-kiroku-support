@@ -20,6 +20,7 @@ import {
 import {
   arrayMove,
   horizontalListSortingStrategy,
+  rectSortingStrategy,
   SortableContext,
   sortableKeyboardCoordinates,
   useSortable,
@@ -126,6 +127,14 @@ import {evidenceScopeIssue,formatPcActivities,IMPORT_KEY,lessonEventText,readLes
 import {applyAutomaticLessonHistory,type LessonImportTarget} from '../learning/automaticRecordImport';
 import {useLessonAutoHistory} from '../services/useLessonAutoHistory';
 import {LessonAutoStatus} from './LessonAutoStatus';
+import {useRecordPresentation} from '../hooks/useRecordPresentation';
+import {RecordOverviewTable,type RecordOverviewRow} from './RecordOverviewTable';
+import {applyRecordQuickEdit,type QuickRecordField} from '../utils/recordQuickEdit';
+import {getTransportProgram} from '../utils/transportDeparture';
+import {generateRecordSummary} from '../utils/textGenerator';
+import {shortRecordRating} from '../utils/recordRatingLabels';
+
+const recordProgramLabel=(child:ChildProfile)=>child.transportProgram||child.grade?getTransportProgram(child):'区分未設定';
 
 interface RecordFormProps {
   templates: Template[];
@@ -432,8 +441,9 @@ const SortableChildTab: React.FC<{
   unanswered: number;
   active: boolean;
   reordering: boolean;
+  program?:string;
   onSelect: () => void;
-}> = ({ childId, childName, index, unanswered, active, reordering, onSelect }) => {
+}> = ({ childId, childName, index, unanswered, active, reordering, program, onSelect }) => {
   const {
     attributes,
     listeners,
@@ -452,6 +462,7 @@ const SortableChildTab: React.FC<{
     <div
       ref={setNodeRef}
       data-child-tab-id={childId}
+      data-program={program}
       style={style}
       className={`relative flex shrink-0 overflow-hidden rounded-lg border will-change-transform ${
         isDragging
@@ -466,11 +477,13 @@ const SortableChildTab: React.FC<{
       <button
         type="button"
         onClick={onSelect}
+        aria-pressed={active}
         className={`min-h-11 px-3 text-xs font-bold ${
           active ? 'bg-teal-600 text-white' : 'bg-white text-slate-700'
         }`}
       >
         {childName}
+        {program&&<span className={`record-program-badge ${program==='キャリアズ'?'is-careers':program==='小学部'?'is-elementary':'is-unknown'}`}>{program}</span>}
         <span className={`ml-2 rounded-full px-1.5 py-0.5 text-[10px] ${
           unanswered === 0
             ? 'bg-emerald-100 text-emerald-800'
@@ -1917,6 +1930,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   };
 
   const [wizard, setWizard] = useState<WizardDraft>(createInitialDraft);
+  const {choice:presentationChoice,setChoice:setPresentationChoice,presentation}=useRecordPresentation();
+  const [liveTextOpen,setLiveTextOpen]=useState(false);
+  const [collapsedTapQuestions,setCollapsedTapQuestions]=useState<string[]>([]);
+  const [openedTapQuestions,setOpenedTapQuestions]=useState<string[]>([]);
   const currentWizard = useRef(wizard); currentWizard.current = wizard;
   const syncConflict = useRef(false);
   const conflictResolutionInProgress = useRef(false);
@@ -3444,6 +3461,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     const target = jumpTargetRef.current;
     if (target?.childId === wizard.activeChildId && currentPageSteps.some((step) => step.id === target.stepId)) {
       setExpandedGroupStepId(target.stepId);
+      setCollapsedTapQuestions(previous=>previous.filter(id=>id!==target.stepId));
+      setOpenedTapQuestions(previous=>previous.includes(target.stepId)?previous:[...previous,target.stepId]);
       jumpTargetRef.current = null;
       let followUpFrame = 0;
       const frame = window.requestAnimationFrame(() => {
@@ -3859,7 +3878,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingModuleStepId, steps]);
 
-  const moveToChildStep = (childId: string, stepId: string, focusSubject?: string) => {
+  const moveToChildStep = (childId: string, stepId: string, focusSubject?: string, scrollToForm = true) => {
     const targetSteps = buildStepsForTemplate(templateForChild(childId), wizard.childDrafts[childId]);
     const targetIndex = targetSteps.findIndex((step) => step.id === stepId);
     if (targetIndex < 0) { setStepError('移動先の質問が見つかりません。入力内容を更新して再確認してください。'); return; }
@@ -3878,7 +3897,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       childStepIds: { ...previous.childStepIds, [childId]: stepId },
     }));
     document.getElementById('question-index')?.removeAttribute('open');
-    document.getElementById('record-wizard')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if(scrollToForm)document.getElementById('record-wizard')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
 
   const switchChild = (childId: string) => {
@@ -4063,7 +4082,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     return (
       <div className="space-y-4">
         {ratingField && <div>
-          <div className={compact ? 'grid grid-cols-5 gap-1.5' : 'grid gap-2'}>{ratingOptions.map((option) => {
+          <div data-rating-options className={compact ? 'grid grid-cols-5 gap-1.5' : 'grid gap-2'}>{ratingOptions.map((option) => {
             const [level, label] = option.split('：');
             const selected = answer.value === option;
             return (
@@ -4080,11 +4099,12 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                   }`}
               >
                 <span className={`${compact ? 'text-lg' : 'flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-lg'} font-black ${selected && !compact ? 'bg-white/20' : !compact ? 'bg-slate-100 text-slate-900' : ''}`}>{level}</span>
-                {!compact && <span className="text-sm font-bold leading-relaxed sm:text-base">{label || option}</span>}
+                {!compact && <span className="text-sm font-bold leading-relaxed sm:text-base">{presentation==='tablet'?shortRecordRating(option):label || option}</span>}
               </button>
             );
           })}</div>
           {compact && answer.value && <p className="mt-2 rounded-lg bg-teal-50 px-3 py-2 text-xs font-bold leading-relaxed text-teal-900">{answer.value}</p>}
+          {presentation==='tablet'&&<details className="mt-2 text-xs text-slate-600"><summary className="min-h-11 cursor-pointer py-2">評価の詳しい説明{answer.value?`：${answer.value}`:''}</summary><ul className="space-y-2 rounded-lg bg-slate-50 p-3">{ratingOptions.map(option=><li key={option}>{option}</li>)}</ul></details>}
           {(field.scaleLowLabel || field.scaleHighLabel) && <div className="mt-2 flex justify-between gap-3 text-[11px] font-bold text-slate-500"><span>{field.scaleLowLabel}</span><span className="text-right">{field.scaleHighLabel}</span></div>}
         </div>}
         {field.type === 'radio' && !ratingField && field.options && !field.id.endsWith('_period3_type') && <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{field.options.map((option) => (
@@ -4179,7 +4199,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const renderGroupedQuestionBody = (step: WizardStep) => {
     if (step.kind === 'field') {
       const field = fieldForStep(step);
-      return field && step.sectionId ? renderField(field, step.sectionId, true) : null;
+      return field && step.sectionId ? renderField(field, step.sectionId, presentation==='classic') : null;
     }
     if (step.kind === 'attendance') {
       return (
@@ -4203,14 +4223,15 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       const selectedValue = activeChildDraft?.expressions[0] || '';
       return (
         <div className="space-y-3">
-          <div className="grid grid-cols-5 gap-1.5">
+          <div className={presentation==='classic'?'grid grid-cols-5 gap-1.5':'record-expression-options grid grid-cols-2 gap-2'}>
             {options.map((item) => {
               const [level] = item.split('：');
               const selected = selectedValue === item;
-              return <button key={item} type="button" aria-label={item} aria-pressed={selected} onClick={() => updateChildDraft(wizard.activeChildId, (raw) => ({ ...unskip(raw, 'expression'), expressions: [item] }))} className={`min-h-12 rounded-xl border-2 text-lg font-black ${selected ? 'border-amber-500 bg-amber-500 text-slate-950' : 'border-slate-300 bg-white text-slate-700'}`}>{level || item}</button>;
+              return <button key={item} type="button" aria-label={item} aria-pressed={selected} onClick={() => updateChildDraft(wizard.activeChildId, (raw) => ({ ...unskip(raw, 'expression'), expressions: [item] }))} className={`min-h-12 rounded-xl border-2 p-2 text-left ${selected ? 'border-amber-500 bg-amber-500 text-slate-950' : 'border-slate-300 bg-white text-slate-700'}`}>{presentation==='classic'?<span className="block text-center text-lg font-black">{level||item}</span>:<><b className="mr-1 text-base">{level}</b><span className="text-sm font-bold">{presentation==='tablet'?shortRecordRating(item):item.includes('：')?item.slice(item.indexOf('：')+1):item}</span></>}</button>;
             })}
           </div>
           {selectedValue && <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-bold leading-relaxed text-amber-950">{selectedValue}</p>}
+          {presentation==='tablet'&&<details className="text-xs text-slate-600"><summary className="min-h-11 cursor-pointer py-2">表情の評価の詳しい説明</summary><ul className="space-y-2 rounded-lg bg-slate-50 p-3">{options.map(option=><li key={option}>{option}</li>)}</ul></details>}
           <div className="flex justify-between text-[11px] font-bold text-slate-500"><span>1：暗い表情</span><span>5：笑顔</span></div>
           <PersistentNoteDetails hasContent={Boolean(activeChildDraft?.expressionNote)} summary={<>表情の備考（任意）{activeChildDraft?.expressionNote ? '・入力あり' : ''}</>}>
             <textarea rows={2} value={activeChildDraft?.expressionNote || ''} onChange={(event) => updateChildDraft(wizard.activeChildId, (draft) => ({ ...unskip(draft, 'expression'), expressionNote: event.target.value }))} placeholder={wizardQuestions.expression.notePlaceholder} className={`${inputClass} mt-2`} />
@@ -4240,17 +4261,21 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const renderStep = () => {
     if (!currentStep) return null;
     if (currentPageSteps.length > 1) {
+      const displaySteps=presentation==='tablet'&&pageGroupKey(currentStep)==='arrival'
+        ?[...currentPageSteps].sort((a,b)=>{const rank=(s:WizardStep)=>s.kind==='expression'?0:s.fieldId==='preparation'?1:2;return rank(a)-rank(b);})
+        :currentPageSteps;
       return (
-        <div className="space-y-3">
-          {currentPageSteps.map((step) => {
+        <div className="record-group-grid space-y-3">
+          {displaySteps.map((step) => {
             const status = answerStatus(step, activeChildDraft);
             const field = fieldForStep(step);
             const postureQuestion = step.kind === 'field' && /_(study|pc)_posture$/.test(step.fieldId || '');
-            const expanded = expandedGroupStepId === step.id;
+            const defaultTapOpen=pageGroupKey(currentStep)!=='arrival'||step.kind==='expression'||step.fieldId==='preparation';
+            const expanded = presentation==='tablet'?!collapsedTapQuestions.includes(step.id)&&(defaultTapOpen||openedTapQuestions.includes(step.id)):expandedGroupStepId === step.id;
             const summary = groupedStepSummary(step, status);
             if (postureQuestion) {
               return (
-                <section key={step.id} id={`group-question-${step.id}`} className="min-w-0 max-w-full rounded-2xl border-2 border-teal-400 bg-teal-50/60 p-3 shadow-sm sm:p-4">
+                <section key={step.id} id={`group-question-${step.id}`} className="record-group-card min-w-0 max-w-full rounded-2xl border-2 border-teal-400 bg-teal-50/60 p-3 shadow-sm sm:p-4">
                   <div className="mb-3 flex min-w-0 items-start gap-2">
                     <span className={`mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${status === 'answered' ? 'bg-emerald-600 text-white' : 'bg-teal-600 text-white'}`}>{status === 'answered' ? <Check className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</span>
                     <span className="min-w-0 flex-1">
@@ -4266,7 +4291,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
               <section
                 key={step.id}
                 id={`group-question-${step.id}`}
-                className={`min-w-0 max-w-full overflow-hidden rounded-2xl border-2 shadow-sm ${
+                className={`record-group-card min-w-0 max-w-full overflow-hidden rounded-2xl border-2 shadow-sm ${
                   status === 'answered'
                       ? 'border-emerald-300 bg-emerald-50/40'
                       : status === 'skipped'
@@ -4275,7 +4300,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                 }`}
               >
                 <div className="flex items-stretch">
-                  <button type="button" aria-expanded={expanded} onClick={() => setExpandedGroupStepId(expanded ? null : step.id)} className="flex min-h-14 min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left">
+                  <button type="button" aria-expanded={expanded} onClick={() => {if(presentation==='tablet'){setCollapsedTapQuestions(previous=>expanded?[...previous,step.id]:previous.filter(id=>id!==step.id));if(!expanded)setOpenedTapQuestions(previous=>previous.includes(step.id)?previous:[...previous,step.id]);}else setExpandedGroupStepId(expanded ? null : step.id);}} className="flex min-h-14 min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left">
                     <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${status === 'answered' ? 'bg-emerald-600 text-white' : status === 'skipped' ? 'bg-slate-400 text-white' : 'bg-slate-100 text-slate-500'}`}>{status === 'answered' ? <Check className="h-4 w-4" /> : status === 'skipped' ? <SkipForward className="h-3.5 w-3.5" /> : <Circle className="h-3.5 w-3.5" />}</span>
                     <span className="min-w-0 flex-1">
                       <span className="flex flex-wrap items-center gap-1.5">
@@ -4286,6 +4311,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                     <ChevronRight className={`h-5 w-5 shrink-0 text-slate-500 transition-transform ${expanded ? 'rotate-90' : ''}`} />
                   </button>
                 </div>
+                {!expanded&&presentation==='tablet'&&field?.warningText&&<p className="mx-3 mb-3 rounded-lg border border-rose-200 bg-rose-50 p-2 text-xs font-bold text-rose-800">{field.warningText}</p>}
                 {expanded && (
                   <div className="min-w-0 max-w-full space-y-3 border-t border-slate-200 bg-white p-3 sm:p-4">
                     {field?.warningText && <p className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-black leading-relaxed text-rose-700">{field.warningText}</p>}
@@ -4359,7 +4385,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                 const planSummary = dayPlan
                   ? [dayPlan.hasLunch && '昼食', dayPlan.hasSnack && 'おやつ', dayPlan.arrivalTime && `来所 ${dayPlan.arrivalTime}`].filter(Boolean).join('・') || '日別予定あり'
                   : isAdditional ? '追加利用' : formatRegularDays(getRegularDaysForDate(child, wizard.date));
-                return <button key={child.id} type="button" disabled={Boolean(initialRecord) || editingDisabled || Boolean(lockOwner && !canTakeOver)} onClick={() => chooseChild(child)} className={`${choiceClass} flex items-center justify-between gap-2 text-left ${selected ? 'bg-teal-600 border-teal-600 text-white' : lockOwner ? 'border-amber-300 bg-amber-50 text-amber-900' : 'bg-white border-slate-300 text-slate-700'} disabled:opacity-80`}><span>{child.name}<span className="block text-[11px] font-normal opacity-75">{lockOwner ? `${lockOwner}が入力中${!canTakeOver ? '・記録状況から確認' : ''}` : `${calculateSchoolGrade(child.birthDate) || child.grade || '学年未設定'}・${planSummary}`}</span></span>{canTakeOver&&<span className="flex shrink-0 items-center gap-1 rounded-lg border border-amber-400 bg-white px-2 py-1 text-[11px] font-black"><ArrowLeftRight className="h-3.5 w-3.5"/>引き継いで追加</span>}{selected && <Check className="w-5 h-5" />}</button>;
+                return <button key={child.id} type="button" disabled={Boolean(initialRecord) || editingDisabled || Boolean(lockOwner && !canTakeOver)} onClick={() => chooseChild(child)} className={`${choiceClass} flex items-center justify-between gap-2 text-left ${selected ? 'bg-teal-600 border-teal-600 text-white' : lockOwner ? 'border-amber-300 bg-amber-50 text-amber-900' : 'bg-white border-slate-300 text-slate-700'} disabled:opacity-80`}><span>{child.name}<span className={`record-program-badge ${recordProgramLabel(child)==='キャリアズ'?'is-careers':recordProgramLabel(child)==='小学部'?'is-elementary':'is-unknown'}`}>{recordProgramLabel(child)}</span><span className="block text-[11px] font-normal opacity-75">{lockOwner ? `${lockOwner}が入力中${!canTakeOver ? '・記録状況から確認' : ''}` : `${calculateSchoolGrade(child.birthDate) || child.grade || '学年未設定'}・${planSummary}`}</span></span>{canTakeOver&&<span className="flex shrink-0 items-center gap-1 rounded-lg border border-amber-400 bg-white px-2 py-1 text-[11px] font-black"><ArrowLeftRight className="h-3.5 w-3.5"/>引き継いで追加</span>}{selected && <Check className="w-5 h-5" />}</button>;
               })}
             </div>
             {displayedChildren.length === 0 && <p className="rounded-xl border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">この曜日の定期利用児童は登録されていません。</p>}
@@ -5039,6 +5065,53 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     ? activeChildDraft?.recordModules.filter((module) => module.type === pendingModuleType) || []
     : [];
 
+  const deviceEditing=Boolean(isChildStep&&currentStep.kind!=='modules');
+  const quickFieldFor=(step:WizardStep,childId:string):QuickRecordField|undefined=>{
+    const template=templateForChild(childId),draft=wizard.childDrafts[childId];
+    if(step.kind==='expression'){
+      if(!isUnifiedTemplate(template)&&!isStructuredWeekdayTemplate(template)&&!isStructuredHolidayTemplate(template))return;
+      if((draft?.expressions.length||0)>1)return;
+      return {kind:'expression',stepId:step.id,options:getWizardQuestions(template).expression.options||[]};
+    }
+    const field=step.kind==='field'?fieldForStep(step,template):undefined;
+    if(!field||!['radio','rating_scale','fatigue_scale'].includes(field.type)||field.id.endsWith('_period3_type'))return;
+    const options=field.options?.length?field.options:field.type==='fatigue_scale'?[...FATIGUE_SCALE_OPTIONS]:[];
+      return options.length?{kind:'field',stepId:step.id,sectionId:step.sectionId,sectionTitle:template?.sections.find(section=>section.id===step.sectionId)?.title,fieldId:step.fieldId,options}:undefined;
+  };
+  const quickValue=(step:WizardStep,childId:string)=>step.kind==='expression'
+    ?(wizard.childDrafts[childId]?.expressions||[]).join('、')
+    :wizard.childDrafts[childId]?.sectionAnswers[step.sectionId||'']?.answers[step.fieldId||'']?.value||'';
+  const overviewColumnSteps=(pageGroupKey(currentStep)==='arrival'
+    ?[currentPageSteps.find(s=>s.kind==='expression'),currentPageSteps.find(s=>s.fieldId==='preparation'),currentPageSteps.find(s=>s.fieldId==='fatigue')].filter((s):s is WizardStep=>Boolean(s))
+    :currentPageSteps.filter(s=>s.kind==='expression'||s.kind==='field').slice(0,3));
+  const overviewColumns=overviewColumnSteps.map(step=>({id:step.id,label:step.kind==='expression'?'表情':fieldForStep(step)?.label.replace(/[【】]/g,'')||step.title}));
+  const overviewRows:RecordOverviewRow[]=presentation==='pc'&&deviceEditing?wizard.selectedChildIds.map(childId=>{
+    const child=childrenList.find(c=>c.id===childId),draft=wizard.childDrafts[childId],ownSteps=childStepsForDraft(draft,childId);
+    return {id:childId,name:child?.name||'児童',program:child?recordProgramLabel(child):'区分未設定',unanswered:unansweredForChild(childId).length,active:childId===wizard.activeChildId,cells:overviewColumnSteps.map(column=>{
+      // Module IDs identify distinct occurrences. Never copy a field into another occurrence.
+      const step=ownSteps.find(s=>s.id===column.id);
+      if(!step)return {value:'この児童の個別入力で確認'};
+      const value=quickValue(step,childId),field=quickFieldFor(step,childId);
+      return {value,stepId:step.id,skipped:draft?.skippedQuestionIds.includes(step.id),options:field&&(!value||field.options.includes(value))?field.options:undefined};
+    })};
+  }):[];
+  const changeOverviewValue=(childId:string,stepId:string,value:string)=>{
+    if(editingDisabled||isSaving||savingChildId||!wizard.selectedChildIds.includes(childId)||!wizard.childDrafts[childId])return;
+    const step=childStepsForDraft(wizard.childDrafts[childId],childId).find(s=>s.id===stepId);
+    const field=step?quickFieldFor(step,childId):undefined;if(!step||!field)return;
+    updateChildDraft(childId,draft=>stepIsVisible(step,draft,templateForChild(childId),childId)?applyRecordQuickEdit(draft,field,value):draft);
+  };
+  const openOverviewChild=(childId:string)=>{
+    const ownSteps=childStepsForDraft(wizard.childDrafts[childId],childId);
+    const target=ownSteps.find(s=>overviewColumnSteps.some(column=>column.id===s.id))||ownSteps[0];
+    if(target)moveToChildStep(childId,target.id,undefined,false);else switchChild(childId);
+  };
+  const sceneSteps=perChildSteps.filter((step,index,all)=>all.findIndex(s=>pageGroupKey(s)===pageGroupKey(step))===index);
+  const liveText=useMemo(()=>{
+    if(presentation!=='pc'||!liveTextOpen||!activeChildDraft||!activeTemplate)return '';
+    return generateRecordSummary(buildRecordForChild(wizard.activeChildId,''));
+  },[presentation,liveTextOpen,activeChildDraft,activeTemplate,wizard.activeChildId,wizard.date,wizard.recorderName,wizard.recorderId,childrenList,initialRecord,resolvedIssueId]);
+
   return (
     <form
       ref={formElement}
@@ -5046,7 +5119,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       onSubmit={handleSubmit}
       onFocusCapture={(event) => rememberFocusedEditor(event.target)}
       onInputCapture={(event) => rememberFocusedEditor(event.target, true)}
-      className="mx-auto w-full min-w-0 max-w-4xl space-y-4 scroll-mt-20"
+      data-record-layout={presentation}
+      className={`mx-auto w-full min-w-0 space-y-4 scroll-mt-20 ${presentation==='classic'?'max-w-4xl':'max-w-[1440px]'}`}
     >
       <ManualLinks screen={readOnly ? 'operations' : 'record'} section={currentStep?.kind} />
       {childTakeover && createPortal(
@@ -5239,7 +5313,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           </div>
         </div>
       )}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+      <div className="record-draft-meta bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-sm">
           <span className="font-bold text-slate-700">
             {currentStep?.kind === 'review'
@@ -5261,8 +5335,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           {organizationId&&userId&&!readOnly&&!initialRecord&&<button type="button" aria-label="別端末の最新入力を確認" title="別端末の最新入力を確認（表示位置は変わりません）" disabled={!draftReady||draftSyncing||isSaving||Boolean(savingChildId)||editingDisabled||draftStatus==='conflict'} onClick={()=>void requestDraftSync.current?.()} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-slate-300 bg-white text-teal-800 disabled:opacity-40"><RefreshCw className="h-4 w-4"/></button>}
         </div>
         {draftSyncError&&<p role="alert" className="mt-2 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs font-bold text-amber-950">{draftSyncError}</p>}
-        <div className="mt-2 flex items-center justify-between gap-3 border-t border-slate-100 pt-2">
-          <p className="text-xs leading-relaxed text-slate-600">
+        <div className="record-draft-meta-secondary mt-2 flex items-center justify-between gap-3 border-t border-slate-100 pt-2">
+          <p className="record-draft-explanation text-xs leading-relaxed text-slate-600">
             {wizard.selectedChildIds.length === 0
               ? '児童を選択するまでは入力中の記録として保存されません。'
               : allowLocalSensitiveStorage
@@ -5330,8 +5404,13 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         )}
       </div>
 
+      {wizard.selectedChildIds.length>0&&wizard.currentStepIndex>=2&&<div className="record-layout-toolbar flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white p-3">
+        <span className="text-sm font-bold text-slate-800">{wizard.date}・{wizard.recorderName||'記録者を確認'}<span className="ml-2 text-xs font-normal text-slate-600">下書きの共有と、記録の確定保存は別です</span></span>
+        <label className="flex items-center gap-2 text-xs font-bold text-slate-700">表示方法<select aria-label="記録入力の表示方法" value={presentationChoice} onChange={e=>setPresentationChoice(e.target.value as typeof presentationChoice)} className="min-h-11 rounded-lg border border-slate-300 bg-white px-2 text-sm"><option value="auto">自動（{presentation==='pc'?'PC一覧':'タップ入力'}）</option><option value="pc">PC一覧</option><option value="tablet">タップ入力</option><option value="classic">従来表示</option></select></label>
+      </div>}
+      <div className="record-device-workspace" data-editing={deviceEditing}>
       {wizard.selectedChildIds.length > 0 && wizard.currentStepIndex >= 2 && (
-        <div className="app-sticky-below-header sticky z-20 rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur">
+        <div className="record-child-picker app-sticky-below-header sticky z-20 rounded-xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur" data-reordering={reorderingChildTabs}>
           <div className="mb-2 flex items-center justify-between gap-3 px-1">
             <p className="text-[11px] font-black text-slate-600">
               {reorderingChildTabs ? '児童名側でスクロール・右端のハンドルを長押しして移動' : '児童切替'}
@@ -5363,8 +5442,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             onDragCancel={() => setDraggingChildId(null)}
             onDragEnd={handleChildTabDragEnd}
           >
-            <SortableContext items={wizard.selectedChildIds} strategy={horizontalListSortingStrategy}>
-              <div className="ui-scrollbar flex gap-2 overflow-x-auto overscroll-x-contain pb-1" aria-label="記録対象児童の並び順">
+            <SortableContext items={wizard.selectedChildIds} strategy={presentation==='pc'&&deviceEditing?rectSortingStrategy:horizontalListSortingStrategy}>
+              <div className="record-child-list ui-scrollbar flex gap-2 overflow-x-auto overscroll-x-contain pb-1" aria-label="記録対象児童の並び順">
                 {wizard.selectedChildIds.map((childId, index) => {
                   const child = childrenList.find((item) => item.id === childId);
                   return (
@@ -5372,6 +5451,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                       key={childId}
                       childId={childId}
                       childName={child?.name || '児童'}
+                      program={child?recordProgramLabel(child):undefined}
                       index={index}
                       unanswered={unansweredForChild(childId).length}
                       active={wizard.activeChildId === childId}
@@ -5401,6 +5481,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         </div>
       )}
 
+      <div className="record-device-main min-w-0 space-y-4">
+
       {lessonImportEnabled&&organizationId&&userId&&!readOnly&&wizard.selectedChildIds.length>0&&<section aria-label="Dレッスンの自動反映" className="rounded-xl border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs text-teal-950">
         <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
           <label className="flex min-h-11 items-center gap-2 font-bold"><input type="checkbox" checked={automaticLessonEnabled} disabled={editingDisabled||isSaving||Boolean(savingChildId)} onChange={event=>setAutomaticLessonEnabled(event.target.checked)} className="h-4 w-4 accent-teal-700"/>Dレッスンの実績を自動反映</label>
@@ -5410,7 +5492,13 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         {initialRecord&&!automaticLessonEnabled&&<p className="pb-1 text-xs">保存済み記録は自動変更しません。必要な場合のみオンにしてください。</p>}
       </section>}
 
-      <section className="w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      {presentation!=='classic'&&isChildStep&&<nav className="record-scene-nav flex flex-wrap gap-2 rounded-xl border border-slate-200 bg-white p-2" aria-label="記録する場面">
+        {sceneSteps.length<=8?sceneSteps.map(step=><button type="button" key={step.id} aria-current={pageGroupKey(step)===pageGroupKey(currentStep)?'step':undefined} onClick={()=>moveToChildStep(wizard.activeChildId,step.id)} className={`min-h-11 rounded-lg border px-3 text-sm font-bold ${pageGroupKey(step)===pageGroupKey(currentStep)?'border-teal-700 bg-teal-700 text-white':'border-slate-300 bg-white text-slate-700'}`}>{pageTitle(step)}</button>):<label className="text-sm font-bold">場面を選択<select aria-label="記録する場面を選択" value={pageGroupKey(currentStep)} onChange={e=>{const step=sceneSteps.find(s=>pageGroupKey(s)===e.target.value);if(step)moveToChildStep(wizard.activeChildId,step.id);}} className="ml-2 min-h-11 max-w-full rounded-lg border border-slate-300 px-2">{sceneSteps.map(step=><option key={step.id} value={pageGroupKey(step)}>{pageTitle(step)}</option>)}</select></label>}
+        {isUnifiedTemplate(activeTemplate)&&<button type="button" onClick={()=>{const index=steps.findIndex(s=>s.kind==='modules');if(index>=0)moveToStep(index);}} className="min-h-11 rounded-lg border border-teal-300 bg-teal-50 px-3 text-sm font-bold text-teal-900">記録項目を追加・変更</button>}
+        <button type="button" onClick={goToReview} className="ml-auto min-h-11 rounded-lg border border-emerald-300 bg-emerald-50 px-3 text-sm font-bold text-emerald-900">記録を確認</button>
+      </nav>}
+      {presentation==='pc'&&deviceEditing&&<RecordOverviewTable columns={overviewColumns} rows={overviewRows} disabled={editingDisabled||isSaving||Boolean(savingChildId)} onChange={changeOverviewValue} onOpen={openOverviewChild}/>}
+      <section className="record-detail-editor w-full min-w-0 max-w-full overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="p-5 sm:p-7 border-b border-slate-100">
           {isChildStep && (
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
@@ -5433,7 +5521,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
               {currentPageSteps.length > 1 && <p className="mt-1 text-xs font-medium text-slate-500">{
                 currentPageSteps.some((step) => /_(study|pc)_posture$/.test(step.fieldId || ''))
                   ? '姿勢は上部からいつでも入力できます。ほかの項目はタップして1つずつ開きます。'
-                  : '必要な項目をタップして入力してください。入力済みの内容は閉じた状態でも確認できます。'
+                  : presentation==='tablet'?'表情・準備は直接タップして入力できます。ほかの項目も見出しから確認してください。':'必要な項目を開いて詳しく入力してください。入力済みの内容は閉じた状態でも確認できます。'
               }</p>}
               {currentFieldWarning && <p className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-black leading-relaxed text-rose-700">{currentFieldWarning}</p>}
               {currentPageSteps.length <= 1 && currentStep?.help && <p className="mt-2 text-sm leading-relaxed text-slate-500">{currentStep.help}</p>}
@@ -5441,7 +5529,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           </div>
         </div>
         <fieldset disabled={editingDisabled || isSaving || Boolean(savingChildId)} className="box-border w-full min-w-0 max-w-full overflow-x-hidden p-5 disabled:opacity-80 sm:p-7">{renderStep()}{stepError && <div className="mt-4 flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800"><AlertCircle className="w-5 h-5 shrink-0" />{stepError}</div>}</fieldset>
+        {presentation==='pc'&&deviceEditing&&<details className="border-t border-slate-200 p-4" onToggle={e=>setLiveTextOpen(e.currentTarget.open)}><summary className="min-h-11 cursor-pointer text-sm font-bold text-teal-800">保存前の文章プレビュー（未確定）</summary>{liveTextOpen&&<pre aria-label="入力中の文章プレビュー" className="mt-3 whitespace-pre-wrap break-words rounded-xl bg-slate-50 p-3 font-sans text-sm leading-relaxed text-slate-800">{liveText||'まだ文章に反映する入力はありません。'}</pre>}</details>}
       </section>
+      </div>
+      </div>
 
       {wizard.selectedChildIds.length > 0 && (
         <details id="question-index" className="overflow-hidden rounded-2xl border border-slate-200 bg-white text-xs shadow-sm">
