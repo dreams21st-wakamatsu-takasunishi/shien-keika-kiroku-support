@@ -7,7 +7,8 @@ const yen = (amount: number) => `${amount.toLocaleString('ja-JP', { minimumFract
 const decimal = (amount: number) => amount.toLocaleString('ja-JP', { maximumFractionDigits: 3 });
 const fieldClass = 'mt-1 min-h-12 w-full rounded-xl border border-slate-300 bg-white px-3 text-base font-bold text-slate-950 focus:border-teal-500';
 
-export function TrafficCostCalculator({ scopeKey }: { scopeKey: string }) {
+export function TrafficCostCalculator({ scopeKey, compact=false }: { scopeKey: string; compact?:boolean }) {
+  const [detailsOpen,setDetailsOpen]=useState(false);
   const storageKey = `d-support-traffic-cost-v1:${scopeKey}`;
   const [input, setInput] = useState<TrafficCostInput>(() => {
     try { return restoreTrafficCostInput(sessionStorage.getItem(storageKey)); }
@@ -46,21 +47,21 @@ export function TrafficCostCalculator({ scopeKey }: { scopeKey: string }) {
     catch { setMessage('コピーできませんでした。ブラウザのクリップボード許可を確認してください。'); }
   };
 
-  return <section className="traffic-cost-page mx-auto max-w-6xl space-y-4 pb-6" aria-label="交通費計算">
-    <ManualLinks screen="traffic" className="traffic-cost-no-print" />
-    <header className="flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
+  return <section className={`${compact?'traffic-cost-compact':'traffic-cost-page'} mx-auto max-w-6xl space-y-4 pb-6`} aria-label="交通費計算">
+    {!compact&&<ManualLinks screen="traffic" className="traffic-cost-no-print" />}
+    {!compact&&<header className="flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
       <div className="flex items-start gap-3">
         <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-teal-50 text-teal-700"><Calculator className="h-6 w-6" /></span>
         <div><h1 className="text-xl font-black text-slate-950">交通費計算</h1><p className="mt-1 text-sm text-slate-600">距離・人数・使用車両を入力すると、すぐに金額が分かります。</p></div>
       </div>
       <a href={`${import.meta.env.BASE_URL}manuals/traffic-cost/index.html`} target="_blank" rel="noopener noreferrer" className="traffic-cost-no-print flex min-h-11 items-center gap-2 rounded-xl border border-teal-300 bg-teal-50 px-4 text-sm font-bold text-teal-800"><BookOpen className="h-4 w-4" />距離の調べ方（図解）</a>
-    </header>
+    </header>}
 
     <div className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
       <div className="flex items-center justify-between gap-2"><h2 className="font-black text-slate-900">1. 距離と人数を入力</h2><span className="text-xs text-slate-500">必須：距離・単価・児童数</span></div>
-      <div className="mt-4 grid gap-4 sm:grid-cols-3">
+      <div className="traffic-primary-inputs mt-4 grid gap-4 sm:grid-cols-3">
         <label className="text-sm font-bold text-slate-700">距離（km）<input aria-label="距離（km）" inputMode="decimal" value={input.distance} onChange={(event) => update('distance', event.target.value)} placeholder="例：8.5" className={fieldClass} />
-          <select aria-label="距離の入力方式" value={input.distanceMode} onChange={(event) => update('distanceMode', event.target.value as TrafficCostInput['distanceMode'])} className="mt-2 min-h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-2 text-sm font-bold"><option value="oneWay">片道距離を入力（自動で2倍）</option><option value="roundTrip">往復の合計距離を入力</option></select>
+          <select aria-label="距離の入力方式" value={input.distanceMode} onChange={(event) => update('distanceMode', event.target.value as TrafficCostInput['distanceMode'])} className="mt-2 min-h-10 w-full rounded-lg border border-slate-200 bg-slate-50 px-2 text-sm font-bold"><option value="oneWay">{compact?'片道（自動で2倍）':'片道距離を入力（自動で2倍）'}</option><option value="roundTrip">{compact?'往復の合計':'往復の合計距離を入力'}</option></select>
         </label>
         <label className="text-sm font-bold text-slate-700">ガソリン単価（円/L）<input inputMode="decimal" value={input.fuelPrice} onChange={(event) => update('fuelPrice', event.target.value)} className={fieldClass} /><span className="mt-2 block text-xs font-normal text-slate-500">160円はExcelの初期値です。当日の単価に変更してください。</span></label>
         <label className="text-sm font-bold text-slate-700">利用児童数（名）<input inputMode="numeric" value={input.childCount} onChange={(event) => update('childCount', event.target.value)} placeholder="例：8" className={fieldClass} /><span className="mt-2 block text-xs font-normal text-slate-500">職員は人数に含めません。</span></label>
@@ -71,6 +72,8 @@ export function TrafficCostCalculator({ scopeKey }: { scopeKey: string }) {
       </details>
     </div>
 
+    {compact&&<button type="button" className="min-h-11 w-full rounded-xl border border-slate-300 bg-white p-3 text-left text-sm font-bold" aria-expanded={detailsOpen} onClick={()=>setDetailsOpen(v=>!v)}>使用車両 {selectedCount}台・追加費用・端数処理を{detailsOpen?'収納':'変更'}</button>}
+    <div hidden={compact&&!detailsOpen} className="space-y-4">
     <fieldset className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5">
       <legend className="sr-only">使用車両と燃費</legend>
       <div className="flex flex-wrap items-center justify-between gap-2"><h2 className="font-black text-slate-900">2. 使用する車両を選択 <span className="ml-2 rounded-full bg-sky-50 px-2 py-1 text-xs text-sky-800">{selectedCount}台</span></h2><span className="text-xs text-slate-500">燃費はExcelの値・変更可能</span></div>
@@ -94,6 +97,7 @@ export function TrafficCostCalculator({ scopeKey }: { scopeKey: string }) {
       </div>
     </section>
 
+    </div>
     {!valid ? <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950" role="status"><p className="font-bold">計算に必要な入力を確認してください</p><ul className="mt-2 list-inside list-disc space-y-1">{result.errors.map((error) => <li key={error}>{error}</li>)}</ul></div>
       : <section className="rounded-2xl border border-slate-200 bg-white p-4 sm:p-5" aria-label="計算内訳">
         <h2 className="flex items-center gap-2 font-black text-slate-900"><Fuel className="h-5 w-5 text-teal-700" />計算内訳</h2>
@@ -110,7 +114,7 @@ export function TrafficCostCalculator({ scopeKey }: { scopeKey: string }) {
 
     <footer className="traffic-cost-no-print flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-4">
       <div><p className="text-xs text-slate-500">{storageUnavailable ? 'このブラウザでは入力を保持できません。画面を閉じる前に結果をコピーしてください。' : '入力はこのタブ内で保持されます。別端末には共有されません。'}</p>{message && <p className="mt-1 text-xs font-bold text-teal-800" role="status">{message}</p>}</div>
-      <div className="flex flex-wrap gap-2"><button type="button" onClick={() => { if (window.confirm('交通費計算の入力を初期状態に戻しますか？')) { setInput(createTrafficCostInput()); setMessage('入力をリセットしました。'); } }} className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-300 px-3 text-sm font-bold text-slate-600"><RotateCcw className="h-4 w-4" />リセット</button><button type="button" disabled={!valid} onClick={() => window.print()} className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-300 px-3 text-sm font-bold text-slate-700 disabled:opacity-40"><Printer className="h-4 w-4" />印刷</button><button type="button" disabled={!valid} onClick={() => void copy()} className="flex min-h-11 items-center gap-2 rounded-xl bg-teal-700 px-4 text-sm font-bold text-white disabled:opacity-40">{message.startsWith('計算結果') ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}結果をコピー</button></div>
+      <div className="flex flex-wrap gap-2"><button type="button" onClick={() => { if (window.confirm('交通費計算の入力を初期状態に戻しますか？')) { setInput(createTrafficCostInput()); setMessage('入力をリセットしました。'); } }} className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-300 px-3 text-sm font-bold text-slate-600"><RotateCcw className="h-4 w-4" />リセット</button>{!compact&&<button type="button" disabled={!valid} onClick={() => window.print()} className="flex min-h-11 items-center gap-2 rounded-xl border border-slate-300 px-3 text-sm font-bold text-slate-700 disabled:opacity-40"><Printer className="h-4 w-4" />印刷</button>}<button type="button" disabled={!valid} onClick={() => void copy()} className="flex min-h-11 items-center gap-2 rounded-xl bg-teal-700 px-4 text-sm font-bold text-white disabled:opacity-40">{message.startsWith('計算結果') ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}結果をコピー</button></div>
     </footer>
   </section>;
 }

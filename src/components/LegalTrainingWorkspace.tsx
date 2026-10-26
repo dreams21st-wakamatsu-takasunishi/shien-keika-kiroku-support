@@ -6,7 +6,7 @@ import {SortableContext,sortableKeyboardCoordinates,useSortable,verticalListSort
 import {CSS} from '@dnd-kit/utilities';
 import type {UserProfile} from '../types';
 import {createTrainingRepository} from '../services/legalTraining';
-import {canManageTraining,moveTrainingItem,moveTrainingItemTo,openTrainingResources,remainingTraining,trainingError,visibleTraining,type TrainingCategory,type TrainingData,type TrainingProgress,type TrainingRepository,type TrainingVideo} from '../training/model';
+import {canManageTraining,moveTrainingItem,moveTrainingItemTo,openTrainingResources,openTrainingConfirmationForm,remainingTraining,trainingError,visibleTraining,type TrainingCategory,type TrainingData,type TrainingProgress,type TrainingRepository,type TrainingVideo} from '../training/model';
 
 const empty:TrainingData={categories:[],videos:[],progress:[]};
 const inputClass='mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950';
@@ -21,6 +21,8 @@ export function LegalTrainingWorkspace({user,manage=false,repository,onDirtyChan
  const [data,setData]=useState<TrainingData>(empty),[selected,setSelected]=useState('');
  const [loading,setLoading]=useState(true),[ready,setReady]=useState(false),[busy,setBusy]=useState(false);
  const [error,setError]=useState(''),[message,setMessage]=useState('');
+ const [formRecoveryUrl,setFormRecoveryUrl]=useState('');
+ useEffect(()=>setFormRecoveryUrl(''),[scope]);
  const [addingCategory,setAddingCategory]=useState(false),[categoryTitle,setCategoryTitle]=useState('');
  const [editingCategory,setEditingCategory]=useState<TrainingCategory|null>(null),[editingVideo,setEditingVideo]=useState<TrainingVideo|null>(null);
  const [video,setVideo]=useState({title:'',videoUrl:'',materialUrl:''});
@@ -60,19 +62,21 @@ export function LegalTrainingWorkspace({user,manage=false,repository,onDirtyChan
   <button type="button" className="min-h-12 w-full rounded-xl bg-teal-700 px-4 font-black text-white" onClick={()=>setConfirmedScope(scope)}>この職員で受講する</button>
   {onSignOut?<button type="button" className={`${buttonClass} w-full`} onClick={onSignOut}>別の職員で受講する（ログアウト）</button>:<p className="text-sm text-slate-600">違う職員の場合は、メニューからログアウトし、本人のアカウントでログインしてください。</p>}
  </section>;
- return <div className={manage?'space-y-4':'space-y-4 pb-32'} aria-label={manage?'法定研修追加':'法定研修'}>
+ return <div className="space-y-4" aria-label={manage?'法定研修追加':'法定研修'}>
   {!manage&&<ManualLinks screen="training" />}
   <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
    <div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-3"><BookOpenCheck className="h-7 w-7 text-teal-700"/><div><h2 className="text-xl font-black">{manage?'法定研修追加':'法定研修'}</h2><p className="mt-1 text-sm text-slate-600">{manage?'研修カテゴリに動画と資料のリンクを登録します。':`${user.displayName}さん本人の受講状況です。`}</p></div></div>
     <button type="button" className={buttonClass} disabled={busy||loading} onClick={()=>{if(!dirty||window.confirm('未保存の入力を残したまま、一覧を再読込しますか？'))void reload();}}><RefreshCw className="mr-1 inline h-4 w-4"/>再読込</button></div>
    <p className="mt-3 rounded-xl bg-slate-50 p-3 text-xs leading-relaxed text-slate-600">研修名・URLはDサポートのDBで共有し、AIには送信しません。動画・資料は外部サービスで開きます。外部サービスのログインは別途必要です。{user.organizationId==='local'?'試用データはメモリ内のみで、画面更新後は失われます。':''}</p>
-   {!manage&&<p className="mt-3 text-xs text-slate-600">外部サービスの視聴済み表示とは連動しません。受講後に「完了」を押してください。これは自己申告の記録であり、視聴証明ではありません。</p>}
+   {!manage&&<p className="mt-3 text-xs text-slate-600">受講後に「完了」を押すと、受講確認フォームを別タブで開き、本人の受講完了を保存します。フォームの回答・送信は別途行ってください。外部サービスの視聴済み表示・フォーム送信状況とは連動しない自己申告の記録です。</p>}
+   {!manage&&ready&&!data.settings?.confirmationFormUrl&&<p className="mt-2 text-xs text-amber-800">受講確認フォームは未登録です。完了の保存はできます。リンク先は管理者・児発管に確認してください。</p>}
   </section>
   {loading&&<p role="status" className="text-sm text-slate-600">読み込み中…</p>}
   {error&&<p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
   {message&&<p role="status" className="rounded-xl bg-teal-50 p-3 text-sm text-teal-900">{message}</p>}
+  {!manage&&formRecoveryUrl&&<p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-700">フォームが開かなかった場合は、<a href={formRecoveryUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" className="font-bold text-teal-800 underline">受講確認フォームを開き直す</a>。フォームの回答・送信とDサポートの保存結果は別に確認してください。</p>}
   {allowed&&<section className="rounded-2xl border border-teal-200 bg-white p-4 shadow-sm sm:p-5" aria-label="受講確認フォームの設定">
-   <h3 className="font-black">受講確認フォーム</h3><p className="mt-2 text-sm text-slate-600">事業所共通のリンク先を登録します。職員の受講画面の下部に固定表示します。空欄で保存するとリンクを解除します。</p>
+   <h3 className="font-black">受講確認フォーム</h3><p className="mt-2 text-sm text-slate-600">事業所共通のリンク先を登録します。職員が各動画の「完了」を押すと別タブで開きます。空欄で保存するとリンクを解除します。</p>
    <form className="mt-3 space-y-3" onSubmit={e=>{e.preventDefault();if(!formDraft)return;const draft=formDraft;if(!draft.url.trim()&&!window.confirm('受講確認フォームのリンクを解除しますか？'))return;void mutate(async()=>{await repo.saveConfirmationForm(draft.url,draft.revision);if(mounted.current)setFormDraft(null);},'受講確認フォームの設定を保存しました。');}}>
     <label className="block text-sm font-bold">受講確認フォームURL<input autoComplete="off" type="url" inputMode="url" maxLength={2048} className={inputClass} value={formDraft?.url??data.settings?.confirmationFormUrl??''} disabled={blocked} onChange={e=>setFormDraft(previous=>({url:e.target.value,revision:previous?.revision??data.settings?.revision??0}))}/></label>
     <div className="flex flex-wrap gap-2"><button className="min-h-11 rounded-xl bg-teal-700 px-4 text-sm font-bold text-white disabled:opacity-40" disabled={blocked||!formDraft}>フォームURLを保存</button>{formDraft&&<button type="button" className={buttonClass} disabled={busy} onClick={()=>{if(window.confirm('フォームURLの未保存の入力を破棄しますか？'))setFormDraft(null);}}>フォームURLの編集をやめる</button>}</div>
@@ -109,7 +113,11 @@ export function LegalTrainingWorkspace({user,manage=false,repository,onDirtyChan
       <div className="flex flex-wrap items-center gap-2"><button type="button" className="min-h-11 min-w-0 flex-1 break-words text-left text-base font-bold text-teal-800 underline decoration-teal-300 underline-offset-4" onClick={()=>{try{openTrainingResources(row,(url,target,features)=>window.open(url,target,features));setMessage('外部タブを開きました。動画・資料が開かない場合は、個別のリンクを押してください。');}catch(e){setError(trainingError(e));}}}>{row.title}<ExternalLink className="ml-1 inline h-4 w-4"/></button>
        {!manage&&<span className={`rounded-full px-3 py-1 text-xs font-black ${completed?'bg-emerald-100 text-emerald-900':'bg-amber-100 text-amber-900'}`}>{completed?'受講済み':'未受講'}</span>}</div>
       <div className="mt-2 flex flex-wrap items-center gap-2"><a className={buttonClass+' inline-flex items-center'} href={row.videoUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">動画を開く</a>{row.materialUrl&&<a className={buttonClass+' inline-flex items-center'} href={row.materialUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">資料を開く</a>}
-       {manage?<><button type="button" className={`${buttonClass} text-teal-800`} disabled={blocked} onClick={()=>startVideoEdit(row)}>編集</button><button type="button" className={`${buttonClass} text-rose-700`} disabled={blocked||dirty} onClick={()=>{if(window.confirm('この動画を一覧から削除します。過去の受講履歴は保持されます。削除しますか？'))void mutate(()=>repo.archiveVideo(row),'動画を削除しました。');}}>削除</button></>:<button type="button" className={completed?`${buttonClass} text-slate-700`:'min-h-11 rounded-xl border border-teal-700 bg-teal-700 px-4 text-sm font-bold text-white disabled:opacity-40'} disabled={blocked} onClick={()=>void mutate(async()=>{await repo.setCompleted(row.id,!completed,status?.revision||0);},completed?'完了を取り消しました。':'本人の受講完了を保存しました。')}>{completed?'取り消し':'完了'}</button>}</div>
+       {manage?<><button type="button" className={`${buttonClass} text-teal-800`} disabled={blocked} onClick={()=>startVideoEdit(row)}>編集</button><button type="button" className={`${buttonClass} text-rose-700`} disabled={blocked||dirty} onClick={()=>{if(window.confirm('この動画を一覧から削除します。過去の受講履歴は保持されます。削除しますか？'))void mutate(()=>repo.archiveVideo(row),'動画を削除しました。');}}>削除</button></>:<button type="button" className={completed?`${buttonClass} text-slate-700`:'min-h-11 rounded-xl border border-teal-700 bg-teal-700 px-4 text-sm font-bold text-white disabled:opacity-40'} disabled={blocked} onClick={()=>{
+        if(!completed){try{setFormRecoveryUrl(openTrainingConfirmationForm(data.settings?.confirmationFormUrl||'',(url,target,features)=>window.open(url,target,features)));}catch{setFormRecoveryUrl('');}}
+        else setFormRecoveryUrl('');
+        void mutate(async()=>{await repo.setCompleted(row.id,!completed,status?.revision||0);},completed?'完了を取り消しました。':data.settings?.confirmationFormUrl?'本人の受講完了を保存しました。受講確認フォームの回答・送信も行ってください。':'本人の受講完了を保存しました。受講確認フォームは未登録です。');
+       }}>{completed?'取り消し':'完了'}</button>}</div>
       {!manage&&status?.completedAt&&<p className="mt-2 text-xs text-emerald-800">受講完了：{new Date(status.completedAt).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'})}</p>}
       {allowed&&<TrainingOrderControls handle={handle} title={row.title} index={index} count={videos.length} disabled={orderingBlocked} onMove={direction=>void mutate(()=>repo.reorderVideos(selected,moveTrainingItem(videos,row.id,direction)),'動画の表示順を保存しました。')}/>}
      </article>}</TrainingSortableItem>;
@@ -117,9 +125,6 @@ export function LegalTrainingWorkspace({user,manage=false,repository,onDirtyChan
     {ready&&selected&&!videos.length&&<p className="mt-4 text-sm text-slate-600">このカテゴリには動画がありません。</p>}
    </section>
   </div>
-  {!manage&&<div aria-label="受講確認フォームへのリンク" className="fixed left-4 right-24 z-30 rounded-2xl border border-teal-200 bg-white p-2 shadow-lg sm:left-1/2 sm:right-auto sm:w-80 sm:-translate-x-1/2" style={{bottom:'calc(1rem + env(safe-area-inset-bottom, 0px))'}}>
-   {ready&&!loading&&data.settings?.confirmationFormUrl?<a href={data.settings.confirmationFormUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer" className="flex min-h-12 items-center justify-center gap-2 rounded-xl bg-teal-700 px-3 text-sm font-black text-white">受講確認フォーム<ExternalLink className="h-4 w-4 shrink-0"/></a>:<><button type="button" disabled className="min-h-12 w-full rounded-xl bg-slate-100 px-3 text-sm font-black text-slate-500">受講確認フォーム</button><p className="mt-1 text-center text-xs text-slate-600">{loading?'読み込み中…':ready?'リンク先は未登録です':'リンク先を取得できません'}</p></>}
-  </div>}
  </div>;
 }
 function TrainingOrderControls({handle,title,index,count,disabled,onMove}:{handle:ReactNode;title:string;index:number;count:number;disabled:boolean;onMove:(direction:-1|1)=>void}){

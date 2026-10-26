@@ -24,6 +24,15 @@
 }
 
 .activity-print-only { display: none; }
+.activity-traffic-window { position:fixed; z-index:80; width:460px; max-width:calc(100vw - 16px); height:min(680px,calc(100dvh - 124px)); min-height:240px; display:flex; flex-direction:column; resize:both; overflow:hidden; border:1px solid #94a3b8; border-radius:14px; background:#f8fafc; box-shadow:0 12px 48px #0f172a40; }
+.activity-traffic-window[hidden] { display:none; }
+.activity-traffic-window.is-maximized { inset:84px 8px 16px; width:auto; height:auto; resize:none; }
+.traffic-cost-compact .grid { grid-template-columns:minmax(0,1fr); }
+.traffic-cost-compact .traffic-primary-inputs,.traffic-cost-compact [aria-live] { grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; }
+.traffic-cost-compact .traffic-primary-inputs label > span,.traffic-cost-compact [aria-label="計算内訳"] { display:none; }
+.traffic-cost-compact > div,.traffic-cost-compact > footer { padding:12px; }
+.traffic-cost-compact input,.traffic-cost-compact select { min-width:0; }
+.traffic-cost-compact [aria-live] > div p:nth-child(2) { font-size:1.75rem; }
 .activity-edit-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; align-items: start; }
 .activity-live-preview { min-width: 0; overflow: hidden; display: flex; flex-direction: column; border: 1px solid #cbd5e1; border-radius: 16px; background: #f1f5f9; }
 .activity-preview-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 12px; background: white; border-bottom: 1px solid #cbd5e1; }

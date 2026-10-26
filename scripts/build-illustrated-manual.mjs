@@ -18,7 +18,7 @@ for(const guide of guides){
   if(!/^[a-z0-9-]+$/.test(s.id)||ids.has(s.id)||s.steps.length!==3||s.flow.length!==3||!s.note||!s.route)throw Error('Invalid section: '+s.id);
   ids.add(s.id);
   const target=path.join(out,'images',s.image+'.png'),newCapture=path.join(root,'output/playwright','guide-2026-10-15-'+s.image+'.png');
-  if(existsSync(newCapture))copyFileSync(newCapture,target);
+  if(!process.argv.includes('--keep-images')&&existsSync(newCapture))copyFileSync(newCapture,target);
   if(!existsSync(target))throw Error('Missing synthetic screenshot: '+s.image);
  }
  const groups=[...new Set(sections.map(s=>s.group))];
@@ -41,6 +41,7 @@ for(const guide of guides){
  '<div class="cover-flow">'+(guide.trouble?'<div>入力を守る</div><span>→</span><div>症状を確認</div><span>→</span><div>安全に対処</div>':'<div>機能を探す</div><span>→</span><div>入力・確認</div><span>→</span><div>保存・共有</div>')+'</div>'+
  '<p>'+sections.length+'項目／画面画像付き／検索・画像拡大・PDF保存</p>'+
  '<div class="cover-notice"><b>このガイドの使い方</b><p>'+safety+'</p><p>'+date+'に現行ソース（'+revision+'からの更新を含む）と説明用画面を照合。画像は架空の児童・職員のデータを使用しています。実在の個人情報・有効なQR・合言葉は掲載していません。</p>'+
+ '<p>2026-10-26部分更新：法定研修の完了操作から確認フォームを開く手順に変更しました。配布PDFは2026-10-16版のため、この変更はブラウザー版で確認してください。</p>'+
  '<p>機能の表示・編集可否は役職、追加権限、端末種別、サーバー設定で異なります。画像は操作説明用で、本番の認証・保存テストを示すものではありません。</p>'+
  '<p>'+(guide.trouble?'安全に関わる場合は事業所の緊急連絡手順を優先します。解消しない場合は発生日時・操作・エラー履歴を管理者へ。':'各項目は「開く場所 → 画像 → 3つの手順 → 確認ポイント」の順です。クラウド保存、自動取得、作品承認、打刻は別の処理です。')+'</p></div>'+
  '<p class="version">作成日：'+date+'／対象ソース：'+revision+'／実機・運用規程による確認は別途必要</p></section>'+

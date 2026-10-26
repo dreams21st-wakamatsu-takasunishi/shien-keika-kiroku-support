@@ -8,6 +8,7 @@ import { listActivityPlans, saveActivityPlan } from '../services/activityPlanSer
 import { activityDuration, activityKinds, activityStatuses, activityTemplates, activityText, activityTimeline, copyActivity, emptyActivity, restoreActivityDraft, validateActivity, type ActivityContent, type ActivityPlan } from '../utils/activityPlans';
 import { activityDraftStorageKey, installActivityDraftCloseWarning } from '../utils/activityDraftWarning';
 import { growTextareaToContent } from '../utils/textareaSizing';
+import { ActivityTrafficWindow } from './ActivityTrafficWindow';
 
 const field = 'mt-1 w-full min-h-11 rounded-xl border border-slate-300 bg-white px-3 py-2 text-base text-slate-950 focus:border-teal-500';
 const button = 'min-h-11 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-700 disabled:opacity-40';
@@ -27,7 +28,9 @@ const previewFields: Record<string, string> = {
   '実施後の振り返り': 'reflection', '次回に活かすこと': 'nextTime',
 };
 type Props = { organizationId: string; userId: string; onDirtyChange: (dirty: boolean) => void; onOpenTrafficCost: () => void; onOpenCalendar: () => void };
-export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, onOpenTrafficCost, onOpenCalendar }: Props) {
+export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, onOpenCalendar }: Props) {
+  const [trafficOpened,setTrafficOpened]=useState(false),[trafficVisible,setTrafficVisible]=useState(false);
+  const trafficTrigger=useRef<HTMLButtonElement>(null);
   const storageKey = activityDraftStorageKey(organizationId, userId);
   const [restored] = useState(() => { try { return restoreActivityDraft(sessionStorage.getItem(storageKey)); } catch { return null; } });
   const [plan, setPlan] = useState<ActivityPlan>(restored || emptyActivity);
@@ -126,7 +129,7 @@ export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, o
     <DeleteWorkspaceItem resource="activity_plans" id={plan.id} revision={plan.revision} disabled={busy||dirty||organizationId==='local'} onDeleted={()=>{setList(prev=>prev.filter(row=>row.id!==plan.id));setPlan(emptyActivity());setDirty(false);setMessage('削除済みに移しました。設定から復元できます。');}}/>
     <header className="activity-no-print flex flex-wrap items-start justify-between gap-3 rounded-2xl border border-teal-200 bg-white p-4 sm:p-5">
       <div><h1 className="flex items-center gap-2 text-xl font-black"><BookOpenCheck className="h-6 w-6 text-teal-600" />活動・指導案</h1><p className="mt-1 text-sm text-slate-600">ひな形を選んで入力 → 準備を確認 → 実施後の振り返り。表の整形は不要です。</p></div>
-      <div className="flex flex-wrap gap-2"><button className={button} onClick={onOpenCalendar}>業務カレンダーを開く</button><button className={button} onClick={onOpenTrafficCost}>交通費を計算</button></div>
+      <div className="flex flex-wrap gap-2"><button className={button} onClick={onOpenCalendar}>業務カレンダーを開く</button><button ref={trafficTrigger} className={button} aria-expanded={trafficVisible} onClick={()=>{setTrafficOpened(true);setTrafficVisible(true);}}>交通費を計算</button></div>
     </header>
     <div className="activity-no-print space-y-4">
       <section className="space-y-3 rounded-2xl border border-slate-200 bg-white p-4" aria-label="作成する案を選ぶ">
@@ -208,6 +211,7 @@ export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, o
       </div>
     </div>
     <article className="activity-print-only"><ActivityPlanSheet plan={plan} dirty={dirty} /></article>
+    {trafficOpened&&<ActivityTrafficWindow scopeKey={`${organizationId}:${userId}`} visible={trafficVisible} onClose={()=>{setTrafficVisible(false);trafficTrigger.current?.focus({preventScroll:true});}}/>}
   </section>;
 }
 function TextArea({ label, value, onChange, placeholder, maxLength = 10000 }: { label: string; value: string; onChange: (value: string) => void; placeholder: string; maxLength?: number }) {

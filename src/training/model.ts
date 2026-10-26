@@ -65,6 +65,14 @@ export function openTrainingResources(video:Pick<TrainingVideo,'videoUrl'|'mater
  const urls=[trainingUrl(video.videoUrl),trainingUrl(video.materialUrl,true)].filter(Boolean);
  for(const url of [...new Set(urls)])open(url,'_blank','noopener,noreferrer');
 }
+/** Call in the click event, before waiting for storage, to retain user activation.
+ * No video name, identity or completion information is added to the URL.
+ */
+export function openTrainingConfirmationForm(input:string,open:(url:string,target:string,features:string)=>unknown){
+ const url=trainingUrl(input,true);
+ if(url){try{open(url,'_blank','noopener,noreferrer');}catch{/* The UI keeps a direct fallback link even if a browser blocks the popup. */}}
+ return url;
+}
 export function trainingError(error:unknown){
  const code=(error as {code?:string})?.code;
  const message=error instanceof Error?error.message:'';
