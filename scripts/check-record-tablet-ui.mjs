@@ -45,7 +45,7 @@ async function check(page, url) {
   await note.fill('切り替えても保持する架空メモ');
   await child(1).click();assert(await note.isVisible(), 'active child tap does not reset open question');
   await child(2).click();await page.getByText('架空児童02の記録',{exact:true}).waitFor();
-  await child(1).click();const arrivalToggle=page.getByRole('button',{name:/^本日の出欠を教えてください/});if(await arrivalToggle.getAttribute('aria-expanded')!=='true')await arrivalToggle.click();
+  await child(1).click();await page.getByRole('button',{name:/^本日の出欠を教えてください/}).click();
   assert(await note.inputValue()==='切り替えても保持する架空メモ', 'child answers preserved after switching');
   await lesson.locator('summary').click();
   assert(await lesson.getByText(/手入力・観察は保持/).isVisible(), 'lesson explanation is available on demand');
