@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import {requireExternalAiPolicy,redactAiText,makeAiPreview,verifyAiPreview,AI_PREVIEW_REQUIRED} from '../_shared/externalAiPrivacy.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -26,7 +27,8 @@ type ActionType = typeof ALLOWED_ACTIONS[number];
 type ServiceClient = any;
 
 type RequestBody = {
-  mode?: 'propose' | 'execute';
+  mode?: 'propose' | 'execute' | 'preview' | 'preview_execute';
+  previewToken?: string;
   childId?: string;
   instruction?: string;
   actionId?: string;
@@ -154,8 +156,7 @@ async function callGemini(geminiApiKey: string, prompt: string, maxOutputTokens 
   );
 
   if (!response.ok) {
-    const details = await response.text();
-    console.error('Gemini error', response.status, details.slice(0, 500));
+    console.error('Gemini error', response.status);
     throw new Error('AI generation failed');
   }
   const data = await response.json();
@@ -367,7 +368,7 @@ function buildProposal(
         { label: '対象児童', value: child.name },
         { label: '対象期間', value: `直近${periodDays}日間` },
       ],
-      confirmationNote: '承認後、対象期間の記録内容を個人名なしでAIへ送り、傾向を要約します。',
+      confirmationNote: '実行前に送信文章を確認します。識別情報の除去は完全ではないため、不要な情報が残っていたら送信せず元の記録を確認してください。',
     },
   };
 }
@@ -400,20 +401,41 @@ Deno.serve(async (request) => {
 
   const { data: profile, error: profileError } = await userClient
     .from('profiles')
-    .select('organization_id, active')
+    .select('organization_id, active, display_name')
     .eq('id', userId)
     .single();
   if (profileError || !profile?.active) return jsonResponse({ error: 'Profile not found' }, 403);
+  const actorOrganization=profile.organization_id,actorName=profile.display_name;
 
   const {data:sessionAllowed,error:sessionAccessError}=await userClient.rpc('facility_session_allowed');
   if(sessionAccessError||sessionAllowed!==true)return jsonResponse({error:'このログインの端末承認・利用権限を確認してください。'},403);
   const body = await request.json().catch(() => null) as RequestBody | null;
-  const mode = body?.mode === 'execute' ? 'execute' : 'propose';
+  const mode = body?.mode;
+  if(!['propose','execute','preview','preview_execute'].includes(mode || ''))return jsonResponse({error:'操作を確認できません。'},400);
   const serviceClient = createClient(supabaseUrl, serviceRoleKey);
   const today = getTokyoDate();
 
-  if (mode === 'execute') {
-    const actionId = body?.actionId?.trim() || '';
+  async function protectedPrompt(raw:string,operation:string){
+    const revision=await requireExternalAiPolicy(userClient);
+    const identifiers:string[]=[actorName || ''];
+    for(let offset=0;offset<10000;offset+=500){
+      const {data,error}=await userClient.from('children').select('name,kana,birth_date').eq('organization_id',actorOrganization).order('id').range(offset,offset+499);
+      if(error)throw Error('識別情報の確認に失敗したため送信しませんでした。');
+      for(const row of data||[])identifiers.push(row.name||'',row.kana||'',row.birth_date||'');
+      if(!data || data.length<500){
+        const text=redactAiText(raw,identifiers),scope=`${actorOrganization}:${userId}:${revision}:${operation}`;
+        return {text,scope,revision};
+      }
+    }
+    throw Error('識別情報の確認範囲を超えたため送信しませんでした。');
+  }
+  async function approvedPrompt(prompt:{text:string;scope:string;revision:number}){
+    if(!await verifyAiPreview(body?.previewToken,prompt.text,prompt.scope,serviceRoleKey!))return false;
+    return await requireExternalAiPolicy(userClient)===prompt.revision;
+  }
+
+  if (mode === 'execute' || mode === 'preview_execute') {
+    const actionId = typeof body?.actionId==='string'?body.actionId.trim():'';
     if (!actionId) return jsonResponse({ error: 'actionId is required' }, 400);
 
     const { data: action, error: actionError } = await serviceClient
@@ -432,6 +454,8 @@ Deno.serve(async (request) => {
 
     const proposal = action.proposal || {};
     const actionType = action.action_type as ActionType;
+    if(actionType==='update_child_profile')return jsonResponse({error:'氏名・フリガナ・生年月日・サービス種別は、外部AIを使わず児童名簿から変更してください。'},403);
+    if(mode==='preview_execute' && actionType!=='summarize_recent_records')return jsonResponse({requiresAi:false});
 
     try {
       if (actionType === 'schedule_regular_days') {
@@ -465,42 +489,6 @@ Deno.serve(async (request) => {
             effectiveFrom: schedule.effective_from,
             regularDays: schedule.regular_days,
             createdAt: schedule.created_at,
-          },
-        });
-      }
-
-      if (actionType === 'update_child_profile') {
-        const changes = proposal.profileChanges || {};
-        const updateFields: Record<string, string | boolean | null> = {};
-        if (Object.hasOwn(changes, 'name')) updateFields.name = String(changes.name).trim();
-        if (Object.hasOwn(changes, 'kana')) updateFields.kana = String(changes.kana || '').trim() || null;
-        if (Object.hasOwn(changes, 'birthDate')) updateFields.birth_date = normalizeDate(changes.birthDate);
-        if (Object.hasOwn(changes, 'careType')) {
-          updateFields.care_type = String(changes.careType);
-          if (changes.careType === '保育所等訪問支援') updateFields.visiting_support_enabled = true;
-        }
-        if (Object.keys(updateFields).length === 0) return jsonResponse({ error: '変更内容がありません。' }, 400);
-
-        const { data: updated, error } = await serviceClient
-          .from('children')
-          .update(updateFields)
-          .eq('organization_id', profile.organization_id)
-          .eq('id', action.child_id)
-          .is('deleted_at', null)
-          .select('name, kana, birth_date, care_type, visiting_support_enabled, notes')
-          .single();
-        if (error) throw error;
-        const message = `${updated.name}さんの児童基本情報を更新しました。`;
-        await completeAction(serviceClient, action.id, message);
-        return jsonResponse({
-          message,
-          updatedChild: {
-            name: updated.name,
-            kana: updated.kana || undefined,
-            birthDate: updated.birth_date || undefined,
-            careType: updated.care_type || undefined,
-            visitingSupportEnabled: updated.visiting_support_enabled === true || updated.care_type === '保育所等訪問支援',
-            notes: updated.notes || undefined,
           },
         });
       }
@@ -655,6 +643,7 @@ Deno.serve(async (request) => {
       if (recordsError) throw recordsError;
 
       if (!records?.length) {
+        if(mode==='preview_execute')return jsonResponse({requiresAi:false});
         const message = `直近${periodDays}日間に要約対象の記録はありませんでした。`;
         await completeAction(serviceClient, action.id, message);
         return jsonResponse({ message, output: message });
@@ -673,7 +662,7 @@ Deno.serve(async (request) => {
         })).filter((section: any) => section.detail || section.abc),
       }));
       const summaryPrompt = `あなたは児童発達支援・放課後等デイサービスの記録確認補助者である。
-以下は同一児童の直近${periodDays}日間の支援記録である。個人名は含まれていない。
+以下は同一児童の直近${periodDays}日間の支援記録である。
 入力にない事実や診断を加えず、次の3点を日本語で簡潔に整理すること。
 1. 継続して見られる様子
 2. 支援で有効だった関わり
@@ -682,7 +671,11 @@ Deno.serve(async (request) => {
 
 記録:
 ${JSON.stringify(deidentifiedRecords).slice(0, 14000)}`;
-      const generated = await callGemini(geminiApiKey, summaryPrompt, 900);
+      let protectedSummary;
+      try{protectedSummary=await protectedPrompt(summaryPrompt,`summary:${action.id}`);}catch(error){return jsonResponse({error:(error as Error).message},403);}
+      if(mode==='preview_execute')return jsonResponse({requiresAi:true,preview:await makeAiPreview(protectedSummary.text,protectedSummary.scope,serviceRoleKey)});
+      try{if(!await approvedPrompt(protectedSummary))return jsonResponse({error:AI_PREVIEW_REQUIRED},403);}catch(error){return jsonResponse({error:(error as Error).message},403);}
+      const generated = await callGemini(geminiApiKey, protectedSummary.text, 900);
       const output = generated.text.slice(0, 3000);
       const message = `直近${periodDays}日間・${records.length}件の記録を要約しました。`;
 
@@ -691,24 +684,25 @@ ${JSON.stringify(deidentifiedRecords).slice(0, 14000)}`;
         actor_id: userId,
         record_id: null,
         section_title: 'ホームAIアシスタント・最近の記録要約',
-        input_snapshot: { childId: action.child_id, periodDays, recordCount: records.length },
-        generated_text: output,
+        input_snapshot: { periodDays, recordCount: records.length, policyRevision:protectedSummary.revision },
+        generated_text: '[本文は保存しません]',
         model: generated.model,
       });
       await completeAction(serviceClient, action.id, message);
       return jsonResponse({ message, output });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Assistant execution failed';
-      console.error('Assistant execution error', action.action_type, message);
-      await failAction(serviceClient, action.id, message);
+      console.error('Assistant execution error', action.action_type);
+      if(mode!=='preview_execute')await failAction(serviceClient, action.id, '実行に失敗しました。');
       return jsonResponse({ error: 'アシスタントの実行に失敗しました。' }, 500);
     }
   }
 
-  const childId = body?.childId?.trim() || '';
-  const instruction = body?.instruction?.trim().slice(0, 2000) || '';
+  const childId = typeof body?.childId==='string'?body.childId.trim():'';
+  const instruction = typeof body?.instruction==='string'?body.instruction.trim().slice(0,2000):'';
   if (!childId) return jsonResponse({ error: '児童を選択してください。' }, 400);
   if (!instruction) return jsonResponse({ error: 'アシスタントへの指示を入力してください。' }, 400);
+  if(/生年月日|誕生日|フリガナ|氏名/.test(instruction))return jsonResponse({error:'氏名・フリガナ・生年月日の変更は、外部AIを使わず児童名簿から操作してください。'},400);
   if (!geminiApiKey) return jsonResponse({ error: 'AI service is not configured' }, 503);
 
   const { data: child, error: childError } = await serviceClient
@@ -729,13 +723,12 @@ ${JSON.stringify(deidentifiedRecords).slice(0, 14000)}`;
     .order('effective_from');
   if (schedulesError) return jsonResponse({ error: schedulesError.message }, 500);
 
-  const prompt = `あなたは児童福祉事業所の安全な業務アシスタントである。
+  const rawPrompt = `あなたは児童福祉事業所の安全な業務アシスタントである。
 職員の指示を、許可された操作のうち最も適切な1操作へ変換すること。
 
 現在日: ${today}
 対象児童の現在情報:
 - フリガナ登録: ${child.kana ? 'あり' : 'なし'}
-- 生年月日: ${child.birth_date || '未登録'}
 - サービス種別: ${child.care_type || '未登録'}
 - 留意点登録: ${child.notes ? 'あり' : 'なし'}
 - 定期利用曜日: ${JSON.stringify(normalizeDays(child.regular_days))}
@@ -750,10 +743,6 @@ ${JSON.stringify(deidentifiedRecords).slice(0, 14000)}`;
 1. schedule_regular_days
    指定日以降の定期利用曜日変更。
    payload: {"effectiveDate":"YYYY-MM-DD","regularDays":["月","火"]}
-2. update_child_profile
-   児童氏名・フリガナ・生年月日・サービス種別の修正。
-   payload: {"changes":{"name":"任意","kana":"任意","birthDate":"YYYY-MM-DD","careType":"児童発達支援 または 放課後等デイサービス または 保育所等訪問支援"}}
-   指示された項目だけchangesへ含める。
 3. update_child_notes
    指導上の留意点の追記または置き換え。
    payload: {"mode":"append または replace","text":"反映する本文"}
@@ -775,6 +764,7 @@ ${JSON.stringify(deidentifiedRecords).slice(0, 14000)}`;
 安全規則:
 - 児童、記録、職員、テンプレートの削除は対応しない
 - 職員招待、権限変更、記録承認、AI設定、テンプレート変更は対応しない
+- 氏名・フリガナ・生年月日・サービス種別の変更は児童名簿から行うため対応しない
 - 複数の異なる操作が混在する場合はsupported=falseとし、指示を分けるよう理由へ書く
 - 日付指定がない曜日変更と記録開始は現在日を使う
 - 過去日にさかのぼる曜日変更は対応しない
@@ -787,9 +777,14 @@ ${JSON.stringify(deidentifiedRecords).slice(0, 14000)}`;
 {"supported":false,"actionType":"","payload":{},"reason":"実行案にできない理由"}`;
 
   try {
-    const generated = await callGemini(geminiApiKey, prompt, 500);
+    let prompt;
+    try{prompt=await protectedPrompt(rawPrompt,`propose:${child.id}`);}catch(error){return jsonResponse({error:(error as Error).message},403);}
+    if(mode==='preview')return jsonResponse({preview:await makeAiPreview(prompt.text,prompt.scope,serviceRoleKey)});
+    try{if(!await approvedPrompt(prompt))return jsonResponse({error:AI_PREVIEW_REQUIRED},403);}catch(error){return jsonResponse({error:(error as Error).message},403);}
+    const generated = await callGemini(geminiApiKey, prompt.text, 500);
     const parsed = parseGeminiJson(generated.text);
     if (!parsed) return jsonResponse({ error: 'AIの応答を読み取れませんでした。' }, 502);
+    if(parsed.actionType==='update_child_profile')return jsonResponse({supported:false,message:'児童基本情報は児童名簿から変更してください。'});
     const built = buildProposal(parsed, child as ChildRow, instruction, today);
     if (!built.proposal) return jsonResponse({ supported: false, message: built.error });
 
@@ -814,8 +809,8 @@ ${JSON.stringify(deidentifiedRecords).slice(0, 14000)}`;
       actor_id: userId,
       record_id: null,
       section_title: 'ホームAIアシスタント',
-      input_snapshot: { childId: child.id, instruction, actionType: proposal.actionType },
-      generated_text: JSON.stringify(proposal),
+      input_snapshot: { actionType: proposal.actionType, policyRevision:prompt.revision, inputLength:prompt.text.length },
+      generated_text: '[本文は保存しません]',
       model: generated.model,
     });
     if (logError) console.error('AI log error', logError.message);
@@ -825,7 +820,7 @@ ${JSON.stringify(deidentifiedRecords).slice(0, 14000)}`;
       proposal: { actionId: action.id, ...proposal },
     });
   } catch (error) {
-    console.error('Assistant proposal error', error instanceof Error ? error.message : error);
+    console.error('Assistant proposal error');
     return jsonResponse({ error: 'AIによる実行案の作成に失敗しました。' }, 502);
   }
 });

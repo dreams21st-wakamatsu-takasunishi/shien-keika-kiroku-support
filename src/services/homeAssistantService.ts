@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { approveAiPreview } from './externalAiPrivacy';
 import type {
   ChildProfile,
   HomeAssistantExecutionResult,
@@ -16,13 +17,18 @@ export async function requestHomeAssistantProposal(
 ): Promise<HomeAssistantProposal> {
   if (!supabase) return buildLocalProposal(child, instruction);
 
+  const preview=await supabase.functions.invoke('home-assistant',{body:{mode:'preview',childId:child.id,instruction}});
+  if(preview.error)throw Error(await readFunctionError(preview.error,'送信内容を確認できませんでした。'));
+  if(!await approveAiPreview(preview.data?.preview))throw Error('外部AIへの送信を取り消しました。入力内容は変更していません。');
+
   const { data, error } = await supabase.functions.invoke('home-assistant', {
-    body: { mode: 'propose', childId: child.id, instruction },
+    body: { mode: 'propose', childId: child.id, instruction, previewToken:preview.data.preview.token },
   });
   if (error) throw new Error(await readFunctionError(error, 'AIによる実行案の作成に失敗しました。'));
   if (!data?.supported || !data?.proposal) {
     throw new Error(data?.message || 'この指示は現在のアシスタントでは実行できません。');
   }
+
   return data.proposal as HomeAssistantProposal;
 }
 
@@ -34,8 +40,12 @@ export async function executeHomeAssistantProposal(
     return executeLocalProposal(proposal, child);
   }
 
+  const preview=await supabase.functions.invoke('home-assistant',{body:{mode:'preview_execute',actionId:proposal.actionId}});
+  if(preview.error)throw Error(await readFunctionError(preview.error,'実行前の確認に失敗しました。'));
+  if(preview.data?.requiresAi && !await approveAiPreview(preview.data.preview))throw Error('外部AIへの送信を取り消しました。');
+
   const { data, error } = await supabase.functions.invoke('home-assistant', {
-    body: { mode: 'execute', actionId: proposal.actionId },
+    body: { mode: 'execute', actionId: proposal.actionId, previewToken:preview.data?.requiresAi?preview.data.preview.token:undefined },
   });
   if (error) throw new Error(await readFunctionError(error, 'アシスタントの実行に失敗しました。'));
   if (!data?.message) throw new Error(data?.error || '実行結果を確認できませんでした。');
@@ -78,7 +88,7 @@ function buildLocalProposal(child: ChildProfile, instruction: string): HomeAssis
         { label: '対象児童', value: child.name },
         { label: '対象期間', value: `直近${Math.max(1, Math.min(365, periodDays))}日間` },
       ],
-      confirmationNote: '承認後、対象期間の記録内容を個人名なしでAIへ送り、傾向を要約します。',
+      confirmationNote: '実行前に送信文章を確認します。識別情報の除去は完全ではないため、不要な情報が残っていたら送信せず元の記録を確認してください。',
     };
   }
 

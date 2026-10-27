@@ -760,7 +760,7 @@ function HomeAssistantPanel({
           <div>
             <p className="text-[11px] font-bold text-teal-300">承認後にだけ実行する安全設計</p>
             <h3 className="mt-0.5 text-lg font-black">AI業務アシスタント</h3>
-            <p className="mt-1 text-xs leading-relaxed text-slate-300">指示をAIが実行案に整理します。内容を確認し、承認するまで児童情報は変更されません。</p>
+            <p className="mt-1 text-xs leading-relaxed text-slate-300">管理者の送信許可と、送信する文章の確認後にAIが実行案を作成します。実行案の承認まで児童情報は変更されません。氏名・生年月日等の変更は児童名簿をご利用ください。</p>
           </div>
         </div>
       </div>

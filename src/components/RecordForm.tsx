@@ -4045,9 +4045,14 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     }
     setSummarizingSectionId(sectionId);
     setStepError(null);
-    const summary = await summarizeABCWithAI(section.sectionTitle, abc.behavior, abc.consequence, abc.antecedent, initialRecord?.id);
-    updateABC(sectionId, 'summary', summary);
-    setSummarizingSectionId(null);
+    const childId=wizard.activeChildId;
+    try{
+      const summary = await summarizeABCWithAI(section.sectionTitle, abc.behavior, abc.consequence, abc.antecedent, initialRecord?.id,childId);
+      const current=currentWizard.current.childDrafts[childId]?.sectionAnswers[sectionId]?.abcAnalysis;
+      if(currentWizard.current.activeChildId!==childId||current?.behavior!==abc.behavior||current?.antecedent!==abc.antecedent||current?.consequence!==abc.consequence||current?.summary!==abc.summary){setStepError('要約中に児童・入力内容が変わったため反映しませんでした。もう一度確認してください。');return;}
+      updateABC(sectionId, 'summary', summary);
+    }catch(error){setStepError(error instanceof Error?error.message:'AI要約を実行できませんでした。');}
+    finally{setSummarizingSectionId(null);}
   };
 
   const renderField = (field: TemplateField, sectionId: string, compact = false) => {

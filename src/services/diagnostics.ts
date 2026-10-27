@@ -15,6 +15,7 @@ const resources = new Set(['support_records','record_drafts','children','recorde
   'cancel_transport_field_action','change_transport_assignment','current_organization_device_id','current_recorder_profile_id','delete_monthly_daily_schedules','delete_organization_device','delete_reviewed_part_time_shift_request',
   'get_current_staff_device_access','get_personal_staff_qr_device','get_personal_staff_qr_status','move_supply_stock','punch_attendance','record_transport_field_action','register_attendance_kiosk_device','rename_organization_device',
   'replace_child_monthly_transport_requirements','replace_monthly_transport_requirements','request_attendance_correction','request_personal_staff_qr_device','review_attendance_correction','review_organization_device','revoke_personal_staff_qr',
+  'get_external_ai_policy','set_external_ai_policy','confirm_attendance_break',
   'save_morning_meeting_record_guarded','set_child_sibling_links','set_recorder_pin','set_transport_cover','set_transport_operation_event','take_over_record_draft_child','take_over_record_draft','update_shift_request_defaults',
   'update_staff_device_policy','update_transport_run_status','verify_recorder_pin']);
 for(const resource of ['get_child_document_register','save_child_document_settings','save_child_document_entry','lesson-learning','lesson-accounts','lesson-account-credentials','lesson-student-registration','lesson-task-batches','lesson-task-audit','lesson-managed-content','facility-login'])resources.add(resource);

@@ -195,6 +195,7 @@ export function MeetingWorkspace({ organizationId, currentUser, childrenList, ca
   }
   async function exportInfo(kind: 'copy' | 'download') {
     if (!selected || !exportReady) return;
+    if(!window.confirm('Tiro向け資料には児童・出席者の氏名や機微な情報が含まれ得ます。表示された文章を確認し、不要な情報を取り除きましたか？\n\nTiroの契約・学習利用・保存期間・国外取扱いと必要な説明・同意を事業所で確認した範囲だけを渡してください。Geminiの送信許可はTiroの利用許可を兼ねません。\n\nこの操作はコピー／保存のみで、自動送信は行いません。'))return;
     setExporting(true);
     try {
       await logMeetingExport(selected.organizationId, selected.id, kind === 'download' ? 'sheet_download' : showSheet ? 'sheet_copy' : 'context_copy');

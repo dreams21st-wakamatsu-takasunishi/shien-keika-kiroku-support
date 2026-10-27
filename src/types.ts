@@ -559,6 +559,8 @@ export interface AttendanceRecord {
   scheduledStartTime?: string;
   scheduledEndTime?: string;
   scheduledBreakMinutes?: number;
+  confirmedBreakMinutes?: number;
+  breakConfirmedAt?: string;
   status: AttendanceStatus;
   clockInAt?: string;
   clockOutAt?: string;

@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { Save, Sparkles } from 'lucide-react';
 import { AiWritingSettings } from '../types';
+import {ExternalAiPolicySettings} from './ExternalAiPolicySettings';
 
 interface AISettingsEditorProps {
   settings: AiWritingSettings;
   onSave: (settings: AiWritingSettings) => Promise<void> | void;
+  isAdmin?:boolean;
 }
 
-export const AISettingsEditor: React.FC<AISettingsEditorProps> = ({ settings, onSave }) => {
+export const AISettingsEditor: React.FC<AISettingsEditorProps> = ({ settings, onSave,isAdmin=false }) => {
   const [editing, setEditing] = useState(settings);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -37,6 +39,7 @@ export const AISettingsEditor: React.FC<AISettingsEditorProps> = ({ settings, on
         </div>
       </div>
 
+      <ExternalAiPolicySettings isAdmin={isAdmin}/>
       <div className="grid gap-4 md:grid-cols-2">
         <label className="text-xs font-bold text-slate-700">
           文体・口調

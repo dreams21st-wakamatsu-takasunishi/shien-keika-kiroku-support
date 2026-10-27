@@ -132,7 +132,7 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
           <strong className="min-w-0 text-sm text-slate-900">{currentPageTitle}</strong>
           <ManualLinks screen="settings" section={page} className="ml-auto" />
         </div>
-        {page === 'ai' && <AISettingsEditor settings={aiWritingSettings} onSave={onSaveAiWritingSettings} />}
+        {page === 'ai' && <AISettingsEditor settings={aiWritingSettings} onSave={onSaveAiWritingSettings} isAdmin={currentUser?.role==='admin'} />}
         {page === 'templates' && <TemplateEditor templates={templates} onSaveTemplate={onSaveTemplate} onDeleteTemplate={onDeleteTemplate} />}
         {page === 'schools' && <SchoolManager schools={schools} childrenList={childrenList} onSave={onSaveSchool} onDelete={onDeleteSchool} />}
         {page === 'transportMap' && <div className="space-y-4">

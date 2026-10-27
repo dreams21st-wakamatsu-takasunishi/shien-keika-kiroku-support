@@ -19,6 +19,8 @@ import type {
 } from '../types';
 import { AttendanceQrKiosk } from './AttendanceQr';
 import { StaffShiftManager } from './StaffShiftManager';
+import {attendanceTotal,summarizeAttendance} from '../utils/attendanceTotals';
+import {confirmAttendanceBreak} from '../services/dataService';
 
 type PunchAction = '出勤' | '退勤';
 
@@ -59,7 +61,7 @@ interface ScheduleForm {
 const DAY_STATUSES: AttendanceStatus[] = ['勤務予定', '遅刻', '早退', '欠勤', '研修'];
 
 export const AttendancePanel: React.FC<AttendancePanelProps> = ({
-  records,
+  records:sourceRecords,
   shiftTemplates,
   corrections,
   recorderProfiles,
@@ -77,6 +79,9 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
   showShiftManager = true,
 }) => {
   const activeRecorders = useMemo(() => recorderProfiles.filter((profile) => profile.active), [recorderProfiles]);
+  const [breakOverrides,setBreakOverrides]=useState<Record<string,{base:string;saved:AttendanceRecord}>>({});
+  const records=sourceRecords.map(record=>breakOverrides[record.id]?.base===record.updatedAt?breakOverrides[record.id].saved:record);
+  const [breakRecord,setBreakRecord]=useState<AttendanceRecord|null>(null),[breakMinutes,setBreakMinutes]=useState(''),[breakReason,setBreakReason]=useState(''),[breakError,setBreakError]=useState(''),[savingBreak,setSavingBreak]=useState(false);
   const [selectedRecorderId, setSelectedRecorderId] = useState(activeRecorder?.id || activeRecorders[0]?.id || '');
   const [pin, setPin] = useState('');
   const [busyAction, setBusyAction] = useState<PunchAction | ''>('');
@@ -102,7 +107,8 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
   const monthPrefix = selectedDate.slice(0, 7);
   const monthlyRecords = records.filter((record) => record.date.startsWith(monthPrefix));
   const pendingCorrections = corrections.filter((request) => request.status === '申請中');
-  const monthlyWorkingMinutes = monthlyRecords.reduce((total, record) => total + getWorkingMinutes(record), 0);
+  const monthlyTotal = summarizeAttendance(monthlyRecords);
+  const monthlyWorkingMinutes = monthlyTotal.workingMinutes;
   const currentTime = new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit', hour12: false });
   const forgottenPunches = selectedDate === new Date().toLocaleDateString('sv-SE')
     ? dayRecords.filter(({ record }) => record?.scheduledStartTime && record.scheduledStartTime < currentTime && !record.clockInAt)
@@ -200,7 +206,7 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
   };
 
   const exportCsv = () => {
-    const header = ['日付', '職員名', '状態', '予定開始', '予定終了', '出勤', '退勤', '休憩分', '実働分', '備考'];
+    const header = ['日付', '職員名', '状態', '予定開始', '予定終了', '出勤', '退勤', '休憩分（実績）', '実働分（確定のみ）', '集計状態', '未確定理由', '備考'];
     const rows = monthlyRecords
       .sort((left, right) => `${left.date}${left.recorderName}`.localeCompare(`${right.date}${right.recorderName}`))
       .map((record) => [
@@ -211,8 +217,10 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
         record.scheduledEndTime || '',
         formatDateTime(record.clockInAt),
         formatDateTime(record.clockOutAt),
-        String(getBreakMinutes(record)),
-        String(getWorkingMinutes(record)),
+        attendanceTotal(record).breakMinutes?.toString() ?? '',
+        attendanceTotal(record).workingMinutes?.toString() ?? '',
+        attendanceTotal(record).state === 'confirmed' ? '確定' : '未確定・集計対象外',
+        attendanceTotal(record).reason,
         record.note || '',
       ]);
     const csv = `\ufeff${[header, ...rows].map((row) => row.map(csvCell).join(',')).join('\r\n')}`;
@@ -276,7 +284,7 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
 
       <section className="grid grid-cols-2 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <MiniSummary label={`${monthPrefix} 延べ勤務日数`} value={`${new Set(monthlyRecords.filter((record) => record.clockInAt).map((record) => `${record.recorderProfileId}:${record.date}`)).size}日`} />
-        <MiniSummary label="実働合計" value={formatMinutes(monthlyWorkingMinutes)} />
+        <MiniSummary label={`実働合計（確定分のみ・未確定${monthlyTotal.unconfirmed}件は除外）`} value={formatMinutes(monthlyWorkingMinutes)} />
       </section>
 
       {forgottenPunches.length > 0 && <p className="flex items-center gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm font-black text-rose-800"><AlertTriangle className="h-5 w-5" />打刻忘れの可能性：{forgottenPunches.map(({ recorder }) => recorder.displayName).join('、')}</p>}
@@ -289,22 +297,23 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
             {unscheduledStaffCount > 0 && <button type="button" onClick={() => setShowUnscheduledStaff((current) => !current)} className="min-h-9 rounded-lg border border-slate-300 bg-white px-3 text-[11px] font-black text-slate-700">{showUnscheduledStaff ? '予定ありのみ' : `未登録も表示（${unscheduledStaffCount}名）`}</button>}
           </div>
         </div>
-        <div className="hidden grid-cols-[minmax(120px,1.2fr)_110px_130px_130px_110px_auto] gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2 text-[10px] font-black text-slate-500 lg:grid">
+        <div className="hidden grid-cols-[minmax(120px,1fr)_80px_120px_130px_150px_260px] gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2 text-[10px] font-black text-slate-500 lg:grid">
           <span>職員</span><span>状態</span><span>予定</span><span>出退勤</span><span>休憩／実働</span><span className="text-right">操作</span>
         </div>
         <div className="divide-y divide-slate-100">
           {visibleDayRecords.map(({ recorder, record }) => (
-            <div key={recorder.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 px-3 py-2 lg:grid-cols-[minmax(120px,1.2fr)_110px_130px_130px_110px_auto]">
+            <div key={recorder.id} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2 gap-y-1 px-3 py-2 lg:grid-cols-[minmax(120px,1fr)_80px_120px_130px_150px_260px]">
               <strong className="truncate text-sm text-slate-900">{recorder.displayName}</strong>
               <span className="lg:hidden"><StatusBadge status={record?.status} /></span>
               <span className="hidden lg:block"><StatusBadge status={record?.status} /></span>
               <div className="col-span-2 grid gap-0.5 text-xs font-bold text-slate-700 lg:contents">
                 <span className="truncate text-[11px] text-slate-600 lg:text-xs">予定 {record?.scheduledStartTime ? `${record.scheduledStartTime}〜${record.scheduledEndTime || '－'}` : '未登録'}</span>
                 <span className="truncate text-[11px] text-slate-600 lg:text-xs">実績 {formatTime(record?.clockInAt) || '－'}〜{formatTime(record?.clockOutAt) || '－'}</span>
-                <span className="text-[10px] text-slate-500 lg:text-xs">休憩 {record ? getBreakMinutes(record) : 0}分／実働 {record ? getWorkingMinutes(record) : 0}分</span>
+                <span className="text-[10px] lg:text-xs">{!record?'未登録':attendanceTotal(record).state==='confirmed'?`休憩 ${attendanceTotal(record).breakMinutes}分／実働 ${attendanceTotal(record).workingMinutes}分`:<span className="font-bold text-amber-800" title={attendanceTotal(record).reason}>未確定・集計対象外：{attendanceTotal(record).reason}</span>}</span>
               </div>
-              <div className="col-span-2 flex flex-wrap justify-end gap-1.5 lg:col-span-1 lg:flex-nowrap">
+              <div className="col-span-2 flex flex-wrap justify-end gap-1.5 lg:col-span-1">
                 {record && (activeRecorder?.id === recorder.id || canManage) && <button type="button" onClick={() => openCorrection(record)} className="min-h-9 rounded-lg border border-slate-300 px-2.5 text-[11px] font-bold">修正申請</button>}
+                {canApproveCorrections&&record?.clockInAt&&record?.clockOutAt&&<button type="button" className="min-h-9 rounded-lg border border-teal-400 px-2.5 text-[11px] font-bold text-teal-900" onClick={()=>{setBreakRecord(record);setBreakMinutes(record.confirmedBreakMinutes?.toString()??'');setBreakReason('');setBreakError('');}}>休憩実績を確認</button>}
                 {canManage && (isClockedRecord(record)
                   ? <span className="inline-flex min-h-9 items-center rounded-lg bg-slate-100 px-2.5 text-[10px] font-bold text-slate-500">打刻後・閲覧のみ</span>
                   : <button type="button" onClick={() => openSchedule(recorder, record)} className="min-h-9 rounded-lg bg-slate-900 px-2.5 text-[11px] font-bold text-white"><PencilLine className="mr-1 inline h-3.5 w-3.5" />予定編集</button>)}
@@ -361,6 +370,14 @@ export const AttendancePanel: React.FC<AttendancePanelProps> = ({
           <button type="button" onClick={submitCorrection} className="min-h-12 w-full rounded-xl bg-teal-600 font-black text-white">申請する</button>
         </Modal>
       )}
+      {breakRecord&&<Modal title="休憩実績の確認（管理者）" onClose={()=>{if(!savingBreak)setBreakRecord(null);}}>
+       <p className="text-sm">{breakRecord.date}／{breakRecord.recorderName}。予定休憩を自動転記しません。実際に取得した休憩を確認してください。</p>
+       <label className="block text-sm font-bold">実際の休憩合計（分）<input aria-label="実際の休憩合計（分）" type="number" min="0" max="1440" step="1" value={breakMinutes} onChange={e=>setBreakMinutes(e.target.value)} className="mt-1 min-h-11 w-full rounded-xl border px-3" disabled={savingBreak}/></label>
+       <label className="block text-sm font-bold">確認根拠・訂正理由<textarea aria-label="確認根拠・訂正理由" value={breakReason} maxLength={1000} onChange={e=>setBreakReason(e.target.value)} className="mt-1 min-h-24 w-full rounded-xl border p-3" disabled={savingBreak}/></label>
+       <p className="text-xs text-slate-600">休憩なしの場合は0分を明示してください。打刻は変更せず、確認者・理由を履歴に残します。出退勤の訂正後は再確認が必要です。</p>
+       {breakError&&<p role="alert" className="text-sm text-rose-800">{breakError}</p>}
+       <button type="button" disabled={savingBreak||breakMinutes===''||!Number.isSafeInteger(Number(breakMinutes))||Number(breakMinutes)<0||!breakReason.trim()} className="min-h-12 w-full rounded-xl bg-teal-700 font-bold text-white disabled:opacity-40" onClick={async()=>{setSavingBreak(true);setBreakError('');try{const saved=await confirmAttendanceBreak(breakRecord,Number(breakMinutes),breakReason);setBreakOverrides(previous=>({...previous,[saved.id]:{base:breakRecord.updatedAt,saved}}));setBreakRecord(null);}catch(e){setBreakError(e instanceof Error?e.message:'保存できませんでした。');}finally{setSavingBreak(false);}}}>{savingBreak?'保存中…':'実績を確認して保存'}</button>
+      </Modal>}
     </div>
   );
 };
@@ -388,27 +405,6 @@ function getAvailableActions(record?: AttendanceRecord): PunchAction[] {
 
 function isClockedRecord(record?: AttendanceRecord) {
   return Boolean(record?.clockInAt || record?.clockOutAt || (record && ['出勤中', '休憩中', '退勤済み'].includes(record.status)));
-}
-
-function getBreakMinutes(record: AttendanceRecord) {
-  const fallbackEnd = record.date === new Date().toLocaleDateString('sv-SE')
-    ? Date.now()
-    : new Date(`${record.date}T23:59:59`).getTime();
-  return record.breakPeriods.reduce((total, period) => {
-    const start = new Date(period.startedAt).getTime();
-    const end = period.endedAt ? new Date(period.endedAt).getTime() : fallbackEnd;
-    return total + Math.max(0, Math.round((end - start) / 60000));
-  }, 0);
-}
-
-function getWorkingMinutes(record: AttendanceRecord) {
-  if (!record.clockInAt) return 0;
-  const end = record.clockOutAt
-    ? new Date(record.clockOutAt).getTime()
-    : record.date === new Date().toLocaleDateString('sv-SE')
-      ? Date.now()
-      : new Date(`${record.date}T23:59:59`).getTime();
-  return Math.max(0, Math.round((end - new Date(record.clockInAt).getTime()) / 60000) - getBreakMinutes(record));
 }
 
 function formatTime(value?: string) { return value ? new Date(value).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' }) : ''; }

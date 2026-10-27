@@ -1,4 +1,5 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
+import {requireExternalAiPolicy,redactAiText,makeAiPreview,verifyAiPreview,AI_PREVIEW_REQUIRED} from '../_shared/externalAiPrivacy.ts';
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -13,6 +14,7 @@ function jsonResponse(body: unknown, status = 200) {
 }
 
 type RequestBody = {
+  mode?:'preview'|'generate';previewToken?:string;childId?:string;
   recordId?: string;
   sectionTitle?: string;
   checkSummary?: string;
@@ -49,7 +51,7 @@ Deno.serve(async (request) => {
 
   const { data: profile, error: profileError } = await userClient
     .from('profiles')
-    .select('organization_id')
+    .select('organization_id, display_name')
     .eq('id', userId)
     .single();
   if (profileError || !profile) return jsonResponse({ error: 'Profile not found' }, 403);
@@ -57,6 +59,7 @@ Deno.serve(async (request) => {
   const {data:sessionAllowed,error:sessionAccessError}=await userClient.rpc('facility_session_allowed');
   if(sessionAccessError||sessionAllowed!==true)return jsonResponse({error:'このログインの端末承認・利用権限を確認してください。'},403);
   const body = await request.json().catch(() => null) as RequestBody | null;
+  if(!body || !['preview','generate'].includes(body.mode||'') || [body.sectionTitle,body.checkSummary,body.roughNotes,body.childId,body.recordId,body.abc?.behavior,body.abc?.antecedent,body.abc?.consequence].some(v=>v!=null&&typeof v!=='string'))return jsonResponse({error:'入力形式を確認してください。'},400);
   const sectionTitle = body?.sectionTitle?.trim().slice(0, 80) || '';
   const taskType = body?.taskType === 'abc_summary' ? 'abc_summary' : 'record_summary';
   const checkSummary = body?.checkSummary?.trim().slice(0, 2000) || '';
@@ -73,11 +76,23 @@ Deno.serve(async (request) => {
   if (!geminiApiKey) return jsonResponse({ error: 'AI service is not configured' }, 503);
 
   const serviceClient = createClient(supabaseUrl, serviceRoleKey);
-  const { data: settings } = await serviceClient
+  let policyRevision:number;
+  try{policyRevision=await requireExternalAiPolicy(userClient);}catch(error){return jsonResponse({error:(error as Error).message},403);}
+  const identifiers:string[]=[profile.display_name||''];let foundChild=!body.childId,complete=false;
+  for(let offset=0;offset<10000;offset+=500){
+    const {data,error}=await userClient.from('children').select('id,name,kana,birth_date').eq('organization_id',profile.organization_id).order('id').range(offset,offset+499);
+    if(error)return jsonResponse({error:'識別情報の確認に失敗したため送信しませんでした。'},503);
+    for(const row of data||[]){identifiers.push(row.name||'',row.kana||'',row.birth_date||'');if(row.id===body.childId)foundChild=true;}
+    if(!data||data.length<500){complete=true;break;}
+  }
+  if(!complete)return jsonResponse({error:'識別情報の確認範囲を超えたため送信しませんでした。'},503);
+  if(!foundChild)return jsonResponse({error:'対象児童を確認できません。'},403);
+  const { data: settings,error:settingsError } = await serviceClient
     .from('organization_ai_settings')
     .select('tone, custom_tone, custom_instructions, target_length')
     .eq('organization_id', profile.organization_id)
     .maybeSingle();
+  if(settingsError)return jsonResponse({error:'AI文章設定を確認できません。'},503);
 
   const targetLength = Math.max(80, Math.min(800, Number(settings?.target_length) || 180));
   const toneInstruction = settings?.tone === 'polite'
@@ -98,7 +113,7 @@ Deno.serve(async (request) => {
 - 事業所の追加指定: ${customInstructions}
 - 前置きや見出しを付けず、本文だけを出力する`;
 
-  const prompt = taskType === 'abc_summary'
+  const rawPrompt = taskType === 'abc_summary'
     ? `あなたは児童発達支援・放課後等デイサービスの支援記録作成補助者である。
 「${sectionTitle}」で観察した内容を、ABC行動分析の順序（A: きっかけ・先行事象、B: 観察可能な行動、C: 直後の結果・周囲の対応）で、読みやすい一段落の記録文に整理すること。
 
@@ -112,6 +127,11 @@ ${commonRules}`
 選択された事実: ${checkSummary || 'なし'}
 職員メモ: ${roughNotes || '特になし'}
 ${commonRules}`;
+  const prompt=redactAiText(rawPrompt,identifiers);
+  const scope=`${profile.organization_id}:${userId}:${policyRevision}:polish:${body?.childId||''}:${taskType}`;
+  if(body?.mode==='preview')return jsonResponse({preview:await makeAiPreview(prompt,scope,serviceRoleKey)});
+  if(!await verifyAiPreview(body?.previewToken,prompt,scope,serviceRoleKey))return jsonResponse({error:AI_PREVIEW_REQUIRED},403);
+  try{if(await requireExternalAiPolicy(userClient)!==policyRevision)return jsonResponse({error:AI_PREVIEW_REQUIRED},403);}catch(error){return jsonResponse({error:(error as Error).message},403);}
 
   const model = 'gemini-3.5-flash-lite';
   const geminiResponse = await fetch(
@@ -130,8 +150,7 @@ ${commonRules}`;
   );
 
   if (!geminiResponse.ok) {
-    const details = await geminiResponse.text();
-    console.error('Gemini error', geminiResponse.status, details.slice(0, 500));
+    console.error('Gemini error', geminiResponse.status);
     return jsonResponse({ error: 'AI generation failed' }, 502);
   }
 
@@ -143,9 +162,9 @@ ${commonRules}`;
     organization_id: profile.organization_id,
     actor_id: userId,
     record_id: body?.recordId || null,
-    section_title: sectionTitle,
-    input_snapshot: taskType === 'abc_summary' ? { taskType, abc } : { taskType, checkSummary, roughNotes },
-    generated_text: generatedText,
+    section_title: taskType==='abc_summary'?'ABC分析の要約':'支援記録の文章整理',
+    input_snapshot: {taskType,policyRevision,inputLength:prompt.length},
+    generated_text: '[本文は保存しません]',
     model,
   });
   if (logError) console.error('AI log error', logError.message);

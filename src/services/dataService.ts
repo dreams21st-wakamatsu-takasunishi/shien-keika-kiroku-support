@@ -542,6 +542,8 @@ function mapAttendanceRecord(row: any, recorderNames?: Map<string, string>): Att
     scheduledStartTime: row.scheduled_start_time ? String(row.scheduled_start_time).slice(0, 5) : undefined,
     scheduledEndTime: row.scheduled_end_time ? String(row.scheduled_end_time).slice(0, 5) : undefined,
     scheduledBreakMinutes: Number(row.scheduled_break_minutes || 0),
+    confirmedBreakMinutes: row.confirmed_break_minutes == null ? undefined : Number(row.confirmed_break_minutes),
+    breakConfirmedAt: row.break_confirmed_at || undefined,
     status: row.status,
     clockInAt: row.clock_in_at || undefined,
     clockOutAt: row.clock_out_at || undefined,
@@ -1316,6 +1318,12 @@ export async function reviewAttendanceCorrection(
     p_review_note: reviewNote?.trim() || null,
   });
   if (error) throw error;
+}
+
+export async function confirmAttendanceBreak(record:AttendanceRecord, minutes:number, reason:string){
+ const {data,error}=await assertSupabase().rpc('confirm_attendance_break',{p_record_id:record.id,p_expected_updated_at:record.updatedAt,p_minutes:minutes,p_reason:reason.trim()});
+ if(error)throw Error(error.code==='40001'?'別の操作で打刻が更新されています。再読込してから確認してください。':error.code==='42501'?'休憩実績の確認は承認済み施設端末の管理者が行ってください。':'休憩実績を保存できませんでした。入力内容を残しています。');
+ return mapAttendanceRecord(Array.isArray(data)?data[0]:data,new Map([[record.recorderProfileId,record.recorderName]]));
 }
 
 export async function registerAttendanceKioskDevice() {
