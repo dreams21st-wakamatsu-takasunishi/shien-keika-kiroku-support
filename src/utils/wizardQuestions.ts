@@ -48,8 +48,8 @@ export const DEFAULT_WIZARD_QUESTIONS: WizardQuestions = {
     help: '行動の直前の状況、声かけ、課題、環境の変化などを簡潔に入力してください。',
   },
   abcSummary: {
-    title: '{section}：ABC分析に基づいて要約します。',
-    help: 'A・B・Cの入力を確認し、「ABC分析を要約する」を押してください。文章は後から修正できます。',
+    title: '{section}：まとめ文を手入力してください。',
+    help: 'A・B・Cを確認して、必要に応じて文章を入力します。外部AIによる要約は行いません。',
   },
 };
 
@@ -86,7 +86,10 @@ export function getWizardQuestions(template?: Template): WizardQuestions {
   return Object.fromEntries(
     WIZARD_QUESTION_ORDER.map((id) => [
       id,
-      { ...DEFAULT_WIZARD_QUESTIONS[id], ...(custom[id] || {}) },
+      // Retired AI instructions in older saved templates must not advertise a
+      // missing control. Keep the stored template and other custom questions.
+      id === 'abcSummary' ? { ...DEFAULT_WIZARD_QUESTIONS[id] }
+        : { ...DEFAULT_WIZARD_QUESTIONS[id], ...(custom[id] || {}) },
     ]),
   ) as WizardQuestions;
 }

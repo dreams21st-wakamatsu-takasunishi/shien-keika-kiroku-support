@@ -544,7 +544,7 @@ function describeRevisionDifference(snapshot: Record<string, unknown>, current: 
     ['おやつ', snapshot.snack, current.snack],
     ['記録者', snapshot.recorder_name, current.recorderName],
     ['記録内容', snapshot.section_answers, current.sectionAnswers],
-    ['AI要約', snapshot.synthesized_summary, current.synthesizedSummary],
+    ['記録のまとめ文', snapshot.synthesized_summary, current.synthesizedSummary],
     ['確認状態', snapshot.approval_status, current.approvalStatus],
     ['児発管コメント', snapshot.review_comment, current.jihatsukanComment],
     ['修正箇所', snapshot.review_issues, current.reviewIssues],

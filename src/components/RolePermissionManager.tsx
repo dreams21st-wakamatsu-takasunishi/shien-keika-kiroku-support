@@ -10,7 +10,7 @@ const PERMISSIONS: Array<{ key: RolePermissionKey; label: string; description: s
   { key: 'manage_learning_account_credentials', label: '学習アカウント発行・合言葉再発行', description: '連携済み児童に本人用Authを発行・合言葉を再発行します。再発行すると以前の合言葉は使えなくなります。' },
   { key: 'review_learning_work', label: 'Word作品の確認・承認', description: '連携児童の提出作品を確認し、承認・差し戻しを行えます。' },
   { key: 'manage_learning_content', label: 'Dレッスンの教材・ごほうび作成', description: '連携許可済み校舎の文章課題、カスタムテーマ・演出を作成・編集・非表示にし、連携児童にごほうびを配布できます。' },
-  { key: 'manage_record_settings', label: '記録・AI設定', description: '質問テンプレートとAI文章設定を変更できます。' },
+  { key: 'manage_record_settings', label: '記録設定', description: '記録の質問テンプレート・選択肢を変更できます。' },
   { key: 'manage_shifts', label: '月間シフト・休日管理', description: '職員の勤務予定とパート職員の希望を確定できます。' },
   { key: 'manage_calendar', label: '業務カレンダー管理', description: '会議、外出、研修などの予定を登録できます。' },
   { key: 'manage_transport', label: '利用予定・送迎管理', description: '利用予定、送迎条件、配車内容を変更できます。' },

@@ -4653,9 +4653,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             )}
             {behaviorReady && consequenceReady && antecedentReady && (
               <div className="wizard-reveal space-y-4 rounded-2xl border-2 border-violet-400 bg-violet-50 p-4 shadow-md shadow-violet-100">
-                <p className="flex items-center gap-2 text-sm font-black text-violet-900"><Check className="h-5 w-5 text-emerald-600" />A・B・Cの入力がそろいました。内容を要約できます。</p>
+                <p className="flex items-center gap-2 text-sm font-black text-violet-900"><Check className="h-5 w-5 text-emerald-600" />A・B・Cの入力がそろいました。必要に応じてまとめ文を手入力してください。</p>
                 <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">外部AIは使用しません。必要に応じて、下の欄にまとめ文を手入力してください。</p>
-                <label className="block text-sm font-black text-slate-800">{summaryQuestion.title}<span className="mt-1 block text-xs font-medium leading-relaxed text-slate-500">{summaryQuestion.help}</span><textarea rows={7} value={abc?.summary || ''} onChange={(event) => updateABC(currentStep.sectionId!, 'summary', event.target.value)} placeholder="「要約する」を押すと、ここに文章が表示されます。" className={`${inputClass} mt-2`} /></label>
+                <label className="block text-sm font-black text-slate-800">{summaryQuestion.title}<span className="mt-1 block text-xs font-medium leading-relaxed text-slate-500">{summaryQuestion.help}</span><textarea rows={7} value={abc?.summary || ''} onChange={(event) => updateABC(currentStep.sectionId!, 'summary', event.target.value)} placeholder="観察した様子と支援内容を手入力してください。" className={`${inputClass} mt-2`} /></label>
               </div>
             )}
           </div>
