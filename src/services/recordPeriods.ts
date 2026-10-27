@@ -14,7 +14,7 @@ export function createRecordChanges():RecordChanges{
  }};
 }
 export const RECORD_PAGE_SIZE=200;
-export const INITIAL_RECORD_WINDOW_DAYS=90;
+export const INITIAL_RECORD_WINDOW_DAYS=30;
 export function throwIfRecordReadAborted(signal?:AbortSignal){if(signal?.aborted)throw new DOMException('Cancelled record read','AbortError');}
 export function validRecordDate(value:string){const d=new Date(value+'T00:00:00Z');return /^\d{4}-\d{2}-\d{2}$/.test(value)&&!value.startsWith('0000-')&&Number.isFinite(d.getTime())&&d.toISOString().slice(0,10)===value;}
 export function validateRecordPeriod(period:RecordPeriod){
