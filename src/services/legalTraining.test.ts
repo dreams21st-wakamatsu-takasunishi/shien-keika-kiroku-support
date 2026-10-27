@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {canManageTraining,moveTrainingItem,moveTrainingItemTo,openTrainingResources,remainingTraining,trainingError,trainingOrderSnapshot,trainingTitle,trainingUrl,visibleTraining,type TrainingData} from '../training/model';
+import {canManageTraining,moveTrainingItem,moveTrainingItemTo,trainingResourceUrl,remainingTraining,trainingError,trainingOrderSnapshot,trainingTitle,trainingUrl,visibleTraining,type TrainingData} from '../training/model';
 import {readFileSync} from 'node:fs';
 
 test('only administrators and child development managers configure legal training',()=>{
@@ -17,11 +17,11 @@ test('counts ignore other users and hidden categories/videos, and do not mark un
  assert.equal(visibleTraining(data).videos.length,2);assert.equal(remainingTraining(visibleTraining(data).videos,data.progress,'self'),2);
  data.progress.push({videoId:'1',userId:'self',completedAt:'2026-10-06T00:00:00Z',revision:1});assert.equal(remainingTraining(visibleTraining(data).videos,data.progress,'self'),1);
 });
-test('external resources open only on request, with no referrer/opener, deduplication and optional materials',()=>{
- const calls:string[][]=[];const open=(...args:string[])=>calls.push(args);
- openTrainingResources({videoUrl:'https://example.invalid/video',materialUrl:'https://example.invalid/material'},open);
- assert.equal(calls.length,2);for(const call of calls)assert.deepEqual(call.slice(1),['_blank','noopener,noreferrer']);
- calls.length=0;openTrainingResources({videoUrl:'https://example.invalid/video',materialUrl:''},open);assert.equal(calls.length,1);
+test('resource selection always resolves exactly its own URL and never falls back to the other resource',()=>{
+ const row={videoUrl:'https://example.invalid/video',materialUrl:'https://example.invalid/material'};
+ assert.equal(trainingResourceUrl(row,'video'),row.videoUrl);assert.equal(trainingResourceUrl(row,'material'),row.materialUrl);
+ assert.equal(trainingResourceUrl({...row,materialUrl:''},'material'),'');
+ assert.equal(trainingResourceUrl({...row,materialUrl:''},'video'),row.videoUrl);
 });
 test('catalog uses the same stored order for learners and management without mutating data',()=>{
  const categories=[{id:'b',organizationId:'org',title:'二',active:true,revision:1,sortOrder:1},{id:'a',organizationId:'org',title:'一',active:true,revision:1,sortOrder:2}];
@@ -43,9 +43,10 @@ test('reorder payloads contain only unique opaque IDs and revisions, never title
  for(const rows of [[row,row],[{...row,id:'bad'}],[{...row,revision:0}],[{...row,revision:1.2}]])assert.throws(()=>trainingOrderSnapshot(rows));
  assert.match(trainingError(Error('TRAINING_ORDER_INVALID')),/再読込/);
 });
-test('invalid second URL prevents even the first external navigation',()=>{
- const calls:string[]=[];assert.throws(()=>openTrainingResources({videoUrl:'https://example.invalid/video',materialUrl:'javascript:alert(1)'},url=>calls.push(url)));assert.deepEqual(calls,[]);
- openTrainingResources({videoUrl:'https://example.invalid/video',materialUrl:'https://example.invalid/video'},url=>calls.push(url));assert.equal(calls.length,1);
+test('unsafe resource URLs are rejected independently without opening a sibling tab',()=>{
+ const row={videoUrl:'https://example.invalid/video',materialUrl:'javascript:alert(1)'};
+ assert.equal(trainingResourceUrl(row,'video'),row.videoUrl);assert.throws(()=>trainingResourceUrl(row,'material'));
+ assert.throws(()=>trainingResourceUrl({...row,videoUrl:'javascript:alert(1)'},'video'));
 });
 test('training errors never echo subscription URLs or titles, and service has no AI or localStorage processing',()=>{
  const secret='https://example.invalid/private?token=secret';assert.ok(!trainingError({code:'23514',message:secret}).includes(secret));assert.ok(!trainingError(Error(secret)).includes(secret));

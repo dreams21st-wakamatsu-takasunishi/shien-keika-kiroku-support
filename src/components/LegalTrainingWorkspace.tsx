@@ -6,7 +6,7 @@ import {SortableContext,sortableKeyboardCoordinates,useSortable,verticalListSort
 import {CSS} from '@dnd-kit/utilities';
 import type {UserProfile} from '../types';
 import {createTrainingRepository} from '../services/legalTraining';
-import {canManageTraining,moveTrainingItem,moveTrainingItemTo,openTrainingResources,openTrainingConfirmationForm,remainingTraining,trainingError,visibleTraining,type TrainingCategory,type TrainingData,type TrainingProgress,type TrainingRepository,type TrainingVideo} from '../training/model';
+import {canManageTraining,moveTrainingItem,moveTrainingItemTo,trainingResourceUrl,openTrainingConfirmationForm,remainingTraining,trainingError,visibleTraining,type TrainingCategory,type TrainingData,type TrainingProgress,type TrainingRepository,type TrainingVideo} from '../training/model';
 
 const empty:TrainingData={categories:[],videos:[],progress:[]};
 const inputClass='mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm text-slate-950';
@@ -21,6 +21,7 @@ export function LegalTrainingWorkspace({user,manage=false,repository,onDirtyChan
  const [data,setData]=useState<TrainingData>(empty),[selected,setSelected]=useState('');
  const [loading,setLoading]=useState(true),[ready,setReady]=useState(false),[busy,setBusy]=useState(false);
  const [error,setError]=useState(''),[message,setMessage]=useState('');
+ const [refreshError,setRefreshError]=useState('');
  const [formRecoveryUrl,setFormRecoveryUrl]=useState('');
  useEffect(()=>setFormRecoveryUrl(''),[scope]);
  const [addingCategory,setAddingCategory]=useState(false),[categoryTitle,setCategoryTitle]=useState('');
@@ -28,18 +29,20 @@ export function LegalTrainingWorkspace({user,manage=false,repository,onDirtyChan
  const [video,setVideo]=useState({title:'',videoUrl:'',materialUrl:''});
  const [formDraft,setFormDraft]=useState<{url:string;revision:number}|null>(null);
  const dirty=allowed&&Boolean(formDraft||categoryTitle.trim()||video.title.trim()||video.videoUrl.trim()||video.materialUrl.trim());
- const mounted=useRef(true),sequence=useRef(0);
- const reload=useCallback(async()=>{
-  const request=++sequence.current;setLoading(true);setError('');
-  try{const result=await repo.load();if(mounted.current&&sequence.current===request){setData(result);setReady(true);setSelected(previous=>result.categories.some(row=>row.id===previous&&row.active)?previous:result.categories.find(row=>row.active)?.id||'');}}
-  catch(e){if(mounted.current&&sequence.current===request){setError(trainingError(e));setReady(false);}}
-  finally{if(mounted.current&&sequence.current===request)setLoading(false);}
+ const mounted=useRef(true),sequence=useRef(0),readInFlight=useRef(false);
+ const reload=useCallback(async(background=false)=>{
+  if(background&&readInFlight.current)return;
+  const request=++sequence.current;readInFlight.current=true;
+  if(!background){setLoading(true);setError('');setRefreshError('');}
+  try{const result=await repo.load();if(mounted.current&&sequence.current===request){setData(result);setReady(true);setRefreshError('');setSelected(previous=>result.categories.some(row=>row.id===previous&&row.active)?previous:result.categories.find(row=>row.active)?.id||'');}}
+  catch(e){if(mounted.current&&sequence.current===request){if(background)setRefreshError('受講状況の自動更新ができませんでした。必要に応じて「再読込」を押してください。');else{setError(trainingError(e));setReady(false);}}}
+  finally{if(mounted.current&&sequence.current===request){readInFlight.current=false;if(!background)setLoading(false);}}
  },[repo]);
- useEffect(()=>{mounted.current=true;setData(empty);setSelected('');setReady(false);if(manage?allowed:confirmed)void reload();return()=>{mounted.current=false;sequence.current++;};},[reload,manage,allowed,confirmed]);
+ useEffect(()=>{mounted.current=true;readInFlight.current=false;setRefreshError('');setData(empty);setSelected('');setReady(false);if(manage?allowed:confirmed)void reload();return()=>{mounted.current=false;sequence.current++;};},[reload,manage,allowed,confirmed]);
  useEffect(()=>{onDirtyChange?.(dirty);return()=>onDirtyChange?.(false);},[dirty,onDirtyChange]);
  useEffect(()=>{if(!dirty)return;const warn=(e:BeforeUnloadEvent)=>{e.preventDefault();e.returnValue='';};window.addEventListener('beforeunload',warn);return()=>window.removeEventListener('beforeunload',warn);},[dirty]);
  // Read-only refresh on returning from the video tab. Never discard a manager's input.
- useEffect(()=>{const focus=()=>{if((manage?allowed:confirmed)&&!dirty&&!busy&&!loading)void reload();};window.addEventListener('focus',focus);return()=>window.removeEventListener('focus',focus);},[dirty,busy,loading,reload,manage,allowed,confirmed]);
+ useEffect(()=>{const focus=()=>{if((manage?allowed:confirmed)&&!dirty&&!busy&&!loading)void reload(true);};window.addEventListener('focus',focus);return()=>window.removeEventListener('focus',focus);},[dirty,busy,loading,reload,manage,allowed,confirmed]);
  const mutate=async(action:()=>Promise<void>,success:string)=>{
   setBusy(true);setError('');setMessage('');
   try{await action();if(mounted.current){setMessage(success);await reload();}}
@@ -110,9 +113,9 @@ export function LegalTrainingWorkspace({user,manage=false,repository,onDirtyChan
     <TrainingSortableList items={videos} disabled={!allowed||orderingBlocked} onMove={(id,target)=>void mutate(()=>repo.reorderVideos(selected,moveTrainingItemTo(videos,id,target)),'動画の表示順を保存しました。')}><div className="mt-4 space-y-3">{videos.map((row,index)=>{
      const status=progress.get(row.id),completed=Boolean(status?.completedAt);
      return <TrainingSortableItem key={row.id} id={row.id} title={row.title} disabled={!allowed||orderingBlocked}>{handle=><article aria-label={row.title} className={`rounded-xl border p-3 ${completed&&!manage?'border-emerald-200 bg-emerald-50/50':'border-slate-200'}`}>
-      <div className="flex flex-wrap items-center gap-2"><button type="button" className="min-h-11 min-w-0 flex-1 break-words text-left text-base font-bold text-teal-800 underline decoration-teal-300 underline-offset-4" onClick={()=>{try{openTrainingResources(row,(url,target,features)=>window.open(url,target,features));setMessage('外部タブを開きました。動画・資料が開かない場合は、個別のリンクを押してください。');}catch(e){setError(trainingError(e));}}}>{row.title}<ExternalLink className="ml-1 inline h-4 w-4"/></button>
+      <div className="flex flex-wrap items-center gap-2"><a className="inline-flex min-h-11 min-w-0 flex-1 items-center break-words text-left text-base font-bold text-teal-800 underline decoration-teal-300 underline-offset-4" href={trainingResourceUrl(row,'video')} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">{row.title}<ExternalLink className="ml-1 inline h-4 w-4 shrink-0"/></a>
        {!manage&&<span className={`rounded-full px-3 py-1 text-xs font-black ${completed?'bg-emerald-100 text-emerald-900':'bg-amber-100 text-amber-900'}`}>{completed?'受講済み':'未受講'}</span>}</div>
-      <div className="mt-2 flex flex-wrap items-center gap-2"><a className={buttonClass+' inline-flex items-center'} href={row.videoUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">動画を開く</a>{row.materialUrl&&<a className={buttonClass+' inline-flex items-center'} href={row.materialUrl} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">資料を開く</a>}
+      <div className="mt-2 flex flex-wrap items-center gap-2"><a className={buttonClass+' inline-flex items-center'} href={trainingResourceUrl(row,'video')} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">動画を開く</a>{row.materialUrl&&<a className={buttonClass+' inline-flex items-center'} href={trainingResourceUrl(row,'material')} target="_blank" rel="noopener noreferrer" referrerPolicy="no-referrer">資料を開く</a>}
        {manage?<><button type="button" className={`${buttonClass} text-teal-800`} disabled={blocked} onClick={()=>startVideoEdit(row)}>編集</button><button type="button" className={`${buttonClass} text-rose-700`} disabled={blocked||dirty} onClick={()=>{if(window.confirm('この動画を一覧から削除します。過去の受講履歴は保持されます。削除しますか？'))void mutate(()=>repo.archiveVideo(row),'動画を削除しました。');}}>削除</button></>:<button type="button" className={completed?`${buttonClass} text-slate-700`:'min-h-11 rounded-xl border border-teal-700 bg-teal-700 px-4 text-sm font-bold text-white disabled:opacity-40'} disabled={blocked} onClick={()=>{
         if(!completed){try{setFormRecoveryUrl(openTrainingConfirmationForm(data.settings?.confirmationFormUrl||'',(url,target,features)=>window.open(url,target,features)));}catch{setFormRecoveryUrl('');}}
         else setFormRecoveryUrl('');
@@ -125,6 +128,7 @@ export function LegalTrainingWorkspace({user,manage=false,repository,onDirtyChan
     {ready&&selected&&!videos.length&&<p className="mt-4 text-sm text-slate-600">このカテゴリには動画がありません。</p>}
    </section>
   </div>
+  {refreshError&&<p role="status" className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900">{refreshError}</p>}
  </div>;
 }
 function TrainingOrderControls({handle,title,index,count,disabled,onMove}:{handle:ReactNode;title:string;index:number;count:number;disabled:boolean;onMove:(direction:-1|1)=>void}){

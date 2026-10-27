@@ -4,7 +4,7 @@ if(!args.includes('--cli')||!['localhost','127.0.0.1'].includes(url.hostname)||u
 mkdirSync('output/playwright',{recursive:true});
 function command(...args){const r=spawnSync(process.execPath,[resolve(cli),'-s=legal-training-check',...args],{encoding:'utf8',timeout:180000,maxBuffer:4194304});if(r.status!==0||r.stdout.includes('### Error'))throw Error(r.stdout+r.stderr);return r.stdout;}
 async function check(page,url){
- let checks=0;const assert=(ok,label)=>{checks++;if(!ok)throw Error(label);};const errors=[];let gets=0,unavailable=false,failSave=false,failOrder=false;
+ let checks=0;const assert=(ok,label)=>{checks++;if(!ok)throw Error(label);};const errors=[];let gets=0,unavailable=false,failSave=false,failOrder=false,readDelay=0;
  const org='22222222-2222-4222-8222-222222222222',a='11111111-1111-4111-8111-111111111111',b='44444444-4444-4444-8444-444444444444';let actor=a;
  const categories=[],videos=[],progress=[];let writes=0;
  let settings=null;
@@ -14,6 +14,7 @@ async function check(page,url){
  await page.context().route('**/rest/v1/**',async route=>{
   const request=route.request(),uri=new URL(request.url()),table=uri.pathname.split('/').at(-1);
   if(request.method()==='GET'){
+   if(readDelay)await new Promise(resolve=>setTimeout(resolve,readDelay));
    assert(table.startsWith('legal_training_'),'no unrelated server receives training metadata');gets++;
    if(unavailable)return route.fulfill({status:400,json:{code:'42P01'}});
    assert(uri.searchParams.get('organization_id')==='eq.'+org,'catalog scoped to organization');
@@ -85,11 +86,23 @@ async function check(page,url){
  assert(await page.getByLabel('受講確認フォームへのリンク',{exact:true}).count()===0,'fixed form button removed');
  assert(await page.getByRole('link',{name:'受講確認フォームを開き直す',exact:true}).count()===0,'no form opened before completion');assert(progress.length===0,'rendering never marks completion');
  assert(await page.locator('article').first().getAttribute('aria-label')==='架空動画 2','learner uses saved video order');assert(await page.getByRole('button',{name:/をドラッグして並び替え/}).count()===0,'learner cannot reorder');
+ const resource=page.getByRole('article',{name:'架空動画 1',exact:true}).getByRole('link',{name:'資料を開く',exact:true});await resource.scrollIntoViewIfNeeded();
+ const beforeFocus=await resource.boundingBox();readDelay=600;const focusReads=gets;await page.evaluate(()=>window.dispatchEvent(new Event('focus')));await page.waitForTimeout(150);
+ const duringFocus=await resource.boundingBox();assert(Math.abs(beforeFocus.y-duringFocus.y)<1,'returning from an external tab must not move resource buttons during refresh');
+ await page.waitForTimeout(700);readDelay=0;assert(gets>focusReads,'focus still refreshes completion status');
+ readDelay=400;const burstReads=gets;await page.evaluate(()=>{for(let i=0;i<6;i++)window.dispatchEvent(new Event('focus'));});await page.waitForTimeout(650);readDelay=0;assert(gets-burstReads===4,'repeated focus events share one catalog refresh');
+ unavailable=true;await page.evaluate(()=>window.dispatchEvent(new Event('focus')));await page.getByRole('status').filter({hasText:'受講状況の自動更新ができませんでした'}).waitFor();
+ assert(await page.getByRole('article',{name:'架空動画 1',exact:true}).getByRole('button',{name:'完了',exact:true}).isEnabled(),'background failure does not disable a previously loaded catalog');
+ const failedPosition=await resource.boundingBox();assert(Math.abs(duringFocus.y-failedPosition.y)<1,'background error is placed below links without moving them');unavailable=false;
+ await page.evaluate(()=>window.dispatchEvent(new Event('focus')));await page.getByRole('status').filter({hasText:'受講状況の自動更新ができませんでした'}).waitFor({state:'hidden'});
  await page.evaluate(()=>{window.__trainingOpen=[];window.open=(...args)=>{window.__trainingOpen.push(args);return null;};});
- let first=page.getByRole('article',{name:'架空動画 1',exact:true});await first.getByRole('button',{name:'架空動画 1',exact:true}).click();
- assert((await page.evaluate(()=>window.__trainingOpen)).length===2,'title opens both resources');assert(await first.getByRole('link',{name:'資料を開く'}).getAttribute('rel')==='noopener noreferrer','fallback referrer protection');assert(progress.length===0,'opening links does not mark complete');
+ let first=page.getByRole('article',{name:'架空動画 1',exact:true});
+ const openResource=async(label,expected)=>{const pagesBefore=page.context().pages().length,next=page.context().waitForEvent('page');await first.getByRole('link',{name:label,exact:true}).click();const tab=await next;await tab.waitForLoadState();assert(tab.url()===expected,label+' opens only the correct URL');assert(await tab.evaluate(()=>window.opener===null),'resource has no opener');await page.waitForTimeout(100);assert(page.context().pages().length===pagesBefore+1,'exactly one resource tab');await tab.close();};
+ await openResource('架空動画 1','https://example.invalid/video');await openResource('動画を開く','https://example.invalid/video');await openResource('資料を開く','https://example.invalid/material');await openResource('動画を開く','https://example.invalid/video');
+ await page.setViewportSize({width:390,height:844});await openResource('資料を開く','https://example.invalid/material');await openResource('動画を開く','https://example.invalid/video');await page.setViewportSize({width:1280,height:900});
+ assert((await page.evaluate(()=>window.__trainingOpen)).length===0,'resources use native independent links, not multi-popup code');assert(await first.getByRole('link',{name:'資料を開く'}).getAttribute('rel')==='noopener noreferrer','fallback referrer protection');assert(progress.length===0,'opening links does not mark complete');
  failSave=true;await first.getByRole('button',{name:'完了',exact:true}).click();await page.getByRole('alert').filter({hasText:'失敗'}).waitFor();assert(await first.getByText('未受講',{exact:true}).count()===1,'failed completion remains incomplete');failSave=false;
- const opened=await page.evaluate(()=>window.__trainingOpen);assert(opened.length===3&&opened[2][0]==='https://example.invalid/form'&&opened[2][2]==='noopener,noreferrer','completion synchronously opens only the configured form without private parameters');
+ const opened=await page.evaluate(()=>window.__trainingOpen);assert(opened.length===1&&opened[0][0]==='https://example.invalid/form'&&opened[0][2]==='noopener,noreferrer','completion synchronously opens only the configured form without private parameters');
  const formLink=page.getByRole('link',{name:'受講確認フォームを開き直す',exact:true});assert(await formLink.getAttribute('href')==='https://example.invalid/form','blocked-popup fallback retains URL');assert(await formLink.getAttribute('rel')==='noopener noreferrer'&&await formLink.getAttribute('referrerpolicy')==='no-referrer','fallback privacy');
  const newFormPage=page.context().waitForEvent('page');await formLink.click();const formPage=await newFormPage;await formPage.waitForLoadState();assert(formPage.url()==='https://example.invalid/form','form fallback opens external tab');assert(await formPage.evaluate(()=>window.opener===null),'form has no opener');await formPage.close();assert(progress.length===0,'form does not conceal failed completion');
  await first.getByRole('button',{name:'完了',exact:true}).click();await first.getByRole('button',{name:'取り消し',exact:true}).waitFor();assert(await page.getByRole('button',{name:'架空カテゴリ 未受講 1',exact:true}).count()===1,'remaining count updated');

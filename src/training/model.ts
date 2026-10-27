@@ -60,10 +60,9 @@ export function remainingTraining(videos:TrainingVideo[],progress:TrainingProgre
  const completed=new Set(progress.filter(row=>row.userId===userId&&row.completedAt).map(row=>row.videoId));
  return videos.filter(row=>!completed.has(row.id)).length;
 }
-/** Two popups may be restricted by the browser; the UI always keeps fallback links. */
-export function openTrainingResources(video:Pick<TrainingVideo,'videoUrl'|'materialUrl'>,open:(url:string,target:string,features:string)=>unknown){
- const urls=[trainingUrl(video.videoUrl),trainingUrl(video.materialUrl,true)].filter(Boolean);
- for(const url of [...new Set(urls)])open(url,'_blank','noopener,noreferrer');
+/** Resolve only the selected resource. Never open both provider pages at once. */
+export function trainingResourceUrl(video:Pick<TrainingVideo,'videoUrl'|'materialUrl'>,kind:'video'|'material'){
+ return kind==='video'?trainingUrl(video.videoUrl):trainingUrl(video.materialUrl,true);
 }
 /** Call in the click event, before waiting for storage, to retain user activation.
  * No video name, identity or completion information is added to the URL.
