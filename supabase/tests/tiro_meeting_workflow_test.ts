@@ -116,6 +116,22 @@ Deno.test('meeting workflow enforces access, versioning, review and device rules
       (organization_id,meeting_id,version,source_kind,raw_text,corrected_text)
       values ($1,$2,2,'スクリプト','original','corrected')`, [org, meeting]);
     assert.equal((await db.query('select id from public.meeting_transcripts')).rows.length, 2);
+    await db.query(`insert into public.meeting_export_events (organization_id,meeting_id,output_kind) values ($1,$2,'context_copy')`, [org,meeting]);
+    const previousExports = (await db.query('select * from public.meeting_export_events')).rows;
+    await db.exec('reset role; revoke insert on public.meeting_export_events from authenticated');
+    await actAs(editor);
+    await assert.rejects(() => db.query(`insert into public.meeting_export_events (organization_id,meeting_id,output_kind) values ($1,$2,'sheet_copy')`, [org,meeting]));
+    await db.exec('reset role');
+    await db.exec(await Deno.readTextFile(new URL('../migrations/202610270004_restore_manual_tiro_handoff.sql',import.meta.url)));
+    await actAs(editor);
+    assert.deepEqual((await db.query('select * from public.meeting_export_events')).rows,previousExports);
+    await assert.rejects(() => db.query('delete from public.meeting_export_events'));
+    await assert.rejects(() => db.query("update public.meeting_export_events set output_kind='sheet_download'"));
+    for (const [id,device] of [[outsider,'facility_shared'],[foreignUser,'facility_shared'],[editor,'personal']]) {
+      await actAs(id,device);
+      await assert.rejects(() => db.query(`insert into public.meeting_export_events (organization_id,meeting_id,output_kind) values ($1,$2,'sheet_copy')`,[org,meeting]));
+    }
+    await actAs(editor);
     await db.query(`insert into public.meeting_export_events
       (organization_id,meeting_id,output_kind) values ($1,$2,'sheet_copy')`, [org, meeting]);
 

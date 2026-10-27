@@ -40,7 +40,7 @@ export const MANUAL_TITLES = {
   "inspection": "日常点検を記録する",
   "supplies": "備品の在庫と補充を管理する",
   "newsletter": "保護者向けおたよりを作る",
-  "meeting": "複数児童の会議準備と手入力メモ",
+  "meeting": "複数児童の会議支援とTiroへの手動受け渡し",
   "learning": "Dレッスン連携・学習管理",
   "lesson-auto": "Dレッスンの実績を自動反映・再取得する",
   "lesson-details": "Dレッスンの要点表示・手入力・実績選択",

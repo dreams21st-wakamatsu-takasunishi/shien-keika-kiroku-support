@@ -173,3 +173,13 @@ export async function saveMeetingProgress(organizationId: string, progress: Meet
   if (!data) throw new Error('MEETING_CONFLICT: 記録が変更されています。読み込み直してください。');
   return mapProgress(data);
 }
+
+// Manual clipboard/file handoff only; no call to Tiro or another AI provider.
+export async function logMeetingExport(organizationId: string, meetingId: string,
+  outputKind: 'context_copy' | 'sheet_copy' | 'sheet_download'): Promise<void> {
+  if (isDemo(organizationId)) return;
+  const { error } = await client().from('meeting_export_events').insert({
+    organization_id: organizationId, meeting_id: meetingId, output_kind: outputKind,
+  });
+  if (error) throw error;
+}

@@ -60,5 +60,9 @@ try{
  await denied('select get_external_ai_policy()','0A000');await denied(enable(3),'0A000');
  for(const role of ['authenticated','service_role']){await db.exec('set role '+role);await denied('select get_external_ai_policy()','42501');await denied(enable(3),'42501');await denied('update organization_ai_settings set payload=\'changed\'','42501');await denied('insert into ai_generation_logs values(2,\'new\')','42501');await db.exec('reset role');}
  for(const table of ['organization_ai_settings','ai_generation_logs','assistant_actions','meeting_export_events']){assert.equal((await query('select count(*)::int as n from '+table))[0].n,1);checks++;}
- console.log(JSON.stringify({passed:true,checks,productionWrites:0,externalAiRetired:true,legacyRowsPreserved:true}));
+ await db.exec(readFileSync('supabase/migrations/202610270004_restore_manual_tiro_handoff.sql','utf8'));
+ await db.exec('set role authenticated');await denied('select get_external_ai_policy()','42501');await denied(enable(3),'42501');await db.exec("insert into meeting_export_events values(2,'manual export')");checks++;
+ await denied("update meeting_export_events set payload='changed'",'42501');await denied('delete from meeting_export_events','42501');await db.exec('reset role');
+ assert.equal((await query('select enabled from external_ai_policies'))[0].enabled,false);checks++;
+ console.log(JSON.stringify({passed:true,checks,productionWrites:0,externalAiRetired:true,manualTiroOnly:true,legacyRowsPreserved:true}));
 }finally{await db.close();}

@@ -2683,7 +2683,7 @@ function ScreenContextBar({
     home: { title: 'ホーム', description: '' },
     form: { title: '記録作成', description: '質問に沿って支援経過を入力' },
     records: { title: '記録一覧', description: '確認・修正・出力' },
-    meetings: { title: '会議支援', description: '事前準備・会議中の確認・手入力メモ' },
+    meetings: { title: '会議支援', description: '事前情報とTiroへの手動受け渡し・会議中の確認' },
     preview: { title: '記録確認', description: '内容確認・修正指摘・承認' },
     children: { title: '児童名簿', description: '児童情報・利用曜日の管理' },
     learning: { title: 'Dレッスン管理', description: '取り組み・課題・Word確認・教材とごほうび・アカウント' },
