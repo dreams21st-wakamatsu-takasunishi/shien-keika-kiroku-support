@@ -128,54 +128,6 @@ export interface TransportGeocodeResult {
   code?: string;
 }
 
-export type HomeAssistantActionType =
-  | 'schedule_regular_days'
-  | 'update_child_profile'
-  | 'update_child_notes'
-  | 'update_daily_transport'
-  | 'start_support_record'
-  | 'open_child_records'
-  | 'summarize_recent_records';
-
-export interface HomeAssistantProposalDetail {
-  label: string;
-  value: string;
-}
-
-export interface HomeAssistantProposal {
-  actionId: string;
-  actionType: HomeAssistantActionType;
-  childId: string;
-  childName: string;
-  instruction: string;
-  summary: string;
-  details: HomeAssistantProposalDetail[];
-  confirmationNote: string;
-  effectiveDate?: string;
-  regularDays?: Weekday[];
-  profileChanges?: Partial<Pick<ChildProfile, 'name' | 'kana' | 'birthDate' | 'careType'>>;
-  notesMode?: 'append' | 'replace';
-  notesText?: string;
-  recordDate?: string;
-  periodDays?: number;
-  transportDate?: string;
-  transportDirection?: TransportDirection;
-  transportTargetTime?: string;
-}
-
-export interface HomeAssistantExecutionResult {
-  message: string;
-  schedule?: RegularDaySchedule;
-  updatedChild?: Partial<ChildProfile>;
-  output?: string;
-  updatedTransportRequirement?: DailyTransportRequirement;
-  clientAction?: {
-    type: 'start_support_record' | 'open_child_records';
-    childId: string;
-    date?: string;
-  };
-}
-
 export type FieldType =
   | 'radio'
   | 'checkbox'
@@ -431,7 +383,6 @@ export type RecorderMenuItemId =
   | 'legalTraining'
   | 'operations'
   | 'communication'
-  | 'assistant'
   | 'form'
   | 'records'
   | 'meetings'
@@ -1085,27 +1036,11 @@ export interface AnnouncementConfirmation {
   confirmedAt?: string;
 }
 
-export type AiTone = 'assertive' | 'polite' | 'custom';
-
-export interface AiWritingSettings {
-  tone: AiTone;
-  customTone: string;
-  customInstructions: string;
-  targetLength: number;
-}
-
 export interface MonthlyScheduleDeleteResult {
   dailyPlanCount: number;
   requirementCount: number;
   affectedDateCount: number;
 }
-
-export const DEFAULT_AI_WRITING_SETTINGS: AiWritingSettings = {
-  tone: 'assertive',
-  customTone: '',
-  customInstructions: '客観的な事実を中心に、支援者の関わりと児童の反応が分かる文章にする。',
-  targetLength: 180,
-};
 
 export interface SupportRecord {
   id: string;

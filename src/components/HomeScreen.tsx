@@ -35,8 +35,6 @@ import type {
   HandoverConfirmation,
   HandoverItem,
   HandoverStatus,
-  HomeAssistantExecutionResult,
-  HomeAssistantProposal,
   MorningMeetingConfirmation,
   MorningMeetingRecord,
   MorningMeetingTemplate,
@@ -59,7 +57,6 @@ import type {
   Vehicle,
 } from '../types';
 import type { ActiveTab } from './Header';
-import { executeHomeAssistantProposal, requestHomeAssistantProposal } from '../services/homeAssistantService';
 import { DailyOperationsPanel, type DraftTakeoverSelection } from './DailyOperationsPanel';
 import { HandoverPanel } from './HandoverPanel';
 import { MorningMeetingPanel } from './MorningMeetingPanel';
@@ -131,7 +128,6 @@ interface HomeScreenProps {
   onSaveMorningMeetingTemplate: (template: MorningMeetingTemplate) => Promise<void> | void;
   onArchiveMorningMeetingTemplate: (templateId: string) => Promise<void> | void;
   onSetMorningMeetingConfirmation: (confirmation: MorningMeetingConfirmation, confirmed: boolean) => Promise<void> | void;
-  onAssistantExecuted: (proposal: HomeAssistantProposal, result: HomeAssistantExecutionResult) => Promise<void> | void;
   onSaveStaffSchedule: (item: StaffScheduleItem) => Promise<void> | void;
   onDeleteStaffSchedule: (itemId: string) => Promise<void> | void;
   onSaveCalendarEvent: (event: CalendarEvent) => Promise<void> | void;
@@ -167,12 +163,12 @@ interface HomeScreenProps {
   onUpdateTransportStatus: (run: TransportRun, recorder: RecorderProfile, pin: string, status: TransportRunStatus) => Promise<void> | void;
 }
 
-export type HomeWorkspace = 'menu' | 'dailyChanges' | 'todayWork' | 'attendance' | 'calendar' | 'monthlySchedule' | 'dispatch' | 'operations' | 'communication' | 'assistant';
+export type HomeWorkspace = 'menu' | 'dailyChanges' | 'todayWork' | 'attendance' | 'calendar' | 'monthlySchedule' | 'dispatch' | 'operations' | 'communication';
 type CommunicationView = 'announcements' | 'morning' | 'handover';
 
 function workspaceTitle(workspace: HomeWorkspace) {
   const titles: Record<HomeWorkspace, string> = {
-    menu: 'ホーム', dailyChanges: '当日変更', todayWork: '本日の業務', attendance: '出勤予定', calendar: '業務カレンダー', monthlySchedule: '利用予定／送迎管理', dispatch: '配車編集', operations: '記録状況', communication: '共有・連絡', assistant: 'AIアシスタント',
+    menu: 'ホーム', dailyChanges: '当日変更', todayWork: '本日の業務', attendance: '出勤予定', calendar: '業務カレンダー', monthlySchedule: '利用予定／送迎管理', dispatch: '配車編集', operations: '記録状況', communication: '共有・連絡',
   };
   return titles[workspace];
 }
@@ -236,7 +232,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onSaveMorningMeetingTemplate,
   onArchiveMorningMeetingTemplate,
   onSetMorningMeetingConfirmation,
-  onAssistantExecuted,
   onSaveStaffSchedule,
   onDeleteStaffSchedule,
   onSaveCalendarEvent,
@@ -392,7 +387,6 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     operations: `本日 ${todayRecords.length}件／入力中 ${drafts.length}件${carriedOverDrafts.length > 0 ? `／持越し ${carriedOverDrafts.length}件` : ''}`,
     records: unapproved.length > 0 ? `未確認 ${unapproved.length}件` : '記録を確認',
     communication: `${visibleAnnouncements.length + openHandovers}件を確認`,
-    assistant: '実行前に内容を確認',
     form: '新しい記録を作成',
   };
   const openHomeItem = (item: NavigationItem) => {
@@ -683,228 +677,12 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           </div>
         )}
 
-        {activePanel === 'assistant' && (
-          <HomeAssistantPanel childrenList={childrenList} onExecuted={onAssistantExecuted} />
-        )}
           </div>
         </>
       )}
     </div>
   );
 };
-
-function HomeAssistantPanel({
-  childrenList,
-  onExecuted,
-}: {
-  childrenList: ChildProfile[];
-  onExecuted: (proposal: HomeAssistantProposal, result: HomeAssistantExecutionResult) => Promise<void> | void;
-}) {
-  const [selectedChildId, setSelectedChildId] = useState('');
-  const [instruction, setInstruction] = useState('');
-  const [proposal, setProposal] = useState<HomeAssistantProposal | null>(null);
-  const [resultMessage, setResultMessage] = useState('');
-  const [resultOutput, setResultOutput] = useState('');
-  const [error, setError] = useState('');
-  const [phase, setPhase] = useState<'idle' | 'proposing' | 'executing'>('idle');
-  const selectedChild = childrenList.find((child) => child.id === selectedChildId);
-  const busy = phase !== 'idle';
-
-  const resetResult = () => {
-    setProposal(null);
-    setResultMessage('');
-    setResultOutput('');
-    setError('');
-  };
-
-  const handleCreateProposal = async () => {
-    if (!selectedChild) return setError('児童名を選択してください。');
-    if (!instruction.trim()) return setError('AIへの指示文を入力してください。');
-    setPhase('proposing');
-    setError('');
-    setResultMessage('');
-    setResultOutput('');
-    try {
-      setProposal(await requestHomeAssistantProposal(selectedChild, instruction.trim()));
-    } catch (requestError) {
-      setProposal(null);
-      setError(requestError instanceof Error ? requestError.message : '実行案を作成できませんでした。');
-    } finally {
-      setPhase('idle');
-    }
-  };
-
-  const handleExecute = async () => {
-    if (!proposal) return;
-    setPhase('executing');
-    setError('');
-    try {
-      const result = await executeHomeAssistantProposal(proposal, selectedChild);
-      await onExecuted(proposal, result);
-      setResultMessage(result.message);
-      setResultOutput(result.output || '');
-      setProposal(null);
-      setInstruction('');
-    } catch (executeError) {
-      setError(executeError instanceof Error ? executeError.message : 'アシスタントを実行できませんでした。');
-    } finally {
-      setPhase('idle');
-    }
-  };
-
-  return (
-    <section className="overflow-hidden rounded-2xl border border-indigo-200 bg-white shadow-sm">
-      <div className="border-b border-indigo-100 bg-gradient-to-r from-indigo-950 via-slate-900 to-teal-950 px-5 py-4 text-white sm:px-6">
-        <div className="flex items-start gap-3">
-          <div className="mt-0.5 rounded-xl bg-white/10 p-2"><Bot className="h-6 w-6 text-teal-300" /></div>
-          <div>
-            <p className="text-[11px] font-bold text-teal-300">承認後にだけ実行する安全設計</p>
-            <h3 className="mt-0.5 text-lg font-black">AI業務アシスタント</h3>
-            <p className="mt-1 text-xs leading-relaxed text-slate-300">管理者の送信許可と、送信する文章の確認後にAIが実行案を作成します。実行案の承認まで児童情報は変更されません。氏名・生年月日等の変更は児童名簿をご利用ください。</p>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid gap-5 p-5 sm:p-6 lg:grid-cols-[1fr_1.1fr]">
-        <div className="space-y-4">
-          <label className="block">
-            <span className="mb-1.5 block text-xs font-bold text-slate-700">児童名</span>
-            <select
-              value={selectedChildId}
-              disabled={busy}
-              onChange={(event) => {
-                setSelectedChildId(event.target.value);
-                resetResult();
-              }}
-              className="min-h-12 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 disabled:opacity-60"
-            >
-              <option value="">児童を選択してください</option>
-              {childrenList.map((child) => <option key={child.id} value={child.id}>{child.name}</option>)}
-            </select>
-          </label>
-
-          <label className="block">
-            <span className="mb-1.5 block text-xs font-bold text-slate-700">アシスタント内容</span>
-            <textarea
-              rows={4}
-              value={instruction}
-              disabled={busy}
-              onChange={(event) => {
-                setInstruction(event.target.value);
-                resetResult();
-              }}
-              placeholder="例：8月26日からの定期利用日を水曜日と金曜日になるようにしてほしい"
-              className="w-full rounded-xl border border-slate-300 bg-white p-3 text-sm leading-relaxed focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 disabled:opacity-60"
-            />
-          </label>
-          <div>
-            <p className="text-[10px] font-bold text-slate-500">入力例</p>
-            <div className="mt-1.5 flex gap-2 overflow-x-auto pb-1">
-              {[
-                '8月26日から水曜日と金曜日の利用に変更',
-                '留意点に「水分補給の声掛けを行う」を追記',
-                '明日の記録作成を開始',
-                '過去の記録を一覧表示',
-                '最近30日間の記録を要約',
-              ].map((example) => (
-                <button
-                  key={example}
-                  type="button"
-                  disabled={busy}
-                  onClick={() => {
-                    setInstruction(example);
-                    resetResult();
-                  }}
-                  className="shrink-0 rounded-full border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-[10px] font-bold text-indigo-700 disabled:opacity-50"
-                >
-                  {example}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-[11px] leading-relaxed text-slate-600">
-            <p className="flex items-center gap-1.5 font-bold text-slate-700"><ShieldCheck className="h-4 w-4 text-teal-600" />現在実行できる内容</p>
-            <p className="mt-1">曜日変更、児童情報・留意点の更新、記録開始、記録一覧、最近の記録要約に対応しています。削除・権限・承認・テンプレート操作は管理画面から行います。</p>
-          </div>
-
-          <button
-            type="button"
-            disabled={busy || !selectedChildId || !instruction.trim()}
-            onClick={handleCreateProposal}
-            className="min-h-12 w-full rounded-xl bg-indigo-600 px-4 text-sm font-black text-white shadow-sm flex items-center justify-center gap-2 hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {phase === 'proposing' ? <><LoaderCircle className="h-5 w-5 animate-spin" />AIが実行案を作成中...</> : <><Sparkles className="h-5 w-5" />実行案を作成</>}
-          </button>
-        </div>
-
-        <div className="min-h-64 rounded-2xl border border-dashed border-slate-300 bg-slate-50/80 p-4 sm:p-5">
-          {!proposal && !resultMessage && !error && (
-            <div className="h-full min-h-52 flex flex-col items-center justify-center text-center text-slate-400">
-              <Sparkles className="h-9 w-9 text-indigo-300" />
-              <p className="mt-3 text-sm font-bold text-slate-500">ここにAIの実行案が表示されます</p>
-              <p className="mt-1 max-w-xs text-xs">対象児童と指示を入力し、「実行案を作成」を押してください。</p>
-            </div>
-          )}
-
-          {proposal && (
-            <div className="space-y-4">
-              <div>
-                <p className="text-[11px] font-bold text-indigo-600">AIアシスタント案・{getAssistantActionLabel(proposal.actionType)}</p>
-                <h4 className="mt-1 text-base font-black text-slate-900">{proposal.summary}</h4>
-              </div>
-              <dl className="grid gap-2 text-xs sm:grid-cols-2">
-                {proposal.details.map((detail, index) => (
-                  <div key={`${detail.label}-${index}`} className={`rounded-xl border border-slate-200 bg-white p-3 ${proposal.details.length % 2 === 1 && index === proposal.details.length - 1 ? 'sm:col-span-2' : ''}`}>
-                    <dt className="text-slate-500">{detail.label}</dt>
-                    <dd className="mt-1 whitespace-pre-wrap font-bold leading-relaxed text-slate-900">{detail.value}</dd>
-                  </div>
-                ))}
-              </dl>
-              <p className="rounded-xl bg-amber-50 p-3 text-[11px] leading-relaxed text-amber-800">承認後にだけ実行されます。{proposal.confirmationNote}</p>
-              <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-                <button type="button" disabled={busy} onClick={handleExecute} className="min-h-12 rounded-xl bg-teal-600 px-4 text-sm font-black text-white flex items-center justify-center gap-2 hover:bg-teal-500 disabled:opacity-60">
-                  {phase === 'executing' ? <><LoaderCircle className="h-5 w-5 animate-spin" />アシスタント実行中...</> : <><CheckCircle2 className="h-5 w-5" />この内容を承認して実行</>}
-                </button>
-                <button type="button" disabled={busy} onClick={() => setProposal(null)} className="min-h-12 rounded-xl border border-slate-300 bg-white px-4 text-xs font-bold text-slate-600 disabled:opacity-60">指示を修正</button>
-              </div>
-            </div>
-          )}
-
-          {resultMessage && (
-            <div role="status" className="h-full min-h-52 flex flex-col items-center justify-center rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-center">
-              <CheckCircle2 className="h-10 w-10 text-emerald-600" />
-              <p className="mt-3 text-[11px] font-bold text-emerald-700">アシスタントの実行が完了しました</p>
-              <p className="mt-1 text-sm font-black leading-relaxed text-emerald-950">{resultMessage}</p>
-              {resultOutput && <div className="mt-4 w-full whitespace-pre-wrap rounded-xl border border-emerald-200 bg-white p-4 text-left text-xs leading-relaxed text-slate-700">{resultOutput}</div>}
-              <button type="button" onClick={resetResult} className="mt-4 min-h-10 rounded-lg border border-emerald-300 bg-white px-4 text-xs font-bold text-emerald-800 flex items-center gap-2"><RotateCcw className="h-4 w-4" />別の指示を入力</button>
-            </div>
-          )}
-
-          {error && (
-            <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
-              <p className="font-bold">実行案を作成できませんでした</p>
-              <p className="mt-1 text-xs leading-relaxed">{error}</p>
-            </div>
-          )}
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function getAssistantActionLabel(actionType: HomeAssistantProposal['actionType']) {
-  const labels: Record<HomeAssistantProposal['actionType'], string> = {
-    schedule_regular_days: '定期利用曜日',
-    update_child_profile: '児童基本情報',
-    update_child_notes: '指導上の留意点',
-    update_daily_transport: '日別送迎予定',
-    start_support_record: '記録作成',
-    open_child_records: '記録一覧',
-    summarize_recent_records: '最近の記録要約',
-  };
-  return labels[actionType];
-}
 
 function DailyChangePanel({
   date,

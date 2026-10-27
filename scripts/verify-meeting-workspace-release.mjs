@@ -28,22 +28,17 @@ const runtime = await Promise.all(manifest.assets.filter(path => /\.(js|css|mjs)
   return /\.(js|mjs)$/.test(path) ? source : '';
 }));
 const js = runtime.join('\n');
-for (const marker of ['準備・Tiroへ渡す', '事前情報とTiroへの受け渡し・会議中の確認',
-  'Tiroへ渡す情報', '渡す文章を確認', '説明・同意を確認するとコピーできます。',
-  '変更の保存が完了するとコピーできます。', '会議終了にする',
-  '閲覧・編集する職員の設定', 'コピーする内容', '自動保存：有効', '最終保存：',
-  'まだ保存が完了していません。この画面を閉じずに通信状態を確認してください。']) {
+for (const marker of ['事前準備・会議中の確認・手入力メモ','外部AIへの送信機能はありません。','会議終了にする','閲覧・編集する職員の設定','自動保存：有効','最終保存：','まだ保存が完了していません。この画面を閉じずに通信状態を確認してください。']) {
   if (!js.includes(marker)) throw Error(`Meeting feature absent: ${marker}`);
 }
-for (const marker of ['Tiroの文字起こしを取り込む', '修正版を新しい版として保存',
+for (const marker of ['Tiroへ渡す情報', '渡す文章を確認', 'Tiroの文字起こしを取り込む', '修正版を新しい版として保存',
   '会議結果から下書きを作る', '会議結果を確認済みにする',
   '会議由来の支援経過記録', '以前の文字起こし版を見る']) {
   if (js.includes(marker)) throw Error(`Retired meeting UI remains: ${marker}`);
 }
 const manual = await (await read(`manuals/d-support/index.html?verify=${stamp}`)).text();
 const section = manual.match(/<section[^>]+id="meeting"[\s\S]*?<\/section>/)?.[0];
-if (!section || !section.includes('準備・Tiroへ渡す') || !section.includes('会議中の確認・メモ')
-  || !section.includes('既存データは削除しません。')) throw Error('Meeting manual not updated');
+if (!section || !section.includes('準備・議題を入力') || !section.includes('会議中の確認・メモ') || !section.includes('既存の会議・記録・履歴は保持')) throw Error('Meeting manual not updated');
 const screenshot = Buffer.from(await (await read(`manuals/d-support/images/meetings.png?verify=${stamp}`)).arrayBuffer());
 const hash = bytes => createHash('sha256').update(bytes).digest('hex');
 if (hash(screenshot) !== hash(readFileSync(new URL('../public/manuals/d-support/images/meetings.png', import.meta.url)))) {

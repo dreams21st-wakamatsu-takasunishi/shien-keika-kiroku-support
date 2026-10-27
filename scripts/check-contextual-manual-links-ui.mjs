@@ -14,7 +14,7 @@ async function check(page,base){
  await page.context().route('https://**',route=>{if(!['GET','HEAD'].includes(route.request().method()))writes.push(route.request().url());return route.abort();});
  const fixture=base+'tests/fixtures/manual-workspace.html?screen=',nav=()=>page.getByRole('navigation',{name:'この画面のマニュアル',exact:true}).first();
  const topic=async(expected)=>{await nav().waitFor();assert(await nav().getAttribute('data-manual-topic')===expected,'topic '+expected);};
- const screens={menu:'home',dailyChanges:'daily-change',todayWork:'today',attendance:'attendance',calendar:'calendar',monthlySchedule:'monthly',dispatch:'dispatch',operations:'record-status',communication:'announcements',assistant:'assistant',form:'record-select',records:'record-list',children:'children',activityPlans:'activity',trafficCost:'traffic',facilityWork:'inspection',learning:'learning',templates:'record-settings',team:'staff',auth:'login',meetings:'meeting'};
+ const screens={menu:'home',dailyChanges:'daily-change',todayWork:'today',attendance:'attendance',calendar:'calendar',monthlySchedule:'monthly',dispatch:'dispatch',operations:'record-status',communication:'announcements',form:'record-select',records:'record-list',children:'children',activityPlans:'activity',trafficCost:'traffic',facilityWork:'inspection',learning:'learning',templates:'record-settings',team:'staff',auth:'login',meetings:'meeting'};
  for(const [screen,expected] of Object.entries(screens)){
   await page.setViewportSize({width:1366,height:768});await page.goto(fixture+screen);await topic(expected);
   assert(await nav().getByRole('link',{name:/^操作マニュアル：/}).getAttribute('href')==='/manuals/d-support/index.html#'+expected,'exact chapter '+screen);

@@ -54,5 +54,5 @@ test('training errors never echo subscription URLs or titles, and service has no
  for(const path of ['src/services/legalTraining.ts','src/training/model.ts','src/components/LegalTrainingWorkspace.tsx']){
   const source=readFileSync(path,'utf8');assert.ok(!source.includes('localStorage'));assert.ok(!source.includes('functions.invoke'));assert.ok(!source.includes('fetch('));assert.ok(!source.includes('console.'));
  }
- assert.ok(!readFileSync('src/services/homeAssistantService.ts','utf8').includes('legal_training'));
+ assert.ok(!readFileSync('src/components/HomeScreen.tsx','utf8').includes('requestHomeAssistantProposal'));
 });

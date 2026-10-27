@@ -6,7 +6,7 @@ export const WORKSPACE_TABLES = [
   'children', 'schools', 'child_regular_day_schedules', 'recorder_profiles',
   'record_templates', 'support_records', 'handover_items', 'handover_confirmations',
   'morning_meeting_records', 'morning_meeting_templates', 'morning_meeting_confirmations',
-  'support_plans', 'organization_ai_settings', 'announcements', 'announcement_confirmations',
+  'support_plans', 'announcements', 'announcement_confirmations',
   'staff_schedule_items', 'calendar_events', 'daily_child_plans', 'attendance_records',
   'staff_shift_templates', 'staff_shift_requests', 'organization_role_permissions',
   'attendance_correction_requests', 'vehicles', 'transport_runs', 'transport_plan_days',
@@ -16,7 +16,7 @@ export const WORKSPACE_TABLES = [
 const fields: (keyof WorkspaceData)[] = [
   'children', 'schools', 'children', 'recorderProfiles', 'templates', 'records',
   'handoverItems', 'handoverConfirmations', 'morningMeetingRecords', 'morningMeetingTemplates',
-  'morningMeetingConfirmations', 'supportPlans', 'aiWritingSettings', 'announcements',
+  'morningMeetingConfirmations', 'supportPlans', 'announcements',
   'announcementConfirmations', 'staffScheduleItems', 'calendarEvents', 'dailyChildPlans',
   'attendanceRecords', 'staffShiftTemplates', 'staffShiftRequests', 'rolePermissions',
   'attendanceCorrectionRequests', 'vehicles', 'transportRuns', 'transportPlanDays',

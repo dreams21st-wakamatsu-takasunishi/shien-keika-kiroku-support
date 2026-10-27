@@ -73,7 +73,6 @@ import {
   Template,
   TemplateField,
 } from '../types';
-import { summarizeABCWithAI } from '../utils/aiHelper';
 import { deleteRecordDraft, finishRecordDraftSave, loadRecordDraft, saveRecordDraft, takeOverRecordDraftChildrenIntoExisting } from '../services/dataService';
 import { diagnosticAction, recordDiagnostic } from '../services/diagnostics';
 import { createDraftWriteQueue, removeSavedDraftChildren, type RecordSaveOutcome } from '../services/recordSaveWorkflow';
@@ -140,7 +139,6 @@ interface RecordFormProps {
   lessonImportEnabled?: boolean;
   draftKey?: string;
   activeRecorder?: RecorderProfile;
-  assistantPrefill?: { childId: string; date: string; requestId: string } | null;
   entryRequest?:RecordEntrySignal|null;
   entryManagerOpen?:boolean;
   onManageOwnDrafts?:(date:string)=>Promise<void>;
@@ -1806,7 +1804,6 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   lessonImportEnabled = false,
   draftKey: requestedDraftKey,
   activeRecorder,
-  assistantPrefill,
   entryRequest,
   entryManagerOpen=false,
   onManageOwnDrafts,
@@ -1866,8 +1863,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       : recorderProfiles.length === 1
         ? recorderProfiles[0]
         : undefined);
-    const initialChildId = initialRecord?.childId || assistantPrefill?.childId || '';
-    const initialDate = initialRecord?.date || assistantPrefill?.date || entryRequest?.date || getLocalDateString();
+    const initialChildId = initialRecord?.childId || '';
+    const initialDate = initialRecord?.date || entryRequest?.date || getLocalDateString();
     const initialChildTemplate = initialRecord ? initialTemplate : UNIFIED_TEMPLATE;
     const base: WizardDraft = {
       version: 12,
@@ -1875,11 +1872,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       selectedTemplateId: initialTemplate?.id || UNIFIED_TEMPLATE_ID,
       childTemplateIds: initialRecord
         ? { [initialRecord.childId]: initialChildTemplate?.id || '' }
-        : assistantPrefill
-          ? { [assistantPrefill.childId]: initialChildTemplate?.id || '' }
-          : {},
-      selectedChildIds: initialRecord ? [initialRecord.childId] : assistantPrefill ? [assistantPrefill.childId] : [],
-      activeChildId: initialRecord?.childId || assistantPrefill?.childId || '',
+        : {},
+      selectedChildIds: initialRecord ? [initialRecord.childId] : [],
+      activeChildId: initialRecord?.childId || '',
       date: initialDate,
       recorderId: activeRecorder?.id || initialRecord?.recorderId || (!userDisplayName ? initialRecorder?.id : '') || '',
       recorderName: activeRecorder?.displayName || initialRecord?.recorderName || userDisplayName || initialRecorder?.displayName || '',
@@ -1887,9 +1882,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       childStepIds: {},
       childDrafts: initialRecord
         ? { [initialRecord.childId]: createChildDraft(initialChildTemplate, initialRecord) }
-        : assistantPrefill
-          ? { [assistantPrefill.childId]: createChildDraft(initialChildTemplate) }
-          : {},
+        : {},
     };
     return base;
   };
@@ -1936,7 +1929,6 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   const [pendingCompletion, setPendingCompletion] = useState<{ records: SupportRecord[]; childIds: string[] } | null>(null);
   const saveInProgress = useRef(false);
   const draftWrites = useRef(createDraftWriteQueue()).current;
-  const [summarizingSectionId, setSummarizingSectionId] = useState<string | null>(null);
   const [showChildPicker, setShowChildPicker] = useState(false);
   const [infoChild, setInfoChild] = useState<ChildProfile | null>(null);
   const [handoverReferenceOpen, setHandoverReferenceOpen] = useState(false);
@@ -4035,26 +4027,6 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     goNext();
   };
 
-  const summarizeABC = async (sectionId: string) => {
-    if (editingDisabled) return;
-    const section = activeChildDraft?.sectionAnswers[sectionId];
-    const abc = section?.abcAnalysis;
-    if (!abc || (!abc.behavior.trim() && !abc.consequence.trim() && !abc.antecedent.trim())) {
-      setStepError('A・B・Cのいずれかを入力してから要約してください。');
-      return;
-    }
-    setSummarizingSectionId(sectionId);
-    setStepError(null);
-    const childId=wizard.activeChildId;
-    try{
-      const summary = await summarizeABCWithAI(section.sectionTitle, abc.behavior, abc.consequence, abc.antecedent, initialRecord?.id,childId);
-      const current=currentWizard.current.childDrafts[childId]?.sectionAnswers[sectionId]?.abcAnalysis;
-      if(currentWizard.current.activeChildId!==childId||current?.behavior!==abc.behavior||current?.antecedent!==abc.antecedent||current?.consequence!==abc.consequence||current?.summary!==abc.summary){setStepError('要約中に児童・入力内容が変わったため反映しませんでした。もう一度確認してください。');return;}
-      updateABC(sectionId, 'summary', summary);
-    }catch(error){setStepError(error instanceof Error?error.message:'AI要約を実行できませんでした。');}
-    finally{setSummarizingSectionId(null);}
-  };
-
   const renderField = (field: TemplateField, sectionId: string, compact = false) => {
     const answer = activeChildDraft?.sectionAnswers[sectionId]?.answers[field.id] || { value: field.defaultValue || '', note: '' };
     const selectedValues = answer.value ? answer.value.split('、').filter(Boolean) : [];
@@ -4596,7 +4568,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       case 'abc-summary': {
         const section = activeChildDraft?.sectionAnswers[currentStep.sectionId || ''];
         const abc = section?.abcAnalysis;
-        return <div className="space-y-4"><div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs space-y-2"><p><strong>A：</strong>{abc?.antecedent || '未入力'}</p><p><strong>B：</strong>{abc?.behavior || '未入力'}</p><p><strong>C：</strong>{abc?.consequence || '未入力'}</p></div><button type="button" disabled={summarizingSectionId === currentStep.sectionId} onClick={() => summarizeABC(currentStep.sectionId!)} className="w-full min-h-12 rounded-xl bg-violet-600 disabled:bg-slate-400 text-white font-bold text-sm flex items-center justify-center gap-2">{summarizingSectionId === currentStep.sectionId ? <LoaderCircle className="w-5 h-5 animate-spin" /> : <Sparkles className="w-5 h-5" />}ABC分析を要約する</button><label className="block text-sm font-bold text-slate-700">要約文（修正できます）<textarea rows={7} value={abc?.summary || ''} onChange={(event) => updateABC(currentStep.sectionId!, 'summary', event.target.value)} className={`${inputClass} mt-2`} /></label></div>;
+        return <div className="space-y-4"><div className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs space-y-2"><p><strong>A：</strong>{abc?.antecedent || '未入力'}</p><p><strong>B：</strong>{abc?.behavior || '未入力'}</p><p><strong>C：</strong>{abc?.consequence || '未入力'}</p></div><p className="text-xs text-slate-600">外部AIは使用しません。入力したA・B・Cを参照し、必要に応じてまとめ文を手入力してください。</p><label className="block text-sm font-bold text-slate-700">まとめ文（手入力）<textarea rows={7} value={abc?.summary || ''} onChange={(event) => updateABC(currentStep.sectionId!, 'summary', event.target.value)} className={`${inputClass} mt-2`} /></label></div>;
       }
       case 'abc-sequence': {
         const section = activeChildDraft?.sectionAnswers[currentStep.sectionId || ''];
@@ -4615,7 +4587,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
               <label className="block text-sm font-black text-slate-800">
                 児童の様子・特記事項を自由に入力してください。
                 <span className="mt-1 block text-xs font-medium leading-relaxed text-slate-500">
-                  ABCの各要素やAI要約を使わず、この文章をそのまま特記として保存します。
+                  ABCの各要素を使わず、この文章をそのまま特記として保存します。
                 </span>
                 <textarea
                   rows={12}
@@ -4682,7 +4654,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             {behaviorReady && consequenceReady && antecedentReady && (
               <div className="wizard-reveal space-y-4 rounded-2xl border-2 border-violet-400 bg-violet-50 p-4 shadow-md shadow-violet-100">
                 <p className="flex items-center gap-2 text-sm font-black text-violet-900"><Check className="h-5 w-5 text-emerald-600" />A・B・Cの入力がそろいました。内容を要約できます。</p>
-                <button type="button" disabled={summarizingSectionId === currentStep.sectionId} onClick={() => summarizeABC(currentStep.sectionId!)} className="flex min-h-14 w-full items-center justify-center gap-2 rounded-xl bg-violet-600 px-4 text-sm font-black text-white disabled:bg-slate-400">{summarizingSectionId === currentStep.sectionId ? <LoaderCircle className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}{summarizingSectionId === currentStep.sectionId ? '要約中...' : 'ABC行動分析に基づいて要約する'}</button>
+                <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-600">外部AIは使用しません。必要に応じて、下の欄にまとめ文を手入力してください。</p>
                 <label className="block text-sm font-black text-slate-800">{summaryQuestion.title}<span className="mt-1 block text-xs font-medium leading-relaxed text-slate-500">{summaryQuestion.help}</span><textarea rows={7} value={abc?.summary || ''} onChange={(event) => updateABC(currentStep.sectionId!, 'summary', event.target.value)} placeholder="「要約する」を押すと、ここに文章が表示されます。" className={`${inputClass} mt-2`} /></label>
               </div>
             )}

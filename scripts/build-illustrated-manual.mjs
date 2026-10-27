@@ -4,7 +4,7 @@ import {fileURLToPath} from 'node:url';
 import {execFileSync} from 'node:child_process';
 import path from 'node:path';
 const root=fileURLToPath(new URL('../',import.meta.url)),out=path.join(root,'public/manuals/d-support');
-const date='2026-10-26',revision=execFileSync('git',['rev-parse','--short=7','HEAD'],{cwd:root,encoding:'utf8'}).trim();
+const date='2026-10-27',revision=execFileSync('git',['rev-parse','--short=7','HEAD'],{cwd:root,encoding:'utf8'}).trim();
 const escape=value=>String(value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const guides=[
  {file:'index.html',source:'sections.json',pdf:'Dサポート_図解操作マニュアル.pdf',title:'画像付き操作ガイド',tag:'FIELD GUIDE',subtitle:'何をしたいか、から探せる。',trouble:false},

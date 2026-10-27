@@ -4,9 +4,8 @@ import {canManageWorkspaceTrash} from '../services/workspaceLifecycle';
 import React, { useCallback, useState } from 'react';
 import { MenuSearch } from './MenuSearch';
 import { matchesMenuSearch } from '../utils/navigation';
-import { ArrowLeft, BrainCircuit, CalendarClock, CarFront, ChevronRight, KeyRound, ListChecks, MapPinned, School, Settings } from 'lucide-react';
-import type { AiWritingSettings, ChildProfile, OrganizationRolePermission, RecorderProfile, SchoolProfile, StaffShiftTemplate, Template, TransportAreaZone, TransportMapLocation, TransportRouteSettings, UserProfile, Vehicle } from '../types';
-import { AISettingsEditor } from './AISettingsEditor';
+import { ArrowLeft, CalendarClock, CarFront, ChevronRight, KeyRound, ListChecks, MapPinned, School, Settings } from 'lucide-react';
+import type { ChildProfile, OrganizationRolePermission, RecorderProfile, SchoolProfile, StaffShiftTemplate, Template, TransportAreaZone, TransportMapLocation, TransportRouteSettings, UserProfile, Vehicle } from '../types';
 import { SchoolManager } from './SchoolManager';
 import { TemplateEditor } from './TemplateEditor';
 import { TransportMapPanel } from './DeferredTransportMaps';
@@ -20,7 +19,6 @@ import {DiagnosticsPanel} from './DiagnosticsPanel';
 
 interface SettingsHubProps {
   onTrainingDirtyChange?: (dirty:boolean) => void;
-  aiWritingSettings: AiWritingSettings;
   templates: Template[];
   childrenList: ChildProfile[];
   schools: SchoolProfile[];
@@ -36,7 +34,6 @@ interface SettingsHubProps {
   canManageChildren: boolean;
   canManageRecordSettings: boolean;
   canManageTransport: boolean;
-  onSaveAiWritingSettings: (settings: AiWritingSettings) => void;
   onSaveTemplate: (template: Template) => void;
   onDeleteTemplate: (templateId: string) => void;
   onSaveSchool: (school: SchoolProfile) => Promise<void> | void;
@@ -52,11 +49,10 @@ interface SettingsHubProps {
   onDeleteVehicle: (vehicleId: string) => Promise<void> | void;
 }
 
-type SettingsPage = 'menu' | 'ai' | 'templates' | 'schools' | 'transportMap' | 'rolePermissions' | 'shiftTemplates' | 'vehicles' | 'serviceTypes' | 'legalTraining' | 'diagnostics' | 'trash';
+type SettingsPage = 'menu' | 'templates' | 'schools' | 'transportMap' | 'rolePermissions' | 'shiftTemplates' | 'vehicles' | 'serviceTypes' | 'legalTraining' | 'diagnostics' | 'trash';
 
 export const SettingsHub: React.FC<SettingsHubProps> = ({
   onTrainingDirtyChange,
-  aiWritingSettings,
   templates,
   childrenList,
   schools,
@@ -72,7 +68,6 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
   canManageChildren,
   canManageRecordSettings,
   canManageTransport,
-  onSaveAiWritingSettings,
   onSaveTemplate,
   onDeleteTemplate,
   onSaveSchool,
@@ -112,7 +107,6 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
       { page: 'vehicles', icon: CarFront, title: '車両台帳', description: `${vehicles.length}台を登録中。総乗車定員、設備、点検期限を管理します。`, keywords: '送迎 車 運転手 席' },
     ] },
     { title: '記録作成', description: '入力項目・文章の共通ルール', visible: currentUser?.role === 'admin' || canManageRecordSettings, items: [
-      { page: 'ai', icon: BrainCircuit, title: 'AI文章設定', description: '文章の口調、追加指示、要約の長さを設定します。', keywords: '人工知能 文章生成 指示' },
       { page: 'templates', icon: ListChecks, title: '質問・テンプレート編集', description: `${templates.length}件のフォーマット。質問、補足文、選択肢を編集します。`, keywords: '支援 記録 入力 項目 質問' },
     ] },
   ];
@@ -132,7 +126,6 @@ export const SettingsHub: React.FC<SettingsHubProps> = ({
           <strong className="min-w-0 text-sm text-slate-900">{currentPageTitle}</strong>
           <ManualLinks screen="settings" section={page} className="ml-auto" />
         </div>
-        {page === 'ai' && <AISettingsEditor settings={aiWritingSettings} onSave={onSaveAiWritingSettings} isAdmin={currentUser?.role==='admin'} />}
         {page === 'templates' && <TemplateEditor templates={templates} onSaveTemplate={onSaveTemplate} onDeleteTemplate={onDeleteTemplate} />}
         {page === 'schools' && <SchoolManager schools={schools} childrenList={childrenList} onSave={onSaveSchool} onDelete={onDeleteSchool} />}
         {page === 'transportMap' && <div className="space-y-4">

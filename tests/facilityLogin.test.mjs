@@ -53,7 +53,7 @@ test('RLS/session source retains creator identities, no PIN, strict devices and 
  const sql=readFileSync('supabase/migrations/202610150003_facility_choice_login.sql','utf8');
  for(const token of ['p.role=\'staff\'','d.device_kind=\'facility_shared\'','d.status=\'approved\'','credential_revision','for update','public.facility_session_allowed()','auth.jwt()->\'amr\'','auth.mfa_factors'])assert(sql.includes(token),token);
  assert(!sql.includes('verify_recorder_pin'));assert(!sql.includes('update auth.users'));assert(!sql.includes('update public.profiles'));
- for(const name of ['invite-member','manage-member','manage-recorder-login','home-assistant','polish-record','optimize-transport-route','geocode-transport-locations','calculate-transport-matrix','send-announcement-notification','send-transport-notification']){
+ for(const name of ['invite-member','manage-member','manage-recorder-login','optimize-transport-route','geocode-transport-locations','calculate-transport-matrix','send-announcement-notification','send-transport-notification']){
   const source=readFileSync(`supabase/functions/${name}/index.ts`,'utf8');assert(source.includes("rpc('facility_session_allowed')"),name);
  }
 });

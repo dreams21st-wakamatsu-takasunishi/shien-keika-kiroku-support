@@ -6,6 +6,8 @@ const read=async path=>{const r=await fetch(new URL(path,base),{headers:{'Cache-
 const version=await(await read('version.json?verify='+Date.now())).json(),manifest=await(await read('asset-manifest.json?verify='+Date.now())).json();
 if(!version.version.startsWith(expected+'.')||manifest.version!==version.version)throw Error('Old or mixed release');
 const runtime=await publishedRuntime(manifest,read);
-for(const marker of ['外部AIの送信許可：','get_external_ai_policy','set_external_ai_policy','外部AIへ送る内容の確認','preview_execute','previewToken','confirm_attendance_break','休憩実績を確認','実際の休憩合計（分）','未確定・集計対象外','実働分（確定のみ）','確認根拠・訂正理由'])if(!runtime.includes(marker))throw Error('Missing published feature: '+marker);
+for(const marker of ['外部AIへの送信機能はありません。','まとめ文（手入力）','confirm_attendance_break','休憩実績を確認','実際の休憩合計（分）','未確定・集計対象外','実働分（確定のみ）','確認根拠・訂正理由'])if(!runtime.includes(marker))throw Error('Missing published feature: '+marker);
+for(const retired of ['AI業務アシスタント','AI文章設定','確認して外部AI送信を許可','外部AIへ送る内容の確認','ABC分析を要約する','Tiroへ渡す情報','generativelanguage.googleapis.com'])if(runtime.includes(retired))throw Error('Retired AI feature published: '+retired);
+const manual=await(await read('manuals/d-support/index.html')).text();if(manual.includes('id="assistant"')||manual.includes('ホーム → AIアシスタント'))throw Error('Retired guide remains');
 if(runtime.includes('data-record-layout'))throw Error('Rejected record redesign was restored');
-console.log(JSON.stringify({version:version.version,aiProtectionUiPublished:true,actualAttendanceUiPublished:true,previousRecordUiRetained:true,readsPrivateRecords:false,callsExternalAi:false}));
+console.log(JSON.stringify({version:version.version,externalAiFeaturesRemoved:true,actualAttendanceUiPublished:true,previousRecordUiRetained:true,manualUpdated:true,readsPrivateRecords:false,callsExternalAi:false}));

@@ -7,7 +7,6 @@ import {switchUserSafely,type PrepareUserSwitch} from './utils/userSwitch';
 import {activityDraftStorageKey,hasPendingActivityDraft,installActivityDraftCloseWarning} from './utils/activityDraftWarning';
 import { AlertTriangle, BellRing, ChevronRight, HardDrive, House, LoaderCircle, RefreshCw, ShieldCheck, WifiOff, X } from 'lucide-react';
 import {
-  AiWritingSettings,
   Announcement,
   AnnouncementConfirmation,
   AttendanceCorrectionRequest,
@@ -16,13 +15,10 @@ import {
   ChildProfile,
   DailyChildPlan,
   DailyTransportRequirement,
-  DEFAULT_AI_WRITING_SETTINGS,
   DEFAULT_TRANSPORT_ROUTE_SETTINGS,
   HandoverConfirmation,
   HandoverItem,
   HandoverStatus,
-  HomeAssistantExecutionResult,
-  HomeAssistantProposal,
   MorningMeetingConfirmation,
   MorningMeetingRecord,
   MorningMeetingTemplate,
@@ -119,7 +115,6 @@ import {
   saveStaffShiftRequest,
   saveShiftRequestDefaults,
   saveStaffShiftTemplate,
-  saveAiWritingSettings,
   saveAnnouncement,
   saveAnnouncementConfirmation,
   saveAttendanceRecord,
@@ -404,13 +399,7 @@ export default function App() {
   const [correctionTarget, setCorrectionTarget] = useState<{ stepId?: string; issueId?: string } | null>(null);
   const [readOnlyDraft, setReadOnlyDraft] = useState<{ draftKey: string; ownerName?: string; childId?: string } | null>(null);
   const [formSessionId, setFormSessionId] = useState(0);
-  const [assistantRecordPrefill, setAssistantRecordPrefill] = useState<{ childId: string; date: string; requestId: string } | null>(null);
   const [recordFilterChildId, setRecordFilterChildId] = useState<string | null>(null);
-  const [aiWritingSettings, setAiWritingSettings] = useState<AiWritingSettings>(() => {
-    if (remoteMode) return DEFAULT_AI_WRITING_SETTINGS;
-    const saved = localStorage.getItem('support_ai_writing_settings');
-    return saved ? JSON.parse(saved) : DEFAULT_AI_WRITING_SETTINGS;
-  });
 
   useEffect(() => {
     const fieldModeOnly = Boolean(auth.profile?.fieldModeOnly);
@@ -512,9 +501,6 @@ export default function App() {
   useEffect(() => {
     if (!remoteMode) localStorage.setItem('support_plans_data', JSON.stringify(supportPlans));
   }, [supportPlans, remoteMode]);
-  useEffect(() => {
-    if (!remoteMode) localStorage.setItem('support_ai_writing_settings', JSON.stringify(aiWritingSettings));
-  }, [aiWritingSettings, remoteMode]);
   useEffect(() => {
     if (!remoteMode) localStorage.setItem('support_announcements_data', JSON.stringify(announcements));
   }, [announcements, remoteMode]);
@@ -650,7 +636,6 @@ export default function App() {
         if (workspace.morningMeetingTemplates) setMorningMeetingTemplates(workspace.morningMeetingTemplates);
         if (workspace.morningMeetingConfirmations) setMorningMeetingConfirmations(workspace.morningMeetingConfirmations);
         if (workspace.supportPlans) setSupportPlans(workspace.supportPlans);
-        if (workspace.aiWritingSettings) setAiWritingSettings(workspace.aiWritingSettings);
         if (workspace.announcements) setAnnouncements(workspace.announcements);
         if (workspace.announcementConfirmations) setAnnouncementConfirmations(workspace.announcementConfirmations);
         if (workspace.staffScheduleItems) setStaffScheduleItems(workspace.staffScheduleItems);
@@ -1273,14 +1258,6 @@ export default function App() {
     try {
       if (organizationId) await archiveTemplate(organizationId, templateId);
       setTemplates((previous) => previous.filter((item) => item.id !== templateId));
-    } catch (error) { persistError(error); }
-  };
-
-  const handleSaveAiWritingSettings = async (settings: AiWritingSettings) => {
-    if (!canManageRecordSettings) throw new Error('AI文章設定を変更する権限がありません。');
-    try {
-      if (organizationId) await saveAiWritingSettings(organizationId, settings);
-      setAiWritingSettings(settings);
     } catch (error) { persistError(error); }
   };
 
@@ -1913,31 +1890,6 @@ export default function App() {
     } catch (error) { persistError(error); }
   };
 
-  const handleAssistantExecuted = async (proposal: HomeAssistantProposal, result: HomeAssistantExecutionResult) => {
-    setChildrenList((previous) => previous.map((child) => {
-      if (child.id !== proposal.childId) return child;
-      const schedules = child.regularDaySchedules || [];
-      return {
-        ...child,
-        ...(result.updatedChild || {}),
-        regularDaySchedules: result.schedule
-          ? [
-              ...schedules.filter((schedule) => schedule.effectiveFrom !== result.schedule?.effectiveFrom),
-              result.schedule,
-            ].sort((left, right) => left.effectiveFrom.localeCompare(right.effectiveFrom))
-          : schedules,
-      };
-    }));
-    if (remoteMode && auth.profile) await refreshRemoteData(false);
-
-    if (result.clientAction?.type === 'start_support_record') {
-      await recordEntry.request({childId:result.clientAction.childId,date:result.clientAction.date||getLocalDateString()});
-    } else if (result.clientAction?.type === 'open_child_records') {
-      setRecordFilterChildId(result.clientAction.childId);
-      setActiveTab('records');
-    }
-  };
-
   const handleSavePlan = async (plan: SupportPlan) => {
     try {
       if (organizationId) await saveSupportPlan(organizationId, plan);
@@ -1956,7 +1908,7 @@ export default function App() {
 
   function applyRecordEntryLaunch(launch:RecordEntryLaunch){
     const unchanged=activeTab==='form'&&!currentRecord&&!readOnlyDraft&&activeDraftKey===launch.draftKey&&!launch.reloaded;
-    setCurrentRecord(null);setCorrectionTarget(null);setReadOnlyDraft(null);setAssistantRecordPrefill(null);
+    setCurrentRecord(null);setCorrectionTarget(null);setReadOnlyDraft(null);
     setActiveDraftKey(launch.draftKey);
     setRecordEntrySignal({requestId:createRecordDraftKey(),date:launch.date,childId:launch.childId,chooseChildren:launch.chooseChildren});
     if(!unchanged)setFormSessionId(previous=>previous+1);
@@ -1995,7 +1947,6 @@ export default function App() {
     setCurrentRecord(null);
     setCorrectionTarget(null);
     setReadOnlyDraft(null);
-    setAssistantRecordPrefill(null);
     setActiveDraftKey(draftKey);
     setFormSessionId((previous) => previous + 1);
     setActiveTab('form');
@@ -2004,7 +1955,6 @@ export default function App() {
   const handleViewDraft = (draftKey: string, ownerName?: string, childId?: string) => {
     setCurrentRecord(null);
     setCorrectionTarget(null);
-    setAssistantRecordPrefill(null);
     setReadOnlyDraft({ draftKey, ownerName, childId });
     setHomeWorkspace('operations');
     setRecordStatusDate(recordDrafts.find((draft) => draft.draftKey === draftKey)?.date || getLocalDateString());
@@ -2257,7 +2207,6 @@ export default function App() {
     setReadOnlyDraft(null);
     setCurrentRecord(null);
     setCorrectionTarget(null);
-    setAssistantRecordPrefill(null);
     setHomeWorkspace('menu');
     setActiveTab('home');
   };
@@ -2324,7 +2273,7 @@ export default function App() {
             signOut:auth.signOut,
             reset:()=>{
               try{sessionStorage.removeItem('support-record-list-view-v1');}catch{/* Logout must not depend on optional view storage. */}
-              setActiveRecorder(null);setCurrentRecord(null);setReadOnlyDraft(null);setCorrectionTarget(null);setAssistantRecordPrefill(null);
+              setActiveRecorder(null);setCurrentRecord(null);setReadOnlyDraft(null);setCorrectionTarget(null);
               setRecordEntrySignal(null);setRecordDrafts([]);setFieldOperationsOpen(false);
               setHomeWorkspace('menu');setActiveTab('home');
             },
@@ -2470,7 +2419,6 @@ export default function App() {
             onSaveMorningMeetingTemplate={handleSaveMorningMeetingTemplate}
             onArchiveMorningMeetingTemplate={handleArchiveMorningMeetingTemplate}
             onSetMorningMeetingConfirmation={handleSetMorningMeetingConfirmation}
-            onAssistantExecuted={handleAssistantExecuted}
             onSaveStaffSchedule={handleSaveStaffSchedule}
             onDeleteStaffSchedule={handleDeleteStaffSchedule}
             onSaveCalendarEvent={handleSaveCalendarEvent}
@@ -2521,7 +2469,6 @@ export default function App() {
             lessonImportEnabled={remoteMode && !auth.profile?.fieldModeOnly}
             draftKey={activeDraftKey}
             activeRecorder={activeRecorder || undefined}
-            assistantPrefill={assistantRecordPrefill}
             entryRequest={recordEntrySignal}
             entryManagerOpen={Boolean(recordEntry.dialog)||recordEntry.busy}
             onManageOwnDrafts={date=>recordEntry.request({date,manage:true})}
@@ -2602,7 +2549,6 @@ export default function App() {
         {activeTab === 'templates' && (canManageRecordSettings || canManageChildren || canManageTransport || auth.profile?.role === 'admin' || auth.profile?.role === 'manager') && (
           <SettingsHub
             onTrainingDirtyChange={setTrainingDirty}
-            aiWritingSettings={aiWritingSettings}
             templates={templates}
             childrenList={childrenList}
             schools={schools}
@@ -2618,7 +2564,6 @@ export default function App() {
             canManageChildren={canManageChildren}
             canManageRecordSettings={canManageRecordSettings}
             canManageTransport={canManageTransport}
-            onSaveAiWritingSettings={handleSaveAiWritingSettings}
             onSaveTemplate={handleSaveTemplate}
             onDeleteTemplate={handleDeleteTemplate}
             onSaveSchool={handleSaveSchool}
@@ -2738,7 +2683,7 @@ function ScreenContextBar({
     home: { title: 'ホーム', description: '' },
     form: { title: '記録作成', description: '質問に沿って支援経過を入力' },
     records: { title: '記録一覧', description: '確認・修正・出力' },
-    meetings: { title: '会議支援', description: '事前情報とTiroへの受け渡し・会議中の確認' },
+    meetings: { title: '会議支援', description: '事前準備・会議中の確認・手入力メモ' },
     preview: { title: '記録確認', description: '内容確認・修正指摘・承認' },
     children: { title: '児童名簿', description: '児童情報・利用曜日の管理' },
     learning: { title: 'Dレッスン管理', description: '取り組み・課題・Word確認・教材とごほうび・アカウント' },
@@ -2747,7 +2692,7 @@ function ScreenContextBar({
     facilityWork: { title: '施設業務', description: '日常点検・備品補充・おたより作成' },
     legalTraining: { title: '法定研修', description: '研修動画・資料と本人の受講状況' },
     plans: { title: '個別支援計画', description: '現在は機能凍結中' },
-    templates: { title: '設定', description: 'AI・記録フォーマットの管理' },
+    templates: { title: '設定', description: '記録フォーマット等の共通設定' },
     team: { title: '職員管理', description: '記録者・ログイン職員の管理' },
   };
   const current = meta[activeTab];

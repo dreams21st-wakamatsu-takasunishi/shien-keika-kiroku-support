@@ -8,7 +8,7 @@ test('drawer form entry invokes only the coordinator, not a second navigation ca
  assert.match(read('src/components/HomeScreen.tsx'),/if \(item.id === 'form'\) \{ onNewRecord\(\); return; \}/);
  const app=read('src/App.tsx');
  assert.match(app,/recordEntry\.request\(\{childId,date\}\)/);
- assert.match(app,/await recordEntry\.request\(\{childId:result\.clientAction\.childId/);
+ assert.ok(!app.includes('handleAssistantExecuted'));
 });
 test('production merge verifies local answers and server revisions before the atomic RPC',()=>{
  const service=read('src/services/dataService.ts').split('export async function mergeOwnRecordDrafts')[1].split('export async function listRecordDrafts')[0];

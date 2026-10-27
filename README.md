@@ -15,21 +15,19 @@
 - 事業所共有端末の物理端末単位承認
 - 児童ごとの送迎到着・乗車・降車時刻と応援引き継ぎ
 - 端末内とSupabaseの本人専用下書き自動保存
-- ABC分析入力とAI要約
-- AIの文体・文章量・追加指示の事業所設定
+- ABC分析の手入力（A・B・Cとまとめ文）
 - 承認済み記録のロックと差戻しフロー
 - 全変更の監査ログ
 - 論理削除、テンプレート版管理
-- Supabase Edge Function経由のGemini文章作成
 - A4 PDF、事業所保存用・保護者控えの2面出力
-- 会議支援：児童ごとの会議準備、Tiro向け事前情報シート、進行メモ、文字起こし取込、会議由来の支援経過記録
+- 会議支援：複数児童の会議準備、議題・出席者・会議中の手入力メモ（外部AI連携なし）
 - 交通費計算：手動入力した距離・単価・人数・使用車両から総費用と児童1人あたりの集金目安を計算（Google Maps API連携なし）
 
 交通費計算の計算ルール・確認方法は[交通費計算の実装と確認](docs/交通費計算_実装と確認.md)、距離の手動確認手順は[図解マニュアル](public/manuals/traffic-cost/index.html)を参照してください。
 
 個別支援計画・本人支援5領域は、将来再開できるようデータと実装を保持したまま運用画面では凍結しています。
 
-会議支援は既存の日々の利用記録と別の保存先を使います。運用開始前に `202609290001_tiro_meeting_workflow.sql` の適用と権限別の確認が必要です。録音と文字起こしはTiroで行い、アプリは手動の受け渡しを支援します。導入手順は[会議支援の実装と確認](docs/Tiro会議支援_実装と確認.md)を参照してください。
+会議支援は日々の利用記録とは別に、事前準備・会議中のメモを保存します。2026-10-27に外部AI・Tiroへの情報受け渡し機能を廃止しました。旧データ・履歴は保持します。
 
 ## 開発時の確認
 
@@ -78,32 +76,11 @@ VITE_SUPABASE_ANON_KEY=YOUR_PUBLISHABLE_OR_ANON_KEY
 
 `service_role`キーはブラウザ用ファイルへ絶対に設定しないでください。
 
-## 4. Edge FunctionsとAI
+## 4. Edge Functions
 
-PowerShellでGeminiキーをEdge FunctionのSecretへ登録し、利用するFunctionをデプロイします。
+外部AI機能は廃止しました。`home-assistant`・`polish-record`の公開関数と`GEMINI_API_KEY`のSecretは削除します。廃止RPCと既存ストレージへの新規書き込みは`202610270003_retire_external_ai.sql`で停止し、記録・会議・監査履歴は残します。
 
-```powershell
-npx.cmd supabase secrets set GEMINI_API_KEY="YOUR_GEMINI_API_KEY"
-npx.cmd supabase functions deploy polish-record
-npx.cmd supabase functions deploy invite-member
-npx.cmd supabase functions deploy manage-member
-npx.cmd supabase functions deploy optimize-transport-route
-npx.cmd supabase functions deploy staff-login
-npx.cmd supabase functions deploy send-transport-notification
-```
-
-送迎経路最適化を利用する場合は、Google Cloudで課金を有効にしたプロジェクトにRoutes APIを追加し、Routes APIだけに制限したサーバー用APIキーをSupabase Secretへ登録します。APIキーを`.env.local`やGitHub Actionsへ登録しないでください。
-
-```powershell
-npx.cmd supabase secrets set GOOGLE_MAPS_API_KEY="YOUR_SERVER_SIDE_ROUTES_API_KEY"
-npx.cmd supabase functions deploy optimize-transport-route
-```
-
-住所からのピン配置とGoogle地図表示は、Routes APIのキーと分離して設定します。詳しい制限内容と確認手順は[Google Maps地図表示の設定手順](docs/Google_Maps地図表示_設定手順.md)を参照してください。
-
-経路候補は管理者・児発管が明示的に実行したときだけ作成します。児童名や支援記録はGoogleへ送らず、出発地点・終着地点・乗降場所だけを経路計算へ使用します。提案された経路は必ず運転者が安全性と当日の道路状況を確認してください。
-
-AIへ児童氏名は送信されません。選択項目と職員メモだけが送信され、生成前後の内容は事業所内の監査用ログへ保存されます。利用する生成AIサービスの契約・データ利用条件は、事業所の個人情報保護規程に照らして別途確認してください。
+AI以外の必要なFunctionだけをデプロイしてください（例：`npx.cmd supabase functions deploy invite-member`）。
 
 ## 5. Auth設定
 
@@ -124,7 +101,7 @@ Supabase AuthenticationでEmail認証を有効にし、**Allow new users to sign
 3. **Settings → Pages → Build and deployment → Source** で **GitHub Actions** を選択します。
 4. **Actions → Deploy to GitHub Pages** の完了後、表示されたURLを携帯電話で開きます。
 
-`service_role`キーやGemini APIキーはGitHubへ登録しないでください。Gemini APIキーはSupabase Edge FunctionのSecretにだけ保存します。
+`service_role`等の秘密キーはGitHubやブラウザー用環境変数へ登録しないでください。外部AI用のキーは不要です。
 
 ### Supabase Auth側の設定
 

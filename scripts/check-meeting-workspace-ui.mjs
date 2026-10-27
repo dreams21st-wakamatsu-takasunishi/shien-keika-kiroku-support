@@ -25,12 +25,9 @@ async function check(page, url) {
   await open.click();
   const nav = page.getByRole('navigation', { name: '会議の手順' });
   assert(await nav.getByRole('button').count() === 2, 'only two workflow tabs remain');
-  assert(await nav.getByRole('button', {name:'準備・Tiroへ渡す',exact:true}).getAttribute('aria-pressed') === 'true', 'merged prep opens by default');
-  for (const name of ['文字起こし', '結果確認', '支援経過', '準備', 'Tiroへ渡す']) assert(!await nav.getByRole('button', {name,exact:true}).count(), 'retired separate step ' + name);
-  const copy = page.getByRole('button', { name: '文章をコピー', exact: true });
-  const download = page.getByRole('button', { name: '事前シートを保存', exact: true });
-  const consent = page.getByRole('checkbox', {name:/録音とTiroへの情報提供/});
-  assert(await copy.isDisabled() && await download.isDisabled(), 'consent required before export');
+  assert(await nav.getByRole('button', {name:'準備',exact:true}).getAttribute('aria-pressed') === 'true', 'merged prep opens by default');
+  for (const name of ['文字起こし', '結果確認', '支援経過', 'Tiroへ渡す']) assert(!await nav.getByRole('button', {name,exact:true}).count(), 'retired separate step ' + name);
+  for(const label of ['文章をコピー','事前シートを保存'])assert(await page.getByRole('button',{name:label,exact:true}).count()===0,'external handoff removed: '+label);
   assert(await page.getByText('出席予定者・1名',{exact:true}).evaluate(node=>!node.parentElement.open), 'secondary participants start collapsed');
   const data = () => page.evaluate(() => window.__meetingPreviewTest);
   const remote = (await data()).rows.length > 0;
@@ -38,8 +35,6 @@ async function check(page, url) {
   await page.getByLabel('目的',{exact:true}).fill('最初の編集');
   if (remote) await page.waitForFunction(()=>window.__meetingPreviewTest.activeSaves===1);
   await page.getByLabel('目的',{exact:true}).fill('保存通信中に追加入力した目的');
-  await consent.check();
-  assert(await copy.isDisabled(), 'cannot export unsaved changes');
   await page.waitForFunction(()=>!window.__meetingPreviewTest.dirty, null, {timeout:15000});
   assert(await page.getByLabel('目的',{exact:true}).inputValue() === '保存通信中に追加入力した目的', 'new edit remains after earlier save');
   if (remote) {
@@ -56,38 +51,12 @@ async function check(page, url) {
   assert(await page.getByText('自動保存：有効',{exact:true}).isVisible(), 'stable autosave indicator');
   assert(!await page.getByText('保存中',{exact:true}).count() && !await page.getByText('未保存',{exact:true}).count(), 'normal save labels do not flicker');
   assert(await page.getByRole('button',{name:'今すぐ保存',exact:true}).isDisabled(), 'save button remains mounted after saving');
-  await copy.click();
-  const copied = await page.evaluate(()=>window.__copied);
-  assert(copied.length === 1 && copied[0].includes('保存通信中に追加入力した目的') && copied[0].includes('架空児童 ひなた'), 'copy includes latest saved preparation and both children');
-  if (remote) assert((await data()).exports[0] === 'context_copy', 'export audit recorded');
-  await page.getByRole('radio',{name:'事前情報シート',exact:true}).check();
-  await copy.click();
-  assert((await page.evaluate(()=>window.__copied)).at(-1).includes('学校と家庭での様子を確認する'), 'full sheet includes agenda questions');
-  const downloaded = page.waitForEvent('download');
-  await download.click();
-  const file = await downloaded;
-  await file.saveAs('output/playwright/meeting-fixture-sheet.txt');
-  assert(file.suggestedFilename() === '2026-10-09_Tiro事前情報シート.txt', 'download keeps date and text-file type');
-  if (remote) {
-    await page.evaluate(()=>window.__meetingPreviewTest.failExport=true);
-    const count = (await page.evaluate(()=>window.__copied)).length;
-    await copy.click(); await page.getByRole('alert').waitFor();
-    assert((await page.evaluate(()=>window.__copied)).length === count, 'failed audit prevents clipboard exposure');
-    await page.evaluate(()=>window.__meetingPreviewTest.failExport=false);
-    await page.getByRole('alert').getByRole('button',{name:'再読み込み'}).click();
-  }
+  assert((await page.evaluate(()=>window.__copied)).length===0,'no automatic clipboard transfer');
   for (const [name,width,height] of [['laptop',1366,768],['tablet',768,1024],['phone',390,844]]) {
     await page.setViewportSize({width,height});
     assert(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth), 'no page overflow at '+name);
     const prepBox = await page.getByRole('heading',{name:'会議の基本情報',exact:true}).boundingBox();
-    const handoffBox = await page.getByRole('complementary',{name:'Tiroへ渡す情報'}).boundingBox();
-    assert(width === 1366 ? handoffBox.x > prepBox.x && Math.abs(handoffBox.y-prepBox.y) < 120 : handoffBox.y > prepBox.y, 'responsive handoff position at '+name);
-    if (width === 1366) {
-      await page.evaluate(()=>window.scrollTo(0,700));
-      const action = await download.boundingBox();
-      assert(action.y >= 0 && action.y+action.height <= height, 'copy/download fit short laptop viewport while scrolling');
-      await page.evaluate(()=>window.scrollTo(0,0));
-    }
+    assert(prepBox.width>0,'preparation remains visible');
     await page.screenshot({path:'output/playwright/meeting-workspace-'+name+'.png',fullPage:true});
   }
   await page.setViewportSize({width:1366,height:768});
@@ -161,7 +130,7 @@ async function check(page, url) {
   return {passed:true,checks,mockedBackend:remote,readsPrivateData:false,productionChanged:false};
 }
 try {
-  command('open',url); command('snapshot');
+  command('open','about:blank'); command('snapshot');
   const out = command('run-code',`async(page)=>await (${check.toString()})(page,${JSON.stringify(url)})`);
   const match = out.match(/### Result\s+([\s\S]*?)\s+### Ran/);
   if (!match || !JSON.parse(match[1]).passed) throw Error(out.slice(0, 400) + '\n...\n' + out.slice(-2400));

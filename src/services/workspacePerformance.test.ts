@@ -9,15 +9,15 @@ import type {SupportRecord,UserProfile} from '../types';
 import type {WorkspaceData} from './dataService';
 const sorted = (values: Iterable<string>) => [...values].sort();
 
-test('morning edit performs one request, not thirty or any support-record read', async () => {
+test('morning edit performs one request, not twenty-nine or any support-record read', async () => {
   const reads: string[] = [];
   const result = await runWorkspaceQueries(['morning_meeting_records'],WORKSPACE_TABLES.map(table=>async()=>{reads.push(table);return table;}),'skipped');
-  assert.deepEqual(reads,['morning_meeting_records']);assert.equal(result.length,30);
+  assert.deepEqual(reads,['morning_meeting_records']);assert.equal(result.length,29);
   assert.deepEqual(sorted(workspaceLoadPlan(['morning_meeting_records']).outputs),['morningMeetingRecords']);
 });
-test('full load and unknown events conservatively retain all thirty requests', async () => {
+test('full load and unknown events conservatively retain all twenty-nine requests', async () => {
   for (const changed of [undefined,['future_table']]) {
-    let calls=0;await runWorkspaceQueries(changed,WORKSPACE_TABLES.map(()=>async()=>++calls),0);assert.equal(calls,30);
+    let calls=0;await runWorkspaceQueries(changed,WORKSPACE_TABLES.map(()=>async()=>++calls),0);assert.equal(calls,29);
   }
   assert.equal(workspaceLoadPlan([]).queries.size,0);
 });

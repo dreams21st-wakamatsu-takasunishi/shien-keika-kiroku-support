@@ -12,7 +12,7 @@ test('contextual help titles and fixed anchors match both published guide source
  }
 });
 test('every screen has a valid operation and troubleshooting destination',()=>{
- const screens:ManualScreen[]=['home','dailyChanges','todayWork','calendar','monthlySchedule','dispatch','operations','communication','assistant','meeting','records','children','record','activity','traffic','facility','learning','training','settings','team','auth','personal','qr','diagnostics'];
+ const screens:ManualScreen[]=['home','dailyChanges','todayWork','calendar','monthlySchedule','dispatch','operations','communication','meeting','records','children','record','activity','traffic','facility','learning','training','settings','team','auth','personal','qr','diagnostics'];
  for(const screen of screens){const help=getManualContext(screen);assert(help.topics.length&&help.troubles.length);for(const id of help.topics)assert(id in MANUAL_TITLES);for(const id of help.troubles)assert(id in TROUBLE_TITLES);assert.deepEqual(getManualContext(screen,'unknown-section'),help);}
 });
 test('active nested tabs use their actual guide instead of the parent menu',()=>{

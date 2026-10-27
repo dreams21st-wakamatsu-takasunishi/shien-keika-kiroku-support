@@ -40,11 +40,10 @@ export const MANUAL_TITLES = {
   "inspection": "日常点検を記録する",
   "supplies": "備品の在庫と補充を管理する",
   "newsletter": "保護者向けおたよりを作る",
-  "meeting": "複数児童の会議支援とTiro連携",
+  "meeting": "複数児童の会議準備と手入力メモ",
   "learning": "Dレッスン連携・学習管理",
   "lesson-auto": "Dレッスンの実績を自動反映・再取得する",
   "lesson-details": "Dレッスンの要点表示・手入力・実績選択",
-  "assistant": "AIアシスタントの実行案を確認する",
   "lesson-progress": "児童別の学習進捗・苦手キーを確認する",
   "lesson-task": "児童ごとに練習課題・ステージを指定する",
   "lesson-batch": "校舎・グループを絞って課題をまとめて指定",
@@ -57,7 +56,7 @@ export const MANUAL_TITLES = {
   "vehicles": "車両台帳を管理する",
   "shift-template": "勤務テンプレートを管理する",
   "permissions": "児発管・教室長の権限割り振り",
-  "record-settings": "記録の質問・テンプレートとAI文章設定",
+  "record-settings": "記録の質問・テンプレート設定",
   "staff": "職員名簿・個人ログイン・紐づけ",
   "devices": "登録端末とアクセス管理",
   "invitation-audit": "メール招待・利用停止・監査履歴",
@@ -102,7 +101,6 @@ const screens={
  dispatch:context(['dispatch','dispatch-time','dispatch-windows','transport-log'],['route-calc','transport-overlap','wrong-map']),
  operations:context(['record-status'],['forbidden','save-cleanup','save-offline']),
  communication:context(['announcements','morning','handover'],['realtime','report']),
- assistant:context(['assistant'],['forbidden','report']),
  meeting:context(['meeting'],['forbidden','save-offline','report']),
  records:context(['record-list'],['save-conflict','pdf-output']),
  children:context(['children','child-documents','service-types'],['monthly-wrong','forbidden']),
@@ -136,7 +134,7 @@ export function getManualContext(screen:ManualScreen,section?:string):ManualCont
   if(section==='links')return context(['lesson-account','lesson-new','learning'],['lesson-partial','lesson-missing']);
  }
  if(screen==='settings'){
-  const pages:Record<string,ManualTopic>={ai:'record-settings',templates:'record-settings',schools:'schools',transportMap:'transport-settings',rolePermissions:'permissions',shiftTemplates:'shift-template',vehicles:'vehicles',serviceTypes:'service-types',legalTraining:'training-settings',diagnostics:'diagnostics'};
+  const pages:Record<string,ManualTopic>={templates:'record-settings',schools:'schools',transportMap:'transport-settings',rolePermissions:'permissions',shiftTemplates:'shift-template',vehicles:'vehicles',serviceTypes:'service-types',legalTraining:'training-settings',diagnostics:'diagnostics'};
   if(section&&pages[section])return context([pages[section]],section==='diagnostics'?['report']:['forbidden','report']);
  }
  if(screen==='team'){
@@ -154,7 +152,7 @@ export function attendanceManualContext(section:string):ManualContext {
 }
 export function manualHref(topic:ManualTopic,base='./'):string {return base+'manuals/d-support/index.html#'+topic;}
 export function homeManualContext(workspace:string,section?:string):ManualContext {
- const homeScreens=['dailyChanges','todayWork','calendar','monthlySchedule','dispatch','operations','communication','assistant'] as const;
+ const homeScreens=['dailyChanges','todayWork','calendar','monthlySchedule','dispatch','operations','communication'] as const;
  const screen=homeScreens.find(value=>value===workspace);
  return getManualContext(screen||'home',section);
 }

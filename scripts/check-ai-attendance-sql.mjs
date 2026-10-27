@@ -48,5 +48,17 @@ try{
  await db.exec('select set_external_ai_policy(false,1,false,false,false)');assert.equal((await policy()).enabled,false);assert.equal((await policy()).revision,2);checks++;
  await db.exec('reset role');const logs=await query('select * from audit_logs');assert.equal(logs.filter(l=>l.table_name==='attendance_break_confirmations').length,2);assert.equal(logs.filter(l=>l.table_name==='external_ai_policies').length,2);checks++;
  await db.exec('set role anon');await denied('select get_external_ai_policy()','42501');await denied(enable(2),'42501');await denied(confirm(60),'42501');
- console.log(JSON.stringify({passed:true,checks,productionWrites:0}));
+ await db.exec('reset role');
+ await db.exec(`create table organization_ai_settings(id int,payload text);create table ai_generation_logs(id int,payload text);create table assistant_actions(id int,payload text);create table meeting_export_events(id int,payload text);
+ insert into organization_ai_settings values(1,'historical-settings');insert into ai_generation_logs values(1,'historical-log');insert into assistant_actions values(1,'historical-action');insert into meeting_export_events values(1,'historical-event');
+ grant all on organization_ai_settings,ai_generation_logs,assistant_actions,meeting_export_events to authenticated,service_role;`);
+ await db.exec(enable(2));
+ const oldAttendance=await query('select * from attendance_records');
+ await db.exec(readFileSync('supabase/migrations/202610270003_retire_external_ai.sql','utf8'));
+ assert.deepEqual(await query('select * from attendance_records'),oldAttendance);checks++;
+ assert.equal((await query('select enabled from external_ai_policies'))[0].enabled,false);checks++;
+ await denied('select get_external_ai_policy()','0A000');await denied(enable(3),'0A000');
+ for(const role of ['authenticated','service_role']){await db.exec('set role '+role);await denied('select get_external_ai_policy()','42501');await denied(enable(3),'42501');await denied('update organization_ai_settings set payload=\'changed\'','42501');await denied('insert into ai_generation_logs values(2,\'new\')','42501');await db.exec('reset role');}
+ for(const table of ['organization_ai_settings','ai_generation_logs','assistant_actions','meeting_export_events']){assert.equal((await query('select count(*)::int as n from '+table))[0].n,1);checks++;}
+ console.log(JSON.stringify({passed:true,checks,productionWrites:0,externalAiRetired:true,legacyRowsPreserved:true}));
 }finally{await db.close();}

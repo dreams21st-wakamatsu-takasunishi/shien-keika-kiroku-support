@@ -2,7 +2,6 @@ import { supabase } from '../lib/supabase';
 import { recordSavePayload } from './recordSaveWorkflow';
 import { assertDraftMergeSynced } from '../utils/recordEntry';
 import {
-  AiWritingSettings,
   Announcement,
   AnnouncementConfirmation,
   AttendanceCorrectionRequest,
@@ -11,7 +10,6 @@ import {
   ChildProfile,
   DailyChildPlan,
   DailyTransportRequirement,
-  DEFAULT_AI_WRITING_SETTINGS,
   ExpressionType,
   HandoverConfirmation,
   HandoverItem,
@@ -80,7 +78,6 @@ export interface WorkspaceData {
   morningMeetingTemplates: MorningMeetingTemplate[];
   morningMeetingConfirmations: MorningMeetingConfirmation[];
   supportPlans: SupportPlan[];
-  aiWritingSettings: AiWritingSettings;
   announcements: Announcement[];
   announcementConfirmations: AnnouncementConfirmation[];
   staffScheduleItems: StaffScheduleItem[];
@@ -299,7 +296,6 @@ function mapRecorderProfile(row: any): RecorderProfile {
     'legalTraining',
     'operations',
     'communication',
-    'assistant',
     'form',
     'records',
     'meetings',
@@ -789,16 +785,6 @@ function normalizeSnack(value: unknown): SnackType | '' {
   return raw;
 }
 
-function mapAiWritingSettings(row: any): AiWritingSettings {
-  if (!row) return DEFAULT_AI_WRITING_SETTINGS;
-  return {
-    tone: row.tone || DEFAULT_AI_WRITING_SETTINGS.tone,
-    customTone: row.custom_tone || '',
-    customInstructions: row.custom_instructions || '',
-    targetLength: row.target_length || DEFAULT_AI_WRITING_SETTINGS.targetLength,
-  };
-}
-
 export function loadWorkspaceData(organizationId: string, changedTables?: readonly string[], recordIds?: readonly string[]): Promise<WorkspaceData> {
   return measureOperation(changedTables ? 'workspace.refresh' : 'workspace.initial', () => loadWorkspaceDataInternal(organizationId, changedTables, recordIds));
 }
@@ -818,7 +804,6 @@ async function loadWorkspaceDataInternal(organizationId: string, changedTables?:
     morningMeetingTemplatesResult,
     morningMeetingConfirmationsResult,
     plansResult,
-    aiSettingsResult,
     announcementsResult,
     announcementConfirmationsResult,
     staffScheduleItemsResult,
@@ -849,7 +834,6 @@ async function loadWorkspaceDataInternal(organizationId: string, changedTables?:
     () => client.from('morning_meeting_templates').select('*').eq('organization_id', organizationId).is('archived_at', null).order('updated_at', { ascending: false }),
     () => client.from('morning_meeting_confirmations').select('*').eq('organization_id', organizationId).order('confirmed_at', { ascending: false }),
     () => client.from('support_plans').select('*').eq('organization_id', organizationId).order('valid_from', { ascending: false }),
-    () => client.from('organization_ai_settings').select('*').eq('organization_id', organizationId).maybeSingle(),
     () => client.from('announcements').select('*').eq('organization_id', organizationId).is('archived_at', null).order('published_at', { ascending: false }),
     () => client.from('announcement_confirmations').select('*').eq('organization_id', organizationId).order('read_at', { ascending: false }),
     () => client.from('staff_schedule_items').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }).order('start_time'),
@@ -891,7 +875,6 @@ async function loadWorkspaceDataInternal(organizationId: string, changedTables?:
     morningMeetingTemplatesResult,
     morningMeetingConfirmationsResult,
     plansResult,
-    aiSettingsResult,
     transportMapLocationsResult,
     transportAreaZonesResult,
   ];
@@ -908,7 +891,6 @@ async function loadWorkspaceDataInternal(organizationId: string, changedTables?:
     '朝礼テンプレート',
     '朝礼確認',
     '支援計画',
-    'AI設定',
     '送迎地図地点',
     '優先配車エリア',
   ];
@@ -962,7 +944,6 @@ async function loadWorkspaceDataInternal(organizationId: string, changedTables?:
     morningMeetingTemplates: (morningMeetingTemplatesResult.data || []).map(mapMorningMeetingTemplate),
     morningMeetingConfirmations: (morningMeetingConfirmationsResult.data || []).map(mapMorningMeetingConfirmation),
     supportPlans: (plansResult.data || []).map(mapSupportPlan),
-    aiWritingSettings: mapAiWritingSettings(aiSettingsResult.data),
     announcements: announcementsResult.error ? [] : (announcementsResult.data || []).map(mapAnnouncement),
     announcementConfirmations: announcementConfirmationsResult.error
       ? []
@@ -2207,20 +2188,6 @@ async function saveRecordsInternal(organizationId: string, records: SupportRecor
 export async function saveRecord(organizationId: string, record: SupportRecord) {
   const [result] = await saveRecords(organizationId, [record]);
   return result;
-}
-
-export async function saveAiWritingSettings(organizationId: string, settings: AiWritingSettings) {
-  const { error } = await assertSupabase().from('organization_ai_settings').upsert(
-    {
-      organization_id: organizationId,
-      tone: settings.tone,
-      custom_tone: settings.customTone.trim(),
-      custom_instructions: settings.customInstructions.trim(),
-      target_length: Math.max(80, Math.min(800, settings.targetLength)),
-    },
-    { onConflict: 'organization_id' }
-  );
-  if (error) throw error;
 }
 
 export async function loadRecordDraft(organizationId: string, draftKey: string) {
