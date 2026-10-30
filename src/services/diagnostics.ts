@@ -18,7 +18,7 @@ const resources = new Set(['support_records','record_drafts','children','recorde
   'get_external_ai_policy','set_external_ai_policy','confirm_attendance_break',
   'save_morning_meeting_record_guarded','set_child_sibling_links','set_recorder_pin','set_transport_cover','set_transport_operation_event','take_over_record_draft_child','take_over_record_draft','update_shift_request_defaults',
   'update_staff_device_policy','update_transport_run_status','verify_recorder_pin']);
-for(const resource of ['get_child_document_register','save_child_document_settings','save_child_document_entry','lesson-learning','lesson-accounts','lesson-account-credentials','lesson-student-registration','lesson-task-batches','lesson-task-audit','lesson-managed-content','facility-login'])resources.add(resource);
+for(const resource of ['get_child_document_register','save_child_document_settings','save_child_document_entry','lesson-learning','lesson-accounts','lesson-account-credentials','lesson-student-registration','lesson-task-batches','lesson-task-audit','lesson-managed-content','facility-login','unified-login'])resources.add(resource);
 for(const resource of ['change_workspace_item_lifecycle','list_workspace_trash','withdraw_own_workspace_request','workspace_lifecycle_events'])resources.add(resource);
 const serverCodes = new Set(['57014','42501','23505','23503','22023','40001','40P01','53300','53100','57P03','PGRST116','PGRST202','PGRST301','PGRST302']);
 const methods = new Set(['GET','HEAD','POST','PUT','PATCH','DELETE','OPTIONS']);

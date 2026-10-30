@@ -101,9 +101,13 @@ Deno.serve(async (request) => {
   if (!/^[A-Za-z0-9._-]{3,32}$/.test(employeeCode)) {
     return jsonResponse({ error: '職員IDは半角英数字・ピリオド・ハイフン・下線の3～32文字で入力してください。' }, 400);
   }
-  if (password.length < 10 || password.length > 72) {
-    return jsonResponse({ error: 'パスワードは10～72文字で入力してください。' }, 400);
+  if (password.length === 0 || password.length > 72) {
+    return jsonResponse({ error: 'パスワードを入力してください（上限72文字）。認証基盤の最低条件も適用されます。' }, 400);
   }
+
+  const {data:facilityId,error:facilityIdError}=await serviceClient.from('facility_login_credentials').select('organization_id').eq('organization_id',caller.organization_id).eq('login_id',employeeCode.toLowerCase()).maybeSingle();
+  if(facilityIdError)return jsonResponse({error:'ログインIDの重複を確認できません。再試行してください。'},503);
+  if(facilityId)return jsonResponse({error:'施設IDと同じ職員IDは設定できません。別のIDを指定してください。'},409);
 
   const { data: duplicate } = await serviceClient
     .from('recorder_profiles')

@@ -436,3 +436,8 @@ enabled = true
 
 [functions.lesson-student-registration]
 verify_jwt = false
+
+# Pre-login routing never grants identity by itself; the handler authenticates
+# via Auth or the existing approved-shared-device facility flow.
+[functions.unified-login]
+verify_jwt = false

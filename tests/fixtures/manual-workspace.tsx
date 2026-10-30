@@ -45,7 +45,7 @@ function Harness(){
  const [recordDate,setRecordDate] = useState(date);
  const [list,setList] = useState(children);
  const data:any = {...empty,...callbacks,childrenList:list,schools,recorderProfiles:staff,calendarEvents:[{id:'event',date,endDate:date,startTime:'10:00',endTime:'11:00',title:'打合せ（サンプル）',eventType:'会議',recorderProfileIds:['staff-a'],childIds:[],createdAt:now,updatedAt:now}],dailyChildPlans:plans,dailyTransportRequirements:requirements,vehicles,transportRuns:runs,transportRouteSettings:DEFAULT_TRANSPORT_ROUTE_SETTINGS,routeSettings:DEFAULT_TRANSPORT_ROUTE_SETTINGS,currentUser:user,activeRecorder:recorder,organizationId:'local',canReviewRecords:true,canManageCommunications:true,canManageShifts:true,canManageCalendar:true,canManageTransport:true,canManageChildren:true,canManageRecordSettings:true,facilityAddress:'サンプル事業所',templates:[STANDARD_WEEKDAY_TEMPLATE,STANDARD_HOLIDAY_TEMPLATE],records:[],recordStatusDate:recordDate,onRecordStatusDateChange:setRecordDate,onNavigate:setScreen,onNewRecord:()=>setScreen('form'),onStartRecord:()=>setScreen('form'),onResumeDraft:noop,onViewDraft:noop,onTakeOverDrafts:async()=>true,onDeleteDraft:noop,onOpenRecord:noop};
- if(screen==='auth') return <AuthScreen onSignIn={async()=>({error:null})} onStaffIdSignIn={async()=>({error:null})} onQrSignIn={async()=>({error:null})} />;
+ if(screen==='auth') return <AuthScreen onUnifiedSignIn={async()=>({error:null})} onQrSignIn={async()=>({error:null})} />;
  if(screen==='qr') return <div className="p-5"><AttendanceQrKiosk enabled canRegister /></div>;
  if(screen==='personalActual') return <PersonalTransportMode currentUser={user as any} onSignOut={noop}/>;
  if(screen==='training') return <div className="p-4"><LegalTrainingWorkspace user={user as any}/></div>;

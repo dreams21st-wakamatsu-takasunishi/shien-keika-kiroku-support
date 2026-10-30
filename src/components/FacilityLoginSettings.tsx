@@ -22,7 +22,7 @@ export function FacilityLoginSettings({organizationId}:{organizationId:string}){
   if(enabled&&(!config.deviceApprovalEnabled||config.privilegedEmailPending||!ack)){setMessage('端末承認と特別権限職員のメールログイン、利用上の確認が必要です。');return;}
   if(!window.confirm('施設ログイン設定を保存します。利用中の施設ログインは再ログインが必要になります。続けますか？'))return;
   const v=++generation.current;setBusy(true);setMessage('');
-  try{const {data,error}=await supabase.rpc('set_facility_login_configuration',{p_enabled:enabled,p_login_id:loginId,p_password:password||null,p_revision:config.revision});if(error)throw Error(error.code==='PT409'?'設定が変更されています。再取得してください。':'保存できませんでした。管理者のメールログイン・端末承認・入力内容を確認してください。');if(v===generation.current){accept(data);setMessage('施設ログイン設定を保存しました。');}}
+  try{const {data,error}=await supabase.rpc('set_facility_login_configuration',{p_enabled:enabled,p_login_id:loginId,p_password:password||null,p_revision:config.revision});if(error)throw Error(error.code==='PT409'?'設定が変更されています。再取得してください。':error.code==='23505'?'施設IDと職員IDが重複しています。別のIDを指定してください。':'保存できませんでした。管理者のメールログイン・端末承認・入力内容を確認してください。');if(v===generation.current){accept(data);setMessage('施設ログイン設定を保存しました。');}}
   catch(e){if(v===generation.current)setMessage(e instanceof Error?e.message:'設定を保存できません。');}
   finally{setPassword('');setConfirm('');if(v===generation.current)setBusy(false);}
  };

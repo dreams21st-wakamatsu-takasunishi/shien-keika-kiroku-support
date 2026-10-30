@@ -1,220 +1,73 @@
-import { ManualLinks } from './ManualLinks';
-import React, { useState } from 'react';
-import { Building2, ChevronRight, FileText, IdCard, LockKeyhole, Mail, QrCode, ShieldCheck } from 'lucide-react';
-import { AttendanceQrScanner } from './AttendanceQrScanner';
-import { FacilityQrPunchControls } from './AttendanceQr';
-import {FacilityLoginForm} from './FacilityLoginForm';
+import {useRef,useState,type FormEvent} from 'react';
+import {Building2,ChevronRight,FileText,IdCard,LockKeyhole,QrCode,ShieldCheck} from 'lucide-react';
+import {ManualLinks} from './ManualLinks';
+import {AttendanceQrScanner} from './AttendanceQrScanner';
+import {FacilityQrPunchControls} from './AttendanceQr';
+import {FacilityStaffChoice} from './FacilityStaffChoice';
+import type {FacilityChoice} from '../services/facilityLogin';
+import type {UnifiedSignInResult} from '../services/unifiedLogin';
 
 interface AuthScreenProps {
-  onSignIn: (email: string, password: string) => Promise<{ error: Error | null }>;
-  onStaffIdSignIn: (organizationCode: string, employeeCode: string, password: string) => Promise<{ error: Error | null }>;
-  onQrSignIn: (token: string) => Promise<{ error: Error | null }>;
-  initialMessage?: string | null;
-  onFacilitySignIn?: (ticket:string,recorderId:string,signal?:AbortSignal)=>Promise<{error:Error|null}>;
+ onUnifiedSignIn:(loginId:string,password:string,organizationCode:string)=>Promise<UnifiedSignInResult>;
+ onQrSignIn:(token:string)=>Promise<{error:Error|null}>;
+ onFacilitySignIn?:(ticket:string,recorderId:string,signal?:AbortSignal)=>Promise<{error:Error|null}>;
+ initialMessage?:string|null;
 }
+const organizationKey='support-staff-organization-code-v1';
+function rememberedCode(){try{const code=localStorage.getItem(organizationKey)||'';return /^[A-Z0-9]{8,16}$/.test(code)?code:'';}catch{return '';}}
+function remember(code:string){try{localStorage.setItem(organizationKey,code);}catch{/* Only a non-secret code is optional. */}}
 
-const STAFF_ORGANIZATION_CODE_KEY = 'support-staff-organization-code-v1';
-
-function readRememberedOrganizationCode() {
-  try {
-    const value = localStorage.getItem(STAFF_ORGANIZATION_CODE_KEY) || '';
-    return /^[A-Z0-9]{1,16}$/.test(value) ? value : '';
-  } catch {
-    return '';
-  }
+export function AuthScreen({onUnifiedSignIn,onQrSignIn,onFacilitySignIn,initialMessage}:AuthScreenProps){
+ const [loginId,setLoginId]=useState(''),[password,setPassword]=useState(''),[organizationCode,setOrganizationCode]=useState(rememberedCode);
+ const [organizationOpen,setOrganizationOpen]=useState(false),[message,setMessage]=useState(initialMessage||'');
+ const [submitting,setSubmitting]=useState(false),[qrOpen,setQrOpen]=useState(false),[choice,setChoice]=useState<FacilityChoice|null>(null);
+ const inFlight=useRef(false);
+ const submit=async(event:FormEvent)=>{
+  event.preventDefault();if(inFlight.current)return;inFlight.current=true;setSubmitting(true);setMessage('');
+  try{
+   const result=await onUnifiedSignIn(loginId.trim(),password,organizationCode);
+   setPassword('');
+   if(result.error){setMessage(result.error.message);if(result.requiresOrganization)setOrganizationOpen(true);return;}
+   if(result.organizationCode){setOrganizationCode(result.organizationCode);remember(result.organizationCode);}
+   if(result.choice)setChoice(result.choice);
+  }catch(cause){setPassword('');setMessage(cause instanceof Error?cause.message:'ログインできませんでした。通信状況を確認してください。');}
+  finally{inFlight.current=false;setSubmitting(false);}
+ };
+ const qrSignIn=async(token:string)=>{
+  if(inFlight.current)return;inFlight.current=true;setSubmitting(true);
+  try{const result=await onQrSignIn(token);if(result.error)throw result.error;setQrOpen(false);}
+  finally{inFlight.current=false;setSubmitting(false);}
+ };
+ const input='mt-1 min-h-12 w-full min-w-0 rounded-xl border border-slate-300 bg-slate-50 py-2 pl-10 pr-3 text-base font-normal text-slate-950 focus:border-teal-600 focus:bg-white focus:ring-2 focus:ring-teal-100';
+ return <div className="flex min-h-screen items-center justify-center bg-slate-950 p-4">
+  <main className="w-full max-w-md">
+   <header className="mb-6 text-center text-white"><span className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-2xl bg-teal-600"><FileText className="h-7 w-7"/></span><h1 className="text-xl font-bold">Dサポート</h1><p className="mt-1 text-xs text-slate-400">児発・放課後等デイサービス向け共有記録システム</p></header>
+   <section className="rounded-2xl border border-slate-800 bg-white p-5 shadow-2xl sm:p-6" aria-label="Dサポートのログイン">
+    <ManualLinks screen="auth" className="mb-4"/>
+    <p className="mb-5 flex gap-2 rounded-xl border border-teal-200 bg-teal-50 p-3 text-xs leading-relaxed text-teal-900"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0"/>管理者が登録・招待した職員のみ利用できます。</p>
+    {message&&<p role="alert" className="mb-4 break-words rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm leading-relaxed text-amber-950">{message}</p>}
+    {choice?<FacilityStaffChoice choice={choice} onSelect={onFacilitySignIn} onBusyChange={setSubmitting} onBack={error=>{setChoice(null);setMessage(error||'');}}/>:<>
+     <h2 className="text-lg font-black text-slate-950">ログイン</h2>
+     <p className="mt-1 text-xs leading-relaxed text-slate-600">メールアドレス・職員ID・施設IDを同じ欄に入力できます。</p>
+     <form aria-label="共通ログイン" onSubmit={event=>void submit(event)} className="mt-5 space-y-4">
+      <label className="block text-sm font-bold text-slate-800">ログインID<span className="relative block"><IdCard className="absolute left-3 top-4 h-5 w-5 text-slate-400"/><input required name="username" aria-label="ログインID" autoComplete="username" autoCapitalize="none" spellCheck={false} value={loginId} disabled={submitting} onChange={event=>setLoginId(event.target.value)} placeholder="メールアドレス・職員ID・施設ID" className={input}/></span></label>
+      <label className="block text-sm font-bold text-slate-800">パスワード<span className="relative block"><LockKeyhole className="absolute left-3 top-4 h-5 w-5 text-slate-400"/><input required name="password" aria-label="パスワード" type="password" autoComplete="current-password" value={password} disabled={submitting} onChange={event=>setPassword(event.target.value)} className={input}/></span></label>
+      <details open={organizationOpen} onToggle={event=>setOrganizationOpen(event.currentTarget.open)} className="rounded-xl border border-slate-200 p-3">
+       <summary className="cursor-pointer text-xs font-bold text-slate-600"><Building2 className="mr-1 inline h-4 w-4"/>{organizationCode?'事業所設定済み（確認・変更）':'初回の事業所設定・事業所を変更'}</summary>
+       <label className="mt-3 block text-xs font-bold text-slate-700">事業所コード<input aria-label="事業所コード" autoCapitalize="characters" autoComplete="organization" value={organizationCode} disabled={submitting} onChange={event=>setOrganizationCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,16))} className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-slate-50 px-3 font-normal"/></label>
+       <p className="mt-2 text-[11px] leading-relaxed text-slate-500">登録済み端末では事業所を自動確認します。未登録端末でIDを使う場合は初回に入力してください。メールログインでは不要です。</p>
+      </details>
+      <button type="submit" disabled={submitting} className="min-h-12 w-full rounded-xl bg-teal-700 px-3 text-sm font-black text-white hover:bg-teal-600 disabled:opacity-50">{submitting?'確認中…':'ログイン'}<ChevronRight className="ml-1 inline h-4 w-4"/></button>
+     </form>
+     <p className="mt-3 text-[11px] leading-relaxed text-slate-500">施設IDは承認済み施設共用端末専用です。個人スマホでは本人の職員ID／メールを使用してください。</p>
+     <section aria-label="施設端末でのQR操作" className="mt-5 border-t border-slate-200 pt-4">
+      <button type="button" disabled={submitting} onClick={()=>{setPassword('');setMessage('');setQrOpen(true);}} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-xl border border-sky-300 bg-sky-50 px-3 text-sm font-black text-sky-900 disabled:opacity-50"><QrCode className="h-5 w-5"/>本人用QRでログイン</button>
+      <p className="mt-2 text-[11px] leading-relaxed text-slate-500">承認済み施設共用端末で読み取ります。ログインでは出勤打刻しません。</p>
+      <details className="mt-3"><summary className="cursor-pointer py-2 text-xs font-bold text-slate-600">出退勤だけ行う（ログインしません）</summary><FacilityQrPunchControls disabled={submitting}/></details>
+     </section>
+    </>}
+   </section>
+  </main>
+  {qrOpen&&<AttendanceQrScanner action="ログイン" onClose={()=>setQrOpen(false)} onScanned={qrSignIn}/>}
+ </div>;
 }
-
-export const AuthScreen: React.FC<AuthScreenProps> = ({ onSignIn, onStaffIdSignIn, onQrSignIn, onFacilitySignIn, initialMessage }) => {
-  const rememberedOrganizationCode = readRememberedOrganizationCode();
-  const [loginMethod, setLoginMethod] = useState<'facility'|'staff-id' | 'email'>('facility');
-  const [email, setEmail] = useState('');
-  const [organizationCode, setOrganizationCode] = useState(rememberedOrganizationCode);
-  const [editingOrganizationCode, setEditingOrganizationCode] = useState(!rememberedOrganizationCode);
-  const [employeeCode, setEmployeeCode] = useState('');
-  const [password, setPassword] = useState('');
-  const [message, setMessage] = useState<string | null>(initialMessage || null);
-  const [submitting, setSubmitting] = useState(false);
-  const [qrOpen, setQrOpen] = useState(false);
-
-  const handleQrSignIn = async (token: string) => {
-    setSubmitting(true);
-    try {
-      const result = await onQrSignIn(token);
-      if (result.error) throw result.error;
-      setQrOpen(false);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleSubmit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    setSubmitting(true);
-    setMessage(null);
-    try {
-      const result = loginMethod === 'staff-id'
-        ? await onStaffIdSignIn(organizationCode.trim(), employeeCode.trim(), password)
-        : await onSignIn(email.trim(), password);
-      if (result.error) {
-        setMessage(result.error.message);
-      } else if (loginMethod === 'staff-id') {
-        try {
-          localStorage.setItem(STAFF_ORGANIZATION_CODE_KEY, organizationCode.trim());
-        } catch {
-          // Remembering a non-secret facility code is optional.
-        }
-      }
-    } catch (cause) {
-      setMessage(cause instanceof Error ? cause.message : 'ログインできませんでした。通信状況を確認してください。');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  return (
-    <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
-      <div className="w-full max-w-md">
-        <div className="text-center text-white mb-6">
-          <div className="w-14 h-14 rounded-2xl bg-teal-600 flex items-center justify-center mx-auto shadow-xl mb-3">
-            <FileText className="w-7 h-7" />
-          </div>
-          <h1 className="text-xl font-bold">Dサポート</h1>
-          <p className="text-xs text-slate-400 mt-1">児発・放課後等デイサービス向け共有記録システム</p>
-        </div>
-
-        <div className="bg-white rounded-2xl shadow-2xl border border-slate-800 p-6">
-          <ManualLinks screen="auth" className="mb-4" />
-          <div className="mb-5 rounded-xl border border-teal-200 bg-teal-50 p-3 text-xs leading-relaxed text-teal-900 flex gap-2">
-            <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5" />
-            <span>本アプリは招待制です。管理者から招待された職員のみログインできます。</span>
-          </div>
-
-          {loginMethod==='staff-id'&&<section className="mb-6 rounded-xl border border-sky-200 bg-sky-50 p-3">
-            <button type="button" disabled={submitting} onClick={() => { setMessage(null); setQrOpen(true); }} className="flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-sky-700 px-3 text-sm font-black text-white hover:bg-sky-600 disabled:opacity-50">
-              <QrCode className="h-5 w-5" />本人用QRでログイン
-            </button>
-            <p className="mt-2 text-xs leading-relaxed text-sky-950">事業所端末のカメラで、個人端末に表示した本人用QRを読み取ります。QRの職員としてログインします。</p>
-            <p className="mt-1 text-[11px] leading-relaxed text-slate-600">承認済みの施設共用端末専用です。初回・個人端末は下の職員ID／メールでログインしてください。</p>
-            <div className="mt-3 border-t border-sky-200 pt-3"><p className="mb-2 text-xs font-bold text-slate-700">出退勤だけ行う（ログインはしません）</p><FacilityQrPunchControls disabled={submitting} /></div>
-          </section>}
-
-          {loginMethod==='facility'?<>{message&&<p role="alert" className="mb-3 border-l-4 border-amber-500 bg-amber-50 p-3 text-sm text-amber-950">{message}</p>}<FacilityLoginForm onSelect={onFacilitySignIn} onBusyChange={setSubmitting}/></>:<>
-
-          <div className="mb-5">
-            <p className="text-base font-black text-slate-900">
-              {loginMethod === 'staff-id' ? '職員IDでログイン' : 'メールアドレスでログイン'}
-            </p>
-            <p className="mt-1 text-xs leading-relaxed text-slate-500">
-              {loginMethod === 'staff-id'
-                ? '通常の職員はこちらからログインしてください。'
-                : '管理者・教室長・児発管など、特別権限のある職員はこちらからログインしてください。'}
-            </p>
-          </div>
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            {loginMethod === 'staff-id' ? (
-              <>
-                {editingOrganizationCode ? (
-                  <label className="block text-xs font-bold text-slate-700">
-                    事業所コード
-                    <span className="relative block mt-1">
-                      <Building2 className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                      <input
-                        required
-                        autoCapitalize="characters"
-                        autoComplete="organization"
-                        value={organizationCode}
-                        onChange={(event) => setOrganizationCode(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 16))}
-                        placeholder="初回のみ入力"
-                        className="w-full min-h-11 border border-slate-300 rounded-lg py-2 pl-9 pr-3 font-normal uppercase tracking-wider"
-                      />
-                    </span>
-                    <span className="mt-1 block text-[10px] font-normal text-slate-500">ログイン成功後、この端末に事業所コードだけを記憶します。</span>
-                  </label>
-                ) : (
-                  <div className="flex min-h-11 items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 text-xs">
-                    <span className="flex min-w-0 items-center gap-2 font-bold text-slate-700">
-                      <Building2 className="h-4 w-4 shrink-0 text-teal-700" />
-                      <span className="truncate">事業所：{organizationCode}</span>
-                    </span>
-                    <button type="button" onClick={() => setEditingOrganizationCode(true)} className="shrink-0 font-bold text-teal-700 underline">変更</button>
-                  </div>
-                )}
-                <label className="block text-xs font-bold text-slate-700">
-                  職員ID
-                  <span className="relative block mt-1">
-                    <IdCard className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                    <input
-                      required
-                      autoCapitalize="none"
-                      autoComplete="username"
-                      value={employeeCode}
-                      onChange={(event) => setEmployeeCode(event.target.value.replace(/[^A-Za-z0-9._-]/g, '').slice(0, 32))}
-                      placeholder="例：staff001"
-                      className="w-full min-h-11 border border-slate-300 rounded-lg py-2 pl-9 pr-3 font-normal"
-                    />
-                  </span>
-                </label>
-              </>
-            ) : <label className="block text-xs font-bold text-slate-700">
-              メールアドレス
-              <span className="relative block mt-1">
-                <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                <input
-                  type="email"
-                  required
-                  autoComplete="email"
-                  value={email}
-                  onChange={(event) => setEmail(event.target.value)}
-                  className="w-full min-h-11 border border-slate-300 rounded-lg py-2 pl-9 pr-3 font-normal"
-                />
-              </span>
-            </label>}
-
-            <label className="block text-xs font-bold text-slate-700">
-              パスワード
-              <span className="relative block mt-1">
-                <LockKeyhole className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                <input
-                  type="password"
-                  required
-                  minLength={loginMethod === 'staff-id' ? 10 : 8}
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(event) => setPassword(event.target.value)}
-                  className="w-full min-h-11 border border-slate-300 rounded-lg py-2 pl-9 pr-3 font-normal"
-                />
-              </span>
-            </label>
-
-            {message && <div className="text-xs leading-relaxed bg-amber-50 text-amber-900 border border-amber-200 rounded-lg p-3">{message}</div>}
-
-            <button type="submit" disabled={submitting} className="w-full min-h-12 bg-teal-600 hover:bg-teal-500 disabled:bg-slate-400 text-white text-sm font-bold rounded-lg shadow-sm">
-              {submitting ? 'ログイン中...' : 'ログイン'}
-            </button>
-          </form>
-          </>}
-
-          <button
-            type="button"
-            disabled={submitting}
-            onClick={() => {
-              setLoginMethod((current) => current === 'email' ? 'facility' : 'email');
-              setPassword('');
-              setMessage(null);
-            }}
-            className="mt-5 flex min-h-11 w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-3 text-left text-xs font-bold text-slate-600 hover:bg-slate-100"
-          >
-            <span className="flex items-center gap-2">
-              {loginMethod !== 'email' ? <Mail className="h-4 w-4" /> : <Building2 className="h-4 w-4" />}
-              {loginMethod !== 'email' ? '管理者・教室長・児発管のメールログイン' : '施設共通ログインへ戻る'}
-            </span>
-            <ChevronRight className="h-4 w-4" />
-          </button>
-          {loginMethod!=='staff-id'&&<button type="button" disabled={submitting} onClick={()=>{setLoginMethod('staff-id');setPassword('');setMessage(null);}} className="mt-3 flex min-h-10 items-center gap-2 text-xs text-slate-600"><IdCard className="h-4 w-4"/>従来の個人職員IDログイン</button>}
-        </div>
-      </div>
-      {qrOpen && <AttendanceQrScanner action="ログイン" onClose={() => setQrOpen(false)} onScanned={handleQrSignIn} />}
-    </div>
-  );
-};

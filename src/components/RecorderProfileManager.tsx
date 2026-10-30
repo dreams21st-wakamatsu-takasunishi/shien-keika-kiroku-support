@@ -191,8 +191,8 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
       setMessage('職員IDは半角英数字・ピリオド・ハイフン・下線の3～32文字で入力してください。');
       return;
     }
-    if (loginPassword.length < 10 || loginPassword.length > 72) {
-      setMessage('パスワードは10～72文字で入力してください。');
+    if (loginPassword.length === 0 || loginPassword.length > 72) {
+      setMessage('パスワードを入力してください（上限72文字）。認証基盤の最低条件も適用されます。');
       return;
     }
     if (loginPassword !== loginPasswordConfirmation) {
@@ -618,9 +618,8 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
                           type="password"
                           value={loginPassword}
                           onChange={(event) => setLoginPassword(event.target.value.slice(0, 72))}
-                          minLength={10}
                           autoComplete="new-password"
-                          placeholder="10文字以上"
+                          placeholder="パスワードを入力"
                           className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"
                         />
                       </label>
@@ -630,7 +629,6 @@ export const RecorderProfileManager: React.FC<{ currentUser: UserProfile }> = ({
                           type="password"
                           value={loginPasswordConfirmation}
                           onChange={(event) => setLoginPasswordConfirmation(event.target.value.slice(0, 72))}
-                          minLength={10}
                           autoComplete="new-password"
                           placeholder="もう一度入力"
                           className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm"

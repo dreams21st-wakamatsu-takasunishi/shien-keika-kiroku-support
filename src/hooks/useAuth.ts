@@ -5,6 +5,7 @@ import { UserProfile } from '../types';
 import { getAccessDeviceLabel, getAccessDevicePlatform, getAccessDeviceToken } from '../utils/accessDevice';
 import { scanPersonalStaffQr } from '../services/staffQrService';
 import {selectFacilityStaff} from '../services/facilityLogin';
+import {authenticateUnifiedLogin,UnifiedLoginError,type UnifiedSignInResult} from '../services/unifiedLogin';
 import { measureOperation } from '../services/performanceMetrics';
 import { sameUserProfile } from '../utils/userProfileIdentity';
 
@@ -261,6 +262,20 @@ export function useAuth() {
     return { error: null };
   };
 
+  const signInUnified = async (loginId:string,password:string,organizationCode:string):Promise<UnifiedSignInResult> => {
+    if(!supabase)return {error:new Error('Supabaseが設定されていません。')};
+    setError(null);
+    try {
+      const result=await authenticateUnifiedLogin(loginId,password,organizationCode);
+      if(result.choice)return {error:null,choice:result.choice,organizationCode:result.organizationCode};
+      if(!result.session)throw new Error('ログイン情報を確認できませんでした。');
+      const {data,error}=await supabase.auth.setSession(result.session);
+      if(error||!data.session)throw error||new Error('ログイン状態を開始できませんでした。');
+      setSession(data.session);setLastInteractiveAuthAt(Date.now());setInitialized(true);
+      return {error:null,organizationCode:result.organizationCode};
+    } catch(cause){return {error:cause instanceof Error?cause:new Error('ログインできませんでした。'),requiresOrganization:cause instanceof UnifiedLoginError&&cause.requiresOrganization};}
+  };
+
   const signInWithStaffId = async (organizationCode: string, employeeCode: string, password: string) => {
     if (!supabase) return { error: new Error('Supabaseが設定されていません。') };
     setError(null);
@@ -390,6 +405,7 @@ export function useAuth() {
     loading,
     error,
     signIn,
+    signInUnified,
     signInWithStaffId,
     signInWithAttendanceQr,
     signInWithFacilityChoice,
