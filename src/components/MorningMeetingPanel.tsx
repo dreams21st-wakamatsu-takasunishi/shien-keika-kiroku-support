@@ -1,1781 +1,203 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {useEffect,useMemo,useRef,useState} from 'react';
+import type {SupabaseClient} from '@supabase/supabase-js';
+import {Copy,FilePlus2,RefreshCw,Save,Trash2,Users} from 'lucide-react';
+import type {ChildProfile,SupportRecord,MorningMeetingRecord,MorningMeetingTemplate,MorningMeetingConfirmation,RecorderProfile,UserProfile,MorningSectionKey} from '../types';
+import {getLocalDateString} from '../utils/weekdays';
+import {isServiceDate} from '../learning/contracts';
+import {MORNING_SECTIONS,formatMorningDocument,morningDocument,morningRevisions} from '../utils/morningSections';
+import {acknowledgeMorningSave,createMorningState,editMorningField,receiveMorningSnapshot,resolveMorningField,visibleMorningDocument,type MorningSectionState} from '../utils/morningSectionSync';
+import {loadMorningSections,saveMorningSection} from '../services/morningSections';
+import {createMorningMeetingRealtime} from '../services/morningMeetingRealtime';
+import {supabase} from '../lib/supabase';
+import {PreviousSupportRecap} from './PreviousSupportRecap';
 import {DeleteWorkspaceItem} from './WorkspaceLifecycle';
-import {
-  AlertTriangle,
-  CalendarDays,
-  Check,
-  CheckCircle2,
-  ChevronDown,
-  ClipboardPenLine,
-  Clock3,
-  Copy,
-  FilePlus2,
-  GitMerge,
-  ListPlus,
-  LoaderCircle,
-  MousePointer2,
-  PencilLine,
-  Radio,
-  RefreshCw,
-  Save,
-  Settings2,
-  Trash2,
-  UserCheck,
-  Users,
-} from 'lucide-react';
-import { supabase } from '../lib/supabase';
-import { MorningMeetingConflictError } from '../services/dataService';
-import { createMorningMeetingRealtime } from '../services/morningMeetingRealtime';
-import type {
-  ChildProfile,
-  SupportRecord,
-  MorningMeetingConfirmation,
-  MorningMeetingRecord,
-  MorningMeetingTemplate,
-  RecorderProfile,
-  UserProfile,
-} from '../types';
-import { getLocalDateString } from '../utils/weekdays';
-import { PreviousSupportRecap } from './PreviousSupportRecap';
-import { isServiceDate } from '../learning/contracts';
 
-interface MorningMeetingPanelProps {
-  supportRecords?: SupportRecord[];
-  childrenList?: ChildProfile[];
-  records: MorningMeetingRecord[];
-  templates: MorningMeetingTemplate[];
-  confirmations: MorningMeetingConfirmation[];
-  recorderProfiles: RecorderProfile[];
-  organizationId?: string;
-  activeRecorder?: RecorderProfile;
-  currentUser?: UserProfile | null;
-  canManageTemplates: boolean;
-  dailySummary?: string[];
-  onSave: (record: MorningMeetingRecord) => Promise<MorningMeetingRecord>;
-  onSaveTemplate: (template: MorningMeetingTemplate) => Promise<void> | void;
-  onArchiveTemplate: (templateId: string) => Promise<void> | void;
-  onSetConfirmation: (
-    confirmation: MorningMeetingConfirmation,
-    confirmed: boolean
-  ) => Promise<void> | void;
+export interface MorningMeetingPanelProps {
+ supportRecords?:SupportRecord[];childrenList?:ChildProfile[];records:MorningMeetingRecord[];
+ templates:MorningMeetingTemplate[];confirmations:MorningMeetingConfirmation[];recorderProfiles:RecorderProfile[];
+ organizationId?:string;activeRecorder?:RecorderProfile;currentUser?:UserProfile|null;canManageTemplates:boolean;dailySummary?:string[];
+ onSave:(record:MorningMeetingRecord)=>Promise<MorningMeetingRecord|void>|MorningMeetingRecord|void;
+ onSynced?:(record:MorningMeetingRecord)=>void;onDirtyChange?:(dirty:boolean)=>void;
+ realtimeClient?:SupabaseClient;
+ onSaveTemplate:(template:MorningMeetingTemplate)=>Promise<void>|void;onArchiveTemplate:(id:string)=>Promise<void>|void;
+ onSetConfirmation:(confirmation:MorningMeetingConfirmation,confirmed:boolean)=>Promise<void>|void;
+}
+interface LiveField {sender:string;name:string;fieldKey:MorningSectionKey;text:string;revision:number;version:number;at:number}
+interface Viewer {sessionId:string;name:string;fieldKey?:MorningSectionKey}
+const validKey=(key:unknown):key is MorningSectionKey=>MORNING_SECTIONS.some(s=>s.key===key);
+const button='min-h-11 rounded-xl border border-slate-300 bg-white px-3 text-sm font-bold text-slate-700 disabled:opacity-40';
+
+export function MorningMeetingPanel(props:MorningMeetingPanelProps){
+ const [date,setDate]=useState(getLocalDateString());
+ // A keyed editor prevents late requests from a previous date/account entering a new editor.
+ const scope=`${props.organizationId||'local'}:${props.currentUser?.id||props.activeRecorder?.id||'local'}:${date}`;
+ const pending=useRef(false),[dirty,setDirty]=useState(false);
+ const dirtyChange=(value:boolean)=>{pending.current=value;setDirty(value);props.onDirtyChange?.(value);};
+ const dateChange=(value:string)=>{if(!isServiceDate(value)||value===date)return;if(pending.current){window.alert('未保存の入力・同時更新の確認があります。保存してから朝礼日を変更してください。');return;}setDate(value);};
+ return <section className="morning-workspace" aria-label="朝礼記録">
+  <div className="flex flex-wrap items-end justify-between gap-3 border-b border-slate-200 p-4"><div><h3 className="text-lg font-black text-slate-950">朝礼記録</h3><p className="mt-1 text-xs text-slate-500">左で仕上がりを確認し、右の項目を入力します。別項目は同時編集できます。</p></div><label className="text-xs font-bold text-slate-600">朝礼日<input aria-label="朝礼日" type="date" value={date} disabled={dirty} onChange={e=>dateChange(e.target.value)} className="ml-2 min-h-11 rounded-xl border bg-white px-3 text-sm"/></label></div>
+  <div key={scope}><MorningSectionEditor {...props} date={date} onDirty={dirtyChange}/></div>
+ </section>;
 }
 
-const QUICK_SECTIONS = ['本日の予定', '欠席・追加利用', '送迎確認', '児童対応', '職員連絡', '安全確認'];
-const CURSOR_COLORS = ['#0f766e', '#2563eb', '#7c3aed', '#c2410c', '#be123c', '#047857', '#a21caf'];
-
-interface CollaboratorActivity {
-  sessionId: string;
-  userKey: string;
-  editorName: string;
-  color: string;
-  cursorStart: number;
-  cursorEnd: number;
-  typing: boolean;
-  focused: boolean;
-  lastActiveAt: string;
-}
-
-interface MorningMeetingConflict {
-  latestRecord?: MorningMeetingRecord;
-  localContent: string;
-  baseContent: string;
-}
-
-interface RemoteLiveDraft {
-  sessionId: string;
-  editorName: string;
-  content: string;
-  baseRevision: number;
-  draftVersion: number;
-  activity: CollaboratorActivity;
-  lastActiveAt: string;
-}
-
-interface PendingContentBroadcast {
-  content: string;
-  baseRevision: number;
-  draftVersion: number;
-  activity: CollaboratorActivity;
-}
-
-type RealtimeConnectionStatus = 'local' | 'connecting' | 'connected' | 'disconnected';
-
-function createSessionId() {
-  return typeof crypto !== 'undefined' && 'randomUUID' in crypto
-    ? crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-function getCursorColor(identity: string) {
-  const hash = Array.from(identity).reduce((total, character) => total + character.charCodeAt(0), 0);
-  return CURSOR_COLORS[hash % CURSOR_COLORS.length];
-}
-
-function parseCollaboratorActivity(value: unknown): CollaboratorActivity | null {
-  if (!value || typeof value !== 'object') return null;
-  const activity = value as Record<string, unknown>;
-  if (typeof activity.sessionId !== 'string' || typeof activity.editorName !== 'string') return null;
-  return {
-    sessionId: activity.sessionId,
-    userKey: typeof activity.userKey === 'string' ? activity.userKey : activity.sessionId,
-    editorName: activity.editorName.slice(0, 100),
-    color: typeof activity.color === 'string' ? activity.color : getCursorColor(activity.sessionId),
-    cursorStart: typeof activity.cursorStart === 'number' ? Math.max(0, activity.cursorStart) : 0,
-    cursorEnd: typeof activity.cursorEnd === 'number' ? Math.max(0, activity.cursorEnd) : 0,
-    typing: activity.typing === true,
-    focused: activity.focused === true,
-    lastActiveAt: typeof activity.lastActiveAt === 'string'
-      ? activity.lastActiveAt
-      : new Date().toISOString(),
-  };
-}
-
-function upsertCollaborator(
-  collaborators: CollaboratorActivity[],
-  incoming: CollaboratorActivity
-) {
-  return [
-    ...collaborators.filter((collaborator) => collaborator.sessionId !== incoming.sessionId),
-    incoming,
-  ];
-}
-
-function upsertRemoteLiveDraft(drafts: RemoteLiveDraft[], incoming: RemoteLiveDraft) {
-  return [
-    ...drafts.filter((draft) => draft.sessionId !== incoming.sessionId),
-    incoming,
-  ].sort((left, right) => right.lastActiveAt.localeCompare(left.lastActiveAt));
-}
-
-function getCursorPositionLabel(content: string, activity: CollaboratorActivity) {
-  const cursorStart = Math.min(content.length, activity.cursorStart);
-  const cursorEnd = Math.min(content.length, activity.cursorEnd);
-  const beforeCursor = content.slice(0, cursorStart);
-  const lines = beforeCursor.split('\n');
-  const line = lines.length;
-  const column = Array.from(lines.at(-1) || '').length + 1;
-  const selectionLength = Math.abs(cursorEnd - cursorStart);
-  return selectionLength > 0
-    ? `${line}行${column}列から${selectionLength}文字を選択`
-    : `${line}行${column}列`;
-}
-
-function isConfirmationCurrent(confirmedAt: string, updatedAt?: string) {
-  if (!updatedAt) return false;
-  const confirmedTime = Date.parse(confirmedAt);
-  const updatedTime = Date.parse(updatedAt);
-  if (Number.isNaN(confirmedTime) || Number.isNaN(updatedTime)) {
-    return confirmedAt >= updatedAt;
-  }
-  return confirmedTime >= updatedTime;
-}
-
-function combineConflictingContent(localContent: string, remoteContent: string, remoteEditor: string) {
-  if (!remoteContent.trim() || localContent === remoteContent || localContent.includes(remoteContent)) {
-    return localContent;
-  }
-  if (!localContent.trim() || remoteContent.includes(localContent)) return remoteContent;
-  return `${localContent.trimEnd()}\n\n【${remoteEditor}さんの更新内容・要確認】\n${remoteContent.trimStart()}`;
-}
-
-function RemoteCursorOverlay({
-  content,
-  collaborators,
-  scrollTop,
-  scrollLeft,
-}: {
-  content: string;
-  collaborators: CollaboratorActivity[];
-  scrollTop: number;
-  scrollLeft: number;
-}) {
-  const cursorGroups = new Map<number, CollaboratorActivity[]>();
-  collaborators
-    .filter((collaborator) => collaborator.focused)
-    .forEach((collaborator) => {
-      const position = Math.min(content.length, collaborator.cursorStart);
-      cursorGroups.set(position, [...(cursorGroups.get(position) || []), collaborator]);
+function MorningSectionEditor(props:MorningMeetingPanelProps&{date:string;onDirty:(dirty:boolean)=>void}){
+ const initial=props.records.find(r=>r.date===props.date);
+ const [state,setState]=useState(()=>createMorningState(initial)),stateRef=useRef(state);
+ const [active,setActive]=useState<MorningSectionKey>(initial?.content&&!initial.sectionDocument?'legacy':'plan'),[mode,setMode]=useState<'input'|'preview'>('input');
+ const [error,setError]=useState(''),[message,setMessage]=useState(''),[connection,setConnection]=useState(props.organizationId?'connecting':'local'),[viewers,setViewers]=useState<Viewer[]>([]),[live,setLive]=useState<Partial<Record<MorningSectionKey,LiveField>>>({}),[clock,setClock]=useState(Date.now());
+ const [blocked,setBlocked]=useState(false),[templateId,setTemplateId]=useState(''),[templateName,setTemplateName]=useState(''),[templateBody,setTemplateBody]=useState(''),[editingTemplateId,setEditingTemplateId]=useState(''),[otherBusy,setOtherBusy]=useState(false);
+ const mounted=useRef(true),saving=useRef(false),saveTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined),reloadTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined),draftTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
+ const blockedRef=useRef(false),deletionEpoch=useRef(0);
+ const connectionRef=useRef<ReturnType<typeof createMorningMeetingRealtime>|null>(null),reloadRef=useRef<()=>Promise<void>>(async()=>{}),saveRef=useRef<()=>Promise<void>>(async()=>{});
+ const callbacks=useRef(props);callbacks.current=props;
+ const session=useRef(crypto.randomUUID()).current,focused=useRef<MorningSectionKey|undefined>(undefined),preview=useRef<HTMLDivElement>(null);
+ const pendingBroadcasts=useRef(new Map<MorningSectionKey,LiveField>()),seen=useRef(new Map<string,number>());
+ const actor=props.activeRecorder?.displayName||props.currentUser?.displayName||'職員';
+ const pending=Object.keys(state.edits).length>0||Object.keys(state.conflicts).length>0;
+ const doc=visibleMorningDocument(state),canonical=morningDocument(state.record),revisions=morningRevisions(state.record);
+ const commit=(next:MorningSectionState)=>{stateRef.current=next;setState(next);};
+ useEffect(()=>{callbacks.current.onDirty(pending);},[pending]);
+ useEffect(()=>{
+  mounted.current=true;const warning=(event:BeforeUnloadEvent)=>{if(Object.keys(stateRef.current.edits).length||Object.keys(stateRef.current.conflicts).length){event.preventDefault();event.returnValue='';}};
+  window.addEventListener('beforeunload',warning);
+  return()=>{mounted.current=false;clearTimeout(saveTimer.current);clearTimeout(reloadTimer.current);clearTimeout(draftTimer.current);window.removeEventListener('beforeunload',warning);callbacks.current.onDirty(false);};
+ },[]);
+ useEffect(()=>{const incoming=props.records.find(r=>r.date===props.date);if(incoming)commit(receiveMorningSnapshot(stateRef.current,incoming));},[props.records]);
+ const accept=(record:MorningMeetingRecord)=>{
+  if(!mounted.current||record.date!==props.date)return;
+  if(!stateRef.current.record&&!focused.current&&!Object.keys(stateRef.current.edits).length&&record.content&&!record.sectionDocument)setActive('legacy');
+  commit(receiveMorningSnapshot(stateRef.current,record));callbacks.current.onSynced?.(stateRef.current.record!);blockedRef.current=false;setBlocked(false);
+ };
+ const loading=useRef<Promise<void>|null>(null);
+ reloadRef.current=async()=>{
+  if(!props.organizationId||!mounted.current)return;
+  if(loading.current)return loading.current;
+  const epoch=deletionEpoch.current;
+  loading.current=(async()=>{try{const record=await loadMorningSections(props.date);if(!mounted.current||epoch!==deletionEpoch.current)return;if(record)accept(record);else if(stateRef.current.record){blockedRef.current=true;setBlocked(true);setError('この朝礼記録を取得できません。削除・復元状態を確認してください。入力は保持しています。');}}catch(e){if(mounted.current)setError(e instanceof Error?e.message:'朝礼記録を取得できません。');}finally{loading.current=null;}})();
+  return loading.current;
+ };
+ const scheduleReload=()=>{clearTimeout(reloadTimer.current);reloadTimer.current=setTimeout(()=>void reloadRef.current(),250);};
+ const presence=(key?:MorningSectionKey)=>{
+  focused.current=key;connectionRef.current?.track({sessionId:session,name:actor,fieldKey:key||'',lastActiveAt:new Date().toISOString()});
+ };
+ const publish=(key:MorningSectionKey)=>{
+  const edit=stateRef.current.edits[key];if(!edit)return;
+  pendingBroadcasts.current.set(key,{sender:session,name:actor,fieldKey:key,text:edit.text,revision:edit.expected,version:edit.version,at:Date.now()});
+  if(draftTimer.current)return;
+  draftTimer.current=setTimeout(()=>{draftTimer.current=undefined;for(const item of pendingBroadcasts.current.values())connectionRef.current?.send('section_draft',{...item,date:props.date});pendingBroadcasts.current.clear();},250);
+ };
+ useEffect(()=>{
+  const realtimeClient=props.realtimeClient||supabase;
+  if(!props.organizationId||!realtimeClient)return;
+  const manager=createMorningMeetingRealtime(realtimeClient,{
+   topic:`organization:${props.organizationId}:morning-meeting:${props.date}`,sessionId:session,
+   onStatus:status=>{if(mounted.current)setConnection(status);},
+   onConnected:()=>{presence(focused.current);void reloadRef.current().then(()=>{if(mounted.current)void saveRef.current();});connectionRef.current?.send('section_request',{date:props.date,sender:session});for(const {key} of MORNING_SECTIONS)publish(key);},
+   bindChannel:(channel,isCurrent)=>{
+    channel.on('presence',{event:'sync'},()=>{
+     if(!isCurrent()||!mounted.current)return;
+     const rows=Object.values(channel.presenceState()).flat() as any[];
+     setViewers(rows.filter(r=>r.sessionId!==session&&typeof r.sessionId==='string'&&typeof r.name==='string').map(r=>({sessionId:r.sessionId,name:r.name.slice(0,100),fieldKey:validKey(r.fieldKey)?r.fieldKey:undefined})));
     });
-  if (cursorGroups.size === 0) return null;
-
-  const nodes: React.ReactNode[] = [];
-  let contentIndex = 0;
-  [...cursorGroups.entries()]
-    .sort(([left], [right]) => left - right)
-    .forEach(([position, activities]) => {
-      if (position > contentIndex) {
-        nodes.push(
-          <React.Fragment key={`text-${contentIndex}`}>
-            {content.slice(contentIndex, position)}
-          </React.Fragment>
-        );
-      }
-      activities.forEach((activity, index) => {
-        nodes.push(
-          <span
-            key={`${activity.sessionId}-${position}`}
-            className="relative inline-block h-6 w-0 align-bottom border-l-[3px]"
-            style={{ borderColor: activity.color, zIndex: activities.length - index }}
-          >
-            <span
-              className="absolute -top-4 left-0 max-w-28 truncate rounded px-1 py-0.5 text-[8px] font-black leading-none text-white shadow-sm"
-              style={{ backgroundColor: activity.color }}
-            >
-              {activity.editorName}
-            </span>
-          </span>
-        );
-      });
-      contentIndex = position;
+    channel.on('broadcast',{event:'section_draft'},({payload:p}:any)=>{
+     if(!isCurrent()||!mounted.current||p?.date!==props.date||p.sender===session||typeof p.sender!=='string'||typeof p.name!=='string'||!validKey(p.fieldKey)||typeof p.text!=='string'||p.text.length>20000||!Number.isSafeInteger(p.version)||!Number.isSafeInteger(p.revision))return;
+     if(p.revision!==morningRevisions(stateRef.current.record)[p.fieldKey])return;
+     const key=JSON.stringify([p.sender,p.fieldKey]);if((seen.current.get(key)??-1)>=p.version)return;seen.current.set(key,p.version);
+     setLive(old=>({...old,[p.fieldKey]:{...p,name:p.name.slice(0,100),at:Date.now()}}));
     });
-  nodes.push(
-    <React.Fragment key={`text-${contentIndex}-end`}>
-      {content.slice(contentIndex) || '\u200b'}
-    </React.Fragment>
-  );
-
-  return (
-    <div aria-hidden="true" className="pointer-events-none absolute inset-[2px] z-20 overflow-hidden rounded-[14px]">
-      <div
-        className="min-h-full w-full whitespace-pre-wrap break-words p-4 text-sm leading-7 text-transparent"
-        style={{ transform: `translate(${-scrollLeft}px, ${-scrollTop}px)` }}
-      >
-        {nodes}
-      </div>
-    </div>
-  );
+    channel.on('broadcast',{event:'section_request'},({payload:p}:any)=>{if(isCurrent()&&p?.date===props.date){presence(focused.current);for(const {key} of MORNING_SECTIONS)publish(key);}});
+    channel.on('broadcast',{event:'section_saved'},({payload:p}:any)=>{if(isCurrent()&&p?.date===props.date)scheduleReload();});
+    channel.on('postgres_changes',{event:'*',schema:'public',table:'morning_meeting_records',filter:`organization_id=eq.${props.organizationId}`},(payload:any)=>{if(isCurrent()&&(payload.new?.meeting_date||payload.old?.meeting_date)===props.date)scheduleReload();});
+   },
+  });
+  connectionRef.current=manager;manager.start();void reloadRef.current();
+  const refresh=()=>{if(document.visibilityState==='visible')void reloadRef.current().then(()=>{if(mounted.current)void saveRef.current();});};
+  window.addEventListener('online',refresh);document.addEventListener('visibilitychange',refresh);
+  const timer=setInterval(()=>{setClock(Date.now());if(document.visibilityState==='visible'){void reloadRef.current();presence(focused.current);}},15000);
+  const lifecycle=(event:Event)=>{const detail=(event as CustomEvent).detail;if(detail?.resource==='morning_meeting_records'&&detail.id===props.date){if(!detail.restore){blockedRef.current=true;deletionEpoch.current++;clearTimeout(saveTimer.current);setBlocked(true);setError('この日の朝礼記録は削除されました。入力は保持しています。');}else void reloadRef.current();}};
+  window.addEventListener('d-support:workspace-item-deleted',lifecycle);
+  return()=>{clearInterval(timer);window.removeEventListener('online',refresh);document.removeEventListener('visibilitychange',refresh);window.removeEventListener('d-support:workspace-item-deleted',lifecycle);manager.stop();connectionRef.current=null;};
+ },[props.organizationId,props.date,session,actor,props.realtimeClient]);
+ const scheduleSave=()=>{clearTimeout(saveTimer.current);saveTimer.current=setTimeout(()=>void saveRef.current(),1800);};
+ const change=(key:MorningSectionKey,text:string)=>{
+  if(blockedRef.current)return;
+  commit(editMorningField(stateRef.current,key,text));callbacks.current.onDirty(true);setMessage('');publish(key);scheduleSave();
+ };
+ saveRef.current=async()=>{
+  if(saving.current||blockedRef.current||!mounted.current)return;
+  const entry=(Object.entries(stateRef.current.edits) as [MorningSectionKey,NonNullable<MorningSectionState['edits'][MorningSectionKey]>][]).find(([key])=>!stateRef.current.conflicts[key]);
+  if(!entry)return;
+  if(props.organizationId&&!navigator.onLine){setError('オフラインです。入力を保持しています。接続復旧後に「保存・再試行」を押してください。');return;}
+  const [key,edit]=entry;saving.current=true;setError('');let completed=false;const epoch=deletionEpoch.current;
+  try{
+   let result;
+   if(props.organizationId)result=await saveMorningSection(props.date,key,edit.text,edit.expected);
+   else{
+    const base=stateRef.current.record,document=morningDocument(base),rev=morningRevisions(base);document[key]=edit.text;rev[key]++;
+    const stamp=new Date().toISOString(),local:MorningMeetingRecord={date:props.date,content:formatMorningDocument(document),sectionDocument:document,sectionRevisions:rev,revision:(base?.revision||0)+1,createdAt:base?.createdAt||stamp,updatedAt:stamp,updatedByName:actor,updatedByRecorderId:props.activeRecorder?.id};
+    if(local.content.length>20000)throw Error('朝礼全体は20,000文字までです。');
+    const saved=await callbacks.current.onSave(local);result={record:saved||local,conflict:false};
+   }
+   if(!mounted.current||epoch!==deletionEpoch.current)return;
+   commit(acknowledgeMorningSave(stateRef.current,key,edit.version,result.record,result.conflict));
+   callbacks.current.onSynced?.(stateRef.current.record!);completed=true;
+   if(result.conflict)setMessage('同じ項目が更新されています。入力を残したまま比較してください。');
+   else{setMessage('保存済み');connectionRef.current?.send('section_saved',{date:props.date,sender:session,fieldKey:key});}
+  }catch(e){if(mounted.current)setError(e instanceof Error?e.message:'保存できませんでした。入力は保持しています。');}
+  finally{saving.current=false;if(mounted.current&&completed){const still=Object.keys(stateRef.current.edits).some(k=>!stateRef.current.conflicts[k as MorningSectionKey]);if(still)saveTimer.current=setTimeout(()=>void saveRef.current(),500);}}
+ };
+ // Save failures wait for explicit retry; do not spin an offline/conflicting request loop.
+ const retry=()=>{setError('');void saveRef.current();};
+ useEffect(()=>{const node=preview.current?.querySelector<HTMLElement>(`[data-morning-preview="${active}"]`);if(node&&preview.current){const a=node.getBoundingClientRect(),b=preview.current.getBoundingClientRect();if(a.top<b.top||a.bottom>b.bottom)preview.current.scrollTo({top:preview.current.scrollTop+a.top-b.top-12,behavior:'smooth'});}},[active]);
+ const resolve=(key:MorningSectionKey,keep:boolean)=>{commit(resolveMorningField(stateRef.current,key,keep));if(keep)scheduleSave();};
+ const confirmed=props.confirmations.filter(c=>c.date===props.date&&state.record&&Date.parse(c.confirmedAt)>=Date.parse(state.record.updatedAt));
+ const confirmationActor=props.activeRecorder?{confirmerKey:`recorder:${props.activeRecorder.id}`,recorderProfileId:props.activeRecorder.id,confirmerName:actor}:props.currentUser?{confirmerKey:`user:${props.currentUser.id}`,userId:props.currentUser.id,confirmerName:actor}:null;
+ const isConfirmed=Boolean(confirmationActor&&confirmed.some(c=>c.confirmerKey===confirmationActor.confirmerKey));
+ const confirm=async()=>{if(!confirmationActor||pending||!state.record)return;setOtherBusy(true);try{await props.onSetConfirmation({date:props.date,...confirmationActor,confirmedAt:new Date().toISOString()},!isConfirmed);}catch{setError('確認状況を保存できませんでした。');}finally{setOtherBusy(false);}};
+ const copy=async()=>{try{await navigator.clipboard.writeText(formatMorningDocument(doc));setMessage('朝礼の文章をコピーしました。');}catch{setError('コピーできませんでした。ブラウザーの権限を確認してください。');}};
+ const templateApply=()=>{const template=props.templates.find(t=>t.id===templateId);if(!template)return;if(doc.legacy&&!window.confirm('自由記入・既存本文の欄をテンプレートで置き換えます。他の項目は変更しません。続けますか？'))return;change('legacy',template.content);setActive('legacy');};
+ const templateEdit=()=>{const t=props.templates.find(t=>t.id===templateId);if(t){setEditingTemplateId(t.id);setTemplateName(t.name);setTemplateBody(t.content);}};
+ const templateSave=async()=>{if(!templateName.trim()||!templateBody.trim()||templateBody.length>20000)return;setOtherBusy(true);try{const now=new Date().toISOString(),old=props.templates.find(t=>t.id===editingTemplateId);await props.onSaveTemplate({id:old?.id||crypto.randomUUID(),name:templateName.trim(),content:templateBody,createdAt:old?.createdAt||now,updatedAt:now});setEditingTemplateId('');setTemplateName('');setTemplateBody('');setMessage('テンプレートを保存しました。');}catch{setError('テンプレートを保存できませんでした。');}finally{setOtherBusy(false);}};
+ return <div className="p-3 sm:p-4">
+  <div id="morning-collaboration-status" aria-label="共同編集と保存状態" className="morning-fixed-status">
+   <span className="shrink-0 text-xs font-bold text-teal-900">{connection==='local'?'ローカル試用':connection==='connected'?`共同編集・${viewers.length+1}人`:'接続を確認中'}</span>
+   <span role="status" className="shrink-0 text-xs font-bold">{blocked?'削除・利用状態の確認が必要':error?'保存・通信の確認が必要':pending?'入力を保持・保存待ち':state.record?'保存済み':'未作成'}</span>
+   <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto text-xs"><span className="shrink-0">自分：{actor}</span>{viewers.map(v=><span key={v.sessionId} className="shrink-0 rounded-full bg-indigo-50 px-2 py-1 text-indigo-900">{v.name}{v.fieldKey?`：${MORNING_SECTIONS.find(s=>s.key===v.fieldKey)?.label}を編集中`:'：閲覧中'}</span>)}</div>
+  </div>
+  <div className="mt-3 flex flex-wrap items-center gap-2">
+   <div className="morning-mobile-tabs" role="tablist" aria-label="朝礼の表示切り替え"><button type="button" role="tab" aria-selected={mode==='input'} onClick={()=>setMode('input')} className={button}>入力</button><button type="button" role="tab" aria-selected={mode==='preview'} onClick={()=>setMode('preview')} className={button}>プレビュー</button></div>
+   <button type="button" onClick={retry} disabled={blocked} className={button}><Save className="mr-1 inline h-4 w-4"/>保存・再試行</button>
+   <button type="button" onClick={()=>void reloadRef.current()} className={button}><RefreshCw className="mr-1 inline h-4 w-4"/>最新を確認</button>
+   <button type="button" onClick={()=>void copy()} className={button}><Copy className="mr-1 inline h-4 w-4"/>文章コピー</button>
+   {state.record&&<DeleteWorkspaceItem resource="morning_meeting_records" id={props.date} revision={state.record.revision} disabled={pending||saving.current} onDeleted={()=>{blockedRef.current=true;deletionEpoch.current++;clearTimeout(saveTimer.current);setBlocked(true);}}/>}
+  </div>
+  {error&&<p role="alert" className="mt-3 rounded-xl bg-rose-50 p-3 text-sm text-rose-900">{error}</p>}
+  <p className="mt-2 min-h-5 text-xs text-teal-800">{message||'\u00a0'}</p>
+  <div className="morning-edit-layout mt-3" data-mode={mode}>
+   <aside className="morning-preview-pane" aria-label="朝礼の仕上がりプレビュー"><h4 className="mb-2 text-sm font-black">仕上がりプレビュー ／ {props.date}</h4><div ref={preview} className="morning-preview-scroll">
+    {MORNING_SECTIONS.map(s=>{const remote=live[s.key],showLive=remote&&clock-remote.at<45000&&remote.revision===revisions[s.key]&&!state.edits[s.key]&&remote.text!==canonical[s.key];const value=showLive?remote.text:doc[s.key];return <section key={s.key} data-morning-preview={s.key} className={`mb-3 rounded-xl border p-3 ${active===s.key?'border-teal-500 bg-teal-50 ring-2 ring-teal-100':'border-slate-200 bg-white'}`}><h5 className="text-sm font-bold">{s.label}</h5>{showLive&&<p className="mt-1 text-xs font-bold text-indigo-700">{remote.name}さんの入力共有（保存待ち）</p>}<p className="mt-2 whitespace-pre-wrap break-words text-sm leading-7">{value||'（未記入）'}</p></section>;})}
+   </div></aside>
+   <div className="morning-input-pane" aria-label="朝礼の項目入力">
+    <nav className="mb-3 flex flex-wrap gap-2" aria-label="朝礼の入力項目">{MORNING_SECTIONS.map(s=><button key={s.key} type="button" aria-pressed={active===s.key} onClick={()=>{setActive(s.key);document.getElementById('morning-field-'+s.key)?.focus({preventScroll:true});}} className={`min-h-10 rounded-xl border px-3 text-xs font-bold ${active===s.key?'border-teal-700 bg-teal-700 text-white':'border-slate-200 bg-white'}`}>{s.label}{state.edits[s.key]?' ・未保存':''}</button>)}</nav>
+    {MORNING_SECTIONS.map(s=><section key={s.key} hidden={active!==s.key}>
+     <label className="block text-sm font-black text-slate-900">{s.label}<textarea id={'morning-field-'+s.key} aria-label={s.key==='legacy'?'朝礼記録の入力':s.label+'の入力'} aria-describedby="morning-collaboration-status" value={doc[s.key]} maxLength={20000} disabled={blocked} onChange={e=>change(s.key,e.target.value)} onFocus={()=>{setActive(s.key);presence(s.key);}} onBlur={()=>presence(undefined)} rows={9} className="mt-2 min-h-64 max-h-[65dvh] w-full resize-y rounded-xl border-2 border-teal-200 bg-teal-50/30 p-4 text-base leading-8 focus:border-teal-600 focus:bg-white"/></label>
+     <p className="mt-1 text-xs text-slate-500">この項目 {doc[s.key].length}文字 ／ 朝礼全体は20,000文字まで</p>
+     {viewers.filter(v=>v.fieldKey===s.key).map(v=><p key={v.sessionId} className="mt-2 rounded-lg bg-indigo-50 p-2 text-xs text-indigo-900">{v.name}さんもこの項目を編集中です。同じ項目の更新は保存時に確認します。</p>)}
+     {state.conflicts[s.key]&&<section role="alert" className="mt-3 rounded-xl border-2 border-amber-300 bg-amber-50 p-3"><h5 className="font-black text-amber-950">同じ項目が更新されました</h5><p className="mt-1 text-xs">入力は保持しています。自分の入力と保存済みの最新内容を比較してください。</p><div className="mt-3 grid gap-2 sm:grid-cols-2"><div><strong className="text-xs">自分の入力</strong><pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words text-sm">{doc[s.key]}</pre></div><div><strong className="text-xs">保存済みの最新内容</strong><pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words text-sm">{canonical[s.key]||'（空欄）'}</pre></div></div><div className="mt-3 flex flex-wrap gap-2"><button type="button" onClick={()=>resolve(s.key,true)} className={button}>確認して自分の内容を保存</button><button type="button" onClick={()=>resolve(s.key,false)} className={button}>最新内容を使用</button></div><p className="mt-2 text-xs">必要な部分は比較しながら上の入力欄へ手動で統合してください。他の項目は上書きしません。</p></section>}
+    </section>)}
+    {state.record&&!state.record.sectionDocument&&state.record.content&&<p className="mt-3 rounded-lg bg-sky-50 p-3 text-xs text-sky-900">既存の本文は「自由記入・既存の本文」にそのまま残しています。勝手に分解・書き換えは行いません。</p>}
+   </div>
+  </div>
+  <details className="mt-4 rounded-xl border border-slate-200 p-3"><summary className="cursor-pointer py-2 text-sm font-bold">参照：本日の業務・前回の支援内容</summary><div className="mt-3 space-y-4"><div className="grid gap-2 sm:grid-cols-2">{props.dailySummary?.map(line=><p key={line} className="rounded-lg bg-teal-50 p-3 text-sm">{line}</p>)}</div><PreviousSupportRecap meetingDate={props.date} childrenList={props.childrenList||[]} records={props.supportRecords||[]}/></div></details>
+  <details className="mt-3 rounded-xl border border-slate-200 p-3"><summary className="cursor-pointer py-2 text-sm font-bold">入力準備・テンプレート</summary>
+   <div className="mt-3 flex flex-wrap gap-2"><select aria-label="朝礼テンプレート" value={templateId} onChange={e=>setTemplateId(e.target.value)} className="min-h-11 max-w-full rounded-xl border px-3"><option value="">テンプレートを選択</option>{props.templates.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select><button type="button" disabled={!templateId||blocked} onClick={templateApply} className={button}>自由記入欄へ適用</button>
+   {props.canManageTemplates&&<><button type="button" disabled={otherBusy||!templateId} onClick={templateEdit} className={button}>選択したテンプレートを編集</button><button type="button" disabled={otherBusy||!templateId} onClick={()=>{if(window.confirm('この朝礼テンプレートを削除しますか？'))void Promise.resolve(props.onArchiveTemplate(templateId)).catch(()=>setError('テンプレートを削除できませんでした。'));}} className={button}><Trash2 className="mr-1 inline h-4 w-4"/>テンプレート削除</button></>}</div>
+   {props.canManageTemplates&&<div className="mt-4 space-y-3 rounded-xl bg-sky-50 p-3"><h5 className="text-sm font-bold">{editingTemplateId?'テンプレートを編集':'新しいテンプレート'}</h5><div className="flex flex-wrap gap-2"><button type="button" disabled={otherBusy} onClick={()=>{setEditingTemplateId('');setTemplateName('');setTemplateBody('');}} className={button}>新規・編集を取り消す</button><button type="button" disabled={otherBusy} onClick={()=>{if(templateBody&&!window.confirm('テンプレート編集中の本文を、現在の朝礼の内容で置き換えますか？'))return;setTemplateBody(formatMorningDocument(doc));}} className={button}>現在の朝礼を読み込む</button></div>
+    <label className="block text-sm font-bold">テンプレート名<input aria-label="朝礼テンプレート名" value={templateName} maxLength={100} onChange={e=>setTemplateName(e.target.value)} className="mt-1 min-h-11 w-full rounded-xl border px-3"/></label>
+    <label className="block text-sm font-bold">テンプレート本文<textarea aria-label="朝礼テンプレート本文" value={templateBody} maxLength={20000} onChange={e=>setTemplateBody(e.target.value)} rows={5} className="mt-1 min-h-32 w-full resize-y rounded-xl border p-3 font-normal"/></label>
+    <button type="button" disabled={otherBusy||!templateName.trim()||!templateBody.trim()} onClick={()=>void templateSave()} className={button}><FilePlus2 className="mr-1 inline h-4 w-4"/>{editingTemplateId?'テンプレートの変更を保存':'テンプレートを作成'}</button>
+   </div>}
+  </details>
+  <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 p-3"><Users className="h-5 w-5 text-teal-700"/><p className="text-sm">最新内容の確認済み {confirmed.length}人</p><button type="button" disabled={pending||blocked||otherBusy||!state.record||!confirmationActor||!state.record.content.trim()} onClick={()=>void confirm()} className={button}>{isConfirmed?'確認済みを取り消す':'最新内容を確認しました'}</button><details className="w-full"><summary className="cursor-pointer text-xs text-slate-600">確認した職員</summary><div className="mt-2 flex flex-wrap gap-2">{props.recorderProfiles.filter(r=>r.active).map(r=>{const current=confirmed.find(c=>c.recorderProfileId===r.id),past=props.confirmations.find(c=>c.date===props.date&&c.recorderProfileId===r.id);return <span key={r.id} className={`rounded-lg border px-3 py-2 text-xs ${current?'border-teal-200 bg-teal-50 text-teal-900':past?'border-amber-200 bg-amber-50 text-amber-950':'border-slate-200 bg-white text-slate-600'}`}>{r.displayName}：{current?'確認済み':past?'再確認が必要':'未確認'}</span>;})}{confirmed.filter(c=>!props.recorderProfiles.some(r=>r.id===c.recorderProfileId)).map(c=><span key={c.confirmerKey} className="rounded-lg bg-teal-50 px-3 py-2 text-xs text-teal-900">{c.confirmerName}：確認済み</span>)}{!props.recorderProfiles.length&&!confirmed.length&&<p className="text-sm">まだ確認されていません。</p>}</div></details></div>
+ </div>;
 }
-
-export const MorningMeetingPanel: React.FC<MorningMeetingPanelProps> = ({
-  records,
-  templates,
-  confirmations,
-  recorderProfiles,
-  organizationId,
-  activeRecorder,
-  currentUser,
-  canManageTemplates,
-  dailySummary = [],
-  supportRecords = [],
-  childrenList = [],
-  onSave,
-  onSaveTemplate,
-  onArchiveTemplate,
-  onSetConfirmation,
-}) => {
-  const [targetDate, setTargetDate] = useState(getLocalDateString());
-  const [deletedDate,setDeletedDate]=useState('');
-  const deletedDateRef=useRef('');
-  useEffect(()=>{
-    const changed=(event:Event)=>{
-      const detail=(event as CustomEvent).detail;
-      if(detail?.resource!=='morning_meeting_records'||typeof detail.id!=='string')return;
-      if(detail.restore){if(deletedDateRef.current!==detail.id)return;}
-      else if(detail.id!==targetDateRef.current)return;
-      deletedDateRef.current=detail.restore?'':detail.id;setDeletedDate(deletedDateRef.current);
-    };
-    window.addEventListener('d-support:workspace-item-deleted',changed);
-    return()=>window.removeEventListener('d-support:workspace-item-deleted',changed);
-  },[]);
-  const selectedRecord = useMemo(
-    () => records.find((record) => record.date === targetDate),
-    [records, targetDate]
-  );
-  const [content, setContent] = useState(selectedRecord?.content || '');
-  const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved' | 'error' | 'remote' | 'live' | 'conflict'>('idle');
-  const [viewerCount, setViewerCount] = useState(1);
-  const [collaborators, setCollaborators] = useState<CollaboratorActivity[]>([]);
-  const [editorScroll, setEditorScroll] = useState({ top: 0, left: 0 });
-  const [remoteEditor, setRemoteEditor] = useState('');
-  const [conflict, setConflict] = useState<MorningMeetingConflict | null>(null);
-  const [remoteLiveDrafts, setRemoteLiveDrafts] = useState<RemoteLiveDraft[]>([]);
-  const [realtimeStatus, setRealtimeStatus] = useState<RealtimeConnectionStatus>(
-    organizationId ? 'connecting' : 'local'
-  );
-  const [realtimeError, setRealtimeError] = useState('');
-  const [copied, setCopied] = useState(false);
-  const [selectedTemplateId, setSelectedTemplateId] = useState('');
-  const [showTemplateManager, setShowTemplateManager] = useState(false);
-  const [showPreparation, setShowPreparation] = useState(false);
-  const [showConfirmationDetails, setShowConfirmationDetails] = useState(false);
-  const [showCollaborationDetails, setShowCollaborationDetails] = useState(false);
-  const [showQuickSections, setShowQuickSections] = useState(false);
-  const [editingTemplateId, setEditingTemplateId] = useState<string | null>(null);
-  const [templateName, setTemplateName] = useState('');
-  const [templateContent, setTemplateContent] = useState('');
-  const [templateBusy, setTemplateBusy] = useState(false);
-  const [confirmationBusy, setConfirmationBusy] = useState(false);
-  const connectionRef = useRef<ReturnType<typeof createMorningMeetingRealtime> | null>(null);
-  const saveTimerRef = useRef<number | null>(null);
-  const typingTimerRef = useRef<number | null>(null);
-  const lastPresenceTrackAtRef = useRef(0);
-  const lastCursorBroadcastAtRef = useRef(0);
-  const lastContentBroadcastAtRef = useRef(0);
-  const contentBroadcastTimerRef = useRef<number | null>(null);
-  const pendingContentBroadcastRef = useRef<PendingContentBroadcast | null>(null);
-  const ownLiveDraftRef = useRef<PendingContentBroadcast | null>(null);
-  const lastSavedDraftVersionRef = useRef(0);
-  const receivedDraftVersionsRef = useRef(new Map<string, { version: number; baseRevision: number }>());
-  const displayedLiveDraftRef = useRef<RemoteLiveDraft | null>(null);
-  const localPendingRef = useRef(false);
-  const saveInFlightRef = useRef(false);
-  const saveQueuedRef = useRef(false);
-  const editVersionRef = useRef(0);
-  const persistedRecordRef = useRef<MorningMeetingRecord | undefined>(selectedRecord);
-  const loadedDateRef = useRef(targetDate);
-  const conflictRef = useRef<MorningMeetingConflict | null>(null);
-  const sessionId = useRef(createSessionId()).current;
-  const editorName = activeRecorder?.displayName || currentUser?.displayName || '職員';
-  const editorUserKey = activeRecorder?.id || currentUser?.id || editorName;
-  const cursorColor = useMemo(() => getCursorColor(editorUserKey), [editorUserKey]);
-  const [localActivity, setLocalActivity] = useState<CollaboratorActivity>(() => ({
-    sessionId,
-    userKey: editorUserKey,
-    editorName,
-    color: cursorColor,
-    cursorStart: 0,
-    cursorEnd: 0,
-    typing: false,
-    focused: false,
-    lastActiveAt: new Date().toISOString(),
-  }));
-  const contentRef = useRef(content);
-  const targetDateRef = useRef(targetDate);
-  const recordsRef = useRef(records);
-  const onSaveRef = useRef(onSave);
-  const editorNameRef = useRef(editorName);
-  const recorderIdRef = useRef(activeRecorder?.id);
-  const localActivityRef = useRef(localActivity);
-  contentRef.current = content;
-  targetDateRef.current = targetDate;
-  recordsRef.current = records;
-  onSaveRef.current = onSave;
-  editorNameRef.current = editorName;
-  recorderIdRef.current = activeRecorder?.id;
-  localActivityRef.current = localActivity;
-  conflictRef.current = conflict;
-  const remoteCollaborators = useMemo(
-    () => collaborators.filter((collaborator) => collaborator.sessionId !== sessionId),
-    [collaborators, sessionId]
-  );
-  const visibleCollaborators = useMemo(
-    () => [
-      localActivity,
-      ...remoteCollaborators,
-    ].sort((left, right) => Number(right.typing) - Number(left.typing)),
-    [localActivity, remoteCollaborators]
-  );
-  const typingCollaborators = visibleCollaborators.filter((collaborator) => collaborator.typing);
-  const effectiveViewerCount = Math.max(viewerCount, remoteCollaborators.length + 1);
-  const remoteDraftBySession = useMemo(
-    () => new Map(remoteLiveDrafts.map((draft) => [draft.sessionId, draft])),
-    [remoteLiveDrafts]
-  );
-  const cursorOverlayCollaborators = useMemo(
-    () => remoteCollaborators.filter((collaborator) => {
-      const draft = remoteDraftBySession.get(collaborator.sessionId);
-      return !draft || draft.content === content;
-    }),
-    [content, remoteCollaborators, remoteDraftBySession]
-  );
-  const confirmationActor = activeRecorder
-    ? {
-        confirmerKey: `recorder:${activeRecorder.id}`,
-        recorderProfileId: activeRecorder.id,
-        userId: undefined,
-        confirmerName: activeRecorder.displayName,
-      }
-    : currentUser
-      ? {
-          confirmerKey: `user:${currentUser.id}`,
-          recorderProfileId: undefined,
-          userId: currentUser.id,
-          confirmerName: currentUser.displayName,
-        }
-      : null;
-  const targetConfirmations = confirmations.filter((confirmation) => confirmation.date === targetDate);
-  const validConfirmations = targetConfirmations.filter((confirmation) =>
-    isConfirmationCurrent(confirmation.confirmedAt, selectedRecord?.updatedAt)
-  );
-  const currentReceipt = confirmationActor
-    ? targetConfirmations.find((confirmation) =>
-        confirmation.confirmerKey === confirmationActor.confirmerKey
-      )
-    : undefined;
-  const currentActorConfirmed = Boolean(
-    currentReceipt && isConfirmationCurrent(currentReceipt.confirmedAt, selectedRecord?.updatedAt)
-  );
-  const confirmedRecorderIds = new Set(
-    validConfirmations.flatMap((confirmation) =>
-      confirmation.recorderProfileId ? [confirmation.recorderProfileId] : []
-    )
-  );
-  const recordReadyForConfirmation = Boolean(
-    selectedRecord
-    && content.trim()
-    && selectedRecord.content === content
-    && saveStatus !== 'saving'
-    && !conflict
-  );
-
-  useEffect(() => {
-    const nextActivity = {
-      ...localActivityRef.current,
-      userKey: editorUserKey,
-      editorName,
-      color: cursorColor,
-      lastActiveAt: new Date().toISOString(),
-    };
-    localActivityRef.current = nextActivity;
-    setLocalActivity(nextActivity);
-  }, [cursorColor, editorName, editorUserKey]);
-
-  useEffect(() => {
-    if (loadedDateRef.current !== targetDate) {
-      loadedDateRef.current = targetDate;
-      persistedRecordRef.current = selectedRecord;
-      localPendingRef.current = false;
-      saveQueuedRef.current = false;
-      editVersionRef.current = 0;
-      conflictRef.current = null;
-      setConflict(null);
-      setRemoteLiveDrafts([]);
-      ownLiveDraftRef.current = null;
-      displayedLiveDraftRef.current = null;
-      lastSavedDraftVersionRef.current = 0;
-      receivedDraftVersionsRef.current.clear();
-      pendingContentBroadcastRef.current = null;
-      if (contentBroadcastTimerRef.current) window.clearTimeout(contentBroadcastTimerRef.current);
-      contentBroadcastTimerRef.current = null;
-      const storedContent = selectedRecord?.content || '';
-      contentRef.current = storedContent;
-      setContent(storedContent);
-      setSaveStatus('idle');
-      return;
-    }
-
-    const currentBase = persistedRecordRef.current;
-    const currentRevision = currentBase?.revision || 0;
-    const incomingRevision = selectedRecord?.revision || 0;
-    if (!selectedRecord || incomingRevision <= currentRevision || saveInFlightRef.current) return;
-
-    if (localPendingRef.current) {
-      if (selectedRecord.content === contentRef.current) {
-        if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
-        saveTimerRef.current = null;
-        persistedRecordRef.current = selectedRecord;
-        localPendingRef.current = false;
-        setRemoteLiveDrafts((current) =>
-          current.filter((draft) => draft.content !== selectedRecord.content)
-        );
-        setConflict(null);
-        setSaveStatus('saved');
-        return;
-      }
-      if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
-      const nextConflict: MorningMeetingConflict = {
-        latestRecord: selectedRecord,
-        localContent: contentRef.current,
-        baseContent: currentBase?.content || '',
-      };
-      conflictRef.current = nextConflict;
-      setConflict(nextConflict);
-      setRemoteEditor(selectedRecord.updatedByName || '別の職員');
-      setSaveStatus('conflict');
-      return;
-    }
-
-    persistedRecordRef.current = selectedRecord;
-    setRemoteLiveDrafts((current) =>
-      current.filter((draft) => draft.content !== selectedRecord.content)
-    );
-    // A save response may arrive while its author has already typed more.
-    // Keep that newer live preview until its own save arrives.
-    if (displayedLiveDraftRef.current
-      && displayedLiveDraftRef.current.content !== selectedRecord.content) return;
-    displayedLiveDraftRef.current = null;
-    contentRef.current = selectedRecord.content;
-    setContent(selectedRecord.content);
-    setRemoteEditor(selectedRecord.updatedByName || '別の職員');
-    setSaveStatus('remote');
-  }, [selectedRecord, targetDate]);
-
-  useEffect(() => {
-    if (!supabase || !organizationId) {
-      setViewerCount(1);
-      setCollaborators([]);
-      setRealtimeStatus('local');
-      return;
-    }
-
-    let active = true;
-    setRealtimeStatus('connecting');
-    setRealtimeError('');
-    setCollaborators([]);
-    setRemoteLiveDrafts([]);
-
-    const acceptRemoteActivity = (value: unknown) => {
-      const activity = parseCollaboratorActivity(value);
-      if (!active || !activity || activity.sessionId === sessionId) return;
-      setCollaborators((current) => upsertCollaborator(current, activity));
-      setRemoteLiveDrafts((current) => current.map((draft) =>
-        draft.sessionId === activity.sessionId
-          ? { ...draft, activity, lastActiveAt: activity.lastActiveAt }
-          : draft
-      ));
-    };
-
-    const isForThisSession = (incoming: { targetSessionId?: unknown; date?: unknown }) =>
-      active
-      && (!incoming.targetSessionId || incoming.targetSessionId === sessionId)
-      && (!incoming.date || incoming.date === targetDate);
-
-    const shareSnapshot = (targetSessionId?: string) => {
-      const activity = { ...localActivityRef.current, lastActiveAt: new Date().toISOString() };
-      connection.send('cursor', { activity, targetSessionId, date: targetDate });
-      const record = persistedRecordRef.current;
-      if (record?.date === targetDate) {
-        connection.send('saved', {
-          senderId: sessionId, editorName: record.updatedByName || editorName,
-          content: record.content, revision: record.revision, updatedAt: record.updatedAt,
-          draftVersion: lastSavedDraftVersionRef.current, targetSessionId, date: targetDate,
-        });
-      }
-      const draft = ownLiveDraftRef.current;
-      if (draft && (localPendingRef.current || saveInFlightRef.current || conflictRef.current)) {
-        connection.send('content', {
-          ...draft, activity, senderId: sessionId, editorName, targetSessionId, date: targetDate,
-        });
-      }
-    };
-
-    const connection = createMorningMeetingRealtime(supabase, {
-      topic: `organization:${organizationId}:morning-meeting:${targetDate}`,
-      sessionId,
-      bindChannel: (channel, isCurrentConnection) => { channel
-      .on('broadcast', { event: 'content' }, ({ payload }) => {
-        if (!isCurrentConnection()) return;
-        const incoming = payload as {
-          content?: unknown;
-          senderId?: unknown;
-          editorName?: unknown;
-          baseRevision?: unknown;
-          draftVersion?: unknown;
-          targetSessionId?: unknown;
-          date?: unknown;
-          activity?: unknown;
-        };
-        if (!isForThisSession(incoming) || incoming.senderId === sessionId || typeof incoming.content !== 'string') return;
-        const activity = parseCollaboratorActivity(incoming.activity);
-        if (!activity || activity.sessionId !== incoming.senderId) return;
-        acceptRemoteActivity(activity);
-        const draftVersion = typeof incoming.draftVersion === 'number' ? incoming.draftVersion : -1;
-        const baseRevision = typeof incoming.baseRevision === 'number' ? Math.max(0, incoming.baseRevision) : 0;
-        const lastDraft = receivedDraftVersionsRef.current.get(activity.sessionId);
-        if (draftVersion >= 0 && lastDraft && (draftVersion < lastDraft.version
-          || (draftVersion === lastDraft.version && baseRevision <= lastDraft.baseRevision))) return;
-        if (draftVersion >= 0) receivedDraftVersionsRef.current.set(activity.sessionId, { version: draftVersion, baseRevision });
-        const remoteContent = incoming.content.slice(0, 20000);
-        const nextDraft: RemoteLiveDraft = {
-          sessionId: activity.sessionId,
-          editorName: typeof incoming.editorName === 'string'
-            ? incoming.editorName.slice(0, 100)
-            : activity.editorName,
-          content: remoteContent,
-          baseRevision,
-          draftVersion,
-          activity,
-          lastActiveAt: activity.lastActiveAt,
-        };
-        setRemoteLiveDrafts((current) => upsertRemoteLiveDraft(current, nextDraft));
-        setRemoteEditor(nextDraft.editorName);
-        if (!localPendingRef.current && !saveInFlightRef.current && !conflictRef.current) {
-          // Stale edits are still visible in the author's preview, but must not
-          // replace a newer saved document in an idle editor.
-          if (nextDraft.baseRevision < (persistedRecordRef.current?.revision || 0)) return;
-          displayedLiveDraftRef.current = nextDraft;
-          contentRef.current = remoteContent;
-          setContent(remoteContent);
-          setSaveStatus('live');
-        }
-      })
-      .on('broadcast', { event: 'saved' }, ({ payload }) => {
-        if (!isCurrentConnection()) return;
-        const incoming = payload as {
-          senderId?: unknown;
-          editorName?: unknown;
-          content?: unknown;
-          revision?: unknown;
-          updatedAt?: unknown;
-          draftVersion?: unknown;
-          targetSessionId?: unknown;
-          date?: unknown;
-        };
-        if (
-          !isForThisSession(incoming)
-          || incoming.senderId === sessionId
-          || typeof incoming.senderId !== 'string'
-          || typeof incoming.content !== 'string'
-          || typeof incoming.revision !== 'number'
-        ) return;
-        const savedVersion = typeof incoming.draftVersion === 'number' ? incoming.draftVersion : -1;
-        const lastDraft = receivedDraftVersionsRef.current.get(incoming.senderId);
-        if (savedVersion >= 0 && (!lastDraft || savedVersion >= lastDraft.version)) {
-          receivedDraftVersionsRef.current.set(incoming.senderId, { version: savedVersion, baseRevision: incoming.revision });
-        }
-        setRemoteLiveDrafts((current) =>
-          current.filter((draft) => draft.sessionId !== incoming.senderId || draft.draftVersion > savedVersion)
-        );
-        const currentBase = persistedRecordRef.current;
-        if (incoming.revision < (currentBase?.revision || 0)) return;
-        if (incoming.revision === (currentBase?.revision || 0)
-          && (localPendingRef.current || saveInFlightRef.current || conflictRef.current)) return;
-        const updatedAt = typeof incoming.updatedAt === 'string'
-          ? incoming.updatedAt
-          : new Date().toISOString();
-        const remoteRecord: MorningMeetingRecord = {
-          date: targetDateRef.current,
-          content: incoming.content.slice(0, 20000),
-          revision: incoming.revision,
-          updatedByName: typeof incoming.editorName === 'string'
-            ? incoming.editorName.slice(0, 100)
-            : '別の職員',
-          createdAt: currentBase?.createdAt || updatedAt,
-          updatedAt,
-        };
-        if (localPendingRef.current || saveInFlightRef.current || conflictRef.current) {
-          if (remoteRecord.content !== contentRef.current) {
-            if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
-            saveTimerRef.current = null;
-            const nextConflict: MorningMeetingConflict = {
-              latestRecord: remoteRecord,
-              localContent: contentRef.current,
-              baseContent: currentBase?.content || '',
-            };
-            conflictRef.current = nextConflict;
-            setConflict(nextConflict);
-            setRemoteEditor(remoteRecord.updatedByName || '別の職員');
-            setSaveStatus('conflict');
-          }
-          return;
-        }
-        persistedRecordRef.current = remoteRecord;
-        const liveDraft = displayedLiveDraftRef.current;
-        if (liveDraft && liveDraft.sessionId === incoming.senderId && liveDraft.draftVersion > savedVersion) return;
-        if (liveDraft && liveDraft.sessionId !== incoming.senderId && liveDraft.baseRevision >= remoteRecord.revision) return;
-        displayedLiveDraftRef.current = null;
-        contentRef.current = remoteRecord.content;
-        setContent(remoteRecord.content);
-        setRemoteEditor(remoteRecord.updatedByName || '別の職員');
-        setSaveStatus('remote');
-      })
-      .on('broadcast', { event: 'cursor' }, ({ payload }) => {
-        if (!isCurrentConnection()) return;
-        const incoming = payload as { activity?: unknown; targetSessionId?: unknown; date?: unknown };
-        if (!isForThisSession(incoming)) return;
-        acceptRemoteActivity(incoming.activity);
-      })
-      .on('broadcast', { event: 'sync-request' }, ({ payload }) => {
-        if (!isCurrentConnection()) return;
-        const incoming = payload as { senderId?: unknown; date?: unknown };
-        if (!isForThisSession(incoming) || typeof incoming.senderId !== 'string' || incoming.senderId === sessionId) return;
-        shareSnapshot(incoming.senderId);
-      })
-      .on('broadcast', { event: 'leave' }, ({ payload }) => {
-        const incoming = payload as { sessionId?: unknown };
-        if (!active || !isCurrentConnection() || typeof incoming.sessionId !== 'string') return;
-        setCollaborators((current) =>
-          current.filter((collaborator) => collaborator.sessionId !== incoming.sessionId)
-        );
-        setRemoteLiveDrafts((current) =>
-          current.filter((draft) => draft.sessionId !== incoming.sessionId)
-        );
-      })
-      .on('presence', { event: 'sync' }, () => {
-        if (!active || !isCurrentConnection()) return;
-        const state = channel.presenceState();
-        const presenceEntries = Object.values(state).flat();
-        const presenceActivities = presenceEntries
-          .map((entry) => parseCollaboratorActivity(entry))
-          .filter((activity): activity is CollaboratorActivity => Boolean(activity));
-        const activitiesBySession = new Map<string, CollaboratorActivity>();
-        presenceActivities.forEach((activity) => {
-          const existing = activitiesBySession.get(activity.sessionId);
-          if (!existing || existing.lastActiveAt <= activity.lastActiveAt) {
-            activitiesBySession.set(activity.sessionId, activity);
-          }
-        });
-        setViewerCount(Math.max(1, activitiesBySession.size));
-        const remotePresenceActivities = [...activitiesBySession.values()].filter(
-          (activity) => activity.sessionId !== sessionId
-        );
-        // Presence sync may lag behind a broadcast. Keep recently seen peers;
-        // explicit departures and the heartbeat timeout remove stale sessions.
-        setCollaborators((current) => remotePresenceActivities.reduce((result, activity) => {
-          const recent = result.find((candidate) => candidate.sessionId === activity.sessionId);
-          return upsertCollaborator(result, recent && recent.lastActiveAt > activity.lastActiveAt ? recent : activity);
-        }, current));
-      })
-      .on('presence', { event: 'leave' }, ({ leftPresences }) => {
-        if (!active || !isCurrentConnection()) return;
-        const leaving = new Set(leftPresences.map(parseCollaboratorActivity).filter(Boolean).map((activity) => activity!.sessionId));
-        const present = new Set(Object.values(channel.presenceState()).flat().map(parseCollaboratorActivity).filter(Boolean).map((activity) => activity!.sessionId));
-        const departed = (id: string) => leaving.has(id) && !present.has(id);
-        setCollaborators((current) => current.filter((activity) => !departed(activity.sessionId)));
-        setRemoteLiveDrafts((current) => current.filter((draft) => !departed(draft.sessionId)));
-      }); },
-      onStatus: (status, message) => {
-        if (!active) return;
-        setRealtimeStatus(status);
-        setRealtimeError(message || '');
-      },
-      onConnected: () => {
-          if (!active) return;
-          const initialActivity = {
-            ...localActivityRef.current,
-            userKey: editorUserKey,
-            editorName,
-            color: cursorColor,
-            lastActiveAt: new Date().toISOString(),
-          };
-          localActivityRef.current = initialActivity;
-          setLocalActivity(initialActivity);
-          lastPresenceTrackAtRef.current = Date.now();
-          connection.track(initialActivity);
-          shareSnapshot();
-          connection.send('sync-request', { senderId: sessionId, date: targetDate });
-      },
-    });
-    connectionRef.current = connection;
-    connection.start();
-
-    const heartbeatTimer = window.setInterval(() => {
-      const heartbeatActivity = {
-        ...localActivityRef.current,
-        lastActiveAt: new Date().toISOString(),
-      };
-      localActivityRef.current = heartbeatActivity;
-      lastPresenceTrackAtRef.current = Date.now();
-      connection.track(heartbeatActivity);
-      connection.send('cursor', { activity: heartbeatActivity, date: targetDate });
-    }, 15000);
-
-    return () => {
-      active = false;
-      window.clearInterval(heartbeatTimer);
-      if (connectionRef.current === connection) connectionRef.current = null;
-      connection.stop();
-    };
-  }, [cursorColor, editorName, editorUserKey, organizationId, sessionId, targetDate]);
-
-  useEffect(() => {
-    const staleCollaboratorTimer = window.setInterval(() => {
-      const staleThreshold = Date.now() - 45000;
-      setCollaborators((current) => current.filter((collaborator) => {
-        const lastActive = Date.parse(collaborator.lastActiveAt);
-        return Number.isNaN(lastActive) || lastActive >= staleThreshold;
-      }));
-      setRemoteLiveDrafts((current) => current.filter((draft) => {
-        const lastActive = Date.parse(draft.lastActiveAt);
-        return Number.isNaN(lastActive) || lastActive >= staleThreshold;
-      }));
-    }, 5000);
-    return () => window.clearInterval(staleCollaboratorTimer);
-  }, []);
-
-  const persistPendingContent = async (showStatus: boolean): Promise<boolean> => {
-    if(deletedDateRef.current===targetDateRef.current)return false;
-    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = null;
-    if (!localPendingRef.current) return true;
-    if (conflictRef.current) return false;
-    if (saveInFlightRef.current) {
-      saveQueuedRef.current = true;
-      return false;
-    }
-
-    saveInFlightRef.current = true;
-    saveQueuedRef.current = false;
-    const date = targetDateRef.current;
-    const snapshot = contentRef.current;
-    const editVersion = editVersionRef.current;
-    const now = new Date().toISOString();
-    const storedRecord = persistedRecordRef.current?.date === date
-      ? persistedRecordRef.current
-      : recordsRef.current.find((record) => record.date === date);
-    const nextRecord: MorningMeetingRecord = {
-      date,
-      content: snapshot,
-      revision: storedRecord?.revision || 0,
-      updatedByName: editorNameRef.current,
-      updatedByRecorderId: recorderIdRef.current,
-      createdAt: storedRecord?.createdAt || now,
-      updatedAt: now,
-    };
-
-    try {
-      const savedRecord = await onSaveRef.current(nextRecord);
-      persistedRecordRef.current = savedRecord;
-      lastSavedDraftVersionRef.current = editVersion;
-      if (targetDateRef.current === date) {
-        connectionRef.current?.send('saved', {
-            senderId: sessionId,
-            editorName: editorNameRef.current,
-            content: savedRecord.content,
-            revision: savedRecord.revision,
-            updatedAt: savedRecord.updatedAt,
-            draftVersion: editVersion,
-            date,
-        });
-      }
-      if (
-        targetDateRef.current === date
-        && editVersionRef.current === editVersion
-        && contentRef.current === snapshot
-      ) {
-        localPendingRef.current = false;
-        ownLiveDraftRef.current = null;
-        if (showStatus) setSaveStatus('saved');
-      } else {
-        localPendingRef.current = true;
-        saveQueuedRef.current = true;
-        // This save covered an earlier keystroke snapshot. Rebase and resend
-        // the newer live draft so recipients do not restore the earlier text.
-        if (ownLiveDraftRef.current && targetDateRef.current === date) {
-          ownLiveDraftRef.current = { ...ownLiveDraftRef.current, baseRevision: savedRecord.revision };
-          connectionRef.current?.send('content', {
-            ...ownLiveDraftRef.current, senderId: sessionId, editorName: editorNameRef.current, date,
-          });
-        }
-      }
-      return true;
-    } catch (error) {
-      if (error instanceof MorningMeetingConflictError) {
-        const nextConflict: MorningMeetingConflict = {
-          latestRecord: error.latestRecord,
-          localContent: contentRef.current,
-          baseContent: storedRecord?.content || '',
-        };
-        conflictRef.current = nextConflict;
-        setConflict(nextConflict);
-        setRemoteEditor(error.latestRecord?.updatedByName || '別の職員');
-        setSaveStatus('conflict');
-      } else if (targetDateRef.current === date) {
-        setSaveStatus('error');
-      }
-      return false;
-    } finally {
-      saveInFlightRef.current = false;
-      if (
-        targetDateRef.current === date
-        && localPendingRef.current
-        && !conflictRef.current
-        && saveQueuedRef.current
-      ) {
-        saveQueuedRef.current = false;
-        saveTimerRef.current = window.setTimeout(() => {
-          void persistPendingContent(true);
-        }, 150);
-      }
-    }
-  };
-
-  const publishLocalActivity = (
-    changes: Partial<Pick<CollaboratorActivity, 'cursorStart' | 'cursorEnd' | 'typing' | 'focused'>>,
-    forcePresenceTrack = false
-  ) => {
-    const nextActivity: CollaboratorActivity = {
-      ...localActivityRef.current,
-      ...changes,
-      userKey: editorUserKey,
-      editorName,
-      color: cursorColor,
-      lastActiveAt: new Date().toISOString(),
-    };
-    localActivityRef.current = nextActivity;
-    setLocalActivity(nextActivity);
-
-    const connection = connectionRef.current;
-    if (connection) {
-      const now = Date.now();
-      if (forcePresenceTrack || now - lastPresenceTrackAtRef.current >= 15000) {
-        lastPresenceTrackAtRef.current = now;
-        connection.track({ ...nextActivity });
-      }
-      if (forcePresenceTrack || now - lastCursorBroadcastAtRef.current >= 250) {
-        lastCursorBroadcastAtRef.current = now;
-        connection.send('cursor', { activity: nextActivity, date: targetDateRef.current });
-      }
-    }
-    return nextActivity;
-  };
-
-  const flushContentBroadcast = () => {
-    if (contentBroadcastTimerRef.current) window.clearTimeout(contentBroadcastTimerRef.current);
-    contentBroadcastTimerRef.current = null;
-    const pending = pendingContentBroadcastRef.current;
-    if (!pending) return;
-    const connection = connectionRef.current;
-    if (!connection) return;
-    pendingContentBroadcastRef.current = null;
-    lastContentBroadcastAtRef.current = Date.now();
-    connection.send('content', {
-        content: pending.content,
-        senderId: sessionId,
-        editorName,
-        baseRevision: pending.baseRevision,
-        draftVersion: pending.draftVersion,
-        date: targetDateRef.current,
-        activity: pending.activity,
-    });
-  };
-
-  const publishContentDraft = (nextContent: string, activity: CollaboratorActivity) => {
-    pendingContentBroadcastRef.current = {
-      content: nextContent,
-      baseRevision: persistedRecordRef.current?.revision || 0,
-      draftVersion: editVersionRef.current,
-      activity,
-    };
-    ownLiveDraftRef.current = pendingContentBroadcastRef.current;
-    const elapsed = Date.now() - lastContentBroadcastAtRef.current;
-    const wait = Math.max(0, 120 - elapsed);
-    if (wait === 0 && contentBroadcastTimerRef.current === null) {
-      flushContentBroadcast();
-      return;
-    }
-    if (contentBroadcastTimerRef.current !== null) return;
-    contentBroadcastTimerRef.current = window.setTimeout(flushContentBroadcast, wait);
-  };
-
-  useEffect(() => () => {
-    if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current);
-    if (contentBroadcastTimerRef.current) window.clearTimeout(contentBroadcastTimerRef.current);
-    void persistPendingContent(false);
-  }, []);
-
-  useEffect(() => {
-    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
-      if (!localPendingRef.current && !saveInFlightRef.current && !conflictRef.current) return;
-      event.preventDefault();
-      event.returnValue = '';
-    };
-    window.addEventListener('beforeunload', warnBeforeUnload);
-    return () => window.removeEventListener('beforeunload', warnBeforeUnload);
-  }, []);
-
-  const scheduleSave = (nextContent: string) => {
-    if (saveTimerRef.current) window.clearTimeout(saveTimerRef.current);
-    localPendingRef.current = true;
-    saveQueuedRef.current = saveInFlightRef.current;
-    editVersionRef.current += 1;
-    setSaveStatus('saving');
-    setRemoteEditor('');
-    contentRef.current = nextContent;
-    saveTimerRef.current = window.setTimeout(() => {
-      void persistPendingContent(true);
-    }, 600);
-  };
-
-  const updateContent = (
-    nextContent: string,
-    requestedCursorStart = nextContent.length,
-    requestedCursorEnd = requestedCursorStart
-  ) => {
-    const limited = nextContent.slice(0, 20000);
-    displayedLiveDraftRef.current = null;
-    const cursorStart = Math.min(limited.length, Math.max(0, requestedCursorStart));
-    const cursorEnd = Math.min(limited.length, Math.max(0, requestedCursorEnd));
-    contentRef.current = limited;
-    setContent(limited);
-    scheduleSave(limited);
-    const activity = publishLocalActivity({
-      cursorStart,
-      cursorEnd,
-      typing: true,
-      focused: true,
-    });
-    publishContentDraft(limited, activity);
-    if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current);
-    typingTimerRef.current = window.setTimeout(() => {
-      publishLocalActivity({ typing: false }, true);
-    }, 4000);
-  };
-
-  const insertSection = (section: string) => {
-    const separator = content.trim() ? '\n\n' : '';
-    const nextContent = `${content}${separator}【${section}】\n・`;
-    updateContent(nextContent, nextContent.length, nextContent.length);
-    setShowQuickSections(false);
-  };
-
-  const clearContent = () => {
-    if (!content || !window.confirm(`${targetDate}の朝礼記録をすべて消去しますか？`)) return;
-    updateContent('', 0, 0);
-  };
-
-  const copyContent = async () => {
-    try {
-      await navigator.clipboard.writeText(content);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1600);
-    } catch {
-      setCopied(false);
-    }
-  };
-
-  const acceptLatestRecord = () => {
-    const latestRecord = conflictRef.current?.latestRecord;
-    if (!latestRecord) {
-      window.location.reload();
-      return;
-    }
-    if (!window.confirm('この端末の未保存内容を破棄し、別の職員が保存した最新内容を読み込みますか？')) return;
-    persistedRecordRef.current = latestRecord;
-    contentRef.current = latestRecord.content;
-    localPendingRef.current = false;
-    ownLiveDraftRef.current = null;
-    displayedLiveDraftRef.current = null;
-    saveQueuedRef.current = false;
-    editVersionRef.current += 1;
-    conflictRef.current = null;
-    setConflict(null);
-    setContent(latestRecord.content);
-    setSaveStatus('remote');
-    pendingContentBroadcastRef.current = null;
-    if (contentBroadcastTimerRef.current) window.clearTimeout(contentBroadcastTimerRef.current);
-    contentBroadcastTimerRef.current = null;
-    // Supersede any still-queued draft and clear its previews on other tabs.
-    lastSavedDraftVersionRef.current = editVersionRef.current;
-    connectionRef.current?.send('content', {
-      senderId: sessionId, editorName, content: latestRecord.content,
-      baseRevision: latestRecord.revision, draftVersion: editVersionRef.current,
-      activity: localActivityRef.current, date: targetDateRef.current,
-    });
-    connectionRef.current?.send('saved', {
-      senderId: sessionId, editorName: latestRecord.updatedByName || editorName,
-      content: latestRecord.content, revision: latestRecord.revision,
-      updatedAt: latestRecord.updatedAt, draftVersion: editVersionRef.current,
-      date: targetDateRef.current,
-    });
-  };
-
-  const keepLocalAfterConflict = (combine: boolean) => {
-    const currentConflict = conflictRef.current;
-    const latestRecord = currentConflict?.latestRecord;
-    if (!currentConflict || !latestRecord) {
-      setSaveStatus('error');
-      return;
-    }
-    const nextContent = combine
-      ? combineConflictingContent(
-          contentRef.current,
-          latestRecord.content,
-          latestRecord.updatedByName || '別の職員'
-        )
-      : contentRef.current;
-    if (
-      !combine
-      && !window.confirm('別の職員の更新内容を上書きし、この端末の内容を保存しますか？')
-    ) return;
-    persistedRecordRef.current = latestRecord;
-    conflictRef.current = null;
-    setConflict(null);
-    contentRef.current = nextContent;
-    setContent(nextContent);
-    updateContent(nextContent);
-  };
-
-  const handleEditorSelection = (event: React.SyntheticEvent<HTMLTextAreaElement>) => {
-    const editor = event.currentTarget;
-    publishLocalActivity({
-      cursorStart: editor.selectionStart,
-      cursorEnd: editor.selectionEnd,
-      focused: true,
-    });
-  };
-
-  const handleEditorFocus = (event: React.FocusEvent<HTMLTextAreaElement>) => {
-    publishLocalActivity({
-      cursorStart: event.currentTarget.selectionStart,
-      cursorEnd: event.currentTarget.selectionEnd,
-      focused: true,
-    }, true);
-  };
-
-  const handleEditorBlur = (event: React.FocusEvent<HTMLTextAreaElement>) => {
-    if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current);
-    typingTimerRef.current = null;
-    publishLocalActivity({
-      cursorStart: event.currentTarget.selectionStart,
-      cursorEnd: event.currentTarget.selectionEnd,
-      typing: false,
-      focused: false,
-    }, true);
-  };
-
-  const changeDate = async (nextDate: string) => {
-    if (!isServiceDate(nextDate) || nextDate === targetDateRef.current) return;
-    if (conflictRef.current) {
-      window.alert('同時更新の確認を完了してから朝礼日を変更してください。');
-      return;
-    }
-    const saved = await persistPendingContent(false);
-    if (!saved && localPendingRef.current) {
-      window.alert('未保存の内容があります。保存完了後に朝礼日を変更してください。');
-      return;
-    }
-    if (typingTimerRef.current) window.clearTimeout(typingTimerRef.current);
-    typingTimerRef.current = null;
-    publishLocalActivity({
-      cursorStart: 0,
-      cursorEnd: 0,
-      typing: false,
-      focused: false,
-    }, true);
-    targetDateRef.current = nextDate;
-    setTargetDate(nextDate);
-    setRemoteEditor('');
-    setEditorScroll({ top: 0, left: 0 });
-  };
-
-  const applySelectedTemplate = () => {
-    const template = templates.find((candidate) => candidate.id === selectedTemplateId);
-    if (!template) return;
-    if (
-      content.trim()
-      && content !== template.content
-      && !window.confirm('現在の朝礼内容をテンプレートの内容に置き換えますか？')
-    ) return;
-    updateContent(template.content, template.content.length, template.content.length);
-  };
-
-  const resetTemplateForm = (useCurrentContent = false) => {
-    setEditingTemplateId(null);
-    setTemplateName('');
-    setTemplateContent(useCurrentContent ? content : '');
-  };
-
-  const editTemplate = (template: MorningMeetingTemplate) => {
-    setEditingTemplateId(template.id);
-    setTemplateName(template.name);
-    setTemplateContent(template.content);
-    setShowTemplateManager(true);
-  };
-
-  const submitTemplate = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!templateName.trim() || !templateContent.trim()) return;
-    setTemplateBusy(true);
-    try {
-      const now = new Date().toISOString();
-      const existing = templates.find((template) => template.id === editingTemplateId);
-      const template: MorningMeetingTemplate = {
-        id: existing?.id || (
-          typeof crypto !== 'undefined' && 'randomUUID' in crypto
-            ? crypto.randomUUID()
-            : `morning-template-${Date.now()}`
-        ),
-        name: templateName.trim(),
-        content: templateContent.slice(0, 20000),
-        createdAt: existing?.createdAt || now,
-        updatedAt: now,
-      };
-      await Promise.resolve(onSaveTemplate(template));
-      setSelectedTemplateId(template.id);
-      resetTemplateForm();
-    } finally {
-      setTemplateBusy(false);
-    }
-  };
-
-  const archiveTemplate = async (template: MorningMeetingTemplate) => {
-    if (!window.confirm(`朝礼テンプレート「${template.name}」を削除しますか？`)) return;
-    setTemplateBusy(true);
-    try {
-      await Promise.resolve(onArchiveTemplate(template.id));
-      if (selectedTemplateId === template.id) setSelectedTemplateId('');
-      if (editingTemplateId === template.id) resetTemplateForm();
-    } finally {
-      setTemplateBusy(false);
-    }
-  };
-
-  const toggleConfirmation = async () => {
-    if (!confirmationActor || !selectedRecord || !content.trim()) return;
-    setConfirmationBusy(true);
-    try {
-      await Promise.resolve(onSetConfirmation({
-        date: targetDate,
-        ...confirmationActor,
-        confirmedAt: new Date().toISOString(),
-      }, !currentActorConfirmed));
-    } finally {
-      setConfirmationBusy(false);
-    }
-  };
-
-  return (
-    <section className="overflow-hidden rounded-2xl border border-sky-200 bg-white shadow-sm">
-      <div className="border-b border-sky-100 bg-sky-50/80 p-4">
-        {deletedDate===targetDate&&<p role="status" className="mb-2 rounded-lg bg-amber-50 p-3 text-sm font-bold">この日の朝礼記録は削除済みです。入力は保持しています。編集を再開する場合は「設定 → 削除済みデータ」から復元してください。</p>}
-        {selectedRecord&&<DeleteWorkspaceItem resource="morning_meeting_records" id={targetDate} revision={selectedRecord.revision} disabled={saveStatus==='saving'||content!==selectedRecord.content||Boolean(conflict)} onDeleted={()=>{deletedDateRef.current=targetDate;setDeletedDate(targetDate);if(saveTimerRef.current)window.clearTimeout(saveTimerRef.current);}}/>}
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h3 className="flex items-center gap-2 text-base font-black text-slate-900">
-              <ClipboardPenLine className="h-5 w-5 text-sky-700" />朝礼記録
-            </h3>
-            <p className="mt-0.5 text-[10px] text-slate-600">入力内容は同時更新を確認しながら自動保存されます。</p>
-          </div>
-          <span className={`flex min-h-9 shrink-0 items-center gap-1.5 rounded-full px-3 text-[10px] font-bold ${
-            realtimeStatus === 'connected'
-              ? 'bg-emerald-100 text-emerald-800'
-              : 'bg-amber-100 text-amber-900'
-          }`}>
-            {realtimeStatus === 'connecting' || realtimeStatus === 'disconnected'
-              ? <RefreshCw className="h-3.5 w-3.5 animate-spin" />
-              : <Radio className="h-3.5 w-3.5" />}
-            {realtimeStatus === 'connected' && `共有中・${effectiveViewerCount}人`}
-            {realtimeStatus === 'connecting' && '共同編集へ接続中'}
-            {realtimeStatus === 'disconnected' && '共同編集を再接続中'}
-            {realtimeStatus === 'local' && 'ローカル試用'}
-            {realtimeStatus === 'connected'
-              && typingCollaborators.length > 0
-              && `・${typingCollaborators.length}人入力中`}
-          </span>
-        </div>
-      </div>
-
-      <div className="flex flex-col gap-3 p-4 sm:p-5">
-        {realtimeError && (
-          <p role="status" className="order-1 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
-            {realtimeError} 接続が戻ると、この端末の入力内容と共同編集者を自動で再共有します。
-          </p>
-        )}
-        <div className="order-1 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-          <label className="block">
-            <span className="mb-1 block text-[11px] font-bold text-slate-600">朝礼日</span>
-            <span className="relative block">
-              <CalendarDays className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-sky-600" />
-              <input
-                type="date"
-                value={targetDate}
-                onChange={(event) => void changeDate(event.target.value)}
-                className="min-h-11 rounded-xl border border-slate-300 bg-white pl-9 pr-3 text-sm font-bold text-slate-800"
-              />
-            </span>
-          </label>
-          <div className="flex flex-wrap items-center justify-between gap-2 sm:justify-end">
-            <div className="text-[10px] text-slate-500 sm:text-right">
-              {saveStatus === 'saving' && <span className="flex items-center gap-1 font-bold text-sky-700"><LoaderCircle className="h-3.5 w-3.5 animate-spin" />自動保存中...</span>}
-              {saveStatus === 'saved' && <span className="flex items-center gap-1 font-bold text-emerald-700"><Check className="h-3.5 w-3.5" />保存しました</span>}
-              {saveStatus === 'remote' && <span className="font-bold text-indigo-700">{remoteEditor}さんの入力を反映しました</span>}
-              {saveStatus === 'live' && <span className="flex items-center gap-1 font-bold text-indigo-700"><Radio className="h-3.5 w-3.5 animate-pulse" />{remoteEditor}さんの入力をリアルタイム反映中</span>}
-              {saveStatus === 'conflict' && <span className="font-bold text-amber-800">別の職員の更新を確認してください</span>}
-              {saveStatus === 'error' && <span className="font-bold text-rose-700">保存できませんでした。通信状態を確認してください。</span>}
-              {saveStatus === 'idle' && selectedRecord && (
-                <span>最終更新：{new Date(selectedRecord.updatedAt).toLocaleString('ja-JP')}・{selectedRecord.updatedByName || '職員'}</span>
-              )}
-            </div>
-            <button
-              type="button"
-              aria-expanded={showPreparation}
-              onClick={() => setShowPreparation((current) => !current)}
-              className="flex min-h-10 items-center gap-1.5 rounded-xl border border-sky-200 bg-sky-50 px-3 text-[10px] font-black text-sky-800"
-            >
-              <Settings2 className="h-4 w-4" />入力準備
-              <ChevronDown className={`h-4 w-4 transition-transform ${showPreparation ? 'rotate-180' : ''}`} />
-            </button>
-          </div>
-        </div>
-
-        {conflict && (
-          <section className="order-2 rounded-xl border-2 border-amber-400 bg-amber-50 p-3" role="alert">
-            <div className="flex items-start gap-2">
-              <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
-              <div className="min-w-0 flex-1">
-                <h4 className="text-sm font-black text-amber-950">同じ朝礼記録が別の職員によって更新されました</h4>
-                <p className="mt-1 text-[11px] leading-5 text-amber-900">
-                  この端末の入力は保持されています。内容を比較し、どの内容を保存するか選んでください。
-                </p>
-                {conflict.latestRecord && (
-                  <details className="mt-2 rounded-lg border border-amber-300 bg-white p-2">
-                    <summary className="cursor-pointer text-[11px] font-black text-amber-900">
-                      {conflict.latestRecord.updatedByName || '別の職員'}さんの最新内容を確認
-                    </summary>
-                    <div className="mt-2 grid gap-2 md:grid-cols-2">
-                      <div>
-                        <p className="mb-1 text-[9px] font-black text-slate-500">この端末の未保存内容</p>
-                        <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-lg bg-sky-50 p-2 text-[10px] leading-5 text-slate-800">{content}</pre>
-                      </div>
-                      <div>
-                        <p className="mb-1 text-[9px] font-black text-slate-500">保存済みの最新内容</p>
-                        <pre className="max-h-40 overflow-auto whitespace-pre-wrap rounded-lg bg-amber-100/70 p-2 text-[10px] leading-5 text-slate-800">{conflict.latestRecord.content}</pre>
-                      </div>
-                    </div>
-                  </details>
-                )}
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={!conflict.latestRecord}
-                    onClick={() => keepLocalAfterConflict(true)}
-                    className="flex min-h-10 items-center gap-1.5 rounded-lg bg-amber-700 px-3 text-[11px] font-black text-white disabled:opacity-40"
-                  >
-                    <GitMerge className="h-4 w-4" />両方を残して編集
-                  </button>
-                  <button
-                    type="button"
-                    disabled={!conflict.latestRecord}
-                    onClick={() => keepLocalAfterConflict(false)}
-                    className="flex min-h-10 items-center gap-1.5 rounded-lg border border-amber-500 bg-white px-3 text-[11px] font-black text-amber-900 disabled:opacity-40"
-                  >
-                    <Save className="h-4 w-4" />この端末の内容を保存
-                  </button>
-                  <button
-                    type="button"
-                    onClick={acceptLatestRecord}
-                    className="flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-[11px] font-black text-slate-700"
-                  >
-                    <RefreshCw className="h-4 w-4" />最新内容を読み込む
-                  </button>
-                </div>
-              </div>
-            </div>
-          </section>
-        )}
-
-        {dailySummary.length > 0 && (
-          <section className="order-2 rounded-xl border border-teal-200 bg-teal-50 p-3">
-            <h4 className="text-xs font-black text-teal-900">本日の業務から自動表示</h4>
-            <div className="mt-2 grid gap-1 text-xs text-teal-950 sm:grid-cols-2">
-              {dailySummary.map((summary) => <p key={summary} className="rounded-lg bg-white/80 px-3 py-2">{summary}</p>)}
-            </div>
-          </section>
-        )}
-
-        {showPreparation && (
-        <section className="order-3 rounded-xl border border-sky-100 bg-sky-50/60 p-3">
-          <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto_auto]">
-            <label className="min-w-0">
-              <span className="mb-1 block text-[10px] font-bold text-sky-900">朝礼テンプレート</span>
-              <select
-                value={selectedTemplateId}
-                onChange={(event) => setSelectedTemplateId(event.target.value)}
-                className="min-h-11 w-full rounded-xl border border-sky-200 bg-white px-3 text-sm font-bold text-slate-800"
-              >
-                <option value="">テンプレートを選択</option>
-                {templates.map((template) => (
-                  <option key={template.id} value={template.id}>{template.name}</option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="button"
-              disabled={!selectedTemplateId}
-              onClick={applySelectedTemplate}
-              className="min-h-11 self-end rounded-xl bg-sky-700 px-4 text-xs font-black text-white disabled:bg-slate-300"
-            >
-              内容へ適用
-            </button>
-            {canManageTemplates && (
-              <button
-                type="button"
-                aria-expanded={showTemplateManager}
-                onClick={() => setShowTemplateManager((current) => !current)}
-                className="flex min-h-11 items-center justify-center gap-1.5 self-end rounded-xl border border-sky-300 bg-white px-3 text-xs font-bold text-sky-800"
-              >
-                <Settings2 className="h-4 w-4" />テンプレート管理
-                <ChevronDown className={`h-4 w-4 transition-transform ${showTemplateManager ? 'rotate-180' : ''}`} />
-              </button>
-            )}
-          </div>
-
-          {templates.length === 0 && !showTemplateManager && (
-            <p className="mt-2 text-[10px] text-sky-800">
-              テンプレートはまだありません。管理者・児発管が「テンプレート管理」から作成できます。
-            </p>
-          )}
-
-          {canManageTemplates && showTemplateManager && (
-            <div className="mt-3 grid gap-3 border-t border-sky-100 pt-3 lg:grid-cols-[0.85fr_1.15fr]">
-              <div>
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-[10px] font-black text-sky-950">登録済みテンプレート</p>
-                  <button
-                    type="button"
-                    onClick={() => resetTemplateForm(true)}
-                    className="flex min-h-9 items-center gap-1 rounded-lg border border-sky-200 bg-white px-2.5 text-[10px] font-bold text-sky-800"
-                  >
-                    <FilePlus2 className="h-3.5 w-3.5" />現在の内容から新規作成
-                  </button>
-                </div>
-                <div className="mt-2 space-y-1.5">
-                  {templates.length === 0 && (
-                    <p className="rounded-lg bg-white p-3 text-center text-[10px] text-slate-500">登録済みテンプレートはありません。</p>
-                  )}
-                  {templates.map((template) => (
-                    <div key={template.id} className="flex items-center gap-2 rounded-lg border border-white bg-white p-2">
-                      <button
-                        type="button"
-                        onClick={() => editTemplate(template)}
-                        className="min-w-0 flex-1 text-left"
-                      >
-                        <span className="block truncate text-xs font-black text-slate-800">{template.name}</span>
-                        <span className="block truncate text-[9px] text-slate-500">{template.content.replace(/\n/g, ' ')}</span>
-                      </button>
-                      <button
-                        type="button"
-                        disabled={templateBusy}
-                        onClick={() => void archiveTemplate(template)}
-                        aria-label={`${template.name}を削除`}
-                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-rose-600 hover:bg-rose-50 disabled:opacity-40"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <form onSubmit={submitTemplate} className="space-y-2 rounded-xl border border-sky-100 bg-white p-3">
-                <div className="flex items-center justify-between gap-2">
-                  <h5 className="text-xs font-black text-slate-900">
-                    {editingTemplateId ? 'テンプレートを編集' : '新しいテンプレート'}
-                  </h5>
-                  {editingTemplateId && (
-                    <button type="button" onClick={() => resetTemplateForm()} className="text-[10px] font-bold text-sky-700">
-                      新規作成に戻る
-                    </button>
-                  )}
-                </div>
-                <label className="block text-[10px] font-bold text-slate-600">
-                  テンプレート名
-                  <input
-                    value={templateName}
-                    onChange={(event) => setTemplateName(event.target.value)}
-                    maxLength={100}
-                    placeholder="例：平日の朝礼"
-                    className="mt-1 min-h-10 w-full rounded-lg border border-slate-300 px-3 text-sm"
-                  />
-                </label>
-                <label className="block text-[10px] font-bold text-slate-600">
-                  初期表示する内容
-                  <textarea
-                    value={templateContent}
-                    onChange={(event) => setTemplateContent(event.target.value.slice(0, 20000))}
-                    rows={7}
-                    placeholder={'【本日の予定】\n・\n\n【児童対応】\n・'}
-                    className="mt-1 w-full rounded-lg border border-slate-300 p-3 text-sm leading-6"
-                  />
-                </label>
-                <button
-                  type="submit"
-                  disabled={templateBusy || !templateName.trim() || !templateContent.trim()}
-                  className="flex min-h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-sky-700 px-4 text-xs font-black text-white disabled:bg-slate-300"
-                >
-                  {templateBusy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  {editingTemplateId ? '変更を保存' : 'テンプレートを作成'}
-                </button>
-              </form>
-            </div>
-          )}
-        </section>
-        )}
-
-        <section className="order-6 rounded-xl border border-emerald-200 bg-emerald-50/70 p-3" aria-live="polite">
-          <div className="flex items-center justify-between gap-2">
-            <h4 className="flex items-center gap-1.5 text-xs font-black text-emerald-950">
-              <UserCheck className="h-4 w-4 text-emerald-700" />確認
-            </h4>
-            <button
-              type="button"
-              aria-expanded={showConfirmationDetails}
-              onClick={() => setShowConfirmationDetails((current) => !current)}
-              className="flex min-h-9 items-center gap-1 rounded-lg bg-white px-2.5 text-[10px] font-black text-emerald-800"
-            >
-              全員の状況 {confirmedRecorderIds.size}/{recorderProfiles.length}名
-              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showConfirmationDetails ? 'rotate-180' : ''}`} />
-            </button>
-          </div>
-
-          {showConfirmationDetails && (
-          <div className="mt-2 border-t border-emerald-100 pt-2">
-            <p className="mb-2 text-[9px] text-emerald-800">
-              内容が更新されると、以前の確認は「再確認が必要」に変わります。
-            </p>
-            <div className="flex gap-2 overflow-x-auto pb-1">
-            {recorderProfiles.map((profile) => {
-              const receipt = targetConfirmations.find((confirmation) =>
-                confirmation.recorderProfileId === profile.id
-              );
-              const isCurrent = Boolean(
-                receipt && isConfirmationCurrent(receipt.confirmedAt, selectedRecord?.updatedAt)
-              );
-              return (
-                <div
-                  key={profile.id}
-                  className={`min-w-36 shrink-0 rounded-lg border px-2.5 py-2 ${
-                    isCurrent
-                      ? 'border-emerald-300 bg-white'
-                      : receipt
-                        ? 'border-amber-300 bg-amber-50'
-                        : 'border-slate-200 bg-white/70'
-                  }`}
-                >
-                  <p className="truncate text-[10px] font-black text-slate-800">{profile.displayName}</p>
-                  <p className={`mt-0.5 flex items-center gap-1 text-[9px] font-bold ${
-                    isCurrent ? 'text-emerald-700' : receipt ? 'text-amber-700' : 'text-slate-500'
-                  }`}>
-                    {isCurrent
-                      ? <><CheckCircle2 className="h-3 w-3" />確認済み {new Date(receipt.confirmedAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}</>
-                      : receipt
-                        ? <><Clock3 className="h-3 w-3" />再確認が必要</>
-                        : '未確認'}
-                  </p>
-                </div>
-              );
-            })}
-            </div>
-          </div>
-          )}
-
-          <div className="mt-2 flex items-center justify-between gap-2">
-            <p className="text-[10px] text-emerald-800">
-              {confirmationActor
-                ? `${confirmationActor.confirmerName}：${currentActorConfirmed ? '確認済み' : currentReceipt ? '再確認が必要' : '未確認'}`
-                : '確認者を特定できません。'}
-            </p>
-            <button
-              type="button"
-              disabled={
-                confirmationBusy
-                || !confirmationActor
-                || (!currentActorConfirmed && !recordReadyForConfirmation)
-              }
-              onClick={() => void toggleConfirmation()}
-              className={`flex min-h-11 items-center justify-center gap-1.5 rounded-xl px-4 text-xs font-black disabled:bg-slate-300 disabled:text-white ${
-                currentActorConfirmed
-                  ? 'border border-emerald-300 bg-white text-emerald-800'
-                  : 'bg-emerald-700 text-white'
-              }`}
-            >
-              {confirmationBusy
-                ? <LoaderCircle className="h-4 w-4 animate-spin" />
-                : <UserCheck className="h-4 w-4" />}
-              {currentActorConfirmed ? '確認を取り消す' : 'この内容を確認済みにする'}
-            </button>
-          </div>
-          {!currentActorConfirmed && content.trim() && !recordReadyForConfirmation && (
-            <p className="mt-1 text-right text-[9px] font-bold text-amber-700">自動保存が完了すると確認できます。</p>
-          )}
-        </section>
-
-        <section
-          id="morning-collaboration-status"
-          aria-live="polite"
-          className="order-7 rounded-xl border border-indigo-100 bg-indigo-50/60 p-2.5"
-        >
-          <button
-            type="button"
-            aria-expanded={showCollaborationDetails}
-            onClick={() => setShowCollaborationDetails((current) => !current)}
-            className="flex min-h-9 w-full items-center justify-between gap-2 text-left"
-          >
-            <span className="flex items-center gap-1.5 text-xs font-black text-indigo-950">
-              <Users className="h-4 w-4 text-indigo-600" />共同編集
-              <span className="font-bold text-indigo-700">{effectiveViewerCount}人</span>
-            </span>
-            <span className="flex items-center gap-1 rounded-full bg-white px-2.5 py-1 text-[9px] font-bold text-indigo-700">
-              {typingCollaborators.length > 0
-                ? `${typingCollaborators.length}人が入力中`
-                : '詳細'}
-              <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showCollaborationDetails ? 'rotate-180' : ''}`} />
-            </span>
-          </button>
-          {showCollaborationDetails && (
-          <div className="mt-2 border-t border-indigo-100 pt-2">
-            <p className="mb-2 text-[9px] text-indigo-700">色付きカーソルと行・列で、各職員の位置を確認できます。</p>
-          <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-            {visibleCollaborators.map((collaborator) => {
-              const isCurrentUser = collaborator.sessionId === sessionId;
-              return (
-                <div
-                  key={collaborator.sessionId}
-                  className="flex min-w-44 shrink-0 items-center gap-2 rounded-lg border border-white bg-white/90 px-2.5 py-2 shadow-xs"
-                >
-                  <span
-                    className={`h-3 w-3 shrink-0 rounded-full ${collaborator.typing ? 'animate-pulse' : ''}`}
-                    style={{ backgroundColor: collaborator.color }}
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[10px] font-black text-slate-800">
-                      {collaborator.editorName}
-                      {isCurrentUser ? '（自分）' : collaborator.userKey === editorUserKey ? '（別端末）' : ''}
-                    </p>
-                    <p className={`mt-0.5 flex items-center gap-1 text-[9px] font-bold ${
-                      collaborator.typing ? 'text-indigo-700' : 'text-slate-500'
-                    }`}>
-                      {collaborator.typing
-                        ? <PencilLine className="h-3 w-3" />
-                        : <MousePointer2 className="h-3 w-3" />}
-                      {collaborator.typing
-                        ? '入力中'
-                        : collaborator.focused
-                          ? 'カーソル'
-                          : '閲覧中'}
-                      {collaborator.focused && (
-                        <span>・{getCursorPositionLabel(content, collaborator)}</span>
-                      )}
-                    </p>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-          </div>
-          )}
-        </section>
-
-        <div className="order-3">
-          <button
-            type="button"
-            aria-expanded={showQuickSections}
-            onClick={() => setShowQuickSections((current) => !current)}
-            className="flex min-h-9 items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 text-[10px] font-bold text-sky-800"
-          >
-            <ListPlus className="h-4 w-4" />見出しを追加
-            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showQuickSections ? 'rotate-180' : ''}`} />
-          </button>
-          {showQuickSections && (
-          <div className="mt-1.5 flex gap-1.5 overflow-x-auto pb-1">
-            {QUICK_SECTIONS.map((section) => (
-              <button
-                key={section}
-                type="button"
-                onClick={() => insertSection(section)}
-                className="min-h-9 shrink-0 rounded-full border border-sky-200 bg-sky-50 px-3 text-[10px] font-bold text-sky-800 hover:bg-sky-100"
-              >
-                ＋ {section}
-              </button>
-            ))}
-          </div>
-          )}
-        </div>
-
-        <div className="order-4 grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.85fr)]">
-        <div className="relative order-4 min-w-0 self-start">
-          <textarea
-            value={content}
-            readOnly={deletedDate===targetDate}
-            onChange={(event) => {
-              const editor = event.currentTarget;
-              updateContent(editor.value, editor.selectionStart, editor.selectionEnd);
-            }}
-            onSelect={handleEditorSelection}
-            onFocus={handleEditorFocus}
-            onBlur={handleEditorBlur}
-            onScroll={(event) => setEditorScroll({
-              top: event.currentTarget.scrollTop,
-              left: event.currentTarget.scrollLeft,
-            })}
-            rows={12}
-            aria-label="朝礼記録の入力"
-            aria-describedby="morning-collaboration-status"
-            placeholder={'例：\n【本日の予定】\n・15:00から避難訓練\n\n【児童対応】\n・〇〇さんは来所時の体調を確認'}
-            className="relative z-10 block min-h-72 w-full resize-y rounded-2xl border-2 border-slate-300 bg-slate-50/95 p-4 text-sm leading-7 text-slate-900 focus:border-sky-500 focus:bg-white/95 focus:ring-4 focus:ring-sky-100"
-          />
-          <RemoteCursorOverlay
-            content={content}
-            collaborators={cursorOverlayCollaborators}
-            scrollTop={editorScroll.top}
-            scrollLeft={editorScroll.left}
-          />
-        </div>
-        <div className="order-5 min-w-0"><PreviousSupportRecap meetingDate={targetDate} childrenList={childrenList} records={supportRecords}/></div>
-        </div>
-
-        <div className="order-5 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[10px] text-slate-500">{content.length.toLocaleString()} / 20,000文字・自動保存</p>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              disabled={!content}
-              onClick={() => void copyContent()}
-              className="flex min-h-10 items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold text-slate-700 disabled:opacity-40"
-            >
-              {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
-              {copied ? 'コピー済み' : '内容をコピー'}
-            </button>
-            <button
-              type="button"
-              disabled={!content}
-              onClick={clearContent}
-              className="flex min-h-10 items-center gap-1.5 rounded-lg border border-rose-200 bg-white px-3 text-xs font-bold text-rose-700 disabled:opacity-40"
-            >
-              <Trash2 className="h-4 w-4" />消去
-            </button>
-          </div>
-        </div>
-
-        {/* Other editors' previews must stay below the editor so live updates never move its input position. */}
-        {remoteLiveDrafts.length > 0 && (
-          <section className="order-8 max-h-80 overflow-y-auto rounded-xl border border-indigo-200 bg-indigo-50/80 p-3" aria-label="他端末の入力内容" aria-live="polite">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h4 className="flex items-center gap-1.5 text-xs font-black text-indigo-950">
-                <Radio className="h-4 w-4 animate-pulse text-indigo-600" />他端末の入力内容
-              </h4>
-              <span className="text-[9px] font-bold text-indigo-700">
-                {remoteLiveDrafts.every((draft) => draft.content === content)
-                  ? '編集欄へリアルタイム反映中'
-                  : 'この端末の入力を保護しながら表示しています'}
-              </span>
-            </div>
-            <div className="mt-2 grid gap-2 md:grid-cols-2">
-              {remoteLiveDrafts.map((draft) => {
-                const cursorLine = draft.content.slice(0, draft.activity.cursorStart).split('\n').length - 1;
-                const latestLine = draft.content.split('\n')[cursorLine]?.trim() || '（空行を編集中）';
-                const reflected = draft.content === content
-                  && saveStatus !== 'saving'
-                  && saveStatus !== 'conflict';
-                return (
-                  <details key={draft.sessionId} className="rounded-lg border border-white bg-white p-2.5 shadow-xs">
-                    <summary className="cursor-pointer list-none">
-                      <span className="flex items-start gap-2">
-                        <span
-                          className={`mt-0.5 h-3 w-3 shrink-0 rounded-full ${draft.activity.typing ? 'animate-pulse' : ''}`}
-                          style={{ backgroundColor: draft.activity.color }}
-                        />
-                        <span className="min-w-0 flex-1">
-                          <span className="flex flex-wrap items-center gap-1 text-[10px] font-black text-slate-800">
-                            {draft.editorName}
-                            {draft.activity.userKey === editorUserKey && <span className="text-indigo-600">（別端末）</span>}
-                            <span className={`rounded-full px-1.5 py-0.5 text-[8px] ${
-                              draft.activity.typing
-                                ? 'bg-indigo-100 text-indigo-700'
-                                : 'bg-slate-100 text-slate-500'
-                            }`}>
-                              {draft.activity.typing ? '入力中' : '入力停止'}
-                            </span>
-                          </span>
-                          <span className="mt-0.5 block truncate text-[9px] text-slate-600">
-                            {getCursorPositionLabel(draft.content, draft.activity)}：{latestLine}
-                          </span>
-                          <span className="mt-0.5 block text-[8px] font-bold text-indigo-600">
-                            {reflected ? '編集欄に反映済み' : '開いて入力内容を確認'}
-                          </span>
-                        </span>
-                      </span>
-                    </summary>
-                    <pre className="mt-2 max-h-44 overflow-auto whitespace-pre-wrap rounded-lg bg-indigo-50 p-2 text-[10px] leading-5 text-slate-800">{draft.content || '（空欄）'}</pre>
-                  </details>
-                );
-              })}
-            </div>
-          </section>
-        )}
-      </div>
-    </section>
-  );
-};

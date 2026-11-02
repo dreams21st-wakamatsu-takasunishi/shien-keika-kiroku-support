@@ -179,7 +179,11 @@ export default function App() {
   const auth = useAuth();
   const remoteMode = auth.configured;
   const organizationId = auth.profile?.organizationId;
-  const [activeTab, setActiveTab] = useState<ActiveTab | 'preview'>('home');
+  const morningPendingRef=useRef(false);
+  const [morningDirty,setMorningDirty]=useState(false);
+  const onMorningDirtyChange=useCallback((dirty:boolean)=>{morningPendingRef.current=dirty;setMorningDirty(dirty);},[]);
+  const [activeTab, setActiveTabState] = useState<ActiveTab | 'preview'>('home');
+  const setActiveTab=(tab:ActiveTab|'preview')=>{if(morningPendingRef.current&&auth.profile&&tab!==activeTab){window.alert('朝礼の入力が未保存です。保存・同時更新の確認を完了してから移動してください。');return;}setActiveTabState(tab);};
   const [learningReviewFocus,setLearningReviewFocus]=useState(0);
   const [learningDirty,setLearningDirty]=useState(false);
   const [meetingDirty, setMeetingDirty] = useState(false);
@@ -197,7 +201,8 @@ export default function App() {
   const [facilityDirty, setFacilityDirty] = useState(false);
   const [trainingDirty,setTrainingDirty] = useState(false);
   const [documentDirty,setDocumentDirty]=useState(false);
-  const [homeWorkspace, setHomeWorkspace] = useState<HomeWorkspace>('menu');
+  const [homeWorkspace, setHomeWorkspaceState] = useState<HomeWorkspace>('menu');
+  const setHomeWorkspace=(workspace:HomeWorkspace)=>{if(morningPendingRef.current&&auth.profile&&workspace!==homeWorkspace){window.alert('朝礼の入力が未保存です。保存・同時更新の確認を完了してから移動してください。');return;}setHomeWorkspaceState(workspace);};
   useEffect(()=>setDiagnosticScreen(activeTab === 'home' && homeWorkspace !== 'menu' ? homeWorkspace : activeTab),[activeTab,homeWorkspace]);
   const [announcementFocusToken, setAnnouncementFocusToken] = useState(0);
   const [recordStatusDate, setRecordStatusDate] = useState(getLocalDateString());
@@ -2259,8 +2264,9 @@ export default function App() {
           setHomeWorkspace(workspace);
           setActiveTab('home');
         }}
-        onOpenFieldOperations={auth.profile?.recorderProfileId ? () => {if(documentDirty){alert('保管書類の入力が未保存です。先に保存するか入力を戻してください。');return;}if(trainingDirty&&!window.confirm('法定研修の入力が未保存です。送迎画面へ移動しますか？'))return;setFieldOperationsOpen(true);} : undefined}
+        onOpenFieldOperations={auth.profile?.recorderProfileId ? () => {if(morningPendingRef.current){alert('朝礼の入力が未保存です。保存・同時更新の確認を完了してから移動してください。');return;}if(documentDirty){alert('保管書類の入力が未保存です。先に保存するか入力を戻してください。');return;}if(trainingDirty&&!window.confirm('法定研修の入力が未保存です。送迎画面へ移動しますか？'))return;setFieldOperationsOpen(true);} : undefined}
         onSignOut={remoteMode ? async () => {
+          if(morningPendingRef.current){window.alert('朝礼の入力が未保存です。保存・同時更新の確認を完了してからログアウトしてください。');return;}
           if(learningDirty&&!window.confirm('Dレッスン管理の変更が未保存です。破棄してログアウトしますか？'))return;
           if(documentDirty){alert('保管書類の入力が未保存です。先に保存するか入力を戻してください。');return;}
           sessionStorage.removeItem('support-record-list-view-v1');
@@ -2268,7 +2274,7 @@ export default function App() {
         } : undefined}
         onSwitchUser={remoteMode?async()=>{
           await switchUserSafely({
-            dirtyAreas:[trainingDirty?'法定研修':'',activityDirty?'活動・指導案':'',facilityDirty?'施設業務':'',meetingDirty?'会議':'',documentDirty?'保管書類':'',learningDirty?'Dレッスン管理':''].filter(Boolean),
+            dirtyAreas:[morningDirty?'朝礼':'',trainingDirty?'法定研修':'',activityDirty?'活動・指導案':'',facilityDirty?'施設業務':'',meetingDirty?'会議':'',documentDirty?'保管書類':'',learningDirty?'Dレッスン管理':''].filter(Boolean),
             prepare:prepareUserSwitchRef.current,
             signOut:auth.signOut,
             reset:()=>{
@@ -2416,6 +2422,8 @@ export default function App() {
             onHandoverStatusChange={handleHandoverStatusChange}
             onSetHandoverConfirmation={handleSetHandoverConfirmation}
             onSaveMorningMeeting={handleSaveMorningMeeting}
+            onMorningDirtyChange={onMorningDirtyChange}
+            onMorningMeetingSynced={record=>setMorningMeetingRecords(previous=>{const old=previous.find(r=>r.date===record.date);if(old&&old.revision>record.revision)return previous;if(old?.revision===record.revision&&old.updatedAt===record.updatedAt)return previous;return [record,...previous.filter(r=>r.date!==record.date)].sort((a,b)=>b.date.localeCompare(a.date));})}
             onSaveMorningMeetingTemplate={handleSaveMorningMeetingTemplate}
             onArchiveMorningMeetingTemplate={handleArchiveMorningMeetingTemplate}
             onSetMorningMeetingConfirmation={handleSetMorningMeetingConfirmation}

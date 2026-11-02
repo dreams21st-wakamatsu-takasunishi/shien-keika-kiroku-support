@@ -407,6 +407,8 @@ function mapMorningMeetingRecord(row: any): MorningMeetingRecord {
   return {
     date: row.meeting_date,
     content: row.content || '',
+    sectionDocument: row.section_document || undefined,
+    sectionRevisions: row.section_revisions || undefined,
     revision: Number(row.revision || 1),
     updatedByName: row.updated_by_name || undefined,
     updatedByRecorderId: row.updated_by_recorder_profile_id || undefined,

@@ -125,6 +125,8 @@ interface HomeScreenProps {
   onHandoverStatusChange: (itemId: string, status: HandoverStatus) => Promise<void> | void;
   onSetHandoverConfirmation: (confirmation: HandoverConfirmation, confirmed: boolean) => Promise<void> | void;
   onSaveMorningMeeting: (record: MorningMeetingRecord) => Promise<void> | void;
+  onMorningMeetingSynced?: (record:MorningMeetingRecord)=>void;
+  onMorningDirtyChange?: (dirty:boolean)=>void;
   onSaveMorningMeetingTemplate: (template: MorningMeetingTemplate) => Promise<void> | void;
   onArchiveMorningMeetingTemplate: (templateId: string) => Promise<void> | void;
   onSetMorningMeetingConfirmation: (confirmation: MorningMeetingConfirmation, confirmed: boolean) => Promise<void> | void;
@@ -229,6 +231,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onHandoverStatusChange,
   onSetHandoverConfirmation,
   onSaveMorningMeeting,
+  onMorningMeetingSynced,
+  onMorningDirtyChange,
   onSaveMorningMeetingTemplate,
   onArchiveMorningMeetingTemplate,
   onSetMorningMeetingConfirmation,
@@ -266,7 +270,9 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onSaveSchool,
   onUpdateTransportStatus,
 }) => {
-  const [communicationView, setCommunicationView] = useState<CommunicationView>('announcements');
+  const [communicationView, setCommunicationViewState] = useState<CommunicationView>('announcements');
+  const [morningPending,setMorningPending]=useState(false);
+  const setCommunicationView=(view:CommunicationView)=>{if(morningPending&&view!=='morning'){window.alert('朝礼の入力が未保存です。保存・同時更新の確認を完了してから移動してください。');return;}setCommunicationViewState(view);};
   const [todayWorkLaunch, setTodayWorkLaunch] = useState<{
     date: string;
     view: 'placement' | 'transport';
@@ -654,6 +660,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
                   canManageTemplates={canManageCommunications}
                   dailySummary={morningDailySummary}
                   onSave={onSaveMorningMeeting}
+                  onSynced={onMorningMeetingSynced}
+                  onDirtyChange={dirty=>{setMorningPending(dirty);onMorningDirtyChange?.(dirty);}}
                   onSaveTemplate={onSaveMorningMeetingTemplate}
                   onArchiveTemplate={onArchiveMorningMeetingTemplate}
                   onSetConfirmation={onSetMorningMeetingConfirmation}

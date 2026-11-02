@@ -1,5 +1,16 @@
 @import "tailwindcss";
 
+.morning-workspace{min-width:0;overflow:hidden;border:1px solid #cbd5e1;border-radius:1rem;background:white}
+.morning-fixed-status{display:flex;align-items:center;gap:.75rem;min-height:3.5rem;max-height:3.5rem;overflow:hidden;padding:.5rem .75rem;border:1px solid #cbd5e1;border-radius:.75rem;background:#f8fafc}
+.morning-edit-layout{display:grid;gap:1rem;min-width:0}
+.morning-preview-pane,.morning-input-pane{min-width:0}
+.morning-preview-pane{display:none;padding:1rem;border:1px solid #cbd5e1;border-radius:.75rem;background:#f8fafc}
+.morning-edit-layout[data-mode="preview"] .morning-preview-pane{display:block}
+.morning-edit-layout[data-mode="preview"] .morning-input-pane{display:none}
+.morning-preview-scroll{max-height:65dvh;overflow:auto;scroll-padding:1rem}
+.morning-mobile-tabs{display:flex;gap:.25rem}
+@media(min-width:1100px){.morning-edit-layout{grid-template-columns:minmax(0,1fr) minmax(0,1.05fr);align-items:start}.morning-preview-pane{display:block!important;position:sticky;top:1rem}.morning-input-pane{display:block!important}.morning-mobile-tabs{display:none}}
+
 /* The editor floats within the workspace, never over its save/close controls. */
 .operations-timeline-row { display: grid; grid-template-columns: 132px minmax(0, 1fr); }
 .operations-timeline-row > :last-child { min-width: 0; }

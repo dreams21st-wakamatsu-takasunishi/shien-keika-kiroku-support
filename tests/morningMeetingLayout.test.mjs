@@ -1,47 +1,18 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
-import test from 'node:test';
-import ts from 'typescript';
-
-const source = await readFile(new URL('../src/components/MorningMeetingPanel.tsx', import.meta.url), 'utf8');
-const ast = ts.createSourceFile('MorningMeetingPanel.tsx', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
-const elements = [];
-function visit(node) {
-  if (ts.isJsxElement(node) || ts.isJsxSelfClosingElement(node)) elements.push(node);
-  ts.forEachChild(node, visit);
-}
-visit(ast);
-const opening = (node) => ts.isJsxElement(node) ? node.openingElement : node;
-const attribute = (node, name) => {
-  const attr = opening(node).attributes.properties.find((item) => ts.isJsxAttribute(item) && item.name.text === name);
-  return attr?.initializer && ts.isStringLiteral(attr.initializer) ? attr.initializer.text : undefined;
-};
-const order = (node) => Number(attribute(node, 'className')?.match(/\border-(\d+)\b/)?.[1]);
-const flexParent = (node) => {
-  for (let parent = node.parent; parent; parent = parent.parent) {
-    if (ts.isJsxElement(parent) && attribute(parent, 'className')?.includes('flex flex-col')) return parent;
-  }
-};
-const editor = elements.find((node) => attribute(node, 'aria-label') === '朝礼記録の入力');
-const preview = elements.find((node) => attribute(node, 'aria-label') === '他端末の入力内容');
-const collaboration = elements.find((node) => attribute(node, 'id') === 'morning-collaboration-status');
-
-test('live preview stays after the editor in both DOM and flex ordering', () => {
-  assert.ok(editor && preview, 'the editor and remote preview must be identifiable');
-  assert.ok(preview.pos > editor.pos, 'remote content must not precede the editor in the DOM');
-  assert.equal(flexParent(preview), flexParent(editor));
-  assert.ok(order(preview) > order(editor.parent), 'remote previews must not push the editor down');
+import {readFileSync} from 'node:fs';import test from 'node:test';
+const source=readFileSync('src/components/MorningMeetingPanel.tsx','utf8'),css=readFileSync('src/index.css','utf8');
+test('morning preview and input have dedicated panes; live drafts never insert blocks above the input',()=>{
+ assert(source.includes('aria-label="朝礼の仕上がりプレビュー"'));assert(source.includes('aria-label="朝礼の項目入力"'));
+ assert(source.indexOf('aria-label="朝礼の仕上がりプレビュー"')<source.indexOf('aria-label="朝礼の項目入力"'));
+ assert(source.includes('data-morning-preview'));assert(!source.includes('aria-label="他端末の入力内容"'));
 });
-
-test('expanding collaborator details also happens below the input', () => {
-  assert.ok(collaboration);
-  assert.equal(flexParent(collaboration), flexParent(editor));
-  assert.ok(order(collaboration) > order(editor.parent));
+test('collaboration status has a fixed height and preview has bounded internal scrolling',()=>{
+ assert(source.includes('id="morning-collaboration-status"'));assert(css.includes('max-height:3.5rem'));
+ assert(css.includes('.morning-preview-scroll{max-height:65dvh;overflow:auto'));assert(css.includes('@media(min-width:1100px)'));
+ assert(source.includes('aria-label="朝礼の表示切り替え"'));
 });
-
-test('remote content remains available with bounded internal scrolling', () => {
-  assert.equal(attribute(preview, 'aria-live'), 'polite');
-  assert.match(attribute(preview, 'className'), /\bmax-h-80\b/);
-  assert.match(attribute(preview, 'className'), /\boverflow-y-auto\b/);
-  assert.equal(attribute(editor, 'aria-describedby'), 'morning-collaboration-status');
+test('each edit saves only its field, with revision checking, preserved input and explicit conflict choices',()=>{
+ assert(source.includes('saveMorningSection(props.date,key,edit.text,edit.expected)'));
+ assert(source.includes('acknowledgeMorningSave'));assert(source.includes('確認して自分の内容を保存'));
+ assert(source.includes('最新内容を使用'));assert(source.includes('beforeunload'));assert(source.includes('if(mounted.current&&completed)'));
 });

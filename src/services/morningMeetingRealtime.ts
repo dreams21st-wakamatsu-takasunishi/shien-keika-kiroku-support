@@ -234,7 +234,8 @@ export function createMorningMeetingRealtime(
     send(event: string, payload: Record<string, unknown>) {
       if (!running) return;
       const target = typeof payload.targetSessionId === 'string' ? payload.targetSessionId : '';
-      pending.set(JSON.stringify([event, target]), { event, payload });
+      const field = typeof payload.fieldKey === 'string' ? payload.fieldKey : '';
+      pending.set(JSON.stringify([event, target, field]), { event, payload });
       flushBroadcasts();
     },
     track(activity: Record<string, unknown>) {

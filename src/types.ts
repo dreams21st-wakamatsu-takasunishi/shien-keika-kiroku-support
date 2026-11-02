@@ -937,7 +937,12 @@ export interface MorningMeetingRecord {
   updatedByRecorderId?: string;
   createdAt: string;
   updatedAt: string;
+  sectionDocument?: MorningSectionDocument;
+  sectionRevisions?: Record<MorningSectionKey, number>;
 }
+
+export type MorningSectionKey = 'legacy'|'plan'|'attendance'|'transport'|'children'|'staff'|'safety';
+export type MorningSectionDocument = Record<MorningSectionKey,string>;
 
 export interface MorningMeetingTemplate {
   id: string;

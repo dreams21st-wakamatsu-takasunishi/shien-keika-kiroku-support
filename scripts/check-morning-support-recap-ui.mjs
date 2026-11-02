@@ -12,6 +12,8 @@ async function check(page,url){
  const errors=[];page.on('pageerror',e=>errors.push(e.message));
  await page.context().route('https://*.supabase.co/**',route=>route.abort());
  await page.goto(url);
+ await page.getByRole('navigation',{name:'朝礼の入力項目'}).getByRole('button',{name:'自由記入・既存の本文',exact:true}).click();
+ await page.getByText('参照：本日の業務・前回の支援内容',{exact:true}).click();
  const editor=page.getByRole('textbox',{name:'朝礼記録の入力',exact:true});
  const recap=page.getByRole('complementary',{name:'前回の支援の振り返り',exact:true});
  await editor.waitFor();await recap.waitFor();
@@ -37,7 +39,7 @@ async function check(page,url){
  await recap.getByRole('searchbox').fill('');
  await page.setViewportSize({width:1280,height:900});
  const a=await editor.boundingBox(),b=await recap.boundingBox();
- assert(a&&b&&a.x+a.width<=b.x,'desktop recap beside input without overlap');
+ assert(a&&b&&a.y+a.height<=b.y,'desktop recap below editor without overlap');
  await page.screenshot({path:'output/playwright/morning-recap-desktop.png',fullPage:true});
  await page.setViewportSize({width:390,height:844});
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'no mobile overflow');
@@ -45,17 +47,20 @@ async function check(page,url){
  assert(mobileA&&mobileB&&mobileA.y+mobileA.height<=mobileB.y,'mobile recap stacks below editor');
  await page.screenshot({path:'output/playwright/morning-recap-mobile.png',fullPage:true});
  const meetingDate=page.getByLabel('朝礼日',{exact:true});
+ await page.waitForFunction(()=>!document.querySelector('input[aria-label="朝礼日"]').disabled);
  const originalDate=await meetingDate.inputValue();
  await meetingDate.fill('');
  assert(await meetingDate.inputValue()===originalDate,'empty meeting date cannot discard content or crash recap');
  assert(await editor.inputValue()===original,'invalid meeting date leaves editing notes untouched');
  await meetingDate.fill('2026-10-05');
+ await page.getByText('参照：本日の業務・前回の支援内容',{exact:true}).click();
  await recap.getByText(/2026-10-02 \/ 記録あり/).waitFor();
  await meetingDate.fill('2026-10-06');
+ await page.getByText('参照：本日の業務・前回の支援内容',{exact:true}).click();
  await recap.getByText('2026-10-05 / 記録あり 0名',{exact:true}).waitFor();
  assert(await recap.getByText('この日の支援記録はありません。',{exact:true}).count()===1,'one empty-day notice without silent fallback to other dates');
  assert(await recap.getByRole('region').count()===0,'empty day has no child rows');
  assert(errors.length===0,errors.join('\n'));
- return {passed:true,cases:['previous day defaults','child source excerpts','negation preserved','approval labels','recorded children only','source expansion preserves notes','search while editing','search cannot reveal recordless children','invalid meeting date preserves input','Monday to Friday','one empty-day notice','no silent date fallback','desktop side-by-side','mobile stacked without overflow','no backend writes']};
+ return {passed:true,cases:['previous day defaults','child source excerpts','negation preserved','approval labels','recorded children only','source expansion preserves notes','search while editing','search cannot reveal recordless children','invalid meeting date preserves input','Monday to Friday','one empty-day notice','no silent date fallback','recap below editor','mobile stacked without overflow','no backend writes']};
 }
 try{command('open',url.href);command('snapshot');const output=command('run-code',`async(page)=>await (${check.toString()})(page,${JSON.stringify(url.href)})`);const result=output.match(/### Result\s+([\s\S]*?)\s+### Ran/);if(!result||JSON.parse(result[1]).passed!==true)throw Error(`Regression incomplete: ${output}`);console.log(result[1]);}finally{command('close');}

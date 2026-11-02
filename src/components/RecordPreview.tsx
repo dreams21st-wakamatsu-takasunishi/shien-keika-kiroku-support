@@ -9,6 +9,7 @@ import { loadRecordRevisions } from '../services/dataService';
 import { isStructuredWeekdayTemplate } from '../data/weekdayTemplate';
 import { isStructuredHolidayTemplate } from '../data/holidayTemplate';
 import { hasUnifiedRecordAnswers } from '../utils/unifiedRecordSummary';
+import { ParentShareDialog } from './ParentShareDialog';
 
 interface RecordPreviewProps {
   record: SupportRecord;
@@ -43,6 +44,7 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
   const [isDualFormat, setIsDualFormat] = useState(false);
   const [copiedText, setCopiedText] = useState(false);
   const [copiedNarrative, setCopiedNarrative] = useState(false);
+  const [parentShareOpen,setParentShareOpen]=useState(false);
 
   // Jihatsukan Review inputs
   const [jihatsukanComment, setJihatsukanComment] = useState(
@@ -239,6 +241,7 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
         </button>
 
         <div className="flex flex-wrap items-center gap-2">
+          <button type="button" onClick={()=>setParentShareOpen(true)} className="flex items-center gap-1.5 rounded-md border border-teal-300 bg-teal-700 px-3 py-2 text-xs font-bold text-white"><Copy className="h-4 w-4"/>保護者への共有文</button>
           {/* Format Toggle */}
           <button
             onClick={() => setIsDualFormat(!isDualFormat)}
@@ -313,6 +316,7 @@ export const RecordPreview: React.FC<RecordPreviewProps> = ({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {parentShareOpen&&<React.Fragment key={`${organizationId||'local'}:${record.id}`}><ParentShareDialog record={record} remote={Boolean(organizationId)} onClose={()=>setParentShareOpen(false)}/></React.Fragment>}
         {/* Document Preview (A4 Paper view) */}
         <div className="order-2 space-y-4 lg:order-1 lg:col-span-2">
           <div className="bg-slate-200/80 p-4 rounded-xl border border-slate-300 shadow-inner overflow-x-auto">

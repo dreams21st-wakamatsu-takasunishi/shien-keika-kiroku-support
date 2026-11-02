@@ -204,6 +204,21 @@ test('same-topic remount waits for prior cleanup rather than reusing its leaving
   await drain();
 });
 
+test('offline drafts for different morning sections are retained independently', async () => {
+  const context = fixture();
+  context.service.start();
+  context.service.send('section_draft', { fieldKey: 'plan', text: 'old plan' });
+  context.service.send('section_draft', { fieldKey: 'staff', text: 'staff note' });
+  context.service.send('section_draft', { fieldKey: 'plan', text: 'latest plan' });
+  await drain();
+  context.client.created[0].emit('SUBSCRIBED');
+  await drain();
+  assert.deepEqual(context.client.created[0].sends.map(x => [x.payload.fieldKey, x.payload.text]).sort(),
+    [['plan', 'latest plan'], ['staff', 'staff note']]);
+  context.service.stop();
+  await drain();
+});
+
 test('failed presence retries and stop cancels retry, queue, and later callbacks', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const context = fixture();
