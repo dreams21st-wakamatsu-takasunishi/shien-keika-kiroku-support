@@ -11,6 +11,20 @@ import {initialAuditFilters,parseAuditDetail,parseAuditPage,type AuditCursor,typ
 import { parseCredentialOperations, parseCredentialResult, type CredentialAction } from '../learning/accountCredentials';
 import { parseHandoffResult, parseRegistrationConfig, parseRegistrationResult, type HandoffReason, type RegistrationConfig, type RegistrationOperation } from '../learning/studentRegistration';
 import { LessonRequestError } from '../learning/reviewNotice';
+import { parseMockExamCatalog, parseMockExamProblem, type MockExamCatalog, type MockExamProblem, type MockExamAction } from '../learning/mockExamProblems';
+
+export const loadMockExamProblems = async (campusId: string, organizationId: string) =>
+  parseMockExamCatalog(await invoke({ action: 'get', campusId }, 'lesson-mock-exams'), campusId, organizationId);
+export async function changeMockExamProblem(snapshot: MockExamCatalog, action: MockExamAction, item: MockExamProblem, operationId: string) {
+  const normalized = parseMockExamProblem(item);
+  const raw = await invoke<Record<string, unknown>>({ action, campusId: snapshot.campusId, revision: snapshot.revision,
+    fingerprint: snapshot.fingerprint, operationId, confirmed: true, ...(action === 'delete' ? { id: normalized.id } : { item: normalized }) }, 'lesson-mock-exams');
+  const result = parseMockExamCatalog(raw, snapshot.campusId, snapshot.organizationId);
+  const saved = result.catalog.find(row => row.id === normalized.id);
+  if (result.sourceProject !== snapshot.sourceProject || result.revision !== snapshot.revision + 1 || raw.operationId !== operationId
+    || (action === 'delete' ? Boolean(saved) : JSON.stringify(saved) !== JSON.stringify(normalized))) throw Error('配信結果を確認できません。同じ操作で再確認してください。');
+  return result;
+}
 
 export const loadStudentRegistrationConfig = async (childId: string) => parseRegistrationConfig(await invoke({ action: 'configuration', childId }, 'lesson-student-registration'));
 export const registerLessonStudent = async (childId: string, config: RegistrationConfig, operationId: string, campusId: string) => parseRegistrationResult(

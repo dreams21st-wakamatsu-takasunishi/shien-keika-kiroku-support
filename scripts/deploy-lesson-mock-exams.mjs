@@ -1,0 +1,14 @@
+import {readFileSync} from 'node:fs';
+import {resolve} from 'node:path';
+import {checkLinkedProjects,cli,sql,lessonRoot} from './lesson-operation-client.mjs';
+if(process.argv.length!==3 || process.argv[2]!=='--apply-and-deploy') throw Error('Use --apply-and-deploy only after approval for the production update.');
+checkLinkedProjects();
+const context=sql("select to_regprocedure('public.get_lesson_content_context()')::text as context;").rows;
+if(!context[0]?.context) throw Error('Existing content permission context is required.');
+const source=readFileSync(resolve(lessonRoot,'supabase/sql/support_mock_exams.sql'),'utf8');
+sql('begin;'+source.replace(/^begin;\s*/,'').replace(/commit;\s*$/,'')+'rollback;',lessonRoot);
+sql(source,lessonRoot);
+sql("notify pgrst, 'reload schema';",lessonRoot);
+cli(['functions','deploy','support-mock-exams','--no-verify-jwt'],lessonRoot);
+cli(['functions','deploy','lesson-mock-exams','--no-verify-jwt']);
+console.log('Mock-exam catalog schema and two authenticated bridge endpoints deployed. Learner records, Auth, scopes and role permissions were not changed. Publish both frontends separately.');

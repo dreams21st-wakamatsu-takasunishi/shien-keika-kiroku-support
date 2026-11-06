@@ -1,0 +1,103 @@
+import assert from 'node:assert/strict';
+import {randomUUID,randomBytes,createHash} from 'node:crypto';
+import {writeFileSync,mkdirSync} from 'node:fs';
+import {createClient} from '@supabase/supabase-js';
+import {clients,cli,supportRef,lessonRef} from './lesson-operation-client.mjs';
+if(process.argv.length!==3 || process.argv[2]!=='--run-fictional-test') throw Error('Explicit --run-fictional-test required; only isolated fictional records are created and removed.');
+const {support,lesson}=clients(),run=randomUUID(),org=randomUUID(),foreignOrg=randomUUID(),campuses=[`mock-${run}`,`mock-foreign-${run}`];
+const actor={invitation:randomUUID(),email:`mock-staff-${run}@example.com`,password:randomBytes(24).toString('hex')};
+const students=[],device={id:randomUUID(),token:randomBytes(32).toString('hex')};
+const ok=(result,label='fixture operation')=>{if(result.error) throw Error(label+': '+(result.error.code || result.error.context?.status || 'failed'));return result.data;};
+const anon=ref=>JSON.parse(cli(['projects','api-keys','--project-ref',ref,'--reveal','-o','json'])).find(key=>key.name==='anon').api_key;
+const supportAnon=anon(supportRef),lessonAnon=anon(lessonRef);
+const options={auth:{persistSession:false,autoRefreshToken:false}};
+const staff=createClient(`https://${supportRef}.supabase.co`,supportAnon,{...options,global:{headers:{'x-support-device-token':device.token}}});
+const terminal=createClient(`https://${lessonRef}.supabase.co`,lessonAnon,options);
+mkdirSync('output',{recursive:true});
+const manifestPath=`output/mock-exams-live-${run}.json`;
+const manifest=(extra={})=>writeFileSync(manifestPath,JSON.stringify({run,organizationIds:[org,foreignOrg],campuses,staffId:actor.id,recorderId:actor.recorder,invitationId:actor.invitation,deviceId:device.id,students:students.map(student=>({id:student.id,authId:student.auth})),...extra},null,2));
+manifest();
+try {
+  ok(await support.from('organizations').insert([{id:org,name:'模擬試験・隔離検証',device_approval_enabled:true},{id:foreignOrg,name:'模擬試験・別法人隔離検証',device_approval_enabled:true}]));
+  ok(await support.from('member_invitations').insert({id:actor.invitation,organization_id:org,email:actor.email,role:'admin'}));
+  actor.id=ok(await support.auth.admin.createUser({email:actor.email,password:actor.password,email_confirm:true,user_metadata:{display_name:'模擬試験・架空管理者',needs_password_setup:false}})).user.id;manifest();
+  const profile=ok(await support.from('profiles').select('recorder_profile_id').eq('id',actor.id).eq('organization_id',org).single());
+  const existing=ok(await support.from('recorder_profiles').select('id').eq('organization_id',org).eq('auth_user_id',actor.id).maybeSingle());
+  actor.recorder=profile.recorder_profile_id || existing?.id || randomUUID();manifest();
+  if(!profile.recorder_profile_id&&!existing)ok(await support.from('recorder_profiles').insert({id:actor.recorder,organization_id:org,display_name:'模擬試験・架空管理者',auth_user_id:actor.id,individual_login_enabled:true}));
+  ok(await support.from('profiles').update({role:'admin',active:true,recorder_profile_id:actor.recorder}).eq('id',actor.id).eq('organization_id',org));
+  ok(await support.from('organization_devices').insert({id:device.id,organization_id:org,token_hash:createHash('sha256').update(device.token).digest('hex'),label:'模擬試験・架空検証端末',device_kind:'facility_shared',status:'approved',transport_mode_only:false}));
+  ok(await staff.auth.signInWithPassword({email:actor.email,password:actor.password}));
+  assert.equal(ok(await staff.rpc('get_lesson_content_context')).canManageContent,true);
+  for(let i=0;i<2;i++) {
+    const targetOrg=i?foreignOrg:org;
+    ok(await lesson.from('lesson_support_scopes').insert({support_project_ref:supportRef,organization_id:targetOrg,data_table:'user_data',campus_id:campuses[i],enabled:true}));
+    const student={id:`student_mock_${run}_${i}`,password:randomBytes(24).toString('hex'),email:`mock-student-${run}-${i}@example.com`,client:createClient(`https://${lessonRef}.supabase.co`,lessonAnon,options),data:{displayName:'模擬試験・架空児童',campusId:campuses[i],coins:37,mockExamRecords:[{id:'fixture-old-result',net:123}],practiceLogs:[]}};students.push(student);manifest();
+    student.auth=ok(await lesson.auth.admin.createUser({email:student.email,password:student.password,email_confirm:true,user_metadata:{user_data_id:student.id}})).user.id;manifest();
+    ok(await lesson.from('user_data').insert({id:student.id,data:student.data}));
+    ok(await lesson.from('lesson_user_access').insert({auth_user_id:student.auth,user_data_id:student.id,role:'student',scope_type:'all',scope_value:''}));
+    ok(await lesson.from('lesson_support_students').insert({support_project_ref:supportRef,organization_id:targetOrg,data_table:'user_data',campus_id:campuses[i],student_id:student.id,enabled:true}));
+    const session=ok(await student.client.auth.signInWithPassword({email:student.email,password:student.password})).session;
+    if(!i)ok(await terminal.auth.setSession(session));
+  }
+  const call=body=>staff.functions.invoke('lesson-mock-exams',{body,headers:{'x-support-device-token':device.token}});
+  let snapshot=ok(await call({action:'get',campusId:campuses[0]}),'initial catalog');
+  assert.equal(snapshot.catalog.length,8);assert.equal(snapshot.revision,0);
+  const item={id:'round-88',round:88,title:'第88回過去問題',reference:'　架空の検証用問題です。\n　次の段落です。',permissionConfirmed:true,hidden:false};
+  const request=(action,problem)=>({action,campusId:campuses[0],revision:snapshot.revision,fingerprint:snapshot.fingerprint,operationId:randomUUID(),confirmed:true,...(action==='delete'?{id:problem.id}:{item:problem})});
+  const readTerminal=client=>client.from('lesson_mock_exam_catalogs').select('campus_id,catalog,revision').eq('data_table','user_data');
+  const created=request('create',item);snapshot=ok(await call(created),'create');
+  assert.deepEqual(ok(await call(created),'retry'),snapshot);
+  assert.equal((await call({...created,operationId:randomUUID()})).error?.context?.status,409);
+  assert.equal((await call({...request('create',{...item,id:'round-89',round:89,title:'第89回過去問題'}),confirmed:false})).error?.context?.status,400);
+  assert.equal((await call(request('create',item))).error?.context?.status,409,'duplicate round');
+  for(const client of [students[0].client,terminal]) {
+    const rows=ok(await readTerminal(client));assert.equal(rows.length,1);assert.equal(rows[0].campus_id,campuses[0]);assert(rows[0].catalog.some(row=>row.id===item.id));
+  }
+  snapshot=ok(await call(request('update',{...item,reference:'　編集済みの架空本文。\n　段落を保持。'})),'update');
+  assert.equal(ok(await readTerminal(terminal))[0].catalog.find(row=>row.id===item.id).reference,'　編集済みの架空本文。\n　段落を保持。');
+  snapshot=ok(await call(request('delete',{id:'round-78'})),'delete bundled paper');
+  assert(!ok(await call({action:'get',campusId:campuses[0]})).catalog.some(row=>row.id==='round-78'));
+  for(const paper of [...snapshot.catalog])snapshot=ok(await call(request('delete',paper)),'delete catalog item');
+  assert.deepEqual(ok(await readTerminal(students[0].client))[0].catalog,[],'empty catalog retained');
+  assert.deepEqual(ok(await readTerminal(terminal))[0].catalog,[],'second terminal sees same empty catalog');
+  assert.deepEqual(ok(await call({action:'get',campusId:campuses[0]})).catalog,[],'defaults never resurrect');
+  assert.equal((await call({action:'get',campusId:campuses[1]})).error?.context?.status,403,'foreign scope');
+  assert.equal((await call({action:'get',campusId:'public'})).error?.context?.status,400);
+  ok(await lesson.from('lesson_mock_exam_catalogs').insert({data_table:'user_data',campus_id:campuses[1],support_project_ref:supportRef,organization_id:foreignOrg,catalog:[],revision:1}));
+  assert.deepEqual(ok(await readTerminal(students[0].client)).map(row=>row.campus_id),[campuses[0]],'learner own campus only');
+  assert.deepEqual(ok(await readTerminal(students[1].client)).map(row=>row.campus_id),[campuses[1]],'foreign learner cannot read first campus');
+  assert((await students[0].client.from('lesson_mock_exam_catalogs').update({catalog:[]}).eq('campus_id',campuses[0])).error,'student cannot write');
+  assert((await students[0].client.rpc('manage_support_mock_exams',{p:{action:'get'}})).error,'student cannot call service RPC');
+  const anonymous=createClient(`https://${supportRef}.supabase.co`,supportAnon,options);
+  assert.equal((await anonymous.functions.invoke('lesson-mock-exams',{body:{action:'get',campusId:campuses[0]}})).error?.context?.status,401);
+  assert((await createClient(`https://${lessonRef}.supabase.co`,lessonAnon,options).from('lesson_mock_exam_catalogs').select('campus_id')).error,'anonymous read denied');
+  assert.equal((await fetch(`https://${lessonRef}.supabase.co/functions/v1/support-mock-exams`,{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'})).status,401,'bridge secret required');
+  ok(await support.from('organization_devices').update({status:'revoked'}).eq('id',device.id).eq('organization_id',org));
+  const revokedContext=await staff.rpc('get_lesson_content_context');
+  const revokedResponse=await call({action:'get',campusId:campuses[0]});
+  if(revokedContext.error || revokedContext.data?.canManageContent!==true) assert.equal(revokedResponse.error?.context?.status,403,'existing device policy enforced');
+  else assert.deepEqual(ok(revokedResponse).catalog,[],'privileged email login retains existing content-context policy');
+  ok(await support.from('organization_devices').update({status:'approved'}).eq('id',device.id).eq('organization_id',org));
+  ok(await support.from('profiles').update({role:'manager'}).eq('id',actor.id).eq('organization_id',org));
+  assert.equal((await call({action:'get',campusId:campuses[0]})).error?.context?.status,403,'dedicated permission required');
+  ok(await support.from('profiles').update({role:'admin',active:false}).eq('id',actor.id).eq('organization_id',org));
+  assert.equal((await call({action:'get',campusId:campuses[0]})).error?.context?.status,403,'inactive account denied');
+  for(const student of students)assert.deepEqual(ok(await lesson.from('user_data').select('data').eq('id',student.id).single()).data,student.data,'learner results untouched');
+  manifest({passed:true});console.log('PASS: live isolated APIs, create/update/delete, retry/conflict/duplicate, two terminals, empty catalog, learner RLS, existing device policy parity, anonymous/foreign/inactive/permission denial; fictional results unchanged.');
+} finally {
+  const failures=[],clean=async(query,label)=>{try{ok(await query,label);}catch{failures.push(label);}};
+  await staff.auth.signOut({scope:'local'});await terminal.auth.signOut({scope:'local'});
+  for(const table of ['lesson_mock_exam_operations','lesson_mock_exam_catalogs','lesson_support_students','lesson_support_scopes'])await clean(lesson.from(table).delete().in('campus_id',campuses),'source '+table);
+  for(const student of students){await student.client.auth.signOut({scope:'local'});await clean(lesson.from('lesson_user_access').delete().eq('user_data_id',student.id),'fictional access');if(student.auth)await clean(lesson.auth.admin.deleteUser(student.auth),'fictional learner Auth');await clean(lesson.from('user_data').delete().eq('id',student.id),'fictional learner data');}
+  await clean(support.from('organization_devices').delete().eq('id',device.id).eq('organization_id',org),'fictional device');
+  if(actor.id)await clean(support.auth.admin.deleteUser(actor.id),'fictional staff Auth');
+  if(actor.recorder)await clean(support.from('recorder_profiles').delete().eq('id',actor.recorder).eq('organization_id',org),'fictional recorder');
+  await clean(support.from('member_invitations').delete().eq('id',actor.invitation),'fictional invitation');
+  await clean(support.from('organizations').delete().in('id',[org,foreignOrg]),'fictional organizations');
+  if(failures.length){manifest({cleanupFailures:failures});throw Error('Fixture cleanup needs attention: '+failures.join(', '));}
+  assert.equal(ok(await lesson.from('lesson_support_scopes').select('campus_id').in('campus_id',campuses)).length,0);
+  assert.equal(ok(await lesson.from('lesson_mock_exam_catalogs').select('campus_id').in('campus_id',campuses)).length,0);
+  assert.equal(ok(await support.from('organizations').select('id').in('id',[org,foreignOrg])).length,0);
+  manifest({cleanupConfirmed:true});console.log('PASS: exact-ID fictional fixture cleanup confirmed; no operational learners, accounts or campus permissions changed.');
+}
