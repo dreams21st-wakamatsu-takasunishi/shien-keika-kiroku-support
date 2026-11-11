@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { ActivityPlanSheet } from '../components/ActivityPlanSheet';
-import { activityTemplates, copyActivity, emptyActivity, restoreActivityDraft, validateActivity } from './activityPlans';
+import { activitySupportKind, activityTemplates, activityText, copyActivity, emptyActivity, restoreActivityDraft, validateActivity } from './activityPlans';
 
 test('sheet matches reference headings, preserves all content and escapes user text', () => {
   const p = copyActivity(activityTemplates[0]);
@@ -14,7 +14,7 @@ test('sheet matches reference headings, preserves all content and escapes user t
   assert.ok(html.includes('&lt;script&gt;概要&lt;/script&gt;'));
   assert.ok(html.includes('往復時間　0 分程度'));
   const flow = html.split('class="activity-sheet-flow"')[1].split('</table>')[0];
-  assert.equal((flow.match(/<tr>/g) || []).length, 13, 'one heading and twelve reference rows');
+  assert.equal((flow.match(/<tr>/g) || []).length, 4, 'one heading and the three actual steps');
 });
 
 test('old saved plans remain readable without fabricating new numbers', () => {
@@ -35,9 +35,38 @@ test('optional reference fields validate and survive draft restore', () => {
   p.content.staffCount = '2'; p.content.travelMinutes = '1441'; assert.ok(validateActivity(p).some((e) => e.includes('往復時間')));
 });
 
-test('long plans retain every step beyond the twelve reference blank rows', () => {
+test('long plans retain every step', () => {
   const p = copyActivity(activityTemplates[0]);
   p.content.steps = Array.from({ length: 40 }, (_, i) => ({ id: String(i), title: `指導内容${i + 1}`, support: `留意点${i + 1}`, minutes: 10 }));
   const html = renderToStaticMarkup(createElement(ActivityPlanSheet, { plan: p }));
   for (let i = 1; i <= 40; i++) assert.ok(html.includes(`指導内容${i}`) && html.includes(`留意点${i}`));
+});
+
+test('empty print rows do not create spare space or shift later print times', () => {
+  const p = emptyActivity();
+  const print = () => renderToStaticMarkup(createElement(ActivityPlanSheet, { plan: p }));
+  assert.doesNotMatch(print(), /activity-sheet-flow|最初の流れを追加|activity-sheet-jump/);
+  p.content.steps = [{id:'blank',title:'',minutes:10,support:''},{id:'used',title:'制作',minutes:15,support:''}];
+  const html = print();
+  assert.doesNotMatch(html, /step:blank/);
+  assert.match(html, /14:00～14:15/);
+  assert.equal(p.content.steps.length, 2);
+});
+
+test('free-form preparations coexist with saved checklists and legacy target; unified support item retains custom text', () => {
+  const p = copyActivity(activityTemplates[0]);
+  p.content.target = '従来の対象情報';
+  p.content.preparationText = '色紙\nはさみ <2本>';
+  p.content.supportItem = '手先の操作';
+  assert.equal(activitySupportKind(' 運動 '), '運動');
+  assert.equal(activitySupportKind('手先の操作'), 'その他');
+  assert.deepEqual(validateActivity(p), []);
+  assert.deepEqual(restoreActivityDraft(JSON.stringify(p)), p);
+  const html = renderToStaticMarkup(createElement(ActivityPlanSheet, {plan:p}));
+  assert.match(html, /はさみ &lt;2本&gt;/);
+  assert.match(html, /従来の対象情報/);
+  assert.match(html, /□ 材料/);
+  assert.match(activityText(p), /手先の操作/);
+  assert.match(activityText(p), /色紙\nはさみ <2本>/);
+  assert.equal(restoreActivityDraft(JSON.stringify({...p,content:{...p.content,preparationText:[]}})), null);
 });

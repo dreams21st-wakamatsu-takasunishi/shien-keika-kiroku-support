@@ -50,6 +50,14 @@
 .activity-preview-scroll { min-height: 160px; max-height: 40dvh; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 14px; }
 .activity-preview-scroll .activity-sheet { min-width: 0; max-width: none; }
 .activity-preview-scroll [data-activity-preview][data-active] { background: #fff1b8; box-shadow: inset 0 0 0 2px #0f766e; outline: 2px solid transparent; outline-offset: -2px; min-height: 1.5em; }
+.activity-sheet-jump { display: block; width: 100%; min-height: 1.5em; color: inherit; font: inherit; text-align: inherit; white-space: inherit; overflow-wrap: anywhere; cursor: pointer; }
+.activity-sheet-jump.is-inline { display: inline; width: auto; }
+.activity-sheet-jump:hover:not(:disabled) { text-decoration: underline; text-decoration-color: #0f766e; }
+.activity-sheet-jump:focus-visible { outline: 2px solid #0f766e; outline-offset: -2px; }
+.activity-sheet-jump:disabled { cursor: default; }
+.activity-sheet-empty { color: #475569; font-size: .9em; }
+.activity-sheet :is(th,td):has(> .activity-sheet-jump) { position: relative; }
+.activity-sheet :is(th,td) > .activity-sheet-jump::after { content: ""; position: absolute; inset: 0; }
 .activity-auto-textarea { overflow-y: auto; max-width: 100%; }
 .activity-input-pane [role="tablist"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 @media (min-width: 1024px) {
@@ -67,7 +75,7 @@
 .activity-sheet th { font-weight: 500; text-align: center; vertical-align: middle; }
 .activity-sheet .activity-sheet-title { font-weight: 700; font-size: 20px; text-decoration: underline; padding: 10px; }
 .activity-sheet-counts { text-align: center; }
-.activity-sheet .activity-sheet-preparations { height: 70px; }
+.activity-sheet .activity-sheet-preparations { min-height: 36px; }
 .activity-sheet-flow, .activity-sheet-reflection { margin-top: -1px; }
 .activity-sheet-flow td { height: 36px; }
 .activity-sheet-flow small { display: block; font-size: 10px; margin-top: 2px; }
@@ -105,7 +113,6 @@
   .activity-print-only .activity-sheet-title { font-size: 16pt; }
   .activity-print-only .activity-sheet th, .activity-print-only .activity-sheet td { padding: 1.5mm 2mm; }
   .activity-print-only .activity-sheet-flow td { height: 13mm; }
-  .activity-print-only .activity-sheet-preparations { height: 20mm; }
   .activity-print-only .activity-sheet-reflection td { height: 16mm; }
   .activity-print-only .activity-sheet-flow small { font-size: 8pt; }
   .activity-sheet thead { display: table-header-group; }

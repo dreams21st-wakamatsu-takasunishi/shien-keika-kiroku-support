@@ -6,7 +6,7 @@ export interface ActivityContent {
   goal: string; target: string; location: string; leader: string; startTime: string;
   considerations: string; safety: string; roles: string; reflection: string; nextTime: string;
   steps: ActivityStep[]; preparations: ActivityPreparation[];
-  supportItem?: string; summary?: string; staffCount?: string; childCount?: string; travelMinutes?: string;
+  supportItem?: string; summary?: string; preparationText?: string; staffCount?: string; childCount?: string; travelMinutes?: string;
 }
 export interface ActivityPlan {
   id: string; organizationId: string; title: string; kind: typeof activityKinds[number]; date: string;
@@ -15,6 +15,11 @@ export interface ActivityPlan {
 }
 export function japanToday() {
   return new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Tokyo' }).format(new Date());
+}
+export const activitySupportItem = (plan: ActivityPlan) => plan.content.supportItem?.trim() || plan.kind;
+export function activitySupportKind(value: string): ActivityPlan['kind'] {
+  const input = value.trim();
+  return activityKinds.find(kind => kind === input) ?? 'その他';
 }
 export function emptyActivity(): ActivityPlan {
   return { id: '', organizationId: '', title: '', kind: 'その他', date: japanToday(), status: '下書き', isTemplate: false, revision: 0, updatedAt: '',
@@ -46,6 +51,7 @@ export function validateActivity(plan: ActivityPlan): string[] {
   if (!plan.isTemplate && !validDate(plan.date)) errors.push('実施日を正しく入力してください。');
   if (plan.content.startTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(plan.content.startTime)) errors.push('開始時刻を正しく入力してください。');
   if (Object.values(plan.content).some((v) => typeof v === 'string' && v.length > 10000)) errors.push('各文章は10,000文字以内で入力してください。');
+  if (plan.content.preparationText !== undefined && typeof plan.content.preparationText !== 'string') errors.push('用意するものは文章で入力してください。');
   for (const key of ['staffCount', 'childCount', 'travelMinutes'] as const) {
     const value = plan.content[key];
     if (value !== undefined && (typeof value !== 'string' || (value !== '' && (!/^\d{1,4}$/.test(value) || Number(value) > (key === 'travelMinutes' ? 1440 : 1000))))) errors.push('人数は0～1000名、往復時間は0～1440分の整数で入力してください。');
@@ -69,10 +75,10 @@ export function activityTimeline(plan: ActivityPlan) {
 }
 export function activityText(plan: ActivityPlan) {
   const c = plan.content; const times = activityTimeline(plan);
-  return [`活動・指導案：${plan.title}`, `${plan.isTemplate ? 'ひな形' : `実施日：${plan.date}`}／${plan.kind}／${plan.status}`, `対象：${c.target || '未設定'}／場所：${c.location || '未設定'}／主担当：${c.leader || '未設定'}`,
-    `支援項目：${c.supportItem || plan.kind}／内容：${c.summary || '未設定'}`, `職員人数：${c.staffCount || '未設定'}名／児童人数：${c.childCount || '未設定'}名／往復時間：${c.travelMinutes || '未設定'}分`,
+  return [`活動・指導案：${plan.title}`, `${plan.isTemplate ? 'ひな形' : `実施日：${plan.date}`}／${plan.status}`, `${c.target ? `対象：${c.target}／` : ''}場所：${c.location || '未設定'}／主担当：${c.leader || '未設定'}`,
+    `支援項目：${activitySupportItem(plan)}／内容：${c.summary || '未設定'}`, `職員人数：${c.staffCount || '未設定'}名／児童人数：${c.childCount || '未設定'}名／往復時間：${c.travelMinutes || '未設定'}分`,
     `ねらい\n${c.goal}`, `活動の流れ（計${activityDuration(plan)}分）`, ...c.steps.map((s, i) => `${i + 1}. ${s.stage ? `${s.stage} ` : ''}${times[i]} ${s.title}\n   支援・配慮：${s.support || '未設定'}`),
-    '準備物', ...c.preparations.map((p) => `${p.done ? '確認済' : '未確認'}：${p.name} ${p.quantity}／担当：${p.owner || '未設定'}`),
+    `用意するもの\n${c.preparationText || ''}`, ...c.preparations.map((p) => `${p.done ? '確認済' : '未確認'}：${p.name} ${p.quantity}／担当：${p.owner || '未設定'}`),
     `役割分担\n${c.roles}`, `参加しやすくする配慮\n${c.considerations}`, `安全・緊急時の対応\n${c.safety}`, `振り返り\n${c.reflection}`, `次回に活かすこと\n${c.nextTime}`].join('\n\n');
 }
 export function restoreActivityDraft(raw: string | null): ActivityPlan | null {
@@ -81,7 +87,7 @@ export function restoreActivityDraft(raw: string | null): ActivityPlan | null {
     const p = JSON.parse(raw) as ActivityPlan; const c = p.content;
     if (!c || !activityKinds.includes(p.kind) || !activityStatuses.includes(p.status) || typeof p.title !== 'string' || typeof p.id !== 'string' || typeof p.date !== 'string' || typeof p.isTemplate !== 'boolean' || !Number.isInteger(p.revision) || p.revision < 0) return null;
     if (['goal','target','location','leader','startTime','considerations','safety','roles','reflection','nextTime'].some((k) => typeof c[k as keyof ActivityContent] !== 'string')) return null;
-    if (['supportItem','summary','staffCount','childCount','travelMinutes'].some((k) => c[k as keyof ActivityContent] !== undefined && typeof c[k as keyof ActivityContent] !== 'string')) return null;
+    if (['supportItem','summary','preparationText','staffCount','childCount','travelMinutes'].some((k) => c[k as keyof ActivityContent] !== undefined && typeof c[k as keyof ActivityContent] !== 'string')) return null;
     if (!Array.isArray(c.steps) || c.steps.length > 40 || c.steps.some((s) => typeof s.id !== 'string' || typeof s.title !== 'string' || typeof s.support !== 'string' || !Number.isFinite(s.minutes) || (s.stage !== undefined && (typeof s.stage !== 'string' || s.stage.length > 100)))) return null;
     if (!Array.isArray(c.preparations) || c.preparations.length > 80 || c.preparations.some((s) => ['id','name','quantity','owner'].some((k) => typeof s[k as keyof ActivityPreparation] !== 'string') || typeof s.done !== 'boolean')) return null;
     return p;

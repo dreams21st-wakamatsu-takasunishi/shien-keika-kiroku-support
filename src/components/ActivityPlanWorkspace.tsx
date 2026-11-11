@@ -5,7 +5,7 @@ import { ArrowLeft, ArrowRight, BookOpenCheck, ChevronDown, Copy, Plus, Printer,
 import { EditorActionBar } from './EditorActionBar';
 import { ActivityPlanSheet } from './ActivityPlanSheet';
 import { listActivityPlans, saveActivityPlan } from '../services/activityPlanService';
-import { activityDuration, activityKinds, activityStatuses, activityTemplates, activityText, activityTimeline, copyActivity, emptyActivity, restoreActivityDraft, validateActivity, type ActivityContent, type ActivityPlan } from '../utils/activityPlans';
+import { activityDuration, activityKinds, activityStatuses, activitySupportItem, activitySupportKind, activityTemplates, activityText, activityTimeline, copyActivity, emptyActivity, restoreActivityDraft, validateActivity, type ActivityContent, type ActivityPlan } from '../utils/activityPlans';
 import { activityDraftStorageKey, installActivityDraftCloseWarning } from '../utils/activityDraftWarning';
 import { growTextareaToContent } from '../utils/textareaSizing';
 import { ActivityTrafficWindow } from './ActivityTrafficWindow';
@@ -13,19 +13,17 @@ import { ActivityTrafficWindow } from './ActivityTrafficWindow';
 const field = 'mt-1 w-full min-h-11 rounded-xl border border-slate-300 bg-white px-3 py-2 text-base text-slate-950 focus:border-teal-500';
 const button = 'min-h-11 rounded-xl border border-slate-300 bg-white px-3 py-2 text-sm font-bold text-slate-700 disabled:opacity-40';
 const editorSteps = [
-  {id:'基本情報',description:'活動名・ねらい・対象を決める'},
+  {id:'基本情報',description:'活動の内容・用意するもの・実施条件を決める'},
   {id:'活動の流れ',description:'順番・所要時間・支援を組み立てる'},
   {id:'準備・安全',description:'準備物・役割・安全を確認する'},
   {id:'振り返り',description:'実施後の気づきを次回につなげる'},
 ] as const;
 type EditorStep = typeof editorSteps[number]['id'];
-const previewFields: Record<string, string> = {
-  '活動名（必須）': 'title', '種類': 'supportItem', '実施日（必須）': 'date', '状態': 'status',
-  '活動のねらい': 'goal', '支援項目': 'supportItem', '内容（概要）': 'summary',
-  '対象・人数': 'targetLocation', '活動場所': 'targetLocation', '主担当': 'leader', '開始時刻': 'startTime',
-  '職員人数（名）': 'staffCount', '児童人数（名）': 'childCount', '往復時間（分）': 'travelMinutes',
-  '職員の役割分担': 'roles', '参加しやすくする配慮': 'considerations', '安全確認・緊急時の対応': 'safety',
-  '実施後の振り返り': 'reflection', '次回に活かすこと': 'nextTime',
+const tabForPreview = (key: string): EditorStep => {
+  if (key.startsWith('step:') || key === 'addStep') return '活動の流れ';
+  if (key.startsWith('prep:') || ['roles','considerations','safety'].includes(key)) return '準備・安全';
+  if (key === 'reflection' || key === 'nextTime') return '振り返り';
+  return '基本情報';
 };
 type Props = { organizationId: string; userId: string; onDirtyChange: (dirty: boolean) => void; onOpenTrafficCost: () => void; onOpenCalendar: () => void };
 export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, onOpenCalendar }: Props) {
@@ -62,15 +60,25 @@ export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, o
   const [loading, setLoading] = useState(true);
   const [preview, setPreview] = useState(true);
   const [activeField, setActiveField] = useState<string | null>(null);
+  const [requestedInput, setRequestedInput] = useState<string | null>(null);
   const previewScrollRef = useRef<HTMLDivElement>(null);
   const highlightInput = (event: React.FocusEvent<HTMLFieldSetElement>) => {
     const control = event.target;
     if (!(control instanceof HTMLElement) || !control.matches('input,textarea,select')) return;
-    const label = control.getAttribute('aria-label') || Array.from(control.closest('label')?.childNodes || []).filter(node => node.nodeType === Node.TEXT_NODE).map(node => node.textContent).join('').trim();
     const preparation = control.closest<HTMLElement>('[data-preview-preparation]')?.dataset.previewPreparation;
-    const step = control.closest<HTMLElement>('[data-preview-step]')?.dataset.previewStep;
-    setActiveField(preparation ? `prep:${preparation}` : step ? `step:${step}:${label.includes('番目の活動内容') ? 'title' : label === '支援・声かけ・配慮' ? 'support' : 'time'}` : previewFields[label] || null);
+    setActiveField(control.dataset.activityInput || (preparation ? `prep:${preparation}` : null));
   };
+  useLayoutEffect(() => {
+    if (!requestedInput) return;
+    const target = Array.from<HTMLElement>(panelRef.current?.querySelectorAll('[data-activity-input]') ?? [])
+      .find(element => element.dataset.activityInput === requestedInput);
+    if (target) {
+      target.focus({preventScroll:true});
+      target.scrollIntoView({block:'center',behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
+      setActiveField(requestedInput);
+    }
+    setRequestedInput(null);
+  }, [tab, requestedInput]);
   useEffect(() => {
     if (!preview || !activeField) return;
     const frame = requestAnimationFrame(() => {
@@ -104,6 +112,19 @@ export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, o
   useEffect(() => installActivityDraftCloseWarning(window, () => dirtyRef.current), []);
   const update = (patch: Partial<ActivityPlan>) => { setPlan((p) => ({ ...p, ...patch })); setDirty(true); setMessage(''); };
   const content = (patch: Partial<ActivityContent>) => update({ content: { ...plan.content, ...patch } });
+  const addStep = () => {
+    if (busy || plan.content.steps.length >= 40) return;
+    const id = crypto.randomUUID();
+    content({steps:[...plan.content.steps,{id,title:'',minutes:10,support:''}]});
+    setTab('活動の流れ');
+    setRequestedInput(`step:${id}:title`);
+  };
+  const selectPreviewField = (key: string) => {
+    if (busy) return;
+    if (key === 'addStep') { addStep(); return; }
+    setTab(key === 'startTime' && tab === '活動の流れ' ? tab : tabForPreview(key));
+    setRequestedInput(key);
+  };
   const choose = (p: ActivityPlan) => {
     if (busy || (dirty && !window.confirm('未保存の入力を置き換えますか？保存する場合はキャンセルしてください。'))) return;
     setPlan(structuredClone(p)); setDirty(!p.id || p.id.startsWith('builtin-')); setTab('基本情報'); setError(''); setMessage(''); setPreview(true); setActiveField(null); setLibraryOpen(false);
@@ -120,7 +141,7 @@ export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, o
     } catch (e) { setError(describeError(e)); }
     finally { setBusy(false); }
   };
-  const filtered = useMemo(() => list.filter((p) => (filter === 'ひな形' ? p.isTemplate : !p.isTemplate && (filter === '保管' ? p.status === '保管' : p.status !== '保管')) && `${p.title} ${p.date} ${p.kind} ${p.content.leader}`.normalize('NFKC').toLowerCase().includes(query.normalize('NFKC').toLowerCase())), [list, filter, query]);
+  const filtered = useMemo(() => list.filter((p) => (filter === 'ひな形' ? p.isTemplate : !p.isTemplate && (filter === '保管' ? p.status === '保管' : p.status !== '保管')) && `${p.title} ${p.date} ${p.kind} ${activitySupportItem(p)} ${p.content.leader}`.normalize('NFKC').toLowerCase().includes(query.normalize('NFKC').toLowerCase())), [list, filter, query]);
   const times = activityTimeline(plan);
   const completed = plan.content.preparations.filter((p) => p.done).length;
   const text = activityText(plan);
@@ -141,15 +162,15 @@ export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, o
         <label className="block text-sm font-bold"><Search className="mr-1 inline h-4 w-4" />案を検索<input type="search" className={field} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="活動名・日付・担当" /></label></div>
         {loading ? <p className="text-sm">読み込み中…</p> : <p className="text-xs text-slate-500">{filtered.length}件表示（最新500件から検索）</p>}
         <div className="grid max-h-72 gap-2 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">{filtered.map((p) => <div key={p.id} className={`rounded-xl border p-3 ${plan.id === p.id ? 'border-teal-400 bg-teal-50' : 'border-slate-200'}`}>
-          <button className="w-full text-left" disabled={busy} onClick={() => choose(p)}><span className="block break-words font-bold">{p.title}</span><span className="mt-1 block text-xs text-slate-600">{p.isTemplate ? 'ひな形' : p.date} · {p.kind} · {p.status}</span></button>
+          <button className="w-full text-left" disabled={busy} onClick={() => choose(p)}><span className="block break-words font-bold">{p.title}</span><span className="mt-1 block break-words text-xs text-slate-600">{p.isTemplate ? 'ひな形' : p.date} · {activitySupportItem(p)} · {p.status}</span></button>
           <button className="mt-2 text-xs font-bold text-teal-700" disabled={busy} onClick={() => create(p)}>複製して新しい案を作る</button>
         </div>)}</div>
         </div>
       </section>
       <div className={`activity-edit-layout ${preview ? 'has-preview' : ''}`}>
         {preview && <aside className="activity-live-preview" aria-label="入力内容の仕上がりプレビュー">
-          <div className="activity-preview-toolbar"><div><h2 className="text-sm font-black text-slate-900">仕上がりプレビュー</h2><p className="mt-1 text-xs text-slate-600">入力を即時反映 · 入力中の箇所を枠線で表示</p></div><div className="flex flex-wrap gap-2"><button className={button} onClick={() => void navigator.clipboard.writeText(text).then(() => setMessage('指導案の文章をコピーしました。')).catch(() => setError('コピーできませんでした。ブラウザの権限を確認してください。'))}><Copy className="mr-1 inline h-4 w-4" />文章コピー</button><button className={button} onClick={() => window.print()}><Printer className="mr-1 inline h-4 w-4" />印刷・PDF保存</button></div></div>
-          <div ref={previewScrollRef} className="activity-preview-scroll" tabIndex={0} aria-label="指導案プレビューのスクロール領域"><ActivityPlanSheet plan={plan} dirty={dirty} activeField={activeField} /></div>
+          <div className="activity-preview-toolbar"><div><h2 className="text-sm font-black text-slate-900">仕上がりプレビュー</h2><p className="mt-1 text-xs text-slate-600">表の入力箇所を選ぶと、対応する入力欄へ移動します。</p></div><div className="flex flex-wrap gap-2"><button className={button} onClick={() => void navigator.clipboard.writeText(text).then(() => setMessage('指導案の文章をコピーしました。')).catch(() => setError('コピーできませんでした。ブラウザの権限を確認してください。'))}><Copy className="mr-1 inline h-4 w-4" />文章コピー</button><button className={button} onClick={() => window.print()}><Printer className="mr-1 inline h-4 w-4" />印刷・PDF保存</button></div></div>
+          <div ref={previewScrollRef} className="activity-preview-scroll" tabIndex={0} aria-label="指導案プレビューのスクロール領域"><ActivityPlanSheet plan={plan} dirty={dirty} activeField={activeField} onSelectField={selectPreviewField} navigationDisabled={busy} /></div>
           <p className="border-t border-slate-200 bg-white p-3 text-xs text-slate-600">A4縦の表形式です。強調枠は印刷されません。長い内容は印刷時に続きのページへ表示します。</p>
         </aside>}
       <div className="activity-input-pane min-w-0 space-y-3">
@@ -165,41 +186,47 @@ export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, o
           <div className="mb-4 border-b border-slate-200 pb-3"><p className="text-xs font-bold text-teal-700">手順 {stepIndex+1} / {editorSteps.length}{plan.title&&` · ${plan.title}`}</p><h2 className="mt-1 text-lg font-black">{tab}</h2><p className="mt-1 text-sm text-slate-600">{editorSteps[stepIndex].description}</p></div>
           {tab === '基本情報' && <div className="space-y-4" role="tabpanel" id="activity-panel-0" aria-labelledby="activity-step-0">
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="text-sm font-bold">活動名（必須）<input value={plan.title} maxLength={160} onChange={(e) => update({ title: e.target.value })} className={field} placeholder="例：秋の工作・公園での運動" /></label>
-            <label className="text-sm font-bold">種類<select aria-label="種類" className={field} value={plan.kind} onChange={(e) => update({ kind: e.target.value as ActivityPlan['kind'] })}>{activityKinds.map((k) => <option key={k}>{k}</option>)}</select></label>
-            {!plan.isTemplate && <label className="text-sm font-bold">実施日（必須）<input type="date" className={field} value={plan.date} onChange={(e) => update({ date: e.target.value })} /></label>}
-            <label className="text-sm font-bold">状態<select aria-label="状態" className={field} value={plan.status} onChange={(e) => update({ status: e.target.value as ActivityPlan['status'] })}>{activityStatuses.map((s) => <option key={s}>{s}</option>)}</select></label>
+            <label className="text-sm font-bold">活動名（必須）<input data-activity-input="title" value={plan.title} maxLength={160} onChange={(e) => update({ title: e.target.value })} className={field} placeholder="例：秋の工作・公園での運動" /></label>
+            <label className="text-sm font-bold">支援項目・種類<input data-activity-input="supportItem" list="activity-support-kinds" className={field} value={plan.content.supportItem || (plan.kind === 'その他' ? '' : plan.kind)} maxLength={160} placeholder="候補を選ぶか、自由に入力" onChange={e => {
+              const supportItem = e.target.value;
+              update({kind:activitySupportKind(supportItem),content:{...plan.content,supportItem}});
+            }}/><datalist id="activity-support-kinds">{activityKinds.map(kind => <option key={kind} value={kind}/>)}</datalist></label>
+            {!plan.isTemplate && <label className="text-sm font-bold">実施日（必須）<input data-activity-input="date" type="date" className={field} value={plan.date} onChange={(e) => update({ date: e.target.value })} /></label>}
+            <label className="text-sm font-bold">状態<select data-activity-input="status" aria-label="状態" className={field} value={plan.status} onChange={(e) => update({ status: e.target.value as ActivityPlan['status'] })}>{activityStatuses.map((s) => <option key={s}>{s}</option>)}</select></label>
           </div>
             <h3 className="border-t border-slate-200 pt-4 text-sm font-black text-slate-800">ねらいと内容</h3>
-            <TextArea label="活動のねらい" value={plan.content.goal} onChange={(goal) => content({ goal })} placeholder="どんな経験や力につなげたいか" />
-            <label className="block text-sm font-bold">支援項目<input className={field} value={plan.content.supportItem || ''} maxLength={160} placeholder="未入力の場合は活動の種類を表示" onChange={(e) => content({ supportItem: e.target.value })} /></label><TextArea label="内容（概要）" value={plan.content.summary || ''} maxLength={2000} onChange={(summary)=>content({summary})} placeholder="企画の概要" />
+            <TextArea inputKey="goal" label="活動のねらい" value={plan.content.goal} onChange={(goal) => content({ goal })} placeholder="どんな経験や力につなげたいか" />
+            <TextArea inputKey="summary" label="内容（概要）" value={plan.content.summary || ''} maxLength={2000} onChange={(summary)=>content({summary})} placeholder="企画の概要" />
+            <TextArea inputKey="preparationText" label="用意するもの" value={plan.content.preparationText || ''} onChange={preparationText => content({preparationText})} placeholder="例：色画用紙、はさみ、のり。数量や補足も自由に記入できます。" />
             <h3 className="border-t border-slate-200 pt-4 text-sm font-black text-slate-800">実施条件・担当</h3>
-            <div className="grid gap-3 sm:grid-cols-2">{([['target','対象・人数','例：小学部 8名'],['location','活動場所','例：教室・近隣公園'],['leader','主担当','担当職員名']] as const).map(([key,label,placeholder]) => <label key={key} className="text-sm font-bold">{label}<input className={field} value={plan.content[key]} maxLength={160} placeholder={placeholder} onChange={(e) => content({ [key]: e.target.value })} /></label>)}<label className="text-sm font-bold">開始時刻<input className={field} type="time" value={plan.content.startTime} onChange={(e) => content({ startTime: e.target.value })} /></label></div>
-            <div className="grid gap-3 sm:grid-cols-3">{([['staffCount','職員人数（名）',1000],['childCount','児童人数（名）',1000],['travelMinutes','往復時間（分）',1440]] as const).map(([key,label,max]) => <label key={key} className="text-sm font-bold">{label}<input className={field} type="number" min={0} max={max} step={1} value={plan.content[key] || ''} onChange={(e) => content({ [key]: e.target.value })} /></label>)}</div>
+            <div className="grid gap-3 sm:grid-cols-2">{([['staffCount','職員人数（名）'],['childCount','児童人数（名）']] as const).map(([key,label]) => <label key={key} className="text-sm font-bold">{label}<input data-activity-input={key} className={field} type="number" min={0} max={1000} step={1} value={plan.content[key] || ''} onChange={(e) => content({ [key]: e.target.value })} /></label>)}</div>
+            <div className="grid gap-3 sm:grid-cols-2">{([['location','targetLocation','活動場所','例：教室・近隣公園'],['leader','leader','主担当','担当職員名']] as const).map(([key,inputKey,label,placeholder]) => <label key={key} className="text-sm font-bold">{label}<input data-activity-input={inputKey} className={field} value={plan.content[key]} maxLength={160} placeholder={placeholder} onChange={(e) => content({ [key]: e.target.value })} /></label>)}<label className="text-sm font-bold">開始時刻<input data-activity-input="startTime" className={field} type="time" value={plan.content.startTime} onChange={(e) => content({ startTime: e.target.value })} /></label><label className="text-sm font-bold">往復時間（分）<input data-activity-input="travelMinutes" className={field} type="number" min={0} max={1440} step={1} value={plan.content.travelMinutes || ''} onChange={e => content({travelMinutes:e.target.value})}/></label></div>
+            {plan.content.target && <p className="whitespace-pre-wrap break-words rounded-xl bg-slate-50 p-3 text-xs text-slate-700"><b>対象・人数の旧記載（参照のみ）</b><br/>{plan.content.target}</p>}
           </div>}
           {tab === '活動の流れ' && <div className="space-y-4" role="tabpanel" id="activity-panel-1" aria-labelledby="activity-step-1">
-            <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2"><label className="text-sm font-bold">開始時刻<input className={field} type="time" value={plan.content.startTime} onChange={(e) => content({startTime:e.target.value})}/></label><div className="self-center text-sm text-slate-600">開始時刻と所要時間から、各段階の時刻を自動表示します。</div></div>
+            <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2"><label className="text-sm font-bold">開始時刻<input data-activity-input="startTime" className={field} type="time" value={plan.content.startTime} onChange={(e) => content({startTime:e.target.value})}/></label><div className="self-center text-sm text-slate-600">開始時刻と所要時間から、各段階の時刻を自動表示します。</div></div>
             <h2 className="font-black">活動の流れ <span className="text-sm text-teal-700">計{activityDuration(plan)}分</span></h2>
             {plan.content.steps.map((s, i) => <div key={s.id} data-preview-step={s.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
               <div className="mb-2 flex items-center justify-between gap-2"><b className="text-sm">{i + 1}. {times[i]}</b><div className="flex gap-1"><button className={button} disabled={!i} aria-label={`${i + 1}番目の流れを上へ`} onClick={() => { const steps = [...plan.content.steps]; [steps[i - 1], steps[i]] = [steps[i], steps[i - 1]]; content({ steps }); }}>上へ</button><button className={button} aria-label={`${i + 1}番目の流れを削除`} onClick={() => content({ steps: plan.content.steps.filter((x) => x.id !== s.id) })}><Trash2 className="h-4 w-4" /></button></div></div>
-              <label className="mb-2 block text-sm font-bold">段階<input className={field} value={s.stage || ''} maxLength={100} placeholder="例：導入・展開・まとめ" onChange={(e) => content({ steps: plan.content.steps.map((x) => x.id === s.id ? { ...x, stage: e.target.value } : x) })} /></label>
-              <TextArea label={`${i + 1}番目の活動内容`} value={s.title} maxLength={200} placeholder="活動の内容" onChange={(title) => content({ steps: plan.content.steps.map((x) => x.id === s.id ? { ...x, title } : x) })} /><label className="mt-2 block max-w-48 text-sm font-bold">所要時間（分）<input className={field} type="number" min={1} max={600} value={s.minutes || ''} onChange={(e) => content({ steps: plan.content.steps.map((x) => x.id === s.id ? { ...x, minutes: Number(e.target.value) } : x) })} /></label>
-              <div className="mt-2"><TextArea label="支援・声かけ・配慮" value={s.support} maxLength={2000} placeholder="声かけ、見守り、個別の配慮" onChange={(support) => content({ steps: plan.content.steps.map((x) => x.id === s.id ? { ...x, support } : x) })} /></div>
+              <label className="mb-2 block text-sm font-bold">段階<input data-activity-input={`step:${s.id}:stage`} className={field} value={s.stage || ''} maxLength={100} placeholder="例：導入・展開・まとめ" onChange={(e) => content({ steps: plan.content.steps.map((x) => x.id === s.id ? { ...x, stage: e.target.value } : x) })} /></label>
+              <TextArea inputKey={`step:${s.id}:title`} label={`${i + 1}番目の活動内容`} value={s.title} maxLength={200} placeholder="活動の内容" onChange={(title) => content({ steps: plan.content.steps.map((x) => x.id === s.id ? { ...x, title } : x) })} /><label className="mt-2 block max-w-48 text-sm font-bold">所要時間（分）<input data-activity-input={`step:${s.id}:time`} className={field} type="number" min={1} max={600} value={s.minutes || ''} onChange={(e) => content({ steps: plan.content.steps.map((x) => x.id === s.id ? { ...x, minutes: Number(e.target.value) } : x) })} /></label>
+              <div className="mt-2"><TextArea inputKey={`step:${s.id}:support`} label="支援・声かけ・配慮" value={s.support} maxLength={2000} placeholder="声かけ、見守り、個別の配慮" onChange={(support) => content({ steps: plan.content.steps.map((x) => x.id === s.id ? { ...x, support } : x) })} /></div>
             </div>)}
-            <button className={button} disabled={plan.content.steps.length >= 40} onClick={() => content({ steps: [...plan.content.steps, { id: crypto.randomUUID(), title: '', minutes: 10, support: '' }] })}><Plus className="mr-1 inline h-4 w-4" />流れを追加</button>
+            <button type="button" className={button} disabled={plan.content.steps.length >= 40} onClick={addStep}><Plus className="mr-1 inline h-4 w-4" />流れを追加</button>
           </div>}
           {tab === '準備・安全' && <div className="space-y-4" role="tabpanel" id="activity-panel-2" aria-labelledby="activity-step-2">
             <h2 className="font-black">準備チェック <span className="text-sm text-teal-700">{completed}/{plan.content.preparations.length}件</span></h2>
+            <p className="text-xs text-slate-600">品目ごとに準備状況を確認する場合に使います。用意するものの自由記入は「基本情報」にあります。</p>
             {plan.content.preparations.map((p, i) => <div key={p.id} data-preview-preparation={p.id} className={`rounded-xl border p-3 ${p.done ? 'border-teal-300 bg-teal-50' : 'border-slate-200'}`}>
               <div className="mb-2 flex justify-between"><label className="flex items-center gap-2 text-sm font-bold"><input type="checkbox" className="h-5 w-5 accent-teal-600" checked={p.done} onChange={(e) => content({ preparations: plan.content.preparations.map((x) => x.id === p.id ? { ...x, done: e.target.checked } : x) })} />{i + 1}. 準備済み</label><button className={button} aria-label={`${i + 1}番目の準備物を削除`} onClick={() => content({ preparations: plan.content.preparations.filter((x) => x.id !== p.id) })}><Trash2 className="h-4 w-4" /></button></div>
-              <div className="grid gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">{([['name','準備物・確認事項',200],['quantity','数量',100],['owner','担当',160]] as const).map(([key,label,maxLength]) => <label key={key} className="text-sm font-bold">{label}<input className={field} value={p[key]} maxLength={maxLength} onChange={(e) => content({ preparations: plan.content.preparations.map((x) => x.id === p.id ? { ...x, [key]: e.target.value } : x) })} /></label>)}</div>
+              <div className="grid gap-2 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)]">{([['name','準備物・確認事項',200],['quantity','数量',100],['owner','担当',160]] as const).map(([key,label,maxLength]) => <label key={key} className="text-sm font-bold">{label}<input data-activity-input={key === 'name' ? `prep:${p.id}` : undefined} className={field} value={p[key]} maxLength={maxLength} onChange={(e) => content({ preparations: plan.content.preparations.map((x) => x.id === p.id ? { ...x, [key]: e.target.value } : x) })} /></label>)}</div>
             </div>)}
             <button className={button} disabled={plan.content.preparations.length >= 80} onClick={() => content({ preparations: [...plan.content.preparations, { id: crypto.randomUUID(), name: '', quantity: '', owner: '', done: false }] })}><Plus className="mr-1 inline h-4 w-4" />準備物・確認事項を追加</button>
-            <TextArea label="職員の役割分担" value={plan.content.roles} onChange={(roles) => content({ roles })} placeholder="進行、見守り、個別対応、写真、片付けなど" />
-            <TextArea label="参加しやすくする配慮" value={plan.content.considerations} onChange={(considerations) => content({ considerations })} placeholder="手順の見える化、休憩場所、難易度調整など" />
-            <TextArea label="安全確認・緊急時の対応" value={plan.content.safety} onChange={(safety) => content({ safety })} placeholder="活動に応じて確認・追記してください。ひな形だけで安全確認が完了するものではありません。" />
+            <TextArea inputKey="roles" label="職員の役割分担" value={plan.content.roles} onChange={(roles) => content({ roles })} placeholder="進行、見守り、個別対応、写真、片付けなど" />
+            <TextArea inputKey="considerations" label="参加しやすくする配慮" value={plan.content.considerations} onChange={(considerations) => content({ considerations })} placeholder="手順の見える化、休憩場所、難易度調整など" />
+            <TextArea inputKey="safety" label="安全確認・緊急時の対応" value={plan.content.safety} onChange={(safety) => content({ safety })} placeholder="活動に応じて確認・追記してください。ひな形だけで安全確認が完了するものではありません。" />
           </div>}
-          {tab === '振り返り' && <div className="space-y-4" role="tabpanel" id="activity-panel-3" aria-labelledby="activity-step-3"><TextArea label="実施後の振り返り" value={plan.content.reflection} onChange={(reflection) => content({ reflection })} placeholder="実施した内容、参加の様子、うまくいった工夫、課題" /><TextArea label="次回に活かすこと" value={plan.content.nextTime} onChange={(nextTime) => content({ nextTime })} placeholder="次回変更する手順、準備物、支援の工夫" /><p className="text-sm text-slate-600">ここに入力した内容は活動全体の振り返りです。児童ごとの支援経過記録は、実際の観察を確認して別途記録してください。</p></div>}
+          {tab === '振り返り' && <div className="space-y-4" role="tabpanel" id="activity-panel-3" aria-labelledby="activity-step-3"><TextArea inputKey="reflection" label="実施後の振り返り" value={plan.content.reflection} onChange={(reflection) => content({ reflection })} placeholder="実施した内容、参加の様子、うまくいった工夫、課題" /><TextArea inputKey="nextTime" label="次回に活かすこと" value={plan.content.nextTime} onChange={(nextTime) => content({ nextTime })} placeholder="次回変更する手順、準備物、支援の工夫" /><p className="text-sm text-slate-600">ここに入力した内容は活動全体の振り返りです。児童ごとの支援経過記録は、実際の観察を確認して別途記録してください。</p></div>}
           </div>
           <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-4"><button type="button" className={button} disabled={stepIndex===0} onClick={()=>goStep(editorSteps[stepIndex-1].id)}><ArrowLeft className="mr-1 inline h-4 w-4"/>前の手順</button>{stepIndex<editorSteps.length-1?<button type="button" className="min-h-12 rounded-xl bg-teal-700 px-4 text-sm font-black text-white" onClick={()=>goStep(editorSteps[stepIndex+1].id)}>次へ：{editorSteps[stepIndex+1].id}<ArrowRight className="ml-1 inline h-4 w-4"/></button>:<button type="button" className={button} onClick={()=>setPreview(true)}>全体をプレビューで確認</button>}</div>
         </fieldset>
@@ -214,7 +241,7 @@ export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, o
     {trafficOpened&&<ActivityTrafficWindow scopeKey={`${organizationId}:${userId}`} visible={trafficVisible} onClose={()=>{setTrafficVisible(false);trafficTrigger.current?.focus({preventScroll:true});}}/>}
   </section>;
 }
-function TextArea({ label, value, onChange, placeholder, maxLength = 10000 }: { label: string; value: string; onChange: (value: string) => void; placeholder: string; maxLength?: number }) {
+function TextArea({ inputKey, label, value, onChange, placeholder, maxLength = 10000 }: { inputKey: string; label: string; value: string; onChange: (value: string) => void; placeholder: string; maxLength?: number }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const grow = useCallback(() => {
     const element = ref.current;
@@ -235,7 +262,7 @@ function TextArea({ label, value, onChange, placeholder, maxLength = 10000 }: { 
     }); observer.observe(element);
     return () => observer.disconnect();
   }, [grow]);
-  return <label className="block text-sm font-bold">{label}<textarea ref={ref} aria-label={label} rows={4} className={`${field} activity-auto-textarea min-h-28 resize-y font-normal leading-relaxed`} value={value} maxLength={maxLength} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} /></label>;
+  return <label className="block text-sm font-bold">{label}<textarea ref={ref} aria-label={label} data-activity-input={inputKey} rows={4} className={`${field} activity-auto-textarea min-h-28 resize-y font-normal leading-relaxed`} value={value} maxLength={maxLength} placeholder={placeholder} onChange={(e) => onChange(e.target.value)} /></label>;
 }
 function describeError(e: unknown) {
   const message = e instanceof Error ? e.message : (e as { message?: string })?.message || '操作を完了できませんでした。';

@@ -22,11 +22,14 @@ const activityCode = await (await read(activityAsset)).text();
 for (const marker of ['style.height="auto"', 'contentRect.width', 'paddingBottom', 'border-box']) {
   if (!activityCode.includes(marker)) throw Error('Missing stable textarea sizing marker ' + marker);
 }
-for (const marker of ['仕上がりプレビュー', '入力を即時反映', 'data-activity-preview', 'data-preview-step', 'activity-auto-textarea', 'activity-preview-scroll', 'beforeunload']) {
+for (const marker of ['仕上がりプレビュー', 'data-activity-preview', 'activity-auto-textarea', 'activity-preview-scroll', 'beforeunload']) {
   if (!runtime.includes(marker)) throw Error('Missing runtime marker ' + marker);
 }
+for (const marker of ['対応する入力欄へ移動します', 'data-activity-input', '支援項目・種類', 'preparationText', '最初の流れを追加']) {
+  if (!activityCode.includes(marker)) throw Error('Missing activity editor marker ' + marker);
+}
 const css = (await Promise.all(manifest.assets.filter(path => path.endsWith('.css')).map(async path => (await read(path)).text()))).join('\n');
-for (const marker of ['.activity-edit-layout.has-preview', '.activity-preview-scroll', '[data-active]', '.activity-auto-textarea']) {
+for (const marker of ['.activity-edit-layout.has-preview', '.activity-preview-scroll', '[data-active]', '.activity-auto-textarea', '.activity-sheet-jump']) {
   if (!css.includes(marker)) throw Error('Missing style marker ' + marker);
 }
 console.log(JSON.stringify({passed:true,version:version.version,livePreviewAssetsPublished:true,stableTextareaSizingPublished:true,privateDataRead:false,databaseWrites:false,physicalDeviceVerified:false}));
