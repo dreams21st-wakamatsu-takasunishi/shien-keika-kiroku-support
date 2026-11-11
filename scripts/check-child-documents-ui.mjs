@@ -85,6 +85,32 @@ async function check(page,url){
  await additional.getByRole('button',{name:'追加書類を保存',exact:true}).click();
  await page.getByTestId('dirty').filter({hasText:'未保存の入力なし'}).waitFor();
  assert((await data()).entries.at(-1).monitoringMonths.join(',')==='12','additional certificate saves its own months');
+ await page.goto(url+'?mode=document-scopes');await selectA();
+ const scope=page.getByRole('combobox',{name:'書類のサービス区分',exact:true});
+ const dayContract=row('利用契約書（冊子1部） 契約時');
+ const visitContract=row('利用契約書（冊子1部） 訪問支援／契約時');
+ const oldContract=row('利用契約書（冊子1部） 追加・旧設定の書類');
+ const hasBadge=(slot,label)=>slot.getByText(label,{exact:true}).isVisible();
+ assert(await hasBadge(dayContract,'放デイ')&&await hasBadge(visitContract,'訪問支援')&&await hasBadge(oldContract,'サービス区分未確認'),'all three contracts are distinct even with the same document type');
+ assert(await hasBadge(oldContract,'保管確認済み'),'unknown scope does not change storage confirmation');
+ await scope.selectOption('visiting');
+ assert(await visitContract.isVisible()&&!await dayContract.count()&&!await oldContract.count(),'filter only shows visiting contracts');
+ const history=page.locator('details').filter({has:page.locator('summary').filter({hasText:'登録・訂正・削除履歴（元の情報を保持）'})});
+ await history.locator('summary').click();
+ assert(await history.getByRole('listitem').count()===1&&await hasBadge(history,'訪問支援'),'history follows the selected service filter');
+ await visitContract.getByLabel('実物の保管を確認',{exact:true}).uncheck();
+ assert(await scope.isDisabled(),'filter cannot discard an unsaved document');
+ await visitContract.locator('summary').click();await visitContract.getByRole('button',{name:'入力を戻す',exact:true}).click();
+ await scope.selectOption('shared');
+ assert(!await page.getByRole('button',{name:'利用契約書（冊子1部）の書類',exact:true}).count()&&await hasBadge(history,'共通'),'shared filter does not include contracts');
+ await page.getByRole('button',{name:'受給者証のコピーの書類',exact:true}).click();
+ assert(await hasBadge(row('受給者証のコピー 年次更新 2026-04-15'),'共通'),'certificate is visibly shared');
+ await scope.selectOption('unspecified');
+ assert(await oldContract.isVisible()&&await hasBadge(history,'サービス区分未確認'),'unverified legacy documents remain independently viewable');
+ await page.setViewportSize({width:390,height:844});
+ assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'service filters and badges fit a phone');
+ await page.getByRole('button',{name:/^架空児童B /}).click();
+ assert(await scope.inputValue()==='all'&&(await model()).writes===0,'switching child resets filter without writing');
  assert(!errors.length,'no browser exceptions '+errors.join(','));assert(!external.length,'no external or production requests');return {passed:true,checks,productionAccess:false,filesUploaded:0};
 }
 try{command('open',url);command('snapshot');const output=command('run-code',`async(page)=>await (${check.toString()})(page,${JSON.stringify(url)})`),match=output.match(/### Result\s+([\s\S]*?)\s+### Ran/);if(!match||!JSON.parse(match[1]).passed)throw Error(output);console.log(match[1]);}finally{command('close');}

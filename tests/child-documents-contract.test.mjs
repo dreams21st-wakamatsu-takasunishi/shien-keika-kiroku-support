@@ -20,7 +20,7 @@ test('document UI cannot bypass the strict role check or silently discard an uns
 
 test('category layout includes registered documents and cannot collapse unsaved rows',()=>{
  const source=read('src/components/ChildDocumentWorkspace.tsx');
- for(const marker of ['[onlyMissing, setOnlyMissing] = useState(false)','groupDocumentSlots(slots)','保管書類のカテゴリ','dirtyRows.current.has(slot.key)','hidden={!expanded}','aria-expanded={expanded}'])assert.ok(source.includes(marker),marker);
+ for(const marker of ['[onlyMissing, setOnlyMissing] = useState(false)','serviceFilter === "all" ? slots : slots.filter','groupDocumentSlots(visibleServiceSlots)','保管書類のカテゴリ','dirtyRows.current.has(slot.key)','hidden={!expanded}','aria-expanded={expanded}'])assert.ok(source.includes(marker),marker);
 });
 
 test('renewal prompts reuse append-only document storage and do not infer or upload family data',()=>{

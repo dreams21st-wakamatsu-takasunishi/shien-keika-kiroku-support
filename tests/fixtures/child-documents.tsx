@@ -29,6 +29,17 @@ if(mode==='family-reminders'){
  children[0].birthDate='2016-04-15';children[0].siblingIds=['b'];
  children[1].birthDate='2014-11-20';children[1].siblingIds=['a'];
 }
+if(mode==='document-scopes'){
+ children[0].visitingSupportEnabled=true;
+ records.settings[0].visitingContractDate='2026-06-01';
+ const base={childId:'a',documentDate:'2026-06-01',validUntil:'',confirmed:true,title:'',note:'',consentDate:'',guardianDeliveryDate:'',consultationDeliveryDate:'',operation:'record' as const,replacesId:null,createdAt:'2026-06-01T00:00:00Z',createdByName:'架空管理者'};
+ records.entries.push(
+  {...base,id:'day-contract',type:'contract',cycleKey:'initial:2024-04-15'},
+  {...base,id:'visit-contract',type:'contract',cycleKey:'initial:visit-2026-06-01'},
+  {...base,id:'legacy-contract',type:'contract',cycleKey:'initial:2024-03-15'},
+  {...base,id:'shared-certificate',type:'benefit',cycleKey:'annual:2026-04-15'},
+ );
+}
 if(mode==='document-deletion'){
  const base={childId:'a',type:'certificate' as const,cycleKey:'extra:mistake',documentDate:'',validUntil:'',confirmed:true,title:'誤追加の証明書',note:'',consentDate:'',guardianDeliveryDate:'',consultationDeliveryDate:'',operation:'record' as const,replacesId:null,createdAt:'2026-10-01T00:00:00Z',createdByName:'架空管理者'};
  records.entries.push({...base,id:'mistake'},{...base,id:'keep',cycleKey:'extra:keep',title:'残す証明書'},

@@ -1,5 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import {documentDisplayScope} from './childDocuments';
 import {addDocumentMonths,activeDocumentEntries,benefitRenewalCycleKey,usagePlanRenewalCycleKey,latestBenefitEntry,canManageChildDocuments,DOCUMENT_CATEGORIES,DOCUMENT_TYPES,groupDocumentSlots,documentSlots,validDocumentDate,finalPlanProgress,isDocumentPending,suggestedMonitoringMonths,type DocumentRegister,type ChildDocumentSettings,type ChildDocumentEntry} from './childDocuments';
 const settings=(patch:Partial<ChildDocumentSettings>={}):ChildDocumentSettings=>({childId:'a',revision:1,contractDate:'2024-04-15',monitoringMonths:[4,10],effectiveFrom:'2024-04-15',createdAt:'2024-04-15T00:00:00Z',createdByName:'架空職員',...patch});
 const entry=(type:ChildDocumentEntry['type'],cycleKey:string,id='one',patch:Partial<ChildDocumentEntry>={}):ChildDocumentEntry=>({id,childId:'a',type,cycleKey,documentDate:'2026-04-01',title:'',confirmed:true,note:'',validUntil:'',consentDate:'',guardianDeliveryDate:'',consultationDeliveryDate:'',operation:'record',replacesId:null,createdAt:'2026-04-01T00:00:00Z',createdByName:'架空職員',...patch});
@@ -33,6 +34,34 @@ test('dual service shares four types and requires independent visiting records o
 });
 test('anniversary dates clamp leap days and month ends without overflow',()=>{
  assert.equal(addDocumentMonths('2024-02-29',12),'2025-02-28');assert.equal(addDocumentMonths('2024-08-31',6),'2025-02-28');assert.equal(validDocumentDate('2026-02-30'),false);assert.equal(validDocumentDate('2026-1-01'),false);
+});
+test('document service badges distinguish shared and dedicated slots without reclassifying unlinked legacy contracts',()=>{
+ const dual={careType:'放課後等デイサービス' as const,visitingSupportEnabled:true};
+ const day={...dual,visitingSupportEnabled:false};
+ const visit={careType:'保育所等訪問支援' as const};
+ const records=register([
+  entry('portrait','initial:2024-03-15','old-contract'),
+  entry('benefit','extra:earlier','old-benefit'),
+  entry('plan_final','extra:visit-example','visiting-plan'),
+  entry('additional','extra:misc','misc'),
+ ],[settings({visitingContractDate:'2026-06-01'})]);
+ const before=JSON.stringify(records);
+ const scopes=(child:Parameters<typeof documentDisplayScope>[0])=>Object.fromEntries(documentSlots('a',records,'2026-10-15',child).map(slot=>[slot.key,documentDisplayScope(child,slot)]));
+ const shared=scopes(dual);
+ for(const key of ['face|initial:2024-04-15','assessment|annual:2024-04-15','benefit|extra:earlier','usage_plan|annual:2024-04-15'])assert.equal(shared[key],'shared');
+ assert.equal(shared['annex|annual:2024-04-15'],'day');
+ assert.equal(shared['portrait|initial:2024-04-15'],'day');
+ assert.equal(shared['portrait|initial:2024-03-15'],'unspecified');
+ assert.equal(shared['portrait|initial:visit-2026-06-01'],'visiting');
+ assert.equal(shared['visiting_consent|initial:visit-2026-06-01'],'visiting');
+ assert.equal(shared['plan_final|extra:visit-example'],'visiting');
+ assert.equal(shared['additional|extra:misc'],'unspecified');
+ assert.equal(scopes(day)['benefit|extra:earlier'],'day');
+ assert.equal(scopes(visit)['benefit|extra:earlier'],'visiting');
+ assert.equal(scopes(visit)['portrait|initial:2024-03-15'],'unspecified');
+ assert.equal(scopes({careType:'児童発達支援'})['face|initial:2024-04-15'],'development');
+ assert.equal(scopes({})['face|initial:2024-04-15'],'unspecified');
+ assert.equal(JSON.stringify(records),before);
 });
 test('unknown or future contract dates never imply documents are complete',()=>{
  assert.deepEqual(documentSlots('a',register([],[]),'2026-10-15'),[]);

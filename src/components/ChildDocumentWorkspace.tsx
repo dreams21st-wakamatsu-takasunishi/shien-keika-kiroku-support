@@ -19,7 +19,9 @@ import {
   addDocumentMonths,
   DOCUMENT_TYPES,
   DOCUMENT_CATEGORIES,
+  DOCUMENT_SERVICE_LABELS,
   documentSlots,
+  documentDisplayScope,
   childDocumentServices,
   VISITING_DOCUMENT_TYPES,
   documentMonitoringSchedule,
@@ -38,6 +40,7 @@ import {
   type DocumentSlot,
   type DocumentType,
   type DocumentCategoryId,
+  type DocumentDisplayScope,
 } from "../utils/childDocuments";
 import { emptyBenefitEntitlements, validBenefitEntitlements, INDIVIDUAL_SUPPORT_TYPES, INDIVIDUAL_SUPPORT_LABELS, type BenefitEntitlements } from "../utils/childServiceEntitlements";
 import {childDocumentReminders, documentFamilyReference, DOCUMENT_RULE_SOURCES, type DocumentReminder} from "../utils/childDocumentReminders";
@@ -63,6 +66,19 @@ const categoryColors: Record<DocumentCategoryId, string> = {
   support: "border-amber-200 bg-amber-50 text-amber-950",
   other: "border-slate-200 bg-slate-100 text-slate-900",
 };
+const serviceColors: Record<DocumentDisplayScope, string> = {
+  day: "border-sky-200 bg-sky-100 text-sky-950",
+  visiting: "border-violet-200 bg-violet-100 text-violet-950",
+  shared: "border-teal-200 bg-teal-100 text-teal-950",
+  development: "border-indigo-200 bg-indigo-100 text-indigo-950",
+  unspecified: "border-slate-300 bg-slate-100 text-slate-800",
+};
+const serviceOptions = Object.keys(DOCUMENT_SERVICE_LABELS) as DocumentDisplayScope[];
+function DocumentServiceBadge({scope}: {key?: string; scope: DocumentDisplayScope}) {
+  return <span className={`inline-flex items-center rounded-md border px-2 py-0.5 text-[11px] font-bold ${serviceColors[scope]}`}>
+    {DOCUMENT_SERVICE_LABELS[scope]}
+  </span>;
+}
 interface Props {
   key?: string;
   childrenList: ChildProfile[];
@@ -104,6 +120,7 @@ function DocumentWorkspace({
     [asOf, setAsOf] = useState(today),
     [onlyMissing, setOnlyMissing] = useState(false),
     [filterType, setFilterType] = useState("all"),
+    [serviceFilter, setServiceFilter] = useState<DocumentDisplayScope | "all">("all"),
     [categoryFilter, setCategoryFilter] = useState<DocumentCategoryId | "all">(
       "all",
     ),
@@ -161,7 +178,10 @@ function DocumentWorkspace({
     return () => clearInterval(timer);
   }, [api]);
   useEffect(() => {
-    if (initialChildId) setSelected(initialChildId);
+    if (initialChildId) {
+      setSelected(initialChildId);
+      setServiceFilter("all");
+    }
   }, [initialChildId]);
   const child = childrenList.find((row) => row.id === selected),
     settings =
@@ -174,7 +194,17 @@ function DocumentWorkspace({
   const monitoring = child && data ? documentMonitoringSchedule(child.id, data, asOf)(asOf.slice(0,7)+'-01') : undefined;
   const suggestedMonths = child ? suggestedMonitoringMonths(child.birthDate || "", asOf) : [];
   const reminders = child && data ? childDocumentReminders(child, childrenList, data, asOf, slots) : [];
-  const categories = groupDocumentSlots(slots);
+  const serviceByKey = new Map(child ? slots.map(slot => [slot.key, documentDisplayScope(child, slot)] as const) : []);
+  const historyScope = (row: ChildDocumentEntry) => serviceByKey.get(row.type + "|" + row.cycleKey)
+    ?? (child ? documentDisplayScope(child, {...row, unmatchedCycle: true}) : "unspecified");
+  const visibleServiceSlots = serviceFilter === "all" ? slots : slots.filter(slot => serviceByKey.get(slot.key) === serviceFilter);
+  const categories = groupDocumentSlots(visibleServiceSlots)
+    .map(category => ({
+      ...category,
+      groups: category.groups.filter(group =>
+        (serviceFilter === "all" || group.slots.length > 0) && (filterType === "all" || group.type === filterType)),
+    }))
+    .filter(category => category.groups.length > 0 && (categoryFilter === "all" || category.id === categoryFilter));
   const summaries = useMemo(
     () =>
       data
@@ -207,6 +237,7 @@ function DocumentWorkspace({
     setError("");
     setMessage("");
     setExpandedTypes({});
+    setServiceFilter("all");
     setSelected(id);
   };
   const toggleType = (type: DocumentType) => {
@@ -226,7 +257,7 @@ function DocumentWorkspace({
   };
   const openDocumentTypes = (types: DocumentType[], slotKey?: string) => {
     if (busy || dirtyCount || !types.length) return;
-    setCategoryFilter("all");setFilterType("all");setOnlyMissing(false);
+    setCategoryFilter("all");setFilterType("all");setOnlyMissing(false);setServiceFilter("all");
     setExpandedTypes(previous=>({...previous,...Object.fromEntries(types.map(type=>[type,true]))}));
     window.requestAnimationFrame(()=>document.getElementById(slotKey?'document-slot-'+slotKey:'document-type-'+types[0])?.scrollIntoView({behavior:'smooth',block:'start'}));
   };
@@ -495,7 +526,23 @@ function DocumentWorkspace({
                     </button>
                   ))}
                 </nav>
-                <label className="flex flex-wrap items-center gap-2 rounded-xl border bg-white p-3 text-xs font-bold">
+                <div className="flex flex-wrap gap-x-6 gap-y-2 rounded-xl border bg-white p-3 text-xs font-bold">
+                <label className="flex min-w-0 flex-wrap items-center gap-2">
+                  サービス区分
+                  <select
+                    aria-label="書類のサービス区分"
+                    value={serviceFilter}
+                    disabled={dirtyCount > 0 || busy}
+                    onChange={e => setServiceFilter(e.target.value as DocumentDisplayScope | "all")}
+                    className="min-h-10 max-w-full rounded-lg border border-slate-300 bg-white px-3"
+                  >
+                    <option value="all">すべての区分</option>
+                    {serviceOptions.filter(scope => scope !== "development" || child.careType === "児童発達支援").map(scope =>
+                      <option key={scope} value={scope}>{DOCUMENT_SERVICE_LABELS[scope]}</option>
+                    )}
+                  </select>
+                </label>
+                <label className="flex min-w-0 flex-wrap items-center gap-2">
                   書類を絞り込み
                   <select
                     aria-label="書類を絞り込み"
@@ -522,20 +569,12 @@ function DocumentWorkspace({
                     ))}
                   </select>
                 </label>
+                </div>
                 <p className="text-xs leading-relaxed text-slate-600">
-                  カテゴリごとに登録件数・保管確認状況を表示します。書類名を押すと、過去年分も含めて確認・入力できます。誤登録は各書類の「削除」から取り消せます。元の情報と削除履歴は保持します。登録件数には保管未確認の書類も含まれます。
+                  書類名を押すと、過去年分も含めて確認・入力できます。「サービス区分未確認」は保管確認とは別の表示です。誤登録を取り消した場合も、元の情報と削除履歴は保持します。
                 </p>
-                {categories
-                  .filter(
-                    (category) =>
-                      (categoryFilter === "all" ||
-                        category.id === categoryFilter) &&
-                      (filterType === "all" ||
-                        category.groups.some(
-                          (group) => group.type === filterType,
-                        )),
-                  )
-                  .map((category) => (
+                {!categories.length && <p role="status" className="rounded-xl border bg-white p-3 text-sm text-slate-600">選択中の条件に該当する書類はありません。</p>}
+                {categories.map((category) => (
                     <section
                       key={category.id}
                       aria-label={category.title}
@@ -576,12 +615,7 @@ function DocumentWorkspace({
                         </p>
                       </div>
                       <div className="divide-y divide-slate-100">
-                        {category.groups
-                          .filter(
-                            (group) =>
-                              filterType === "all" || group.type === filterType,
-                          )
-                          .map((group) => {
+                        {category.groups.map((group) => {
                             const expanded = Boolean(expandedTypes[group.type]);
                             const visibleSlots = group.slots.filter(
                               (slot) =>
@@ -590,6 +624,7 @@ function DocumentWorkspace({
                             const names = group.slots
                               .filter((slot) => slot.entry?.title)
                               .map((slot) => slot.entry!.title);
+                            const scopes = new Set(group.slots.map(slot => serviceByKey.get(slot.key)));
                             return (
                               <div key={group.type}>
                                 <button
@@ -602,8 +637,9 @@ function DocumentWorkspace({
                                   className="flex min-h-16 w-full flex-wrap items-center justify-between gap-2 px-3 py-3 text-left hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-teal-600 disabled:opacity-50"
                                 >
                                   <span className="min-w-0 flex-1 basis-44">
-                                    <span className="block text-sm font-bold text-slate-900">
+                                    <span className="flex flex-wrap items-center gap-1.5 text-sm font-bold text-slate-900">
                                       {DOCUMENT_TYPES[group.type]}
+                                      {serviceOptions.filter(scope => scopes.has(scope)).map(scope => <DocumentServiceBadge key={scope} scope={scope}/>)}
                                     </span>
                                     <span className="mt-1 block break-words text-[11px] text-slate-600">
                                       {names.length
@@ -647,6 +683,7 @@ function DocumentWorkspace({
                                     <DocumentRow
                                       key={slot.key}
                                       slot={slot}
+                                      scope={serviceByKey.get(slot.key) ?? "unspecified"}
                                       suggestedMonths={suggestedMonths}
                                       disabled={busy}
                                       deleteDisabled={busy || dirtyCount > 0}
@@ -685,15 +722,15 @@ function DocumentWorkspace({
                   </summary>
                   <ul className="mt-2 max-h-96 space-y-2 overflow-y-auto text-xs">
                     {data.entries
-                      .filter((row) => row.childId === child.id)
+                      .filter((row) => row.childId === child.id && (serviceFilter === "all" || historyScope(row) === serviceFilter))
                       .slice()
                       .reverse()
                       .map((row) => (
                         <li key={row.id} className="rounded-lg bg-slate-50 p-2">
-                          <strong>
-                            {DOCUMENT_TYPES[row.type]} {row.title}{" "}
-                            {row.documentDate || "日付なし"}
-                          </strong>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <strong>{DOCUMENT_TYPES[row.type]} {row.title} {row.documentDate || "日付なし"}</strong>
+                            <DocumentServiceBadge scope={historyScope(row)}/>
+                          </div>
                           <p>
                             {row.operation === "void"
                               ? "削除（登録取消）"
@@ -933,6 +970,7 @@ function DocumentSettings({
 
 function DocumentRow({
   slot,
+  scope,
   suggestedMonths,
   disabled,
   deleteDisabled,
@@ -941,6 +979,7 @@ function DocumentRow({
 }: {
   key?: string;
   slot: DocumentSlot;
+  scope: DocumentDisplayScope;
   suggestedMonths: number[];
   disabled: boolean;
   deleteDisabled: boolean;
@@ -1051,7 +1090,9 @@ function DocumentRow({
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h4 className="text-sm font-bold">{DOCUMENT_TYPES[slot.type]}</h4>
+          <h4 className="flex flex-wrap items-center gap-1.5 text-sm font-bold">
+            {DOCUMENT_TYPES[slot.type]} <DocumentServiceBadge scope={scope}/>
+          </h4>
           <p className="mt-1 text-[11px] text-slate-500">
             {slot.label}／確認目安 {slot.dueDate}
             {slot.historicalAnnex ? "（旧登録・確認対象外）" : !slot.required ? "（追加登録）" : ""}

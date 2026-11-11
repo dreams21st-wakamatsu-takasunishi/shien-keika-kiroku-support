@@ -69,6 +69,8 @@ export interface DocumentSlot {
   required: boolean;
   historicalAnnex?: boolean;
   serviceScope?: "visiting" | "legacy";
+  /** The key is shown because an existing record (or its plan set) was retained. */
+  unmatchedCycle?: true;
   entry?: ChildDocumentEntry;
   status: "missing" | "unconfirmed" | "complete" | "upcoming";
   benefitRenewal?: { previousValidUntil: string; availableFrom: string };
@@ -91,6 +93,34 @@ export const isVisitingDocumentKey = (key: string) => /^(initial|plan|extra):vis
 export function childDocumentServices(child?: Pick<ChildProfile, "careType" | "visitingSupportEnabled">) {
   const services = child ? childCareTypes(child) : [];
   return { visiting: services.includes(VISITING_SERVICE), visitingOnly: services.length === 1 && services[0] === VISITING_SERVICE };
+}
+export const DOCUMENT_SERVICE_LABELS = {
+  day: "放デイ",
+  visiting: "訪問支援",
+  shared: "共通",
+  development: "児童発達支援",
+  unspecified: "サービス区分未確認",
+} as const;
+export type DocumentDisplayScope = keyof typeof DOCUMENT_SERVICE_LABELS;
+const SHARED_DOCUMENT_TYPES: readonly DocumentType[] = ["face", "assessment", "benefit", "usage_plan"];
+/** Display only; this neither changes a key nor establishes the actual service of a historical record. */
+export function documentDisplayScope(
+  child: Pick<ChildProfile, "careType" | "visitingSupportEnabled">,
+  slot: Pick<DocumentSlot, "type" | "cycleKey" | "unmatchedCycle">,
+): DocumentDisplayScope {
+  if (slot.type === "visiting_consent" || isVisitingDocumentKey(slot.cycleKey)) return "visiting";
+  const primary = child.careType;
+  if (!primary || slot.type === "certificate" || slot.type === "additional") return "unspecified";
+  if (SHARED_DOCUMENT_TYPES.includes(slot.type)) {
+    if (primary === VISITING_SERVICE) return "visiting";
+    if (child.visitingSupportEnabled) return "shared";
+  } else if (slot.type === "annex") {
+    // Visiting support has no annex slot. Do not reclassify an old annex as visiting.
+    if (primary === VISITING_SERVICE) return "unspecified";
+  } else if (slot.unmatchedCycle || primary === VISITING_SERVICE) {
+    return "unspecified";
+  }
+  return primary === "放課後等デイサービス" ? "day" : "development";
 }
 export const DOCUMENT_CATEGORIES = [
   {
@@ -262,6 +292,7 @@ export function documentSlots(
     required = true,
     historicalAnnex = false,
     serviceScope?: DocumentSlot["serviceScope"],
+    unmatchedCycle?: true,
   ) => {
     const key = type + "|" + cycleKey;
     if (seen.has(key)) return;
@@ -285,6 +316,7 @@ export function documentSlots(
       required,
       ...(historicalAnnex ? {historicalAnnex} : {}),
       ...(serviceScope ? {serviceScope} : {}),
+      ...(unmatchedCycle ? {unmatchedCycle} : {}),
       entry,
       status,
     });
@@ -404,7 +436,7 @@ export function documentSlots(
       "plan_meeting",
       "plan_final",
     ] as DocumentType[])
-      add(type, row.cycleKey, (visit ? "訪問支援／" : "") + "追加・旧設定の計画", row.documentDate || today, true, false, visit ? "visiting" : undefined);
+      add(type, row.cycleKey, (visit ? "訪問支援／" : "") + "追加・旧設定の計画", row.documentDate || today, true, false, visit ? "visiting" : undefined, true);
   }
   for (const row of active) {
     const historicalAnnex = row.type === "annex"
@@ -419,6 +451,7 @@ export function documentSlots(
       false,
       historicalAnnex,
       visit ? "visiting" : legacy ? "legacy" : undefined,
+      true,
     );
   }
   return slots.sort(
