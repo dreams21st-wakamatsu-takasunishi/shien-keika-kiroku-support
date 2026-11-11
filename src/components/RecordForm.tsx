@@ -1,4 +1,5 @@
 import { ManualLinks } from './ManualLinks';
+import { ChildIndividualSupportBadge } from './ChildIndividualSupportBadge';
 import { measureOperation } from '../services/performanceMetrics';
 import type {RecordEntrySignal} from '../utils/recordEntry';
 import type {PrepareUserSwitch} from '../utils/userSwitch';
@@ -5392,6 +5393,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           {isChildStep && (
             <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
               <p className="flex items-center gap-1 text-xs font-bold text-teal-700"><Users className="h-4 w-4" />{activeChild?.name || '児童を選択してください'}の記録</p>
+              <ChildIndividualSupportBadge organizationId={organizationId} userId={userId} childId={activeChild?.id} date={wizard.date}/>
               {activeChild && (
                 <div className="flex flex-wrap justify-end gap-1.5">
                   <button type="button" onClick={() => setHandoverReferenceOpen(true)} className="flex min-h-10 items-center gap-1 rounded-lg border border-amber-200 bg-amber-50 px-3 text-xs font-black text-amber-900"><MessageSquareText className="h-4 w-4" />申し送り {relevantHandovers.length > 0 && <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-[9px] text-white">{relevantHandovers.length}</span>}</button>

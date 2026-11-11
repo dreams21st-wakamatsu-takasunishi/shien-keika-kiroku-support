@@ -1,12 +1,35 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {addDocumentMonths,activeDocumentEntries,benefitRenewalCycleKey,usagePlanRenewalCycleKey,latestBenefitEntry,canManageChildDocuments,DOCUMENT_CATEGORIES,DOCUMENT_TYPES,groupDocumentSlots,documentSlots,validDocumentDate,finalPlanProgress,isDocumentPending,type DocumentRegister,type ChildDocumentSettings,type ChildDocumentEntry} from './childDocuments';
+import {addDocumentMonths,activeDocumentEntries,benefitRenewalCycleKey,usagePlanRenewalCycleKey,latestBenefitEntry,canManageChildDocuments,DOCUMENT_CATEGORIES,DOCUMENT_TYPES,groupDocumentSlots,documentSlots,validDocumentDate,finalPlanProgress,isDocumentPending,suggestedMonitoringMonths,type DocumentRegister,type ChildDocumentSettings,type ChildDocumentEntry} from './childDocuments';
 const settings=(patch:Partial<ChildDocumentSettings>={}):ChildDocumentSettings=>({childId:'a',revision:1,contractDate:'2024-04-15',monitoringMonths:[4,10],effectiveFrom:'2024-04-15',createdAt:'2024-04-15T00:00:00Z',createdByName:'架空職員',...patch});
 const entry=(type:ChildDocumentEntry['type'],cycleKey:string,id='one',patch:Partial<ChildDocumentEntry>={}):ChildDocumentEntry=>({id,childId:'a',type,cycleKey,documentDate:'2026-04-01',title:'',confirmed:true,note:'',validUntil:'',consentDate:'',guardianDeliveryDate:'',consultationDeliveryDate:'',operation:'record',replacesId:null,createdAt:'2026-04-01T00:00:00Z',createdByName:'架空職員',...patch});
 const register=(entries:ChildDocumentEntry[]=[],versions=[settings()]):DocumentRegister=>({settings:versions,entries});
 test('only admin and manager can read or operate document tracking; delegated classroom/staff roles cannot',()=>{
  for(const role of ['admin','manager'] as const){assert.equal(canManageChildDocuments({role}),true);assert.equal(canManageChildDocuments({role,fieldModeOnly:true}),false);}
  for(const role of ['classroom_manager','staff'] as const)assert.equal(canManageChildDocuments({role}),false);assert.equal(canManageChildDocuments(null),false);
+});
+test('visiting-only children need visiting contracts, consent and plans but not annex; legacy records are retained',()=>{
+ const old=entry('plan_final','initial:2024-04-15','old');
+ const rows=documentSlots('a',register([old]),'2026-10-15',{careType:'保育所等訪問支援'});
+ assert.ok(!rows.some(row=>row.type==='annex'));
+ assert.equal(rows.find(row=>row.type==='visiting_consent')?.cycleKey,'initial:visit-2024-04-15');
+ assert.equal(rows.find(row=>row.type==='contract')?.serviceScope,'visiting');
+ assert.equal(rows.find(row=>row.entry?.id==='old')?.serviceScope,'legacy');
+ assert.ok(rows.some(row=>row.type==='monitoring'&&row.cycleKey==='plan:visit-2026-10'));
+});
+test('dual service shares four types and requires independent visiting records only from its own contract date',()=>{
+ const dayPlan=entry('plan_final','plan:2026-10','day');
+ const store=register([dayPlan],[settings({visitingContractDate:'2026-06-01'})]);
+ const child={careType:'放課後等デイサービス' as const,visitingSupportEnabled:true};
+ const rows=documentSlots('a',store,'2026-10-15',child);
+ assert.ok(rows.some(row=>row.type==='annex'&&row.required));
+ assert.equal(rows.filter(row=>row.type==='face').length,1);
+ assert.ok(!rows.some(row=>['face','assessment','benefit','usage_plan','annex'].includes(row.type)&&row.serviceScope==='visiting'));
+ assert.equal(rows.find(row=>row.type==='plan_final'&&row.cycleKey==='plan:visit-2026-10')?.entry,undefined);
+ assert.equal(rows.find(row=>row.type==='plan_final'&&row.cycleKey==='plan:2026-10')?.entry?.id,'day');
+ assert.ok(!rows.some(row=>row.cycleKey==='plan:visit-2026-04'));
+ assert.deepEqual(rows.filter(row=>row.cycleKey==='initial:visit-2026-06-01').map(row=>row.type),
+  ['plan_draft','plan_meeting','plan_final','contract','important','portrait','privacy','visiting_consent']);
 });
 test('anniversary dates clamp leap days and month ends without overflow',()=>{
  assert.equal(addDocumentMonths('2024-02-29',12),'2025-02-28');assert.equal(addDocumentMonths('2024-08-31',6),'2025-02-28');assert.equal(validDocumentDate('2026-02-30'),false);assert.equal(validDocumentDate('2026-1-01'),false);
@@ -23,6 +46,57 @@ test('contract creates all initial forms and exactly four separate contract part
 test('annual records remain separate for every elapsed contract anniversary',()=>{
  const data=register([entry('assessment','annual:2026-04-15')]),slots=documentSlots('a',data,'2026-10-15').filter(s=>s.type==='assessment');
  assert.deepEqual(slots.map(s=>s.dueDate),['2024-04-15','2025-04-15','2026-04-15']);assert.deepEqual(slots.map(s=>s.status),['missing','missing','complete']);
+});
+test('annex requirements start at the April 2024 boundary and keep old registrations as reference only',()=>{
+ const old=entry('annex','annual:2023-04-01','old',{documentDate:'2023-04-01',confirmed:false});
+ const data=register([old],[settings({contractDate:'2022-04-01',effectiveFrom:'2022-04-01'})]);
+ const rows=documentSlots('a',data,'2024-04-01');
+ const annex=rows.filter(s=>s.type==='annex');
+ assert.deepEqual(annex.map(s=>s.cycleKey),['annual:2023-04-01','annual:2024-04-01']);
+ assert.equal(annex[0].entry?.id,'old');assert.equal(annex[0].required,false);assert.equal(isDocumentPending(annex[0]),false);
+ assert.equal(annex[1].required,true);assert.equal(isDocumentPending(annex[1]),true);
+ assert.ok(rows.some(s=>s.type==='assessment'&&s.dueDate==='2022-04-01'));
+ assert.equal(documentSlots('a',register([],[settings({contractDate:'2024-03-31',effectiveFrom:'2024-03-31'})]),'2024-03-31').some(s=>s.type==='annex'),false);
+});
+test('certificate months override legacy months only for the covered periods and create all four document slots',()=>{
+ const benefit=entry('benefit','extra:current','b',{documentDate:'2026-05-17',validUntil:'2026-11-30',monitoringMonths:[5,11]});
+ const store=register([benefit]),before=JSON.stringify(store);
+ const slots=documentSlots('a',store,'2026-12-01');
+ assert.deepEqual(slots.filter(s=>s.type==='monitoring').map(s=>s.cycleKey),
+  ['plan:2024-10','plan:2025-04','plan:2025-10','plan:2026-04','plan:2026-05','plan:2026-11']);
+ assert.deepEqual(slots.filter(s=>s.cycleKey==='plan:2026-11').map(s=>s.type),['plan_draft','plan_meeting','plan_final','monitoring']);
+ assert.equal(JSON.stringify(store),before);
+});
+test('an early certificate renewal keeps the old expiry month and starts the new schedule after that expiry',()=>{
+ const previous=entry('benefit','extra:previous','previous',{validUntil:'2026-11-30',monitoringMonths:[5,11]});
+ const next=entry('benefit',benefitRenewalCycleKey(previous.validUntil),'next',{documentDate:'2026-10-31',validUntil:'2027-11-30',monitoringMonths:[1,7]});
+ const rows=documentSlots('a',register([next,previous]),'2027-01-01').filter(s=>s.type==='monitoring');
+ assert.ok(rows.some(s=>s.cycleKey==='plan:2026-11'));
+ assert.ok(rows.some(s=>s.cycleKey==='plan:2027-01'));
+ assert.ok(!rows.some(s=>s.cycleKey==='plan:2026-10'));
+});
+test('explicit unknown months do not infer a birthday schedule or reuse prior settings, and saved slots survive',()=>{
+ const saved=entry('monitoring','plan:2026-10','m',{documentDate:'2026-10-01'});
+ const benefit=entry('benefit','extra:current','b',{monitoringMonths:[]});
+ const rows=documentSlots('a',register([benefit,saved]),'2026-11-11');
+ assert.equal(rows.find(s=>s.cycleKey==='plan:2026-10'&&s.type==='monitoring')?.entry?.id,'m');
+ assert.ok(!rows.some(s=>s.cycleKey==='plan:2026-10'&&s.type==='plan_final'));
+ assert.ok(!rows.some(s=>s.cycleKey==='plan:2026-11'));
+ assert.deepEqual(suggestedMonitoringMonths('2017-11-10','2026-11-11'),[5,11]);
+ assert.deepEqual(suggestedMonitoringMonths('2017-06-01','2026-11-11'),[6,12]);
+ for(const birth of ['', '2027-01-01','2017-02-30'])assert.deepEqual(suggestedMonitoringMonths(birth,'2026-11-11'),[]);
+});
+test('voided, future and other-child certificates cannot supply monitoring months',()=>{
+ const previous=entry('benefit','extra:previous','previous',{monitoringMonths:[5,11]});
+ const override=entry('benefit','extra:future','override',{documentDate:'2026-10-01',monitoringMonths:[10]});
+ for(const extra of [
+  [{...override,childId:'b'}],
+  [{...override,documentDate:'2026-12-01'}],
+  [override,{...override,id:'cancel',operation:'void' as const,replacesId:'override'}],
+ ]){
+  const rows=documentSlots('a',register([previous,...extra]),'2026-11-11').filter(s=>s.type==='monitoring');
+  assert.ok(rows.some(s=>s.cycleKey==='plan:2026-11'));assert.ok(!rows.some(s=>s.cycleKey==='plan:2026-10'));
+ }
 });
 test('monitoring months recur through the present month but cannot create future or duplicate initial-month cycles',()=>{
  const slots=documentSlots('a',register(),'2026-10-15').filter(s=>s.type==='monitoring');assert.deepEqual(slots.map(s=>s.cycleKey),['plan:2024-10','plan:2025-04','plan:2025-10','plan:2026-04','plan:2026-10']);assert.equal(slots.at(-1)?.status,'upcoming');assert.equal(slots.at(-1)?.dueDate,'2026-10-31');

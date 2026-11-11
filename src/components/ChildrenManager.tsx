@@ -1000,7 +1000,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                 </select>
                 {careType!==VISITING_SERVICE&&<label className="mt-3 flex min-h-12 cursor-pointer items-center gap-2 rounded-lg border border-violet-200 bg-violet-50 p-3 text-sm font-bold text-violet-900"><input type="checkbox" className="h-5 w-5 accent-violet-700" checked={visitingSupportEnabled} onChange={e=>setVisitingSupportEnabled(e.target.checked)}/>保育所等訪問支援も利用する</label>}
                 <p className="mt-2 text-xs leading-relaxed text-slate-500">訪問支援のみの場合は「保育所等訪問支援」を選択します。放デイ・児発との併用は、主な通所サービスを選び「保育所等訪問支援も利用する」をチェックします。同じ児童を二重登録する必要はありません。</p>
-                {careType===VISITING_SERVICE&&<p className="mt-2 rounded-lg bg-violet-50 p-3 text-xs font-bold text-violet-900">保育所等訪問支援のみの登録です。定期利用曜日から通所・送迎予定へは自動反映しません。訪問予定・訪問記録は今回の追加対象外です。</p>}
+                {careType===VISITING_SERVICE&&<p className="mt-2 rounded-lg bg-violet-50 p-3 text-xs font-bold text-violet-900">保育所等訪問支援のみの登録です。通所・送迎予定へは自動反映しません。訪問日は利用予定の「支給量・訪問支援の予定」で別途登録します。</p>}
               </div>
 
               <div>

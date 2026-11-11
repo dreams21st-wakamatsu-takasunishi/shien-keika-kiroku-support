@@ -1,6 +1,6 @@
 import type {ChildProfile} from '../types';
 import {buildSiblingGroupByChild} from './childSiblings';
-import {activeDocumentEntries,addDocumentMonths,documentSlots,latestBenefitEntry,latestDocumentSettings,validDocumentDate,DOCUMENT_TYPES,type DocumentRegister,type DocumentSlot,type DocumentType} from './childDocuments';
+import {activeDocumentEntries,addDocumentMonths,childDocumentServices,documentMonitoringSchedule,documentSlots,isVisitingDocumentKey,latestBenefitEntry,latestDocumentSettings,validDocumentDate,ANNEX_REQUIRED_FROM,DOCUMENT_TYPES,type DocumentRegister,type DocumentSlot,type DocumentType} from './childDocuments';
 
 export const DOCUMENT_RULE_SOURCES = {
  guideline:{label:'放課後等デイサービスガイドライン（こども家庭庁）',url:'https://www.cfa.go.jp/assets/contents/node/basic_page/field_ref_resources/32675809-3f98-486b-9c03-efc695ede0bb/7d644e16/20240710_policies_shougaijishien_shisaku_11.pdf'},
@@ -26,9 +26,10 @@ export function documentFamilyReference(child:ChildProfile,children:ChildProfile
 }
 /** One source of truth for actual missing fields, rather than a generic count. */
 export function documentMissingFields(slot:DocumentSlot):string[]{
+ if(slot.historicalAnnex||slot.serviceScope==='legacy')return [];
  const fields:string[]=[],entry=slot.entry;
  const named=['certificate','additional'].includes(slot.type);
- const dated=!['certificate','additional','contract','important','portrait','privacy'].includes(slot.type);
+ const dated=!['certificate','additional','contract','important','portrait','privacy','visiting_consent'].includes(slot.type);
  if(named&&!entry?.title.trim())fields.push('書類名');
  if(dated&&!entry?.documentDate)fields.push('作成日');
  if(!entry?.confirmed)fields.push('実物の保管確認');
@@ -39,12 +40,14 @@ export function documentMissingFields(slot:DocumentSlot):string[]{
  return fields;
 }
 const rank={overdue:0,soon:1,info:2};
-export function childDocumentReminders(child:ChildProfile,children:ChildProfile[],register:DocumentRegister,today:string,slots:DocumentSlot[]=documentSlots(child.id,register,today)):DocumentReminder[]{
+export function childDocumentReminders(child:ChildProfile,children:ChildProfile[],register:DocumentRegister,today:string,slots:DocumentSlot[]=documentSlots(child.id,register,today,child)):DocumentReminder[]{
  if(!validDocumentDate(today))throw Error('確認日を確認してください。');
  const settings=latestDocumentSettings(register.settings,child.id);
  if(!settings)return [{id:'contract',title:'契約日が未登録です',detail:'不足項目：契約日。上の「契約日」を入力して保存してください。未登録のため初回・年次の必要枠は計算できません。',level:'info',basis:'登録情報',types:[]}];
  if(settings.contractDate>today)return [{id:'contract',title:'契約開始前です',date:settings.contractDate,detail:'契約開始日に初回の入力欄を表示します。',level:'info',basis:'登録情報',types:[]}];
  const result:DocumentReminder[]=[],groups=new Map<string,DocumentReminder>();
+ const services=childDocumentServices(child);
+ if(services.visiting&&!services.visitingOnly&&!settings.visitingContractDate)result.push({id:'visiting-contract',title:'訪問支援の契約日が未登録です',detail:'上の契約日欄に訪問支援の契約日を登録すると、訪問支援用の契約書・情報連携同意書・計画の枠を表示します。',level:'info',basis:'登録情報',types:[]});
  const active=activeDocumentEntries(register.entries.filter(row=>row.childId===child.id));
  const near=(date:string)=>addDocumentMonths(date,-1)<=today;
  const level=(date:string):DocumentReminder['level']=>date<today?'overdue':'soon';
@@ -57,7 +60,7 @@ export function childDocumentReminders(child:ChildProfile,children:ChildProfile[
   if(!fields.length)return;
   const key=groupKey(slot);let group=groups.get(key);
   if(!group){
-   const title=key.startsWith('initial:')?'初回書類':key.startsWith('annual:')?slot.dueDate+' 年次書類':key.startsWith('plan:')?key.slice(5)+' 更新月の書類':key.startsWith('renewal:')?'受給者証更新分（前回期限 '+slot.dueDate+'）':'追加・個別登録の書類';
+   const title=isVisitingDocumentKey(key)?'訪問支援／'+(key.startsWith('initial:')?'初回書類':key.startsWith('plan:')?key.slice(11)+' 更新月の書類':'追加書類'):key.startsWith('initial:')?'初回書類':key.startsWith('annual:')?slot.dueDate+' 年次書類':key.startsWith('plan:')?key.slice(5)+' 更新月の書類':key.startsWith('renewal:')?'受給者証更新分（前回期限 '+slot.dueDate+'）':'追加・個別登録の書類';
    group={id:'documents:'+key,title:title+'：未登録・確認不足',detail:'下記の不足項目を入力し、実物の保管を確認して保存してください。年次・月末の日付は事業所の管理目安であり、一律の法定有効期限ではありません。',date:slot.dueDate,level:level(slot.dueDate),basis:'事業所の管理目安',types:[],items:[]};
    groups.set(key,group);result.push(group);
   }
@@ -75,11 +78,11 @@ export function childDocumentReminders(child:ChildProfile,children:ChildProfile[
  }
  // Fold reviews into pending document periods; otherwise group reviews by due date.
  if(child.careType!=='保育所等訪問支援')for(const type of ['monitoring','plan_final'] as const){
-  const last=active.filter(row=>(row.type===type||(type==='plan_final'&&row.type==='monitoring'))&&row.confirmed&&row.documentDate<=today).map(row=>row.documentDate).sort().at(-1)||settings.contractDate;
+  const last=active.filter(row=>!isVisitingDocumentKey(row.cycleKey)&&(row.type===type||(type==='plan_final'&&row.type==='monitoring'))&&row.confirmed&&row.documentDate<=today).map(row=>row.documentDate).sort().at(-1)||settings.contractDate;
   const due=addDocumentMonths(last,6);if(!near(due))continue;
   const action=type==='monitoring'?'モニタリングの実施・作成日の確認':'個支本案の見直し要否の確認';
   const reason=`${action}：最終登録日 ${last}（未登録なら契約日）から6か月の確認目安は ${due} です。`;
-  const pending=slots.filter(slot=>slot.type===type&&documentMissingFields(slot).length).sort((a,b)=>b.dueDate.localeCompare(a.dueDate))[0];
+  const pending=slots.filter(slot=>slot.serviceScope!=='visiting'&&slot.type===type&&documentMissingFields(slot).length).sort((a,b)=>b.dueDate.localeCompare(a.dueDate))[0];
   if(pending){
    const group=groups.get(groupKey(pending))!;if(!group.detail.includes(reason))group.detail+=' '+reason;
    group.reviewNotes=[...(group.reviewNotes||[]),reason];
@@ -90,13 +93,21 @@ export function childDocumentReminders(child:ChildProfile,children:ChildProfile[
    reminder.detail+=' '+reason;reminder.types.push(type);
   }
  }
- const versions=register.settings.filter(row=>row.childId===child.id).sort((a,b)=>b.revision-a.revision);
- if(!versions.find(row=>row.effectiveFrom<=today)?.monitoringMonths.length)result.push({id:'monitoring-unknown',title:'受給者証のモニタリング月が未登録です',detail:'不足項目：モニタリング更新月。上の契約・更新月設定で、受給者証等に記載された月を選択して保存してください。',level:'info',basis:'登録情報',types:[]});
+ const schedule=documentMonitoringSchedule(child.id,register,today);
+ const current=schedule(today.slice(0,7)+'-01');
+ if(!current.expired&&!current.months.length){
+  const slot=slots.find(row=>row.entry?.id&&row.entry.id===current.certificate?.id)
+   ??slots.filter(row=>row.type==='benefit'&&!row.benefitRenewal).at(-1);
+  if(slot)addIssue(slot,['受給者証のモニタリング時期（計画更新月）'],'受給者証に記載された月を受給者証の登録欄で選択してください。誕生月は候補としてのみ使います。');
+ }
  let nextYear=Number(today.slice(0,4))-Number(settings.contractDate.slice(0,4));if(addDocumentMonths(settings.contractDate,nextYear*12)<=today)nextYear++;
  const nextAnnual=addDocumentMonths(settings.contractDate,nextYear*12);
- if(near(nextAnnual))result.push({id:'next-annual',title:'次回の年次確認の準備',detail:'対象：アセスメントシート・別表。契約日の年次確認が1か月以内です。内容確認の準備をしてください。未登録の不足アラートではありません。',date:nextAnnual,level:'soon',basis:'事業所の管理目安',types:['assessment','annex']});
+ if(near(nextAnnual)){
+  const types:DocumentType[]=nextAnnual>=ANNEX_REQUIRED_FROM&&!services.visitingOnly?['assessment','annex']:['assessment'];
+  result.push({id:'next-annual',title:'次回の年次確認の準備',detail:'対象：'+types.map(type=>DOCUMENT_TYPES[type]).join('・')+'。契約日の年次確認が1か月以内です。内容確認の準備をしてください。未登録の不足アラートではありません。',date:nextAnnual,level:'soon',basis:'事業所の管理目安',types});
+ }
  const nextStart=addDocumentMonths(today.slice(0,7)+'-01',1);
- if(versions.find(row=>row.effectiveFrom<=nextStart)?.monitoringMonths.includes(Number(nextStart.slice(5,7))))result.push({id:'next-monitoring',title:'翌月のモニタリング更新の準備',detail:'対象：原案・会議・本案・モニタリング。実施日と計画の変更要否を確認してください。翌月の枠は月初に表示します。',date:nextStart,level:'soon',basis:'登録情報',types:['monitoring','plan_final']});
+ if(schedule(nextStart).months.includes(Number(nextStart.slice(5,7))))result.push({id:'next-monitoring',title:'翌月のモニタリング更新の準備',detail:'対象：原案・会議・本案・モニタリング。実施日と計画の変更要否を確認してください。翌月の枠は月初に表示します。',date:nextStart,level:'soon',basis:'登録情報',types:['monitoring','plan_final']});
  const family=documentFamilyReference(child,children,today);
  if(family.siblingCount>0)result.push({id:'siblings',title:'きょうだい利用・世帯情報の確認',detail:'登録きょうだいのサービス利用状況と、利用者負担上限額管理の該当有無・管理事業所を確認する参考情報です。書類不足や提出義務を自動判定したものではありません。',level:'info',basis:'条件の確認',types:['benefit'],source:'household',reference:true});
  if(!validDocumentDate(certificate?.validUntil||'')&&family.eldest){

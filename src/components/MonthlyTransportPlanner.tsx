@@ -44,9 +44,12 @@ import { getDefaultDepartureTime, getTransportProgram } from '../utils/transport
 import { getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
 import { inferTransportArea, resolvedTransportArea } from '../utils/transportArea';
 import { buildSiblingGroupByChild } from '../utils/childSiblings';
+import { VISITING_SERVICE } from '../utils/careServices';
+import { ChildServiceQuotaPanel } from './ChildServiceQuotaPanel';
 
 interface MonthlyTransportPlannerProps {
   organizationId?: string;
+  currentUserId?: string;
   initialDate: string;
   childrenList: ChildProfile[];
   schools: SchoolProfile[];
@@ -171,7 +174,7 @@ function serviceChildrenForDate(
 ) {
   const weekday = getWeekdayFromDate(date);
   return children.filter((child) => {
-    if (child.serviceSuspended) return false;
+    if (child.serviceSuspended || child.careType===VISITING_SERVICE) return false;
     const plan = plans.find((candidate) => candidate.childId === child.id && candidate.date === date);
     return plan ? plan.attendancePlan !== '欠席' : getRegularDaysForDate(child, date).includes(weekday);
   });
@@ -386,6 +389,7 @@ function TransportRequirementFieldset({
 
 export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = ({
   organizationId,
+  currentUserId,
   initialDate,
   childrenList,
   schools,
@@ -442,7 +446,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
   const [reflectFrom, setReflectFrom] = useState(`${month}-01`);
   const [reflectTo, setReflectTo] = useState(monthDates(month).at(-1) || `${month}-01`);
   const dates = useMemo(() => monthDates(month), [month]);
-  const activeChildIds = useMemo(() => new Set(childrenList.filter((child) => !child.serviceSuspended).map((child) => child.id)), [childrenList]);
+  const activeChildIds = useMemo(() => new Set(childrenList.filter((child) => !child.serviceSuspended && child.careType!==VISITING_SERVICE).map((child) => child.id)), [childrenList]);
   const absentPlanKeys = useMemo(() => new Set(dailyChildPlans
     .filter((plan) => plan.attendancePlan === '欠席')
     .map((plan) => `${plan.childId}:${plan.date}`)), [dailyChildPlans]);
@@ -470,7 +474,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
     && activeChildIds.has(plan.childId)
   ), [activeChildIds, dailyChildPlans, selectedDate]);
   const activeChildren = useMemo(() => childrenList
-    .filter((child) => !child.serviceSuspended)
+    .filter((child) => !child.serviceSuspended && child.careType!==VISITING_SERVICE)
     .sort((left, right) => left.name.localeCompare(right.name, 'ja')), [childrenList]);
   const transportChildren = useMemo(() => activeChildren
     .filter((child) => child.transportationRequired), [activeChildren]);
@@ -1225,6 +1229,9 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
 
   return (
     <div className="space-y-4">
+      {organizationId && canManage && <ChildServiceQuotaPanel key={organizationId+":"+(currentUserId||"")}
+        organizationId={organizationId} userId={currentUserId} date={selectedDate}
+        children={childrenList} plans={dailyChildPlans} requirements={requirements}/>}
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>

@@ -20,6 +20,10 @@ import {
   DOCUMENT_TYPES,
   DOCUMENT_CATEGORIES,
   documentSlots,
+  childDocumentServices,
+  VISITING_DOCUMENT_TYPES,
+  documentMonitoringSchedule,
+  suggestedMonitoringMonths,
   groupDocumentSlots,
   latestDocumentSettings,
   latestBenefitEntry,
@@ -35,6 +39,7 @@ import {
   type DocumentType,
   type DocumentCategoryId,
 } from "../utils/childDocuments";
+import { emptyBenefitEntitlements, validBenefitEntitlements, INDIVIDUAL_SUPPORT_TYPES, INDIVIDUAL_SUPPORT_LABELS, type BenefitEntitlements } from "../utils/childServiceEntitlements";
 import {childDocumentReminders, documentFamilyReference, DOCUMENT_RULE_SOURCES, type DocumentReminder} from "../utils/childDocumentReminders";
 
 const today = () =>
@@ -163,15 +168,18 @@ function DocumentWorkspace({
       child && data
         ? latestDocumentSettings(data.settings, child.id)
         : undefined;
-  const slots = child && data ? documentSlots(child.id, data, asOf) : [];
+  const slots = child && data ? documentSlots(child.id, data, asOf, child) : [];
+  const services = childDocumentServices(child);
   const benefit = child && data ? latestBenefitEntry(child.id, data, asOf) : undefined;
+  const monitoring = child && data ? documentMonitoringSchedule(child.id, data, asOf)(asOf.slice(0,7)+'-01') : undefined;
+  const suggestedMonths = child ? suggestedMonitoringMonths(child.birthDate || "", asOf) : [];
   const reminders = child && data ? childDocumentReminders(child, childrenList, data, asOf, slots) : [];
   const categories = groupDocumentSlots(slots);
   const summaries = useMemo(
     () =>
       data
         ? childrenList.map((child) => {
-            const slots = documentSlots(child.id, data, asOf),
+            const slots = documentSlots(child.id, data, asOf, child),
               missing = slots.filter(
                 (slot) => slot.required && isDocumentPending(slot),
               ).length,
@@ -224,6 +232,9 @@ function DocumentWorkspace({
   };
   const writeEntry = async (entry: DocumentEntryInput) => {
     if (!child || busy) throw Error("保存中です。しばらくお待ちください。");
+    if (entry.type === "benefit" && [...dirtyRows.current].some(key => key !== "benefit|" + entry.cycleKey && key !== "additional")) {
+      throw Error("受給者証を保存する前に、ほかの欄の未保存の入力を保存するか元に戻してください。更新月の変更で入力欄が切り替わります。");
+    }
     setBusy(true);
     setError("");
     const request = generation.current;
@@ -356,10 +367,12 @@ function DocumentWorkspace({
                 <DocumentSettings
                   key={child.id + ":" + (settings?.revision || 0)}
                   childId={child.id}
+                  services={services}
                   data={data}
                   disabled={busy}
                   onDirty={(dirty) => markDirty("settings", dirty)}
-                  onSave={async (contractDate, months, effective) => {
+                  onSave={async (contractDate, months, effective, visitingContractDate) => {
+                    if ([...dirtyRows.current].some(key => key !== "settings")) throw Error("先に書類欄の未保存の入力を保存するか元に戻してください。");
                     setBusy(true);
                     setError("");
                     try {
@@ -369,6 +382,7 @@ function DocumentWorkspace({
                         contractDate,
                         months,
                         effective,
+                        visitingContractDate,
                       );
                       if (mounted.current)
                         setData((previous) =>
@@ -397,10 +411,21 @@ function DocumentWorkspace({
                     }
                   }}
                 />
+                {services.visiting && <p className="rounded-lg bg-violet-50 p-3 text-xs text-violet-950">
+                  {services.visitingOnly ? "保育所等訪問支援では別表は確認対象外です。" : "フェイスシート・アセスメント・利用計画・受給者証は共通です。"}
+                  訪問支援用の契約書・情報連携同意書・計画・モニタリングは「訪問支援」と付いた欄へ登録してください。
+                </p>}
                 <section aria-label="受給者証の期限と更新" className={`rounded-xl border p-3 ${benefit?.validUntil && benefit.validUntil < asOf ? "border-rose-300 bg-rose-50" : benefit?.validUntil && addDocumentMonths(benefit.validUntil,-1) <= asOf ? "border-amber-300 bg-amber-50" : "border-violet-200 bg-violet-50"}`}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <h4 className="text-sm font-bold">受給者証の有効期限：{benefit?.validUntil || "未登録"}</h4>
+                      <p className="mt-1 text-xs font-bold">
+                        モニタリング時期（計画更新月）：{monitoring?.expired
+                          ? "受給者証の更新を確認してください"
+                          : monitoring?.months.length
+                            ? monitoring.months.map(m => m + "月").join("・") + (monitoring.source === "legacy" ? "（従来の設定）" : "")
+                            : "未登録"}
+                      </p>
                       <p className="mt-1 text-xs leading-relaxed">
                         {benefit?.validUntil ? `受給者証・利用計画の更新分の入力欄は ${addDocumentMonths(benefit.validUntil,-1)} から自動表示します。` : "受給者証の書類欄に、記載された有効期限を入力してください。期限は推測で補完しません。"}
                         更新分は別の書類として保存し、以前の作成日・有効期限は履歴に残します。
@@ -435,7 +460,7 @@ function DocumentWorkspace({
                 </div>
                 {settings && (
                   <p className="text-xs text-slate-500">
-                    年次枠は契約日を起点にした事業所の管理目安であり、一律の法定期限ではありません。受給者証・利用計画は登録された有効期限を優先し、1か月前から別の更新欄を表示します。モニタリング指定月の枠は月初に表示し、月末は確認目安として扱います。過去の登録は上書きしません。
+                    年次枠は事業所の管理目安です。別表は2024年4月1日以降の対象枠のみ確認します。受給者証・利用計画は有効期限の1か月前から別の更新欄を表示します。個支原案・会議・本案・モニタリングは受給者証の指定月に表示し、過去の登録は上書きしません。
                   </p>
                 )}
                 <nav
@@ -622,6 +647,7 @@ function DocumentWorkspace({
                                     <DocumentRow
                                       key={slot.key}
                                       slot={slot}
+                                      suggestedMonths={suggestedMonths}
                                       disabled={busy}
                                       deleteDisabled={busy || dirtyCount > 0}
                                       onSave={writeEntry}
@@ -646,6 +672,8 @@ function DocumentWorkspace({
                   ))}
                 <AdditionalDocument
                   key={"extra:" + child.id}
+                  suggestedMonths={suggestedMonths}
+                  services={services}
                   disabled={busy}
                   onSave={writeEntry}
                   onDirty={(dirty) => markDirty("additional", dirty)}
@@ -679,7 +707,8 @@ function DocumentWorkspace({
                           {row.note && (
                             <p className="whitespace-pre-wrap">{row.note}</p>
                           )}
-                          {row.type === "benefit" && <p>有効期限：{row.validUntil || "未登録"}</p>}
+                          {row.type === "benefit" && <p>有効期限：{row.validUntil || "未登録"}／モニタリング時期：{row.monitoringMonths?.map(m => m + "月").join("・") || "未登録"}</p>}
+                          {row.entitlements && <p>通所支給量：{row.entitlements.dayServiceDays ?? "未登録"}／訪問支給量：{row.entitlements.visitingDays ?? "未登録"}／個別サポート：{row.entitlements.individualSupportTypes.map(type=>INDIVIDUAL_SUPPORT_LABELS[type]).join("・") || "選択なし"}</p>}
                         </li>
                       ))}
                   </ul>
@@ -733,6 +762,7 @@ function DocumentReminderPanel({child,childrenList,asOf,reminders,disabled,onOpe
 
 function DocumentSettings({
   childId,
+  services,
   data,
   disabled,
   onDirty,
@@ -740,14 +770,16 @@ function DocumentSettings({
 }: {
   key?: string;
   childId: string;
+  services: ReturnType<typeof childDocumentServices>;
   data: DocumentRegister;
   disabled: boolean;
   onDirty: (dirty: boolean) => void;
-  onSave: (date: string, months: number[], effective: string) => Promise<void>;
+  onSave: (date: string, months: number[], effective: string, visitingContractDate?: string) => Promise<void>;
 }) {
   const saved = latestDocumentSettings(data.settings, childId),
     [date, setDate] = useState(saved?.contractDate || ""),
     [months, setMonths] = useState<number[]>(saved?.monitoringMonths || []),
+    [visitingDate, setVisitingDate] = useState(saved?.visitingContractDate || ""),
     [effective, setEffective] = useState(saved ? today() : ""),
     [dirty, setDirty] = useState(false),
     [error, setError] = useState("");
@@ -761,8 +793,11 @@ function DocumentSettings({
       setError("契約日・更新月の適用日を入力してください。");
       return;
     }
+    if (visitingDate && !validDocumentDate(visitingDate)) {
+      setError("訪問支援の契約日を確認してください。"); return;
+    }
     try {
-      await onSave(date, months, effective);
+      await onSave(date, months, effective, services.visiting && !services.visitingOnly && visitingDate !== (saved?.visitingContractDate || "") ? visitingDate : undefined);
       setDirty(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "設定を保存できませんでした。");
@@ -770,8 +805,8 @@ function DocumentSettings({
   };
   return (
     <section className="rounded-xl border border-teal-300 bg-white p-4">
-      <h4 className="font-bold">契約日と受給者証の更新月</h4>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      <h4 className="font-bold">契約日</h4>
+      <div className="mt-3 max-w-xs">
         <label className="text-xs font-bold">
           契約日
           <input
@@ -789,7 +824,16 @@ function DocumentSettings({
             className={input}
           />
         </label>
-        <label className="text-xs font-bold">
+      </div>
+      <p className="mt-2 text-xs text-slate-600">モニタリング時期は受給者証の登録欄で設定してください。</p>
+      {services.visiting && !services.visitingOnly && <label className="mt-3 block max-w-xs text-xs font-bold">訪問支援の契約日
+        <input aria-label="訪問支援の契約日" type="date" min="1900-01-01" max="2100-12-31" value={visitingDate} disabled={disabled}
+          onChange={e=>{setVisitingDate(e.target.value);setDirty(true);}} className={input}/>
+        <span className="block pt-1 font-normal">訪問支援用の書類はこの日を起点に表示します。</span>
+      </label>}
+      <details className="mt-3">
+        <summary className="cursor-pointer text-xs font-bold">従来の更新月設定（受給者証に未登録の場合）</summary>
+        <label className="mt-2 block max-w-xs text-xs font-bold">
           更新月設定の適用日
           <input
             aria-label="更新月設定の適用日"
@@ -804,10 +848,9 @@ function DocumentSettings({
             className={input}
           />
         </label>
-      </div>
       <fieldset className="mt-3">
         <legend className="text-xs font-bold">
-          受給者証のモニタリング更新月（毎年・複数選択）
+          従来のモニタリング更新月（毎年・複数選択）
         </legend>
         <div className="mt-2 flex flex-wrap gap-2">
           {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
@@ -835,8 +878,9 @@ function DocumentSettings({
         </div>
       </fieldset>
       <p className="mt-2 text-xs text-slate-500">
-        初回は契約日から適用します。以降の変更は本日以降で設定します。月途中の変更は翌月の枠から適用し、以前の指定月の枠を残します。受給者証の記載が不明な場合は月を推測で選ばず、未登録のまま保存できます。
+        従来の設定は受給者証ごとの登録がない期間に使用します。受給者証で設定した期間には適用しません。月途中の変更は翌月の枠から適用します。
       </p>
+      </details>
       {error && (
         <p role="alert" className="mt-2 text-sm text-rose-800">
           {error}
@@ -858,6 +902,7 @@ function DocumentSettings({
             onClick={() => {
               setDate(saved?.contractDate || "");
               setMonths(saved?.monitoringMonths || []);
+              setVisitingDate(saved?.visitingContractDate || "");
               setEffective(saved ? today() : "");
               setDirty(false);
               setError("");
@@ -878,6 +923,7 @@ function DocumentSettings({
               {s.monitoringMonths.map((m) => m + "月").join("・") ||
                 "更新月未登録"}
               ／{s.createdByName}
+              {s.visitingContractDate && "／訪問支援の契約 " + s.visitingContractDate}
             </p>
           ))}
       </details>
@@ -887,6 +933,7 @@ function DocumentSettings({
 
 function DocumentRow({
   slot,
+  suggestedMonths,
   disabled,
   deleteDisabled,
   onSave,
@@ -894,6 +941,7 @@ function DocumentRow({
 }: {
   key?: string;
   slot: DocumentSlot;
+  suggestedMonths: number[];
   disabled: boolean;
   deleteDisabled: boolean;
   onSave: (entry: DocumentEntryInput) => Promise<void>;
@@ -902,6 +950,7 @@ function DocumentRow({
   const finalState=slot.type==='plan_final'?finalPlanProgress(slot.entry):undefined;
   const base = () => ({
     ...newDocumentEntry(slot.type, slot.cycleKey),
+    ...(!slot.entry && slot.type === "benefit" ? { monitoringMonths: [] } : {}),
     ...(slot.entry || {}),
     id: crypto.randomUUID(),
     replacesId: slot.entry?.id || null,
@@ -931,6 +980,7 @@ function DocumentRow({
     "important",
     "portrait",
     "privacy",
+    "visiting_consent",
     "additional",
   ].includes(slot.type);
   const save = async () => {
@@ -956,6 +1006,9 @@ function DocumentRow({
       if (slot.benefitRenewal && draft.validUntil <= slot.benefitRenewal.previousValidUntil) {
         setError("更新分には前回の期限より後の有効期限を入力してください。元の期限の訂正は、以前の受給者証の欄で行ってください。");return;
       }
+    }
+    if (draft.entitlements && !validBenefitEntitlements(draft.entitlements)) {
+      setError("支給量は0～31の整数で入力し、個別サポートにチェックした場合は区分を選択してください。");return;
     }
     try {
       await onSave(draft);
@@ -1001,11 +1054,11 @@ function DocumentRow({
           <h4 className="text-sm font-bold">{DOCUMENT_TYPES[slot.type]}</h4>
           <p className="mt-1 text-[11px] text-slate-500">
             {slot.label}／確認目安 {slot.dueDate}
-            {!slot.required ? "（追加登録）" : ""}
+            {slot.historicalAnnex ? "（旧登録・確認対象外）" : !slot.required ? "（追加登録）" : ""}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3"><span className={`rounded-md px-2 py-1 text-xs font-bold ${finalState?finalPlanColors[finalState].badge:''}`}>
-          {finalState ? FINAL_PLAN_LABELS[finalState] : slot.status === "complete"
+          {slot.historicalAnnex ? "確認対象外" : finalState ? FINAL_PLAN_LABELS[finalState] : slot.status === "complete"
             ? "保管確認済み"
             : slot.status === "missing"
               ? "未入力"
@@ -1062,15 +1115,26 @@ function DocumentRow({
           />
           実物の保管を確認
         </label>
-        <button
+        {slot.type !== "benefit" && <button
           type="button"
           disabled={disabled || !dirty}
           onClick={() => void save()}
           className="min-h-10 rounded-lg bg-teal-700 px-3 text-xs font-bold text-white disabled:opacity-40"
         >
           {slot.entry ? "訂正を保存" : "書類を登録"}
-        </button>
+        </button>}
       </div>
+      {slot.type === "benefit" && (
+        <>
+          <CertificateMonitoringFields selected={draft.monitoringMonths} suggestedMonths={suggestedMonths}
+            disabled={disabled} onChange={months => change({monitoringMonths: months})} />
+          <BenefitEntitlementFields value={draft.entitlements} disabled={disabled} onChange={entitlements=>change({entitlements})} />
+          <button type="button" disabled={disabled || !dirty} onClick={() => void save()}
+            className="mt-2 min-h-10 rounded-lg bg-teal-700 px-3 text-xs font-bold text-white disabled:opacity-40">
+            {slot.entry ? "訂正を保存" : "書類を登録"}
+          </button>
+        </>
+      )}
       <details className="mt-2 text-xs">
         <summary className="min-h-9 cursor-pointer py-2">
           補足・同意／交付確認・訂正
@@ -1134,17 +1198,95 @@ function DocumentRow({
   );
 }
 
+function CertificateMonitoringFields({ selected, suggestedMonths, disabled, onChange }: {
+  selected?: number[];
+  suggestedMonths: number[];
+  disabled: boolean;
+  onChange: (months: number[]) => void;
+}) {
+  return (
+    <fieldset className="mt-3 rounded-lg border border-violet-200 bg-violet-50 p-3">
+      <legend className="px-1 text-xs font-bold">モニタリング時期（計画更新月）</legend>
+      <p className="text-xs text-slate-700">受給者証に記載された月をすべて選択してください。選択月に原案・会議・本案・モニタリングの欄を表示します。</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {Array.from({ length: 12 }, (_, i) => i + 1).map(month => (
+          <label key={month} className={`flex min-h-10 items-center gap-1 rounded-lg border px-2 text-xs ${selected?.includes(month) ? "border-violet-500 bg-white font-bold" : "border-violet-200"}`}>
+            <input type="checkbox" aria-label={`受給者証の計画更新月 ${month}月`} disabled={disabled}
+              checked={selected?.includes(month) ?? false}
+              onChange={() => {
+                const months = selected ?? [];
+                onChange(months.includes(month) ? months.filter(m => m !== month) : [...months, month].sort((a,b) => a-b));
+              }} />
+            {month}月
+          </label>
+        ))}
+      </div>
+      {suggestedMonths.length > 0 && (
+        <button type="button" disabled={disabled} className="mt-2 min-h-10 rounded-lg border border-violet-300 bg-white px-3 text-xs font-bold"
+          onClick={() => onChange(suggestedMonths)}>
+          誕生月・半年後の候補を入れる（{suggestedMonths.map(m => m + "月").join("・")}）
+        </button>
+      )}
+      <p className="mt-1 text-xs text-slate-600">候補は受給者証と照合してから保存してください。記載と異なる場合は月を変更できます。</p>
+    </fieldset>
+  );
+}
+
+function BenefitEntitlementFields({value, disabled, onChange}: {
+  value?: BenefitEntitlements; disabled: boolean; onChange: (value: BenefitEntitlements)=>void;
+}) {
+  const current=value ?? emptyBenefitEntitlements();
+  const change=(patch:Partial<BenefitEntitlements>)=>onChange({...current,...patch});
+  const days=(field:"dayServiceDays"|"visitingDays",label:string)=><label className="block text-xs font-bold">
+    {label}
+    <input aria-label={label} type="number" min={0} max={31} step={1} inputMode="numeric" placeholder="未登録"
+      value={current[field] ?? ""} disabled={disabled} className={input}
+      onChange={e=>change({[field]:e.target.value===""?null:Number(e.target.value)})}/>
+  </label>;
+  return <fieldset className="mt-3 rounded-lg border border-violet-200 bg-violet-50 p-3">
+    <legend className="px-1 text-xs font-bold">支給決定内容</legend>
+    <p className="mb-2 text-xs text-slate-700">受給者証に記載の月あたりの日数を入力します。不明な欄は空欄のままにしてください。</p>
+    <div className="grid gap-2 sm:grid-cols-2">
+      {days("dayServiceDays","通所の支給量（日／月）")}
+      <div className="space-y-2">
+        <label className="flex min-h-10 items-center gap-2 text-xs font-bold">
+          <input type="checkbox" disabled={disabled} checked={current.visitingEnabled}
+            onChange={e=>change({visitingEnabled:e.target.checked,...(e.target.checked?{}:{visitingDays:null})})}/>保育所等訪問支援
+        </label>
+        {current.visitingEnabled&&days("visitingDays","訪問支援の支給量（日／月）")}
+      </div>
+    </div>
+    <label className="mt-2 flex min-h-10 items-center gap-2 text-xs font-bold">
+      <input type="checkbox" disabled={disabled} checked={current.individualSupportEnabled}
+        onChange={e=>change({individualSupportEnabled:e.target.checked,...(e.target.checked?{}:{individualSupportTypes:[]})})}/>個別サポート
+    </label>
+    {current.individualSupportEnabled&&<div role="group" aria-label="個別サポートの区分" className="flex flex-wrap gap-3">
+      {INDIVIDUAL_SUPPORT_TYPES.map(type=><label key={type} className="flex min-h-10 items-center gap-2 rounded-lg border bg-white px-3 text-xs font-bold">
+        <input type="checkbox" aria-label={"個別サポート（"+INDIVIDUAL_SUPPORT_LABELS[type]+"）"}
+          disabled={disabled} checked={current.individualSupportTypes.includes(type)}
+          onChange={e=>change({individualSupportTypes:INDIVIDUAL_SUPPORT_TYPES.filter(item=>item===type?e.target.checked:current.individualSupportTypes.includes(item))})}/>
+        {INDIVIDUAL_SUPPORT_LABELS[type]}
+      </label>)}
+    </div>}
+  </fieldset>;
+}
+
 function AdditionalDocument({
+  suggestedMonths,
+  services,
   disabled,
   onSave,
   onDirty,
 }: {
   key?: string;
+  suggestedMonths: number[];
+  services: ReturnType<typeof childDocumentServices>;
   disabled: boolean;
   onSave: (entry: DocumentEntryInput) => Promise<void>;
   onDirty: (dirty: boolean) => void;
 }) {
   const [type, setType] = useState<DocumentType>("certificate"),
+    [visitScope, setVisitScope] = useState(false),
     [draft, setDraft] = useState(() =>
       newDocumentEntry("certificate", "extra:" + crypto.randomUUID()),
     ),
@@ -1164,6 +1306,7 @@ function AdditionalDocument({
       "important",
       "portrait",
       "privacy",
+      "visiting_consent",
     ].includes(type);
     if (
       (dated && !validDocumentDate(draft.documentDate)) ||
@@ -1176,8 +1319,17 @@ function AdditionalDocument({
       );
       return;
     }
+    if (type === "benefit" && draft.validUntil && (!validDocumentDate(draft.validUntil) || draft.validUntil < draft.documentDate)) {
+      setError("受給者証の有効期限は作成日以降の日付で入力してください。");
+      return;
+    }
+    if (draft.entitlements && !validBenefitEntitlements(draft.entitlements)) {
+      setError("支給量は0～31の整数で入力し、個別サポートにチェックした場合は区分を選択してください。");return;
+    }
     try {
-      await onSave({ ...draft, type });
+      const visit = type === "visiting_consent" || (VISITING_DOCUMENT_TYPES.includes(type) && (visitScope || services.visitingOnly));
+      await onSave({ ...draft, type, cycleKey: visit ? draft.cycleKey.replace("extra:", "extra:visit-") : draft.cycleKey,
+        ...(type === "benefit" ? {monitoringMonths: draft.monitoringMonths ?? []} : {}) });
       setDraft(newDocumentEntry(type, "extra:" + crypto.randomUUID()));
       setDirty(false);
     } catch (e) {
@@ -1202,17 +1354,26 @@ function AdditionalDocument({
             onChange={(e) => {
               const next = e.target.value as DocumentType;
               setType(next);
+              setVisitScope(next === "visiting_consent");
               setDraft(newDocumentEntry(next, "extra:" + crypto.randomUUID()));
             }}
             className={input}
           >
-            {Object.entries(DOCUMENT_TYPES).map(([key, title]) => (
+            {Object.entries(DOCUMENT_TYPES).filter(([key]) => (key !== "visiting_consent" || services.visiting) && (key !== "annex" || !services.visitingOnly)).map(([key, title]) => (
               <option key={key} value={key}>
                 {title}
               </option>
             ))}
           </select>
         </label>
+        {services.visiting && !services.visitingOnly && type !== "visiting_consent" && VISITING_DOCUMENT_TYPES.includes(type) && (
+          <label className="text-xs font-bold">追加書類のサービス
+            <select aria-label="追加書類のサービス" value={visitScope ? "visit" : "day"} disabled={disabled || dirty}
+              onChange={e=>setVisitScope(e.target.value === "visit")} className={input}>
+              <option value="day">通所</option><option value="visit">保育所等訪問支援</option>
+            </select>
+          </label>
+        )}
         {type === "certificate" || type === "additional" ? (
           <label className="text-xs font-bold">
             書類名
@@ -1256,6 +1417,15 @@ function AdditionalDocument({
             />
           </label>
         )}
+        {type === "benefit" && (
+          <label className="text-xs font-bold">追加する受給者証の有効期限
+            <input type="date" value={draft.validUntil} min={draft.documentDate || "1900-01-01"} max="2100-12-31"
+              disabled={disabled} className={input} onChange={e => {
+                setDraft({...draft, validUntil: e.target.value});
+                setDirty(true);
+              }} />
+          </label>
+        )}
         <label className="flex min-h-10 items-center gap-2 text-xs font-bold">
           <input
             type="checkbox"
@@ -1273,6 +1443,14 @@ function AdditionalDocument({
           実物の保管を確認
         </label>
       </div>
+      {type === "benefit" && <CertificateMonitoringFields selected={draft.monitoringMonths} suggestedMonths={suggestedMonths}
+        disabled={disabled} onChange={monitoringMonths => {
+          setDraft({...draft, monitoringMonths});
+          setDirty(true);
+        }} />}
+      {type === "benefit" && <BenefitEntitlementFields value={draft.entitlements} disabled={disabled} onChange={entitlements=>{
+        setDraft({...draft, entitlements});setDirty(true);
+      }}/>}
       {error && (
         <p role="alert" className="mt-2 text-sm text-rose-800">
           {error}

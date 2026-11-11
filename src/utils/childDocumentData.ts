@@ -4,8 +4,13 @@ import {
   type ChildDocumentSettings,
   type ChildDocumentEntry,
 } from "./childDocuments";
+import { validBenefitEntitlements } from "./childServiceEntitlements";
 function text(value: unknown) {
   return typeof value === "string" ? value : "";
+}
+function validMonths(value: unknown): value is number[] {
+  return Array.isArray(value) && value.every(m => Number.isInteger(m) && m >= 1 && m <= 12)
+    && new Set(value).size === value.length;
 }
 export function parseDocumentSettings(row: any): ChildDocumentSettings {
   if (
@@ -15,17 +20,15 @@ export function parseDocumentSettings(row: any): ChildDocumentSettings {
     Number(row.revision) < 1 ||
     !validDocumentDate(row.contract_date) ||
     !validDocumentDate(row.effective_from) ||
-    !Array.isArray(row.monitoring_months) ||
-    row.monitoring_months.some(
-      (m: unknown) => !Number.isInteger(m) || Number(m) < 1 || Number(m) > 12,
-    ) ||
-    new Set(row.monitoring_months).size !== row.monitoring_months.length
+    (row.visiting_contract_date != null && !validDocumentDate(row.visiting_contract_date)) ||
+    !validMonths(row.monitoring_months)
   )
     throw Error("書類管理の設定を確認できません。");
   return {
     childId: row.child_id,
     revision: Number(row.revision),
     contractDate: row.contract_date,
+    ...(row.visiting_contract_date ? {visitingContractDate: row.visiting_contract_date} : {}),
     monitoringMonths: row.monitoring_months,
     effectiveFrom: row.effective_from,
     createdAt: text(row.created_at),
@@ -41,6 +44,8 @@ export function parseDocumentEntry(row: any): ChildDocumentEntry {
     typeof row.cycle_key !== "string" ||
     typeof row.confirmed !== "boolean" ||
     !["record", "void"].includes(row.operation) ||
+    (row.monitoring_months != null && (row.document_type !== "benefit" || !validMonths(row.monitoring_months))) ||
+    (row.entitlements != null && (row.document_type !== "benefit" || !validBenefitEntitlements(row.entitlements))) ||
     [
       row.document_date,
       row.valid_until,
@@ -60,6 +65,8 @@ export function parseDocumentEntry(row: any): ChildDocumentEntry {
     confirmed: row.confirmed,
     note: text(row.note),
     validUntil: text(row.valid_until),
+    ...(row.monitoring_months != null ? {monitoringMonths: [...row.monitoring_months].sort((a, b) => a - b)} : {}),
+    ...(row.entitlements != null ? {entitlements: row.entitlements} : {}),
     consentDate: text(row.consent_date),
     guardianDeliveryDate: text(row.guardian_delivery_date),
     consultationDeliveryDate: text(row.consultation_delivery_date),

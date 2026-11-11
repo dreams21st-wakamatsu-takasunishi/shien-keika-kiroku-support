@@ -36,14 +36,16 @@ export async function saveDocumentSettings(
   contractDate: string,
   monitoringMonths: number[],
   effectiveFrom: string,
+  visitingContractDate?: string,
 ) {
   return parseDocumentSettings(
-    await rpc("save_child_document_settings", {
+    await rpc(visitingContractDate === undefined ? "save_child_document_settings" : "save_child_document_settings_v2", {
       p_child_id: childId,
       p_expected_revision: expectedRevision,
       p_contract_date: contractDate,
       p_monitoring_months: [...monitoringMonths].sort((a, b) => a - b),
       p_effective_from: effectiveFrom,
+      ...(visitingContractDate === undefined ? {} : {p_visiting_contract_date: visitingContractDate}),
     }),
   );
 }
@@ -52,7 +54,8 @@ export async function saveDocumentEntry(
   entry: DocumentEntryInput,
 ) {
   return parseDocumentEntry(
-    await rpc("save_child_document_entry", {
+    await rpc(entry.entitlements !== undefined || entry.type === "visiting_consent" || /^(initial|plan|extra):visit-/.test(entry.cycleKey)
+      ? "save_child_document_entry_v3" : entry.monitoringMonths !== undefined ? "save_child_document_entry_v2" : "save_child_document_entry", {
       p_child_id: childId,
       p_entry: entry,
     }),

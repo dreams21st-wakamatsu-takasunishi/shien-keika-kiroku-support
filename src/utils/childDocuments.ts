@@ -1,4 +1,6 @@
-import type { UserProfile } from "../types";
+import type { ChildProfile, UserProfile } from "../types";
+import { childCareTypes, VISITING_SERVICE } from "./careServices";
+import type { BenefitEntitlements } from "./childServiceEntitlements";
 
 export const DOCUMENT_TYPES = {
   face: "フェイスシート",
@@ -15,6 +17,7 @@ export const DOCUMENT_TYPES = {
   important: "重要事項説明書（署名ページ1枚）",
   portrait: "肖像権使用同意書（1枚）",
   privacy: "個人情報使用同意書（1枚）",
+  visiting_consent: "保育所等訪問支援にかかる情報連携同意書",
   additional: "その他の保管書類",
 } as const;
 export type DocumentType = keyof typeof DOCUMENT_TYPES;
@@ -22,6 +25,7 @@ export interface ChildDocumentSettings {
   childId: string;
   revision: number;
   contractDate: string;
+  visitingContractDate?: string;
   monitoringMonths: number[];
   effectiveFrom: string;
   createdAt: string;
@@ -37,6 +41,9 @@ export interface ChildDocumentEntry {
   confirmed: boolean;
   note: string;
   validUntil: string;
+  /** Undefined for legacy registrations. An empty list means no months were entered on this certificate. */
+  monitoringMonths?: number[];
+  entitlements?: BenefitEntitlements;
   consentDate: string;
   guardianDeliveryDate: string;
   consultationDeliveryDate: string;
@@ -60,6 +67,8 @@ export interface DocumentSlot {
   label: string;
   dueDate: string;
   required: boolean;
+  historicalAnnex?: boolean;
+  serviceScope?: "visiting" | "legacy";
   entry?: ChildDocumentEntry;
   status: "missing" | "unconfirmed" | "complete" | "upcoming";
   benefitRenewal?: { previousValidUntil: string; availableFrom: string };
@@ -72,14 +81,23 @@ export function finalPlanProgress(entry?:ChildDocumentEntry):FinalPlanProgress {
   return validDocumentDate(entry.consentDate)&&validDocumentDate(entry.guardianDeliveryDate)?'completed':'pending';
 }
 export function isDocumentPending(slot:DocumentSlot){
-  return slot.status!=='complete'||(slot.type==='plan_final'&&finalPlanProgress(slot.entry)!=='completed');
+  return !slot.historicalAnnex&&slot.serviceScope!=="legacy"&&(slot.status!=='complete'||(slot.type==='plan_final'&&finalPlanProgress(slot.entry)!=='completed'));
+}
+export const ANNEX_REQUIRED_FROM = "2024-04-01";
+const CONTRACT_TYPES = ["contract", "important", "portrait", "privacy"] as const;
+const PLAN_TYPES = ["plan_draft", "plan_meeting", "plan_final", "monitoring"] as const;
+export const VISITING_DOCUMENT_TYPES: readonly DocumentType[] = [...CONTRACT_TYPES, ...PLAN_TYPES, "visiting_consent"];
+export const isVisitingDocumentKey = (key: string) => /^(initial|plan|extra):visit-/.test(key);
+export function childDocumentServices(child?: Pick<ChildProfile, "careType" | "visitingSupportEnabled">) {
+  const services = child ? childCareTypes(child) : [];
+  return { visiting: services.includes(VISITING_SERVICE), visitingOnly: services.length === 1 && services[0] === VISITING_SERVICE };
 }
 export const DOCUMENT_CATEGORIES = [
   {
     id: "contracts",
     title: "契約・同意書",
     description: "利用開始時の契約書と各種同意書",
-    types: ["contract", "important", "portrait", "privacy"],
+    types: ["contract", "important", "portrait", "privacy", "visiting_consent"],
   },
   {
     id: "assessment",
@@ -188,10 +206,44 @@ export function latestBenefitEntry(
     .sort((a,b) => b.documentDate.localeCompare(a.documentDate)
       || b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))[0];
 }
+export function suggestedMonitoringMonths(birthDate: string, today: string) {
+  if (!validDocumentDate(birthDate) || birthDate > today) return [];
+  const month = Number(birthDate.slice(5, 7));
+  return [month, (month + 5) % 12 + 1].sort((a, b) => a - b);
+}
+/** Resolve each month from the certificate in force for it, not from the latest entry globally. */
+export function documentMonitoringSchedule(childId: string, register: DocumentRegister, today: string) {
+  const versions = register.settings.filter(row => row.childId === childId).sort((a, b) => b.revision - a.revision);
+  const certificates = activeDocumentEntries(register.entries.filter(row => row.childId === childId))
+    .filter(row => row.type === "benefit" && validDocumentDate(row.documentDate) && row.documentDate <= today)
+    .map(entry => {
+      const previousExpiry = entry.cycleKey.match(/^extra:benefit-renewal-(\d{4}-\d{2}-\d{2})$/)?.[1];
+      const start = previousExpiry && validDocumentDate(previousExpiry) && previousExpiry >= entry.documentDate
+        ? new Date(Date.parse(previousExpiry + "T00:00:00Z") + 86400000).toISOString().slice(0, 10)
+        : entry.documentDate;
+      return {entry, start};
+    }).sort((a, b) => b.start.localeCompare(a.start) || b.entry.documentDate.localeCompare(a.entry.documentDate)
+      || b.entry.createdAt.localeCompare(a.entry.createdAt) || b.entry.id.localeCompare(a.entry.id));
+  return (first: string) => {
+    const [year, month] = first.split("-").map(Number);
+    const last = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+    const through = first <= today && today < last ? today : last;
+    const applicable = certificates.filter(row => row.start <= through);
+    const certificate = applicable[0]?.entry;
+    const certificateBased = applicable.some(row => row.entry.monitoringMonths !== undefined);
+    if (certificateBased) {
+      const expired = Boolean(certificate?.validUntil && certificate.validUntil < first);
+      return {months: expired ? [] : certificate?.monitoringMonths ?? [], certificate, expired, source: "certificate" as const};
+    }
+    return {months: versions.find(row => row.effectiveFrom <= first)?.monitoringMonths ?? [],
+      certificate, expired: false, source: "legacy" as const};
+  };
+}
 export function documentSlots(
   childId: string,
   register: DocumentRegister,
   today: string,
+  child?: Pick<ChildProfile, "careType" | "visitingSupportEnabled">,
 ): DocumentSlot[] {
   if (!validDocumentDate(today)) throw Error("確認日を確認してください。");
   const settings = latestDocumentSettings(register.settings, childId),
@@ -200,6 +252,7 @@ export function documentSlots(
     );
   const slots: DocumentSlot[] = [],
     seen = new Set<string>();
+  const { visiting, visitingOnly } = childDocumentServices(child);
   const hasRegisteredExpiry = validDocumentDate(latestBenefitEntry(childId, register, today)?.validUntil || "");
   const add = (
     type: DocumentType,
@@ -207,6 +260,8 @@ export function documentSlots(
     label: string,
     dueDate: string,
     required = true,
+    historicalAnnex = false,
+    serviceScope?: DocumentSlot["serviceScope"],
   ) => {
     const key = type + "|" + cycleKey;
     if (seen.has(key)) return;
@@ -228,6 +283,8 @@ export function documentSlots(
       label,
       dueDate,
       required,
+      ...(historicalAnnex ? {historicalAnnex} : {}),
+      ...(serviceScope ? {serviceScope} : {}),
       entry,
       status,
     });
@@ -235,14 +292,8 @@ export function documentSlots(
   if (settings && settings.contractDate <= today) {
     const start = settings.contractDate,
       initial = "initial:" + start;
-    for (const type of [
-      "face",
-      "contract",
-      "important",
-      "portrait",
-      "privacy",
-    ] as DocumentType[])
-      add(type, initial, "契約時", start);
+    add("face", initial, "契約時", start);
+    if (!visitingOnly) for (const type of CONTRACT_TYPES) add(type, initial, "契約時", start);
     for (
       let year = 0;
       year <= Number(today.slice(0, 4)) - Number(start.slice(0, 4));
@@ -256,6 +307,7 @@ export function documentSlots(
         "usage_plan",
         "annex",
       ] as DocumentType[]) {
+        if (type === "annex" && (visitingOnly || due < ANNEX_REQUIRED_FROM)) continue;
         // Once a real expiry is known, it supersedes unsaved anniversary
         // placeholders for certificates and usage plans. Saved rows stay below.
         if (year > 0 && ["benefit", "usage_plan"].includes(type) && hasRegisteredExpiry
@@ -268,33 +320,31 @@ export function documentSlots(
         );
       }
     }
-    for (const type of [
-      "plan_draft",
-      "plan_meeting",
-      "plan_final",
-    ] as DocumentType[])
-      add(type, initial, "初回計画", start);
-    const versions = register.settings
-      .filter((row) => row.childId === childId)
-      .sort((a, b) => b.revision - a.revision);
-    for (let y = Number(start.slice(0, 4)); y <= Number(today.slice(0, 4)); y++)
+    const schedule = documentMonitoringSchedule(childId, register, today);
+    const addPlans = (since: string, visit: boolean) => {
+      const scope = visit ? "visiting" as const : undefined;
+      const prefix = visit ? "訪問支援／" : "";
+      for (const type of PLAN_TYPES.slice(0,3))
+        add(type, "initial:" + (visit ? "visit-" : "") + since, prefix + "初回計画", since, true, false, scope);
+      for (let y = Number(since.slice(0, 4)); y <= Number(today.slice(0, 4)); y++)
       for (let m = 1; m <= 12; m++) {
         const period = `${y}-${String(m).padStart(2, "0")}`,
           first = period + "-01",
           last = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
-        if (period <= start.slice(0, 7) || first > today) continue;
-        // A mid-month change takes effect from the next month's first day.
-        // The checklist already shown for this month must not disappear.
-        const version = versions.find((row) => row.effectiveFrom <= first);
-        if (!version?.monitoringMonths.includes(m)) continue;
-        for (const type of [
-          "plan_draft",
-          "plan_meeting",
-          "plan_final",
-          "monitoring",
-        ] as DocumentType[])
-          add(type, "plan:" + period, period + " 更新月", last);
+        if (period <= since.slice(0, 7) || first > today) continue;
+        const monitoring = schedule(first);
+        if (!monitoring.months.includes(m)) continue;
+        for (const type of PLAN_TYPES)
+          add(type, "plan:" + (visit ? "visit-" : "") + period, prefix + period + " 更新月", last, true, false, scope);
       }
+    };
+    if (!visitingOnly) addPlans(start, false);
+    const visitingStart = visitingOnly ? start : settings.visitingContractDate;
+    if (visiting && visitingStart && visitingStart <= today) {
+      for (const type of [...CONTRACT_TYPES, "visiting_consent"] as const)
+        add(type, "initial:visit-" + visitingStart, "訪問支援／契約時", visitingStart, true, false, "visiting");
+      addPlans(visitingStart, true);
+    }
   }
   // Renewal windows use an explicit expiry, not the contract anniversary.
   // A stable, already-supported extra key keeps each renewal independent.
@@ -347,21 +397,30 @@ export function documentSlots(
   for (const row of active.filter((row) =>
     ["plan_draft", "plan_meeting", "plan_final"].includes(row.type),
   )) {
+    const visit = isVisitingDocumentKey(row.cycleKey);
+    if (visitingOnly && !visit) continue; // Keep older unclassified registrations without asserting the service.
     for (const type of [
       "plan_draft",
       "plan_meeting",
       "plan_final",
     ] as DocumentType[])
-      add(type, row.cycleKey, "追加・旧設定の計画", row.documentDate || today);
+      add(type, row.cycleKey, (visit ? "訪問支援／" : "") + "追加・旧設定の計画", row.documentDate || today, true, false, visit ? "visiting" : undefined);
   }
-  for (const row of active)
+  for (const row of active) {
+    const historicalAnnex = row.type === "annex"
+      && (visitingOnly || (row.cycleKey.match(/^annual:(\d{4}-\d{2}-\d{2})$/)?.[1] || row.documentDate || today) < ANNEX_REQUIRED_FROM);
+    const visit = isVisitingDocumentKey(row.cycleKey);
+    const legacy = visitingOnly && !visit && VISITING_DOCUMENT_TYPES.includes(row.type);
     add(
       row.type,
       row.cycleKey,
-      row.title || "追加・旧設定の書類",
+      row.title || (visit ? "訪問支援／" : legacy ? "サービス区分未設定／" : "") + "追加・旧設定の書類",
       row.documentDate || today,
       false,
+      historicalAnnex,
+      visit ? "visiting" : legacy ? "legacy" : undefined,
     );
+  }
   return slots.sort(
     (a, b) =>
       a.dueDate.localeCompare(b.dueDate) ||

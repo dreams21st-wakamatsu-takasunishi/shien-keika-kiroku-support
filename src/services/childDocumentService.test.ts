@@ -18,3 +18,11 @@ test('benefit renewal uses the existing extra-cycle format and carries its own e
  assert.match(row.cycleKey,/^(initial:|annual:|plan:|extra:)[A-Za-z0-9-]+$/);
  assert.throws(()=>parseDocumentEntry({id:'bad',child_id:'a',document_type:'benefit',cycle_key:row.cycleKey,document_date:'2026-10-30',valid_until:'2027-02-30',confirmed:true,operation:'record'}));
 });
+test('certificate parser preserves legacy null and explicit empty schedules and rejects invalid months',()=>{
+ const source={id:'b',child_id:'a',document_type:'benefit',cycle_key:'extra:certificate',document_date:'2026-10-30',confirmed:true,operation:'record'};
+ assert.equal(parseDocumentEntry({...source,monitoring_months:null}).monitoringMonths,undefined);
+ assert.deepEqual(parseDocumentEntry({...source,monitoring_months:[]}).monitoringMonths,[]);
+ assert.deepEqual(parseDocumentEntry({...source,monitoring_months:[11,5]}).monitoringMonths,[5,11]);
+ for(const months of [[13],[0],[1.5],['5'],[5,5],{},'5'])assert.throws(()=>parseDocumentEntry({...source,monitoring_months:months}));
+ assert.throws(()=>parseDocumentEntry({...source,document_type:'annex',monitoring_months:[4,10]}));
+});

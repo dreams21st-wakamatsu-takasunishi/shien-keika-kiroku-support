@@ -75,6 +75,20 @@ test('current monitoring period uses historical settings and next January prepar
  assert.ok(reminders(changed).some(r=>r.id==='documents:plan:2026-10'));
  assert.equal(reminders(changed,'2026-12-20').find(r=>r.id==='next-monitoring')?.date,'2027-01-01');
 });
+test('certificate months drive next-month preparation and missing months merge into the certificate issue',()=>{
+ const selected=entry({validUntil:'2027-04-30',monitoringMonths:[5,11]});
+ assert.equal(reminders(data([selected]),'2026-10-19').find(r=>r.id==='next-monitoring')?.date,'2026-11-01');
+ assert.ok(reminders(data([selected]),'2026-11-11').some(r=>r.id==='documents:plan:2026-11'));
+ const noMonths=reminders(data([{...selected,monitoringMonths:[],confirmed:false}]),'2026-10-19');
+ assert.ok(!noMonths.some(r=>r.id==='next-monitoring'));
+ assert.deepEqual(items(noMonths).find(i=>i.slotKey==='benefit|extra:one')?.missing,['実物の保管確認','受給者証のモニタリング時期（計画更新月）']);
+});
+test('annex registered before April 2024 is not flagged for missing storage or early preparation',()=>{
+ const store=data([entry({type:'annex',cycleKey:'annual:2023-03-31',documentDate:'2023-03-31',validUntil:'',confirmed:false})]);
+ store.settings[0].contractDate='2023-03-31';store.settings[0].effectiveFrom='2023-03-31';
+ assert.ok(!items(reminders(store,'2024-03-31')).some(item=>item.type==='annex'));
+ assert.deepEqual(reminders(store,'2024-03-01').find(r=>r.id==='next-annual')?.types,['assessment']);
+});
 test('birthday and sibling references are separate from missing documents and use explicit links only',()=>{
  const younger={...child,siblingIds:['older'],birthDate:'2016-04-10'},older={...child,id:'older',name:'架空B',birthDate:'2014-11-20',siblingIds:['a']};
  const family=documentFamilyReference(younger,[younger,older],'2026-10-19');assert.equal(family.eldest?.id,'older');
