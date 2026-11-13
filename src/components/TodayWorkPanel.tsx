@@ -133,6 +133,7 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
       {canManage && (
         <OperationsAssistant
           selectedDate={selectedDate}
+          dateScoped={Boolean(onLoadOperationalPeriod)}
           calendarEvents={calendarEvents}
           attendanceRecords={attendanceRecords}
           transportRuns={transportRuns}
@@ -172,6 +173,7 @@ interface OperationsProposal {
 
 function OperationsAssistant({
   selectedDate,
+  dateScoped,
   calendarEvents,
   attendanceRecords,
   transportRuns,
@@ -182,6 +184,7 @@ function OperationsAssistant({
   onSaveTransportRun,
 }: {
   selectedDate: string;
+  dateScoped: boolean;
   calendarEvents: CalendarEvent[];
   attendanceRecords: AttendanceRecord[];
   transportRuns: TransportRun[];
@@ -200,6 +203,10 @@ function OperationsAssistant({
   const propose = () => {
     setMessage('');
     try {
+      const target=extractOperationsDate(instruction,selectedDate);
+      if(dateScoped&&target!==selectedDate&&/送迎|運転|便|車両|号車|配車|欠勤|有給|公休|特別休暇|研修|遅刻|早退/.test(instruction)) {
+        throw new Error(`先に「業務の対象日」を${target}に切り替え、当日の出退勤・送迎を読み込んでください。`);
+      }
       setProposal(buildOperationsProposal({ instruction, selectedDate, calendarEvents, attendanceRecords, transportRuns, vehicles, recorderProfiles, onSaveCalendarEvent, onSaveAttendance, onSaveTransportRun }));
     } catch (error) {
       setProposal(undefined);
