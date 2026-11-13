@@ -15,6 +15,13 @@ const children=[{id:'a',name:'架空児童A',careType:'放課後等デイサー�
 const user={id:'synthetic-manager',organizationId:'synthetic-org',displayName:'架空管理者',role} as any;
 const store='fixture-child-documents-v1';
 let records:DocumentRegister={settings:mode==='empty'?[]:[{childId:'a',revision:1,contractDate:'2024-04-15',monitoringMonths:[4,10],effectiveFrom:'2024-04-15',createdAt:'2024-04-15T00:00:00Z',createdByName:'架空管理者'}],entries:[]};
+if(mode==='visiting-review'){
+ records.settings.push({...records.settings[0],childId:'b',contractDate:'2023-08-01',effectiveFrom:'2023-08-01'});
+ records.entries.push({id:'visit-first',childId:'b',type:'plan_final',cycleKey:'initial:visit-2023-08-01',
+  documentDate:'2023-08-10',planStartDate:'2023-10-31',validUntil:'',confirmed:true,title:'',note:'',
+  consentDate:'2023-08-10',guardianDeliveryDate:'2023-08-10',consultationDeliveryDate:'',
+  operation:'record',replacesId:null,createdAt:'2023-08-10T00:00:00Z',createdByName:'架空管理者'});
+}
 if(mode==='benefit-expiry'||mode==='usage-renewal')records.entries.push({id:'fictional-benefit',childId:'a',type:'benefit',cycleKey:'annual:2026-04-15',documentDate:'2026-04-01',validUntil:'2026-11-30',confirmed:true,title:'',note:'既存の保管場所',consentDate:'',guardianDeliveryDate:'',consultationDeliveryDate:'',operation:'record',replacesId:null,createdAt:'2026-04-01T00:00:00Z',createdByName:'架空管理者'});
 if(mode==='usage-renewal')records.entries.push({...records.entries[0],id:'fictional-plan',type:'usage_plan',cycleKey:'annual:2026-04-15',validUntil:''});
 if(mode==='benefit-monitoring'){
@@ -61,6 +68,7 @@ const model={loads:0,writes:0,settingsWrites:0,failLoad:mode==='load-error',fail
 const persist=()=>localStorage.setItem(store,JSON.stringify(records));persist();Object.assign(window,{__documentFixture:model});
 const wait=async()=>{if(model.delay)await new Promise(resolve=>setTimeout(resolve,model.delay));};
 const api:ChildDocumentApi={load:async()=>{model.loads++;await wait();if(model.failLoad)throw Error('確認用の通信エラー：保管状況を取得できません。');return structuredClone(records);},
+ visitingReviewException:async(revision,value)=>{const saved={...value,revision:revision+1};records.visitingReviewException=saved;persist();return structuredClone(saved);},
  settings:async(childId,revision,contractDate,monitoringMonths,effectiveFrom,visitingContractDate)=>{await wait();if(model.failSave)throw Error('設定を共有保存できませんでした。');const next={childId,revision:revision+1,contractDate,monitoringMonths,effectiveFrom,visitingContractDate,createdAt:new Date().toISOString(),createdByName:user.displayName};records.settings.push(next);model.settingsWrites++;persist();return structuredClone(next);},
  entry:async(childId,entry)=>{await wait();if(model.failSave)throw Error('共有保存できませんでした。入力は残しています。');const next={...entry,childId,createdAt:new Date().toISOString(),createdByName:user.displayName};records.entries=records.entries.filter(row=>row.id!==entry.id);records.entries.push(next);model.writes++;persist();return structuredClone(next);},
 };

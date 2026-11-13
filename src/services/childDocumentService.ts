@@ -2,10 +2,12 @@ import { supabase } from "../lib/supabase";
 import type {
   DocumentRegister,
   DocumentEntryInput,
+  VisitingReviewException,
 } from "../utils/childDocuments";
 import {
   parseDocumentSettings,
   parseDocumentEntry,
+  parseVisitingReviewException,
 } from "../utils/childDocumentData";
 async function rpc(name: string, args?: Record<string, unknown>) {
   if (!supabase) throw Error("書類管理はクラウド接続が必要です。");
@@ -28,6 +30,7 @@ export async function loadDocumentRegister(): Promise<DocumentRegister> {
   return {
     settings: data.settings.map(parseDocumentSettings),
     entries: data.entries.map(parseDocumentEntry),
+    ...(data.visiting_review_exception == null ? {} : {visitingReviewException: parseVisitingReviewException(data.visiting_review_exception)}),
   };
 }
 export async function saveDocumentSettings(
@@ -54,16 +57,28 @@ export async function saveDocumentEntry(
   entry: DocumentEntryInput,
 ) {
   return parseDocumentEntry(
-    await rpc(entry.entitlements !== undefined || entry.type === "visiting_consent" || /^(initial|plan|extra):visit-/.test(entry.cycleKey)
+    await rpc(entry.type === "plan_final" && (entry.planStartDate !== undefined || /^(initial|plan|extra):visit-/.test(entry.cycleKey))
+      ? "save_child_document_entry_v4"
+      : entry.entitlements !== undefined || entry.type === "visiting_consent" || /^(initial|plan|extra):visit-/.test(entry.cycleKey)
       ? "save_child_document_entry_v3" : entry.monitoringMonths !== undefined ? "save_child_document_entry_v2" : "save_child_document_entry", {
       p_child_id: childId,
       p_entry: entry,
     }),
   );
 }
+async function saveVisitingReviewException(expectedRevision: number, value: Omit<VisitingReviewException, "revision">) {
+  return parseVisitingReviewException(await rpc("save_child_document_visiting_exception", {
+    p_expected_revision: expectedRevision,
+    p_from: value.from,
+    p_through: value.through,
+    p_reason: value.reason.trim(),
+    p_enabled: value.enabled,
+  }));
+}
 export const childDocumentApi = {
   load: loadDocumentRegister,
   settings: saveDocumentSettings,
   entry: saveDocumentEntry,
+  visitingReviewException: saveVisitingReviewException,
 };
 export type ChildDocumentApi = typeof childDocumentApi;

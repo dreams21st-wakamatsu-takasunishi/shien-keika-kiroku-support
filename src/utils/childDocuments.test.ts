@@ -16,7 +16,8 @@ test('visiting-only children need visiting contracts, consent and plans but not 
  assert.equal(rows.find(row=>row.type==='visiting_consent')?.cycleKey,'initial:visit-2024-04-15');
  assert.equal(rows.find(row=>row.type==='contract')?.serviceScope,'visiting');
  assert.equal(rows.find(row=>row.entry?.id==='old')?.serviceScope,'legacy');
- assert.ok(rows.some(row=>row.type==='monitoring'&&row.cycleKey==='plan:visit-2026-10'));
+ assert.ok(!rows.some(row=>row.type==='monitoring'));
+ assert.equal(rows.find(row=>row.type==='plan_final'&&row.serviceScope==='visiting')?.dueDate,'2024-04-30');
 });
 test('dual service shares four types and requires independent visiting records only from its own contract date',()=>{
  const dayPlan=entry('plan_final','plan:2026-10','day');
@@ -26,11 +27,54 @@ test('dual service shares four types and requires independent visiting records o
  assert.ok(rows.some(row=>row.type==='annex'&&row.required));
  assert.equal(rows.filter(row=>row.type==='face').length,1);
  assert.ok(!rows.some(row=>['face','assessment','benefit','usage_plan','annex'].includes(row.type)&&row.serviceScope==='visiting'));
- assert.equal(rows.find(row=>row.type==='plan_final'&&row.cycleKey==='plan:visit-2026-10')?.entry,undefined);
+ assert.ok(!rows.some(row=>row.cycleKey.startsWith('plan:visit-')));
  assert.equal(rows.find(row=>row.type==='plan_final'&&row.cycleKey==='plan:2026-10')?.entry?.id,'day');
  assert.ok(!rows.some(row=>row.cycleKey==='plan:visit-2026-04'));
  assert.deepEqual(rows.filter(row=>row.cycleKey==='initial:visit-2026-06-01').map(row=>row.type),
-  ['plan_draft','plan_meeting','plan_final','contract','important','portrait','privacy','visiting_consent']);
+  ['contract','important','portrait','privacy','visiting_consent','plan_draft','plan_meeting','plan_final']);
+});
+test('visiting plans use the recorded contract month and exact six-month plan start, not certificate months',()=>{
+ const child={careType:'放課後等デイサービス' as const,visitingSupportEnabled:true};
+ const store=register([
+  entry('contract','initial:visit-2025-08-12','contract',{documentDate:'2025-09-01'}),
+  entry('plan_final','initial:visit-2025-08-12','initial',{documentDate:'2025-09-02',planStartDate:'2025-09-30'}),
+  entry('benefit','extra:benefit','benefit',{documentDate:'2025-08-01',monitoringMonths:[1,7]}),
+ ],[settings({visitingContractDate:'2025-08-12'})]);
+ const rows=documentSlots('a',store,'2026-03-30',child);
+ assert.equal(rows.find(row=>row.entry?.id==='initial')?.dueDate,'2025-09-30');
+ const renewal=rows.filter(row=>row.cycleKey==='plan:visit-renewal-2026-03-30');
+ assert.deepEqual(renewal.map(row=>row.type),['plan_draft','plan_meeting','plan_final','monitoring']);
+ assert.ok(renewal.every(row=>row.status==='missing'&&row.visitingReview?.anchor==='2025-09-30'));
+ assert.ok(rows.some(row=>row.cycleKey==='plan:2026-01'));
+ assert.ok(!rows.some(row=>row.cycleKey==='plan:visit-2026-01'));
+});
+test('visiting exception keeps absent rows distinct, resumes after its end and never hides saved issues or day slots',()=>{
+ const child={careType:'放課後等デイサービス' as const,visitingSupportEnabled:true};
+ const store=register([
+  entry('plan_final','initial:visit-2023-08-01','initial',{documentDate:'2023-08-02',planStartDate:'2023-10-31'}),
+  entry('monitoring','plan:visit-renewal-2024-04-30','saved',{documentDate:'2024-04-29',confirmed:false}),
+ ],[settings({contractDate:'2023-08-01',visitingContractDate:'2023-08-01',effectiveFrom:'2023-08-01'})]);
+ store.visitingReviewException={revision:1,from:'2023-12-01',through:'2024-04-30',reason:'架空の確認',enabled:true};
+ const rows=documentSlots('a',store,'2024-05-01',child);
+ const exempt=rows.filter(row=>row.reviewException);
+ assert.equal(exempt.length,3);
+ assert.ok(exempt.every(row=>!row.entry&&!isDocumentPending(row)&&row.dueDate==='2024-04-30'));
+ assert.ok(isDocumentPending(rows.find(row=>row.entry?.id==='saved')!));
+ assert.ok(rows.some(row=>row.visitingReview?.kind==='resume'&&row.dueDate==='2024-05-01'&&isDocumentPending(row)));
+ assert.ok(isDocumentPending(rows.find(row=>row.cycleKey==='plan:2024-04'&&row.type==='plan_final')!));
+ const disabled=documentSlots('a',{...store,visitingReviewException:{...store.visitingReviewException,enabled:false}},'2024-05-01',child);
+ assert.ok(disabled.every(row=>!row.reviewException&&row.visitingReview?.kind!=='resume'));
+});
+test('a saved late visiting renewal is not duplicated; the next review is anchored to its own start',()=>{
+ const child={careType:'保育所等訪問支援' as const};
+ const store=register([
+  entry('plan_final','initial:visit-2024-04-15','first',{documentDate:'2024-04-15',planStartDate:'2024-04-30'}),
+  entry('plan_final','plan:visit-2024-11','second',{documentDate:'2024-11-01',planStartDate:'2024-11-15'}),
+ ],[settings()]);
+ const rows=documentSlots('a',store,'2025-05-16',child);
+ assert.equal(rows.find(row=>row.entry?.id==='second')?.dueDate,'2024-10-30');
+ assert.ok(!rows.some(row=>row.cycleKey==='plan:visit-renewal-2024-10-30'));
+ assert.ok(rows.some(row=>row.cycleKey==='plan:visit-renewal-2025-05-15'&&row.type==='monitoring'));
 });
 test('anniversary dates clamp leap days and month ends without overflow',()=>{
  assert.equal(addDocumentMonths('2024-02-29',12),'2025-02-28');assert.equal(addDocumentMonths('2024-08-31',6),'2025-02-28');assert.equal(validDocumentDate('2026-02-30'),false);assert.equal(validDocumentDate('2026-1-01'),false);

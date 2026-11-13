@@ -3,6 +3,24 @@ import assert from 'node:assert/strict';
 import type {ChildProfile} from '../types';
 import {childDocumentReminders,documentFamilyReference,documentMissingFields} from './childDocumentReminders';
 import {documentSlots,usagePlanRenewalCycleKey,type DocumentRegister,type ChildDocumentEntry} from './childDocuments';
+test('visiting renewal alert begins on the six-month date and names the missing fields without using certificate months',()=>{
+ const visitor={...child,careType:'保育所等訪問支援' as const};
+ const store:DocumentRegister={
+  settings:[{childId:'a',revision:1,contractDate:'2024-04-15',effectiveFrom:'2024-04-15',monitoringMonths:[1,7],createdAt:'',createdByName:''}],
+  entries:[entry({type:'plan_final',cycleKey:'initial:visit-2024-04-15',documentDate:'2024-04-15',planStartDate:'2024-04-30',
+    consentDate:'2024-04-15',guardianDeliveryDate:'2024-04-15'})],
+ };
+ const notices=(date:string)=>childDocumentReminders(visitor,[visitor],store,date);
+ assert.ok(!notices('2024-10-29').some(row=>row.id.includes('visit-renewal')));
+ const renewal=notices('2024-10-30').find(row=>row.id==='documents:plan:visit-renewal-2024-10-30');
+ assert.deepEqual(renewal?.items?.map(item=>item.type),['plan_draft','plan_meeting','plan_final','monitoring']);
+ assert.match(renewal?.detail||'',/前回の個支本案の開始日：2024-04-30/);
+ assert.equal(notices('2024-10-31').find(row=>row.id===renewal?.id)?.level,'overdue');
+ delete store.entries[0].planStartDate;
+ const withoutStart=notices('2025-01-31');
+ assert.ok(withoutStart.some(row=>row.items?.some(item=>item.missing.includes('計画の開始日'))));
+ assert.ok(!withoutStart.some(row=>row.id.includes('visit-renewal')||row.id==='next-monitoring'));
+});
 const child:ChildProfile={id:'a',name:'架空児童A',birthDate:'2016-11-15',careType:'放課後等デイサービス'};
 const entry=(patch:Partial<ChildDocumentEntry>={}):ChildDocumentEntry=>({id:'b',childId:'a',type:'benefit',cycleKey:'extra:one',documentDate:'2026-04-01',validUntil:'2026-11-30',confirmed:true,title:'',note:'',consentDate:'',guardianDeliveryDate:'',consultationDeliveryDate:'',operation:'record',replacesId:null,createdAt:'2026-04-01T00:00:00Z',createdByName:'架空職員',...patch});
 const data=(entries:ChildDocumentEntry[]=[]):DocumentRegister=>({settings:[{childId:'a',revision:1,contractDate:'2026-04-15',monitoringMonths:[4,10],effectiveFrom:'2026-04-15',createdAt:'',createdByName:'架空職員'}],entries});

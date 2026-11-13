@@ -3,6 +3,7 @@ import {
   validDocumentDate,
   type ChildDocumentSettings,
   type ChildDocumentEntry,
+  type VisitingReviewException,
 } from "./childDocuments";
 import { validBenefitEntitlements } from "./childServiceEntitlements";
 function text(value: unknown) {
@@ -11,6 +12,13 @@ function text(value: unknown) {
 function validMonths(value: unknown): value is number[] {
   return Array.isArray(value) && value.every(m => Number.isInteger(m) && m >= 1 && m <= 12)
     && new Set(value).size === value.length;
+}
+export function parseVisitingReviewException(row: any): VisitingReviewException {
+  if (!row || !Number.isSafeInteger(Number(row.revision)) || Number(row.revision) < 1
+    || !validDocumentDate(row.starts_on) || !validDocumentDate(row.ends_on) || row.starts_on > row.ends_on
+    || typeof row.reason !== "string" || !row.reason.trim() || typeof row.enabled !== "boolean")
+    throw Error("訪問支援の例外設定を確認できません。");
+  return {revision: Number(row.revision), from: row.starts_on, through: row.ends_on, reason: row.reason, enabled: row.enabled};
 }
 export function parseDocumentSettings(row: any): ChildDocumentSettings {
   if (
@@ -46,6 +54,7 @@ export function parseDocumentEntry(row: any): ChildDocumentEntry {
     !["record", "void"].includes(row.operation) ||
     (row.monitoring_months != null && (row.document_type !== "benefit" || !validMonths(row.monitoring_months))) ||
     (row.entitlements != null && (row.document_type !== "benefit" || !validBenefitEntitlements(row.entitlements))) ||
+    (row.plan_start_date != null && (row.document_type !== "plan_final" || !validDocumentDate(row.plan_start_date))) ||
     [
       row.document_date,
       row.valid_until,
@@ -65,6 +74,7 @@ export function parseDocumentEntry(row: any): ChildDocumentEntry {
     confirmed: row.confirmed,
     note: text(row.note),
     validUntil: text(row.valid_until),
+    ...(row.plan_start_date != null ? {planStartDate: row.plan_start_date} : {}),
     ...(row.monitoring_months != null ? {monitoringMonths: [...row.monitoring_months].sort((a, b) => a - b)} : {}),
     ...(row.entitlements != null ? {entitlements: row.entitlements} : {}),
     consentDate: text(row.consent_date),

@@ -10,6 +10,7 @@ const script=await publishedRuntime(manifest,read);for(const marker of ['契約�
 const guide=await(await read('manuals/d-support/index.html?verify='+stamp)).text();if(!guide.includes('id="child-documents"'))throw Error('Missing guide');
 for(const marker of ['2024-04-01','モニタリング時期（計画更新月）','保育所等訪問支援にかかる情報連携同意書','訪問支援の契約日','save_child_document_entry_v3','get_child_service_entitlements','set_child_visiting_plan','支給量を超える利用予定があります','受給者証：個別サポート加算'])if(!script.includes(marker))throw Error('Missing visit/entitlement feature '+marker);
 if(script.includes('相談支援交付日'))throw Error('Removed consultation date input still present');
+for(const marker of ['計画の開始日','訪問支援の更新例外（事業所設定）','確認対象外（期間の例外）','save_child_document_entry_v4','save_child_document_visiting_exception','plan:visit-renewal-'])if(!script.includes(marker))throw Error('Missing visiting plan review feature '+marker);
 for(const marker of ['未作成','未交付・未同意','交付・同意済み','data-final-plan-state'])if(!script.includes(marker))throw Error('Missing final plan progress '+marker);
 for(const marker of ['未入力・未確認：','この欄へ移動','参考情報（書類不足とは別','初回書類','data-document-issue'])if(!script.includes(marker))throw Error('Missing specific consolidated alert '+marker);
 for(const marker of ['extra:usage-plan-renewal-','利用計画を入力・確認','書類の更新・追加の確認案内','誕生月を手掛かりに更新時期を確認','事業所の管理目安','判定の考え方・地域差について'])if(!script.includes(marker))throw Error('Missing renewal/reminder '+marker);

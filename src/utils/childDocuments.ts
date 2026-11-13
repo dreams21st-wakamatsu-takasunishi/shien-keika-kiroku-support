@@ -41,6 +41,8 @@ export interface ChildDocumentEntry {
   confirmed: boolean;
   note: string;
   validUntil: string;
+  /** Date the plan takes effect; never inferred from its creation date. */
+  planStartDate?: string;
   /** Undefined for legacy registrations. An empty list means no months were entered on this certificate. */
   monitoringMonths?: number[];
   entitlements?: BenefitEntitlements;
@@ -55,6 +57,14 @@ export interface ChildDocumentEntry {
 export interface DocumentRegister {
   settings: ChildDocumentSettings[];
   entries: ChildDocumentEntry[];
+  visitingReviewException?: VisitingReviewException;
+}
+export interface VisitingReviewException {
+  revision: number;
+  from: string;
+  through: string;
+  reason: string;
+  enabled: boolean;
 }
 export type DocumentEntryInput = Omit<
   ChildDocumentEntry,
@@ -75,6 +85,8 @@ export interface DocumentSlot {
   status: "missing" | "unconfirmed" | "complete" | "upcoming";
   benefitRenewal?: { previousValidUntil: string; availableFrom: string };
   usagePlanRenewal?: { previousValidUntil: string; availableFrom: string };
+  visitingReview?: { kind: "initial" | "renewal" | "resume"; anchor?: string };
+  reviewException?: VisitingReviewException;
 }
 export const FINAL_PLAN_LABELS = {not_created:'未作成',pending:'未交付・未同意',completed:'交付・同意済み'} as const;
 export type FinalPlanProgress = keyof typeof FINAL_PLAN_LABELS;
@@ -83,7 +95,10 @@ export function finalPlanProgress(entry?:ChildDocumentEntry):FinalPlanProgress {
   return validDocumentDate(entry.consentDate)&&validDocumentDate(entry.guardianDeliveryDate)?'completed':'pending';
 }
 export function isDocumentPending(slot:DocumentSlot){
-  return !slot.historicalAnnex&&slot.serviceScope!=="legacy"&&(slot.status!=='complete'||(slot.type==='plan_final'&&finalPlanProgress(slot.entry)!=='completed'));
+  return !slot.historicalAnnex&&!slot.reviewException&&slot.serviceScope!=="legacy"
+    &&(!(slot.visitingReview && slot.visitingReview.kind !== "initial" && !slot.entry) || slot.status !== "upcoming")
+    &&(slot.status!=='complete'||(slot.type==='plan_final'&&(finalPlanProgress(slot.entry)!=='completed'
+      ||(isVisitingDocumentKey(slot.cycleKey)&&!validDocumentDate(slot.entry?.planStartDate || "")))));
 }
 export const ANNEX_REQUIRED_FROM = "2024-04-01";
 const CONTRACT_TYPES = ["contract", "important", "portrait", "privacy"] as const;
@@ -208,6 +223,53 @@ export function addDocumentMonths(value: string, months: number) {
     Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + 1, 0),
   ).getUTCDate();
   return `${base.getUTCFullYear()}-${String(base.getUTCMonth() + 1).padStart(2, "0")}-${String(Math.min(day, last)).padStart(2, "0")}`;
+}
+function monthEnd(date: string) {
+  const [year, month] = date.split("-").map(Number);
+  return new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+}
+function followingDay(date: string) {
+  return new Date(Date.parse(date + "T00:00:00Z") + 86400000).toISOString().slice(0, 10);
+}
+export const visitingRenewalKey = (due: string) => "plan:visit-renewal-" + due;
+
+/** Generated slots only. Existing entries remain under their original cycle key. */
+function visitingPlanReviews(since: string, active: ChildDocumentEntry[], today: string, exception?: VisitingReviewException) {
+  const initialKey = "initial:visit-" + since;
+  const contract = active.find(row => row.type === "contract" && row.cycleKey === initialKey);
+  const contractDate = contract && validDocumentDate(contract.documentDate) && contract.documentDate <= today
+    ? contract.documentDate : since;
+  const reviews: Array<{key: string; due: string; kind: NonNullable<DocumentSlot["visitingReview"]>["kind"]; anchor?: string; exception?: VisitingReviewException}> = [
+    {key: initialKey, due: monthEnd(contractDate), kind: "initial"},
+  ];
+  const plans = active.filter(row => row.type === "plan_final" && isVisitingDocumentKey(row.cycleKey)
+    && validDocumentDate(row.planStartDate || "") && row.planStartDate! >= contractDate && row.documentDate <= today)
+    .sort((a, b) => a.planStartDate!.localeCompare(b.planStartDate!) || a.cycleKey.localeCompare(b.cycleKey));
+  for (const [index, plan] of plans.entries()) {
+    const anchor = plan.planStartDate!;
+    if (anchor > today || plans[index + 1]?.planStartDate === anchor) continue;
+    const due = addDocumentMonths(anchor, 6);
+    if (!validDocumentDate(due)) continue;
+    const next = plans[index + 1];
+    const key = visitingRenewalKey(due);
+    const excluded = exception?.enabled && exception.from <= due && due <= exception.through ? exception : undefined;
+    if (next && next.cycleKey !== initialKey && (!excluded || next.planStartDate! <= due)) {
+      reviews.push({key: next.cycleKey, due, kind: "renewal", anchor});
+      continue;
+    }
+    if (addDocumentMonths(due, -1) <= today || active.some(row => row.cycleKey === key)) {
+      reviews.push({key, due, kind: "renewal", anchor, exception: excluded});
+    }
+    // When there is no newer plan by the end of the exception, resume review
+    // immediately afterwards without inventing a start date or rewriting a saved cycle.
+    if (excluded && (!next || next.planStartDate! > excluded.through)) {
+      const resume = followingDay(excluded.through);
+      if (validDocumentDate(resume) && resume <= today) {
+        reviews.push({key: next?.cycleKey ?? visitingRenewalKey(resume), due: resume, kind: "resume", anchor});
+      }
+    }
+  }
+  return reviews;
 }
 export const latestDocumentSettings = (
   rows: ChildDocumentSettings[],
@@ -353,11 +415,9 @@ export function documentSlots(
       }
     }
     const schedule = documentMonitoringSchedule(childId, register, today);
-    const addPlans = (since: string, visit: boolean) => {
-      const scope = visit ? "visiting" as const : undefined;
-      const prefix = visit ? "訪問支援／" : "";
+    const addPlans = (since: string) => {
       for (const type of PLAN_TYPES.slice(0,3))
-        add(type, "initial:" + (visit ? "visit-" : "") + since, prefix + "初回計画", since, true, false, scope);
+        add(type, "initial:" + since, "初回計画", since);
       for (let y = Number(since.slice(0, 4)); y <= Number(today.slice(0, 4)); y++)
       for (let m = 1; m <= 12; m++) {
         const period = `${y}-${String(m).padStart(2, "0")}`,
@@ -367,15 +427,30 @@ export function documentSlots(
         const monitoring = schedule(first);
         if (!monitoring.months.includes(m)) continue;
         for (const type of PLAN_TYPES)
-          add(type, "plan:" + (visit ? "visit-" : "") + period, prefix + period + " 更新月", last, true, false, scope);
+          add(type, "plan:" + period, period + " 更新月", last);
       }
     };
-    if (!visitingOnly) addPlans(start, false);
+    if (!visitingOnly) addPlans(start);
     const visitingStart = visitingOnly ? start : settings.visitingContractDate;
     if (visiting && visitingStart && visitingStart <= today) {
       for (const type of [...CONTRACT_TYPES, "visiting_consent"] as const)
         add(type, "initial:visit-" + visitingStart, "訪問支援／契約時", visitingStart, true, false, "visiting");
-      addPlans(visitingStart, true);
+      for (const review of visitingPlanReviews(visitingStart, active, today, register.visitingReviewException)) {
+        const label = review.kind === "initial" ? review.due.slice(0, 7) + " 初回計画"
+          : review.kind === "resume" ? "例外期間終了後の更新確認" : "開始日から6か月の更新";
+        for (const type of review.kind === "initial" ? PLAN_TYPES.slice(0,3) : PLAN_TYPES) {
+          const key = type + "|" + review.key;
+          if (seen.has(key)) continue;
+          add(type, review.key, "訪問支援／" + label, review.due, true, false, "visiting");
+          const slot = slots.at(-1)!;
+          slot.visitingReview = {kind: review.kind, anchor: review.anchor};
+          // Only absent documents are exempt. Existing documents still show their actual status.
+          if (!slot.entry && review.exception) {
+            slot.reviewException = review.exception;
+            slot.required = false;
+          }
+        }
+      }
     }
   }
   // Renewal windows use an explicit expiry, not the contract anniversary.
@@ -430,7 +505,7 @@ export function documentSlots(
     ["plan_draft", "plan_meeting", "plan_final"].includes(row.type),
   )) {
     const visit = isVisitingDocumentKey(row.cycleKey);
-    if (visitingOnly && !visit) continue; // Keep older unclassified registrations without asserting the service.
+    if ((visitingOnly && !visit) || (visit && !row.cycleKey.startsWith("extra:"))) continue;
     for (const type of [
       "plan_draft",
       "plan_meeting",
