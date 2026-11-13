@@ -1,4 +1,6 @@
 import { ManualLinks } from './ManualLinks';
+import {OperationalPeriodStatus,useOperationalPeriod,type OperationalLoader} from './useOperationalPeriod';
+import {dayPeriod} from '../services/operationalPeriod';
 import { homeManualContext } from '../utils/manualLinks';
 import {isInputDraftKey} from '../utils/recordEntry';
 import React, { useEffect, useMemo, useState } from 'react';
@@ -86,6 +88,7 @@ interface HomeScreenProps {
   calendarEvents: CalendarEvent[];
   dailyChildPlans: DailyChildPlan[];
   attendanceRecords: AttendanceRecord[];
+  onLoadOperationalPeriod?:OperationalLoader;
   staffShiftTemplates: StaffShiftTemplate[];
   staffShiftRequests: StaffShiftRequest[];
   attendanceCorrections: AttendanceCorrectionRequest[];
@@ -192,6 +195,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   calendarEvents,
   dailyChildPlans,
   attendanceRecords,
+  onLoadOperationalPeriod,
   staffShiftTemplates,
   staffShiftRequests,
   attendanceCorrections,
@@ -278,6 +282,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     view: 'placement' | 'transport';
   }>({ date: getLocalDateString(), view: 'placement' });
   const [dispatchDate, setDispatchDate] = useState(getLocalDateString());
+  const dispatchRead=useOperationalPeriod(onLoadOperationalPeriod,activePanel==='dispatch'?dayPeriod(dispatchDate):null,'both');
   const [monthlyScheduleDate, setMonthlyScheduleDate] = useState(getLocalDateString());
   const [monthlyScheduleReturn, setMonthlyScheduleReturn] = useState<HomeWorkspace>('menu');
   const [menuSearch, setMenuSearch] = useState('');
@@ -540,6 +545,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
         )}
         {activePanel === 'todayWork' && (
           <TodayWorkPanel
+            onLoadOperationalPeriod={onLoadOperationalPeriod}
             initialDate={todayWorkLaunch.date}
             initialView={todayWorkLaunch.view}
             staffScheduleItems={staffScheduleItems}
@@ -562,12 +568,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           />
         )}
 
-        {activePanel === 'attendance' && <AttendanceHomePanel records={attendanceRecords} shiftTemplates={staffShiftTemplates} shiftRequests={staffShiftRequests} corrections={attendanceCorrections} recorderProfiles={recorderProfiles} activeRecorder={activeRecorder} canManageShifts={canManageShifts} canApproveCorrections={!organizationId || currentUser?.role === 'admin'} qrKioskEnabled={Boolean(organizationId)} calendarEvents={calendarEvents} childrenList={childrenList} dailyChildPlans={dailyChildPlans} dailyTransportRequirements={dailyTransportRequirements} transportRuns={transportRuns} onSaveRecord={onSaveAttendance} onSaveRecords={onSaveAttendanceRecords} onDeleteRecord={onDeleteAttendance} onSaveShiftRequest={onSaveStaffShiftRequest} onSaveShiftRequestDefaults={onSaveShiftRequestDefaults} onReviewShiftRequest={onReviewStaffShiftRequest} onDeleteShiftRequest={onDeleteReviewedStaffShiftRequest} onPunch={onPunchAttendance} onRequestCorrection={onRequestAttendanceCorrection} onReviewCorrection={onReviewAttendanceCorrection} />}
+        {activePanel === 'attendance' && <AttendanceHomePanel onLoadOperationalPeriod={onLoadOperationalPeriod} records={attendanceRecords} shiftTemplates={staffShiftTemplates} shiftRequests={staffShiftRequests} corrections={attendanceCorrections} recorderProfiles={recorderProfiles} activeRecorder={activeRecorder} canManageShifts={canManageShifts} canApproveCorrections={!organizationId || currentUser?.role === 'admin'} qrKioskEnabled={Boolean(organizationId)} calendarEvents={calendarEvents} childrenList={childrenList} dailyChildPlans={dailyChildPlans} dailyTransportRequirements={dailyTransportRequirements} transportRuns={transportRuns} onSaveRecord={onSaveAttendance} onSaveRecords={onSaveAttendanceRecords} onDeleteRecord={onDeleteAttendance} onSaveShiftRequest={onSaveStaffShiftRequest} onSaveShiftRequestDefaults={onSaveShiftRequestDefaults} onReviewShiftRequest={onReviewStaffShiftRequest} onDeleteShiftRequest={onDeleteReviewedStaffShiftRequest} onPunch={onPunchAttendance} onRequestCorrection={onRequestAttendanceCorrection} onReviewCorrection={onReviewAttendanceCorrection} />}
 
         {activePanel === 'calendar' && <CalendarPanel events={calendarEvents} recorderProfiles={recorderProfiles} childrenList={childrenList} selectedDate={todayWorkLaunch.date} onDateChange={(date) => setTodayWorkLaunch((current) => ({ ...current, date }))} canEdit={canManageCalendar} onSave={onSaveCalendarEvent} onDelete={onDeleteCalendarEvent} />}
 
         {activePanel === 'monthlySchedule' && (
           <MonthlyTransportPlanner
+            onLoadOperationalPeriod={onLoadOperationalPeriod}
             organizationId={organizationId}
             currentUserId={currentUser?.id}
             initialDate={monthlyScheduleDate}
@@ -596,7 +603,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
           />
         )}
 
-        {activePanel === 'dispatch' && <TransportPanel runs={transportRuns} vehicles={vehicles} routeSettings={transportRouteSettings} mapLocations={transportMapLocations} areaZones={transportAreaZones} recorderProfiles={recorderProfiles} childrenList={childrenList} schools={schools} dailyChildPlans={dailyChildPlans} transportPlanDays={transportPlanDays} dailyTransportRequirements={dailyTransportRequirements} staffScheduleItems={staffScheduleItems} attendanceRecords={attendanceRecords} calendarEvents={calendarEvents} selectedDate={dispatchDate} canManage={canManageTransport} activeRecorder={activeRecorder} warningsByRunId={new Map()} onSaveRun={onSaveTransportRun} onSaveRequirements={onSaveDailyTransportRequirements} onChangeAssignment={onChangeTransportAssignment} onDeleteRun={onDeleteTransportRun} onSaveVehicle={onSaveVehicle} onDeleteVehicle={onDeleteVehicle} onSaveRouteSettings={onSaveTransportRouteSettings} onSaveMapLocation={onSaveTransportMapLocation} onSaveAreaZone={onSaveTransportAreaZone} onDeleteAreaZone={onDeleteTransportAreaZone} onUpdateStatus={onUpdateTransportStatus} />}
+        {activePanel === 'dispatch' && !dispatchRead.ready && <OperationalPeriodStatus {...dispatchRead}/>}
+        {activePanel === 'dispatch' && dispatchRead.ready && <TransportPanel runs={transportRuns} vehicles={vehicles} routeSettings={transportRouteSettings} mapLocations={transportMapLocations} areaZones={transportAreaZones} recorderProfiles={recorderProfiles} childrenList={childrenList} schools={schools} dailyChildPlans={dailyChildPlans} transportPlanDays={transportPlanDays} dailyTransportRequirements={dailyTransportRequirements} staffScheduleItems={staffScheduleItems} attendanceRecords={attendanceRecords} calendarEvents={calendarEvents} selectedDate={dispatchDate} canManage={canManageTransport} activeRecorder={activeRecorder} warningsByRunId={new Map()} onSaveRun={onSaveTransportRun} onSaveRequirements={onSaveDailyTransportRequirements} onChangeAssignment={onChangeTransportAssignment} onDeleteRun={onDeleteTransportRun} onSaveVehicle={onSaveVehicle} onDeleteVehicle={onDeleteVehicle} onSaveRouteSettings={onSaveTransportRouteSettings} onSaveMapLocation={onSaveTransportMapLocation} onSaveAreaZone={onSaveTransportAreaZone} onDeleteAreaZone={onDeleteTransportAreaZone} onUpdateStatus={onUpdateTransportStatus} />}
 
         {activePanel === 'operations' && (
           <DailyOperationsPanel
@@ -670,6 +678,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
               )}
               {communicationView === 'handover' && (
                 <HandoverPanel
+                  organizationId={organizationId}
                   items={handoverItems}
                   confirmations={handoverConfirmations}
                   childrenList={childrenList}

@@ -153,7 +153,9 @@ import { getLocalDateString } from './utils/weekdays';
 import { applySiblingSelection } from './utils/childSiblings';
 import { createWorkspaceRefreshQueue } from './services/workspaceRefreshQueue';
 import { workspaceLoadPlan } from './services/workspaceLoadPlan';
+import {dayPeriod,mergeOperationalPeriod,operationDateAffected,type OperationalPeriod,type OperationalSlice} from './services/operationalPeriod';
 import { clearPerformanceTimings } from './services/performanceMetrics';
+import { browserTransferCounter } from './services/transferUsage';
 import { mergeRecordRefresh } from './utils/recordRefresh';
 import {WorkspaceLifecycleProvider} from './components/WorkspaceLifecycle';
 import {RecordHistoryProvider} from './components/RecordHistory';
@@ -363,6 +365,11 @@ export default function App() {
   const workspaceRealtimeReadyRef = useRef(false);
   const remoteRefreshTimerRef = useRef<number | null>(null);
   const loadedOrganizationIdRef = useRef<string | null>(remoteMode ? null : 'local');
+  const operationalRef=useRef({attendanceRecords,transportRuns});
+  operationalRef.current={attendanceRecords,transportRuns};
+  const operationalPeriods=useRef(new Map<string,{period:OperationalPeriod;slice:OperationalSlice}>());
+  const operationalLoads=useRef(new Map<string,Promise<void>>());
+  const operationalChanges=useRef(new Map<string,Set<string>|null>());
   const [recordHistoryRevision,setRecordHistoryRevision]=useState(0);
   const recordHistoryChanges=useRef(createRecordChanges());
   const workspaceScope = JSON.stringify([organizationId, auth.profile?.id, auth.profile?.role,
@@ -376,8 +383,14 @@ export default function App() {
     remoteRefreshTablesRef.current.clear();
     changedRecordIdsRef.current = { all: false, ids: new Set() };
     loadedOrganizationIdRef.current = null;
+    operationalPeriods.current.clear();
+    operationalLoads.current.clear();
+    operationalChanges.current.clear();
     recordHistoryChanges.current=createRecordChanges();
-    if (timingAccountRef.current && timingAccountRef.current !== auth.profile?.id) clearPerformanceTimings();
+    if (timingAccountRef.current && timingAccountRef.current !== auth.profile?.id) {
+      clearPerformanceTimings();
+      browserTransferCounter.clear();
+    }
     timingAccountRef.current = auth.profile?.id;
   }
   const [activeDraftKey, setActiveDraftKey] = useState(createRecordDraftKey);
@@ -607,12 +620,33 @@ export default function App() {
           return;
         }
         const partial = tables && !workspaceLoadPlan(tables).full && loadedOrganizationIdRef.current === auth.profile.organizationId;
+        const initial = loadedOrganizationIdRef.current !== auth.profile.organizationId;
+        const operational=dayPeriod(getLocalDateString())!;
+        const operationalBaseline=operationalRef.current;
+        const changedOperations=new Map<string,Set<string>|null>(operationalChanges.current);
+        for(const table of ['attendance_records','transport_runs'])if(!partial||workspaceLoadPlan(tables).queries.has(table))operationalChanges.current.delete(table);
         const recordsChanged = !partial || workspaceLoadPlan(tables).queries.has('support_records');
         const recordIds = partial && !changedRecordIdsRef.current.all ? [...changedRecordIdsRef.current.ids] : [];
         if (recordsChanged) changedRecordIdsRef.current = { all: false, ids: new Set() };
         let workspace = partial
-          ? await loadWorkspacePatch(auth.profile.organizationId, tables, recordIds)
-          : await loadWorkspaceData(auth.profile.organizationId);
+          ? await loadWorkspacePatch(auth.profile.organizationId, tables, recordIds,operational)
+          : await loadWorkspaceData(auth.profile.organizationId,undefined,undefined,operational);
+        const refreshed=partial?workspaceLoadPlan(tables).outputs:null;
+        if(!initial&&(!refreshed||refreshed.has('attendanceRecords')||refreshed.has('transportRuns'))){
+          for(const {period,slice} of operationalPeriods.current.values()){
+            if(period.from===operational.from&&period.to===operational.to)continue;
+            const requested=[
+              ...(slice!=='transport'&&(!refreshed||refreshed.has('attendanceRecords'))&&operationDateAffected(partial?changedOperations.get('attendance_records'):null,period)?['attendance_records']:[]),
+              ...(slice!=='attendance'&&(!refreshed||refreshed.has('transportRuns'))&&operationDateAffected(partial?changedOperations.get('transport_runs'):null,period)?['transport_runs']:[]),
+            ];
+            if(!requested.length)continue;
+            const patch=await loadWorkspacePatch(auth.profile.organizationId,requested,undefined,period);
+            if(!current()||workspaceScopeRef.current!==workspaceScope)return;
+            const exceptToday=<T extends {date:string},>(rows:T[])=>rows.filter(row=>row.date!==operational.from);
+            if(patch.attendanceRecords)setAttendanceRecords(previous=>mergeOperationalPeriod(previous,exceptToday(patch.attendanceRecords!),period,exceptToday(operationalBaseline.attendanceRecords)));
+            if(patch.transportRuns)setTransportRuns(previous=>mergeOperationalPeriod(previous,exceptToday(patch.transportRuns!),period,exceptToday(operationalBaseline.transportRuns)));
+          }
+        }
         if (!current() || workspaceScopeRef.current !== workspaceScope) return;
         const missingRequiredTemplates = requiredRecordTemplates.filter(
           (requiredTemplate) => workspace.templates && !workspace.templates.some((template) => template.id === requiredTemplate.id),
@@ -646,13 +680,13 @@ export default function App() {
         if (workspace.staffScheduleItems) setStaffScheduleItems(workspace.staffScheduleItems);
         if (workspace.calendarEvents) setCalendarEvents(workspace.calendarEvents);
         if (workspace.dailyChildPlans) setDailyChildPlans(workspace.dailyChildPlans);
-        if (workspace.attendanceRecords) setAttendanceRecords(workspace.attendanceRecords);
+        if (workspace.attendanceRecords) setAttendanceRecords(previous=>initial?workspace.attendanceRecords!:mergeOperationalPeriod(previous,workspace.attendanceRecords!,operational,operationalBaseline.attendanceRecords));
         if (workspace.staffShiftTemplates) setStaffShiftTemplates(workspace.staffShiftTemplates);
         if (workspace.staffShiftRequests) setStaffShiftRequests(workspace.staffShiftRequests);
         if (workspace.rolePermissions) setRolePermissions(workspace.rolePermissions);
         if (workspace.attendanceCorrectionRequests) setAttendanceCorrections(workspace.attendanceCorrectionRequests);
         if (workspace.vehicles) setVehicles(workspace.vehicles);
-        if (workspace.transportRuns) setTransportRuns(workspace.transportRuns);
+        if (workspace.transportRuns) setTransportRuns(previous=>initial?workspace.transportRuns!:mergeOperationalPeriod(previous,workspace.transportRuns!,operational,operationalBaseline.transportRuns));
         if (workspace.transportPlanDays) setTransportPlanDays(workspace.transportPlanDays);
         if (workspace.dailyTransportRequirements) setDailyTransportRequirements(workspace.dailyTransportRequirements);
         if (workspace.transportRouteSettings) setTransportRouteSettings(workspace.transportRouteSettings);
@@ -670,10 +704,36 @@ export default function App() {
     });
   }, [auth.profile, workspaceScope]);
 
+  const loadOperationalPeriod=useCallback(async(period:OperationalPeriod,slice:OperationalSlice)=>{
+    if(!remoteMode)return;
+    const profile=auth.profile;
+    if(!profile||profile.fieldModeOnly||workspaceScopeRef.current!==workspaceScope)throw Error('端末の利用権限を確認してください。');
+    const key=JSON.stringify([workspaceScope,period,slice]);
+    const existing=operationalLoads.current.get(key);
+    if(existing)return existing;
+    const request=(async()=>{
+      const baseline=operationalRef.current;
+      const result=await loadWorkspacePatch(profile.organizationId,slice==='both'?['attendance_records','transport_runs']:slice==='attendance'?['attendance_records']:['transport_runs'],undefined,period);
+      if(workspaceScopeRef.current!==workspaceScope)throw Error('ログインが切り替わりました。');
+      if(result.attendanceRecords)setAttendanceRecords(previous=>mergeOperationalPeriod(previous,result.attendanceRecords!,period,baseline.attendanceRecords));
+      if(result.transportRuns)setTransportRuns(previous=>mergeOperationalPeriod(previous,result.transportRuns!,period,baseline.transportRuns));
+      const periods=operationalPeriods.current;
+      periods.delete(key);periods.set(key,{period,slice});
+      if(periods.size>5)periods.delete(periods.keys().next().value!);
+    })().finally(()=>{if(operationalLoads.current.get(key)===request)operationalLoads.current.delete(key);});
+    operationalLoads.current.set(key,request);
+    return request;
+  },[auth.profile,remoteMode,workspaceScope]);
+
   const scheduleRemoteRefresh = useCallback((payload?: { table?: string; new?: unknown; old?: unknown }) => {
     if (workspaceScopeRef.current !== workspaceScope) return;
     if(payload?.table==='morning_meeting_records'&&payload.new&&typeof payload.new==='object'&&'deleted_at' in payload.new){
       window.dispatchEvent(new CustomEvent('d-support:workspace-item-deleted',{detail:{resource:payload.table,id:'meeting_date' in payload.new?payload.new.meeting_date:'',restore:payload.new.deleted_at===null}}));
+    }
+    if(payload?.table==='morning_meeting_records'){
+      const row=payload.new&&typeof payload.new==='object'&&'meeting_date' in payload.new?payload.new
+        :payload.old&&typeof payload.old==='object'&&'meeting_date' in payload.old?payload.old:null;
+      if(row&&row.meeting_date!==getLocalDateString())return; // The date-specific editor owns historical refreshes.
     }
     if (payload?.table === 'support_records') {
       const row = payload.new && typeof payload.new === 'object' && 'id' in payload.new ? payload.new
@@ -681,6 +741,15 @@ export default function App() {
       recordHistoryChanges.current.add(row&&typeof row.id==='string'?row.id:undefined);
       if (row && typeof row.id === 'string') changedRecordIdsRef.current.ids.add(row.id);
       else changedRecordIdsRef.current.all = true;
+    }
+    if(payload?.table==='attendance_records'||payload?.table==='transport_runs'){
+      const field=payload.table==='attendance_records'?'work_date':'service_date';
+      const newDate=(payload.new as Record<string,unknown>|null)?.[field];
+      const oldDate=(payload.old as Record<string,unknown>|null)?.[field];
+      const dates=[newDate,oldDate].filter((value):value is string=>typeof value==='string');
+      const prior=operationalChanges.current.get(payload.table);
+      if(prior===null||!dates.length)operationalChanges.current.set(payload.table,null);
+      else operationalChanges.current.set(payload.table,new Set([...(prior||[]),...dates]));
     }
     remoteRefreshTablesRef.current.add(payload?.table || 'unknown');
     if (remoteRefreshTimerRef.current !== null) {
@@ -801,15 +870,15 @@ export default function App() {
     if (!supabase || !auth.profile || auth.profile.fieldModeOnly) return;
     const organizationId = auth.profile.organizationId;
     let active = true, previouslySubscribed = false;
-    const channel = supabase
-      .channel(`workspace-${organizationId}`)
+    const channel = supabase.channel(`workspace-${organizationId}`);
+    if (FEATURE_FLAGS.supportPlansAndFiveDomains) channel.on('postgres_changes', { event: '*', schema: 'public', table: 'support_plans', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh);
+    channel
       .on('postgres_changes', { event: '*', schema: 'public', table: 'support_records', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'children', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'child_regular_day_schedules', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'daily_child_plans', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'recorder_profiles', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'record_templates', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'support_plans', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'handover_items', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'handover_confirmations', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'morning_meeting_records', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
@@ -2341,10 +2410,10 @@ export default function App() {
         </div>
         )}
         {dataError && <div className="mb-4 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-lg p-3">{dataError}</div>}
-        <LessonReviewNotice enabled={remoteMode&&canLoadWordNotice(auth.profile)} scopeKey={`${organizationId||''}:${auth.profile?.id||''}:${auth.profile?.role||''}:${auth.profile?.accessDeviceKind||''}:${auth.profile?.recorderProfileId||''}`} onOpen={()=>{
+        <div hidden={activeTab!=='home'}><LessonReviewNotice enabled={remoteMode&&canLoadWordNotice(auth.profile)} scopeKey={workspaceScope} onOpen={()=>{
           if(activeTab==='meetings'&&meetingDirty&&!window.confirm('会議支援の未保存の内容を残したまま、Word確認へ移動しますか？'))return;
           setLearningReviewFocus(value=>value+1);setActiveTab('learning');
-        }}/>
+        }}/></div>
         {activeTab !== 'home' && (
           <ScreenContextBar
             activeTab={activeTab}
@@ -2377,6 +2446,7 @@ export default function App() {
             calendarEvents={calendarEventsForCurrentUser}
             dailyChildPlans={dailyChildPlans}
             attendanceRecords={attendanceRecords}
+            onLoadOperationalPeriod={remoteMode?loadOperationalPeriod:undefined}
             staffShiftTemplates={staffShiftTemplates}
             staffShiftRequests={staffShiftRequests}
             attendanceCorrections={attendanceCorrections}

@@ -11,12 +11,18 @@ async function check(page){
  const until=async(fn,m)=>{for(let i=0;i<100;i++){if(await fn())return;await sleep(100);}throw Error(m);};
  const context=page.context(),errors=[],checks=[];context.on('page',p=>{p.on('pageerror',e=>errors.push(e.message));p.on('dialog',d=>{if(d.type()==='beforeunload')void d.accept();});});page.on('pageerror',e=>errors.push(e.message));page.on('dialog',d=>{if(d.type()==='beforeunload')void d.accept();});
  const date=new Date().toLocaleDateString('sv-SE'),labels={plan:'本日の予定',attendance:'欠席・追加利用',transport:'送迎確認',children:'児童対応',staff:'職員連絡',safety:'安全確認'};
- let row={meeting_date:date,content:'元の朝礼本文を保持する。',revision:1,section_document:null,section_revisions:null,created_at:'2026-11-02T00:00:00Z',updated_at:'2026-11-02T00:00:00Z'},draft=null,sourceVersion=1,failSave=false,failCalls=0,saveCalls=0;
- await context.route('https://*.supabase.co/**',route=>route.abort());
- await context.route('https://*.supabase.co/rest/v1/rpc/**',async route=>{
+ const pastDate='2026-01-05';
+ let row={meeting_date:date,content:'元の朝礼本文を保持する。',revision:1,section_document:null,section_revisions:null,created_at:'2026-11-02T00:00:00Z',updated_at:'2026-11-02T00:00:00Z'},draft=null,sourceVersion=1,failSave=false,failCalls=0,saveCalls=0,failPast=true;
+ await context.route('**/*',route=>new URL(route.request().url()).origin==='http://127.0.0.1:3014'?route.continue():route.abort());
+ await context.route('https://fixture.invalid/rest/v1/rpc/**',async route=>{
   const name=new URL(route.request().url()).pathname.split('/').at(-1),b=route.request().postDataJSON();let result=null;
   const error=(code,message)=>route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({code,message})});
-  if(name==='load_morning_meeting_sections')result=row.deleted_at?null:row;
+  if(name==='load_morning_meeting_sections'){
+   if(b.p_date===pastDate){
+    if(failPast)return error('08006','fixture offline');
+    result={...row,meeting_date:pastDate,content:'過去の朝礼を取得しました。',section_document:null,section_revisions:null};
+   }else result=row.deleted_at?null:row;
+  }
   else if(name==='save_morning_meeting_section'){
    saveCalls++;if(failSave){failCalls++;return error('08006','fixture offline');}
    const d=row.section_document||{legacy:row.content,plan:'',attendance:'',transport:'',children:'',staff:'',safety:''},rev=row.section_revisions||{legacy:row.revision,plan:0,attendance:0,transport:0,children:0,staff:0,safety:0};
@@ -36,6 +42,16 @@ async function check(page){
  const peer=await context.newPage();await peer.setViewportSize({width:1366,height:900});await peer.goto(url+'?user=B');
  await page.getByRole('textbox',{name:'朝礼記録の入力',exact:true}).waitFor();
  assert(await page.getByRole('textbox',{name:'朝礼記録の入力',exact:true}).inputValue()===row.content,'legacy text retained');
+ await page.getByLabel('朝礼日',{exact:true}).fill(pastDate);
+ await page.getByText('「最新を確認」で朝礼を再取得してください。',{exact:true}).waitFor();
+ assert(await page.getByRole('textbox',{name:'朝礼記録の入力',exact:true}).count()===0,'failed historical read appears editable');
+ failPast=false;
+ await page.getByRole('button',{name:'最新を確認',exact:true}).click();
+ await page.getByRole('textbox',{name:'朝礼記録の入力',exact:true}).waitFor();
+ assert(await page.getByRole('textbox',{name:'朝礼記録の入力',exact:true}).inputValue()==='過去の朝礼を取得しました。','past day was not fetched');
+ await page.getByLabel('朝礼日',{exact:true}).fill(date);
+ await page.getByRole('textbox',{name:'朝礼記録の入力',exact:true}).waitFor();
+ checks.push('past date is loaded explicitly; errors are not empty records');
  const nav=(p,name)=>p.getByRole('navigation',{name:'朝礼の入力項目'}).getByRole('button',{name,exact:false});
  await nav(page,'本日の予定').click();await nav(peer,'職員連絡').click();
  const input=page.getByRole('textbox',{name:'本日の予定の入力',exact:true}),peerInput=peer.getByRole('textbox',{name:'職員連絡の入力',exact:true});

@@ -43,8 +43,9 @@ export function MorningMeetingPanel(props:MorningMeetingPanelProps){
 function MorningSectionEditor(props:MorningMeetingPanelProps&{date:string;onDirty:(dirty:boolean)=>void}){
  const initial=props.records.find(r=>r.date===props.date);
  const [state,setState]=useState(()=>createMorningState(initial)),stateRef=useRef(state);
+ const [initialReady,setInitialReady]=useState(!props.organizationId||Boolean(initial));
  const [active,setActive]=useState<MorningSectionKey>(initial?.content&&!initial.sectionDocument?'legacy':'plan'),[mode,setMode]=useState<'input'|'preview'>('input');
- const [error,setError]=useState(''),[message,setMessage]=useState(''),[connection,setConnection]=useState(props.organizationId?'connecting':'local'),[viewers,setViewers]=useState<Viewer[]>([]),[live,setLive]=useState<Partial<Record<MorningSectionKey,LiveField>>>({}),[clock,setClock]=useState(Date.now());
+ const [error,setError]=useState(''),[readError,setReadError]=useState(''),[message,setMessage]=useState(''),[connection,setConnection]=useState(props.organizationId?'connecting':'local'),[viewers,setViewers]=useState<Viewer[]>([]),[live,setLive]=useState<Partial<Record<MorningSectionKey,LiveField>>>({}),[clock,setClock]=useState(Date.now());
  const [blocked,setBlocked]=useState(false),[templateId,setTemplateId]=useState(''),[templateName,setTemplateName]=useState(''),[templateBody,setTemplateBody]=useState(''),[editingTemplateId,setEditingTemplateId]=useState(''),[otherBusy,setOtherBusy]=useState(false);
  const mounted=useRef(true),saving=useRef(false),saveTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined),reloadTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined),draftTimer=useRef<ReturnType<typeof setTimeout>|undefined>(undefined);
  const blockedRef=useRef(false),deletionEpoch=useRef(0);
@@ -62,7 +63,7 @@ function MorningSectionEditor(props:MorningMeetingPanelProps&{date:string;onDirt
   window.addEventListener('beforeunload',warning);
   return()=>{mounted.current=false;clearTimeout(saveTimer.current);clearTimeout(reloadTimer.current);clearTimeout(draftTimer.current);window.removeEventListener('beforeunload',warning);callbacks.current.onDirty(false);};
  },[]);
- useEffect(()=>{const incoming=props.records.find(r=>r.date===props.date);if(incoming)commit(receiveMorningSnapshot(stateRef.current,incoming));},[props.records]);
+ useEffect(()=>{const incoming=props.records.find(r=>r.date===props.date);if(incoming){commit(receiveMorningSnapshot(stateRef.current,incoming));setInitialReady(true);}},[props.records]);
  const accept=(record:MorningMeetingRecord)=>{
   if(!mounted.current||record.date!==props.date)return;
   if(!stateRef.current.record&&!focused.current&&!Object.keys(stateRef.current.edits).length&&record.content&&!record.sectionDocument)setActive('legacy');
@@ -73,7 +74,7 @@ function MorningSectionEditor(props:MorningMeetingPanelProps&{date:string;onDirt
   if(!props.organizationId||!mounted.current)return;
   if(loading.current)return loading.current;
   const epoch=deletionEpoch.current;
-  loading.current=(async()=>{try{const record=await loadMorningSections(props.date);if(!mounted.current||epoch!==deletionEpoch.current)return;if(record)accept(record);else if(stateRef.current.record){blockedRef.current=true;setBlocked(true);setError('この朝礼記録を取得できません。削除・復元状態を確認してください。入力は保持しています。');}}catch(e){if(mounted.current)setError(e instanceof Error?e.message:'朝礼記録を取得できません。');}finally{loading.current=null;}})();
+  loading.current=(async()=>{try{const record=await loadMorningSections(props.date);if(!mounted.current||epoch!==deletionEpoch.current)return;setReadError('');if(record)accept(record);else if(stateRef.current.record){blockedRef.current=true;setBlocked(true);setReadError('この朝礼記録を取得できません。削除・復元状態を確認してください。入力は保持しています。');}setInitialReady(true);}catch(e){if(mounted.current&&epoch===deletionEpoch.current)setReadError(e instanceof Error?e.message:'朝礼記録を取得できません。');}finally{loading.current=null;}})();
   return loading.current;
  };
  const scheduleReload=()=>{clearTimeout(reloadTimer.current);reloadTimer.current=setTimeout(()=>void reloadRef.current(),250);};
@@ -161,17 +162,19 @@ function MorningSectionEditor(props:MorningMeetingPanelProps&{date:string;onDirt
  return <div className="p-3 sm:p-4">
   <div id="morning-collaboration-status" aria-label="共同編集と保存状態" className="morning-fixed-status">
    <span className="shrink-0 text-xs font-bold text-teal-900">{connection==='local'?'ローカル試用':connection==='connected'?`共同編集・${viewers.length+1}人`:'接続を確認中'}</span>
-   <span role="status" className="shrink-0 text-xs font-bold">{blocked?'削除・利用状態の確認が必要':error?'保存・通信の確認が必要':pending?'入力を保持・保存待ち':state.record?'保存済み':'未作成'}</span>
+   <span role="status" className="shrink-0 text-xs font-bold">{blocked?'削除・利用状態の確認が必要':error||readError?'保存・通信の確認が必要':!initialReady?'朝礼を読み込み中':pending?'入力を保持・保存待ち':state.record?'保存済み':'未作成'}</span>
    <div className="flex min-w-0 flex-1 gap-2 overflow-x-auto text-xs"><span className="shrink-0">自分：{actor}</span>{viewers.map(v=><span key={v.sessionId} className="shrink-0 rounded-full bg-indigo-50 px-2 py-1 text-indigo-900">{v.name}{v.fieldKey?`：${MORNING_SECTIONS.find(s=>s.key===v.fieldKey)?.label}を編集中`:'：閲覧中'}</span>)}</div>
   </div>
   <div className="mt-3 flex flex-wrap items-center gap-2">
    <div className="morning-mobile-tabs" role="tablist" aria-label="朝礼の表示切り替え"><button type="button" role="tab" aria-selected={mode==='input'} onClick={()=>setMode('input')} className={button}>入力</button><button type="button" role="tab" aria-selected={mode==='preview'} onClick={()=>setMode('preview')} className={button}>プレビュー</button></div>
-   <button type="button" onClick={retry} disabled={blocked} className={button}><Save className="mr-1 inline h-4 w-4"/>保存・再試行</button>
+   <button type="button" onClick={retry} disabled={blocked || !initialReady} className={button}><Save className="mr-1 inline h-4 w-4"/>保存・再試行</button>
    <button type="button" onClick={()=>void reloadRef.current()} className={button}><RefreshCw className="mr-1 inline h-4 w-4"/>最新を確認</button>
-   <button type="button" onClick={()=>void copy()} className={button}><Copy className="mr-1 inline h-4 w-4"/>文章コピー</button>
+   <button type="button" onClick={()=>void copy()} disabled={!initialReady} className={button}><Copy className="mr-1 inline h-4 w-4"/>文章コピー</button>
    {state.record&&<DeleteWorkspaceItem resource="morning_meeting_records" id={props.date} revision={state.record.revision} disabled={pending||saving.current} onDeleted={()=>{blockedRef.current=true;deletionEpoch.current++;clearTimeout(saveTimer.current);setBlocked(true);}}/>}
   </div>
   {error&&<p role="alert" className="mt-3 rounded-xl bg-rose-50 p-3 text-sm text-rose-900">{error}</p>}
+  {readError&&<p role="alert" className="mt-3 rounded-xl bg-rose-50 p-3 text-sm text-rose-900">{readError}</p>}
+  {!initialReady ? <p className="mt-3 text-sm text-slate-600">{readError?'「最新を確認」で朝礼を再取得してください。':'選択日の朝礼記録を読み込んでいます。'}</p> : <>
   <p className="mt-2 min-h-5 text-xs text-teal-800">{message||'\u00a0'}</p>
   <div className="morning-edit-layout mt-3" data-mode={mode}>
    <aside className="morning-preview-pane" aria-label="朝礼の仕上がりプレビュー"><h4 className="mb-2 text-sm font-black">仕上がりプレビュー ／ {props.date}</h4><div ref={preview} className="morning-preview-scroll">
@@ -199,5 +202,6 @@ function MorningSectionEditor(props:MorningMeetingPanelProps&{date:string;onDirt
    </div>}
   </details>
   <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 p-3"><Users className="h-5 w-5 text-teal-700"/><p className="text-sm">最新内容の確認済み {confirmed.length}人</p><button type="button" disabled={pending||blocked||otherBusy||!state.record||!confirmationActor||!state.record.content.trim()} onClick={()=>void confirm()} className={button}>{isConfirmed?'確認済みを取り消す':'最新内容を確認しました'}</button><details className="w-full"><summary className="cursor-pointer text-xs text-slate-600">確認した職員</summary><div className="mt-2 flex flex-wrap gap-2">{props.recorderProfiles.filter(r=>r.active).map(r=>{const current=confirmed.find(c=>c.recorderProfileId===r.id),past=props.confirmations.find(c=>c.date===props.date&&c.recorderProfileId===r.id);return <span key={r.id} className={`rounded-lg border px-3 py-2 text-xs ${current?'border-teal-200 bg-teal-50 text-teal-900':past?'border-amber-200 bg-amber-50 text-amber-950':'border-slate-200 bg-white text-slate-600'}`}>{r.displayName}：{current?'確認済み':past?'再確認が必要':'未確認'}</span>;})}{confirmed.filter(c=>!props.recorderProfiles.some(r=>r.id===c.recorderProfileId)).map(c=><span key={c.confirmerKey} className="rounded-lg bg-teal-50 px-3 py-2 text-xs text-teal-900">{c.confirmerName}：確認済み</span>)}{!props.recorderProfiles.length&&!confirmed.length&&<p className="text-sm">まだ確認されていません。</p>}</div></details></div>
+  </>}
  </div>;
 }

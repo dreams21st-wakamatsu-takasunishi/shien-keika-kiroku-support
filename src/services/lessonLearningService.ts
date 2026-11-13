@@ -33,10 +33,10 @@ export const registerLessonStudent = async (childId: string, config: Registratio
 export const takeOverLessonRegistration = async (childId: string, config: RegistrationConfig, operation: RegistrationOperation, requestId: string, reason: HandoffReason) => parseHandoffResult(
   await invoke({ action: 'handoff', childId, operationId: operation.id, campusId: operation.campusId, fingerprint: config.fingerprint, confirmed: true, requestId, handoffRevision: operation.handoffRevision, reason }, 'lesson-student-registration'), childId, operation.id, requestId, operation.handoffRevision);
 
-async function invoke<T>(body: Record<string, unknown>, endpoint = 'lesson-learning'): Promise<T> {
+async function invoke<T>(body: Record<string, unknown>, endpoint = 'lesson-learning', signal?:AbortSignal): Promise<T> {
   if (!supabase) throw new Error('学習連携には職員ログインとクラウド接続が必要です。');
   const { data, error } = await supabase.functions.invoke(endpoint, {
-    body, headers: { 'x-support-device-token': getAccessDeviceToken() },
+    body, headers: { 'x-support-device-token': getAccessDeviceToken() }, signal,
   });
   if (error) {
     let message = '学習連携を取得できませんでした。通信とサーバー設定を確認してください。';
@@ -88,7 +88,15 @@ export const issueLessonCredentials = async (link: LessonLink, operationId: stri
 export const inspectLessonStudent = (childId: string, studentId: string) => invoke<{ identity: LessonIdentity; fingerprint: string }>({ action: 'inspect', childId, studentId });
 export const linkLessonStudent = (childId: string, studentId: string, fingerprint: string) => invoke<{ link: LessonLink }>({ action: 'link', childId, studentId, fingerprint, confirmed: true });
 export const disableLessonLink = (link: LessonLink) => invoke<{ link: LessonLink }>({ action: 'disable', childId: link.child_id, revision: link.revision });
-export const loadLessonHistory = (childId: string, date: string) => invoke<LessonHistory>({ action: 'history', childId, date });
+export const loadLessonHistory = async (childId: string, date: string, expected?: Pick<LessonLink,'id'|'revision'>) => {
+  const history = await invoke<LessonHistory & {linkId?: string; linkRevision?: number}>({
+    action: 'history', childId, date, ...(expected ? {expectedLinkId:expected.id,expectedLinkRevision:expected.revision} : {}),
+  });
+  if (expected && (history.linkId !== expected.id || history.linkRevision !== expected.revision)) {
+    throw Error('学習連携の版を確認できません。再取得してください。');
+  }
+  return history;
+};
 export const loadLessonProgress = async (link: LessonLink) => parseFetchedLessonProgress(await invoke({ action: 'progress', childId: link.child_id }), link);
 export const checkLessonAccount = async (link: LessonLink) => parseTimedAccountCheck(await invoke({ action: 'inspect', childId: link.child_id }, 'lesson-accounts'), link);
 export const verifyLessonLoginCard = async (link: LessonLink, passcode: string) => {
@@ -109,6 +117,13 @@ export const saveLearningTask=async(childId:string,task:Omit<LearningTask,'updat
   if(saved.id!==task.id||saved.revision!==task.revision+1||saved.category!==task.category||saved.stageId!==task.stageId
    ||saved.title!==task.title.trim()||saved.instructions!==task.instructions||saved.startsOn!==task.startsOn||saved.endsOn!==task.endsOn||saved.active!==task.active)throw Error('課題の保存結果を確認できません。再取得してください。');
   return saved;
+};
+export const loadPendingWordReviewCount=async(signal?:AbortSignal)=>{
+  const result=await invoke<{pendingCount:unknown}>({action:'word-pending-count'},'lesson-learning',signal);
+  if(typeof result.pendingCount!=='number'||!Number.isSafeInteger(result.pendingCount)||result.pendingCount<0){
+    throw new LessonRequestError('Word申請の件数を確認できません。学習連携の公開状況を管理者に確認してください。',422);
+  }
+  return result.pendingCount;
 };
 export const loadWordReviewInbox=async()=>{
   const result=await invoke<WordReviewInbox>({action:'word-inbox'});

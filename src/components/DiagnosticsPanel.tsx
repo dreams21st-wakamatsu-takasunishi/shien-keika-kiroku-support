@@ -154,7 +154,7 @@ export function DiagnosticsPanel() {
               {new Date(event.at).toLocaleString("ja-JP", {
                 timeZone: "Asia/Tokyo",
               })}{" "}
-              · {event.operation}
+              · {event.operation}{event.occurrences ? `（${event.occurrences}回）` : ""}
             </summary>
             <div className="mt-3 space-y-2 rounded-lg bg-slate-50 p-3 text-xs text-slate-700">
               <p className="font-bold">

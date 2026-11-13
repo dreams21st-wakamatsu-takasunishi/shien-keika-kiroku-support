@@ -7,7 +7,7 @@ export interface WordReviewRequest {
 }
 export interface WordReviewInbox {requests:WordReviewRequest[];canReviewWord:boolean}
 export const wordStageNames:Record<string,string>={w_b1_1:'B1-1',w_b1_2:'B1-2',w_b1_3:'B1-3',w_b1_4:'B1-4',w_b1_5:'B1-5',w_m4_1:'M4-1',w_m4_2:'M4-2',w_m4_3:'M4-3'};
-export function parseWordInbox(value:unknown,links:LessonLink[]):WordReviewRequest[]{
+export function parseWordInbox(value:unknown,links:ReadonlyArray<Pick<LessonLink,'id'|'child_id'|'source_student_id'>>):WordReviewRequest[]{
   const body=value as {requests?:unknown[]}|null;
   if(!body||!Array.isArray(body.requests)||body.requests.length>1200)throw Error('Word申請の取得形式を確認してください。');
   const seen=new Set<string>();

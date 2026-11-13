@@ -4,17 +4,10 @@ export class LessonRequestError extends Error {
   constructor(message: string, public readonly httpStatus?: number) { super(message); this.name = 'LessonRequestError'; }
 }
 
-// Match can_read_lesson_learning; do not poll an endpoint this session cannot read.
+// Match can_read_lesson_learning; do not offer the action to a session that cannot read it.
 export function canLoadWordNotice(profile: UserProfile | null | undefined): boolean {
   return Boolean(profile && !profile.fieldModeOnly && (['admin', 'manager'].includes(profile.role)
     || !profile.recorderProfileId || profile.accessDeviceKind === 'facility_shared'));
-}
-
-export function wordNoticeRetryDelay(error: unknown, failures: number): number | null {
-  const status = error instanceof LessonRequestError ? error.httpStatus : undefined;
-  // Permission/auth/configuration problems need explicit action, not a minute-by-minute loop.
-  if (status && [400, 401, 403, 404, 405, 422].includes(status)) return null;
-  return Math.min(300000, 60000 * 2 ** Math.min(3, Math.max(0, failures - 1)));
 }
 
 export function wordNoticeErrorGuidance(error: unknown): string {

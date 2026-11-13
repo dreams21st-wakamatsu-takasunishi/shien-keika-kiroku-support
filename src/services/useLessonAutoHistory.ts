@@ -1,6 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
 import {parseHistory,type LessonHistory,type LessonLink} from '../learning/contracts';
 import {loadLessonHistory,loadLessonLinks} from './lessonLearningService';
+import {createSingleFlight} from './singleFlight';
 
 export interface AutomaticLessonResult {
  childId:string;date:string;organizationId:string;actorId:string;requestId:number;
@@ -15,6 +16,7 @@ export function useLessonAutoHistory({childIds,date,organizationId,actorId,enabl
  const [refreshToken,setRefreshToken]=useState(0);
  const [childRetryToken,setChildRetryToken]=useState(0);
  const generation=useRef(0),cache=useRef(new Map<string,AutomaticLessonResult>());
+ const read=useRef(createSingleFlight()).current;
  const scope=JSON.stringify([organizationId,actorId,date,refreshToken]);
  const childSignature=JSON.stringify([...childIds].sort());
  useEffect(()=>{
@@ -35,7 +37,7 @@ export function useLessonAutoHistory({childIds,date,organizationId,actorId,enabl
   };
   void (async()=>{
    try{
-    const context=await loadLessonLinks();if(requestId!==generation.current)return;
+    const context=await read(JSON.stringify(['links',scope]),loadLessonLinks);if(requestId!==generation.current)return;
     if(!context.configured)throw Error('Dレッスン連携のサーバー設定が未完了です。');
     // Sequential reads limit server load when many children are selected.
     for(const childId of pending){
@@ -44,22 +46,15 @@ export function useLessonAutoHistory({childIds,date,organizationId,actorId,enabl
      const link=context.links.find(row=>row.child_id===childId&&row.organization_id===organizationId&&row.active);
      if(!link){publish({...base,status:'unlinked',message:'学習アカウントが未連携です。'});continue;}
      try{
-      const raw=await loadLessonHistory(childId,date);
+      const raw=await read(JSON.stringify(['history',scope,childId,link.id,link.revision,childRetryToken]),()=>loadLessonHistory(childId,date,link));
       const history={...parseHistory(raw,link,date),fetchedAt:raw.fetchedAt};
-      const fresh=await loadLessonLinks();if(requestId!==generation.current)return;
-      const current=fresh.links.find(row=>row.child_id===childId&&row.organization_id===organizationId&&row.active);
-      if(!fresh.configured||!current||current.id!==link.id||current.revision!==link.revision
-       ||current.source_project_ref!==link.source_project_ref||current.source_table!==link.source_table
-       ||current.source_student_id!==link.source_student_id||current.source_campus_id!==link.source_campus_id){
-       throw Error('学習連携が変更されました。再取得してください。');
-      }
-      publish({...base,status:history.events.length?'ready':'empty',message:history.events.length?`${history.events.length}件の実績を取得しました。`:'取得できた履歴はありません。未実施とは判断できません。',history,link:current});
+      publish({...base,status:history.events.length?'ready':'empty',message:history.events.length?`${history.events.length}件の実績を取得しました。`:'取得できた履歴はありません。未実施とは判断できません。',history,link});
      }catch(error){publish({...base,status:'error',message:error instanceof Error?error.message:'実績を取得できませんでした。'});}
     }
    }catch(error){for(const childId of pending)publish({childId,date,organizationId,actorId,requestId,status:'error',message:error instanceof Error?error.message:'実績を取得できませんでした。'});}
   })();
   return()=>{generation.current++;};
- },[scope,childSignature,childRetryToken,enabled,organizationId,actorId,date]);
+ },[scope,childSignature,childRetryToken,enabled,organizationId,actorId,date,read]);
  // A new date/account or an explicit retry gets fresh data, never a cross-scope cache.
  useEffect(()=>{cache.current.clear();},[scope]);
  return {results,refresh:(childId?:string)=>{

@@ -24,6 +24,18 @@ test('quota failure keeps in-memory history and later writes recover without bre
   assert.equal(store.persisted(),false);assert.deepEqual(store.read().map(e=>e.id),['first','second']);
   blocked=false;store.append(event({id:'third'}));assert.equal(store.persisted(),true);assert.equal(store.read().length,3);
 });
+test('repeated API failures retain first and latest times and count without hiding a different failure',()=>{
+ const store=createDiagnosticStore(storage(),()=>now), api={operation:'api.audit_logs',requestScreen:'team',requestMethod:'GET',httpStatus:500,serverCode:'57014'};
+ const firstAt=new Date(now-60000).toISOString();
+ store.append(event({...api,at:firstAt}));
+ store.append(event({...api,httpStatus:403,at:new Date(now-50000).toISOString()}));
+ store.append(event({...api,at:new Date(now-10000).toISOString()}));
+ assert.deepEqual(store.read().map(x=>[x.httpStatus,x.occurrences]),[[403,undefined],[500,2]]);
+ assert.equal(store.read().at(-1)?.firstAt,firstAt);
+ assert.match(formatDiagnosticReport(store.read().at(-1)!),/同じ失敗：2回/);
+ store.append(event({...api,at:new Date(now).toISOString()}));
+ assert.equal(store.read().length,3);
+});
 test('corrupt or hostile persisted data is not exported and clearing affects only diagnostic storage',()=>{
   const s=storage();s.items.set('draft','important');s.items.set(DIAGNOSTICS_KEY,'[{"message":"secret"}]');
   const store=createDiagnosticStore(s,()=>now);assert.deepEqual(store.read(),[]);store.clear();assert.equal(s.items.get('draft'),'important');

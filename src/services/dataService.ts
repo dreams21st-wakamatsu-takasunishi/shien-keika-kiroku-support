@@ -59,6 +59,8 @@ import { upgradeStandardHolidayTemplate } from '../data/holidayTemplate';
 import { calculateSchoolGrade } from '../utils/schoolGrade';
 import { currentSchoolHolidayPeriods } from '../utils/schoolHoliday';
 import { getLocalDateString } from '../utils/weekdays';
+import { FEATURE_FLAGS } from '../config/features';
+import { dayPeriod,type OperationalPeriod } from './operationalPeriod';
 import { getAccessDeviceLabel, getAccessDevicePlatform, getAccessDeviceToken } from '../utils/accessDevice';
 import { resolvedTransportArea } from '../utils/transportArea';
 import { runWorkspaceQueries, selectWorkspacePatch } from './workspaceLoadPlan';
@@ -787,12 +789,22 @@ function normalizeSnack(value: unknown): SnackType | '' {
   return raw;
 }
 
-export function loadWorkspaceData(organizationId: string, changedTables?: readonly string[], recordIds?: readonly string[]): Promise<WorkspaceData> {
-  return measureOperation(changedTables ? 'workspace.refresh' : 'workspace.initial', () => loadWorkspaceDataInternal(organizationId, changedTables, recordIds));
+export function loadWorkspaceData(organizationId: string, changedTables?: readonly string[], recordIds?: readonly string[], operational=dayPeriod(getLocalDateString())!): Promise<WorkspaceData> {
+  return measureOperation(changedTables ? 'workspace.refresh' : 'workspace.initial', () => loadWorkspaceDataInternal(organizationId, changedTables, recordIds,operational));
 }
 
-async function loadWorkspaceDataInternal(organizationId: string, changedTables?: readonly string[], recordIds?: readonly string[]): Promise<WorkspaceData> {
+async function loadWorkspaceDataInternal(organizationId: string, changedTables: readonly string[]|undefined, recordIds: readonly string[]|undefined, operational:OperationalPeriod): Promise<WorkspaceData> {
   const client = assertSupabase();
+  const readOperation=async(table:'attendance_records'|'transport_runs',column:'work_date'|'service_date')=>{
+    const data=[];
+    for(let offset=0;;offset+=200){
+      const page=await client.from(table).select('*').eq('organization_id',organizationId)
+        .gte(column,operational.from).lte(column,operational.to).order(column).order('id').range(offset,offset+199);
+      if(page.error)return {data:null,error:page.error};
+      data.push(...(page.data||[]));
+      if((page.data?.length||0)<200)return {data,error:null};
+    }
+  };
   const [
     childrenResult,
     schoolsResult,
@@ -832,22 +844,25 @@ async function loadWorkspaceDataInternal(organizationId: string, changedTables?:
     () => loadSupportRecordsWithRetry(organizationId, recordIds),
     () => client.from('handover_items').select('*').eq('organization_id', organizationId).is('deleted_at',null).order('created_at', { ascending: false }),
     () => client.from('handover_confirmations').select('*').eq('organization_id', organizationId).order('confirmed_at', { ascending: false }),
-    () => client.from('morning_meeting_records').select('*').eq('organization_id', organizationId).is('deleted_at',null).order('meeting_date', { ascending: false }),
+    // Other dates are fetched by the keyed morning editor using its guarded RPC.
+    () => client.from('morning_meeting_records').select('*').eq('organization_id', organizationId).eq('meeting_date', getLocalDateString()).is('deleted_at',null),
     () => client.from('morning_meeting_templates').select('*').eq('organization_id', organizationId).is('archived_at', null).order('updated_at', { ascending: false }),
     () => client.from('morning_meeting_confirmations').select('*').eq('organization_id', organizationId).order('confirmed_at', { ascending: false }),
-    () => client.from('support_plans').select('*').eq('organization_id', organizationId).order('valid_from', { ascending: false }),
+    () => FEATURE_FLAGS.supportPlansAndFiveDomains
+      ? client.from('support_plans').select('*').eq('organization_id', organizationId).order('valid_from', { ascending: false })
+      : Promise.resolve({ data: null, error: null }),
     () => client.from('announcements').select('*').eq('organization_id', organizationId).is('archived_at', null).order('published_at', { ascending: false }),
     () => client.from('announcement_confirmations').select('*').eq('organization_id', organizationId).order('read_at', { ascending: false }),
     () => client.from('staff_schedule_items').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }).order('start_time'),
     () => client.from('calendar_events').select('*').eq('organization_id', organizationId).order('event_date', { ascending: false }).order('start_time'),
     () => client.from('daily_child_plans').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }),
-    () => client.from('attendance_records').select('*').eq('organization_id', organizationId).order('work_date', { ascending: false }),
+    () => readOperation('attendance_records','work_date'),
     () => client.from('staff_shift_templates').select('*').eq('organization_id', organizationId).eq('active', true).order('name'),
     () => client.from('staff_shift_requests').select('*').eq('organization_id', organizationId).order('requested_date', { ascending: false }),
     () => client.from('organization_role_permissions').select('role, permissions, updated_at').eq('organization_id', organizationId),
     () => client.from('attendance_correction_requests').select('*').eq('organization_id', organizationId).order('created_at', { ascending: false }),
     () => client.from('vehicles').select('*').eq('organization_id', organizationId).order('name'),
-    () => client.from('transport_runs').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }).order('start_time'),
+    () => readOperation('transport_runs','service_date'),
     () => client.from('transport_plan_days').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }),
     () => client.from('daily_transport_requirements').select('*').eq('organization_id', organizationId).order('service_date', { ascending: false }),
     () => client.from('transport_route_settings').select('*').eq('organization_id', organizationId).eq('id', 'default').maybeSingle(),
@@ -865,6 +880,8 @@ async function loadWorkspaceDataInternal(organizationId: string, changedTables?:
   }
 
   const requiredResults = [
+    attendanceRecordsResult,
+    transportRunsResult,
     childrenResult,
     schoolsResult,
     schedulesResult,
@@ -881,6 +898,8 @@ async function loadWorkspaceDataInternal(organizationId: string, changedTables?:
     transportAreaZonesResult,
   ];
   const requiredResultLabels = [
+    '出退勤',
+    '送迎便',
     '児童情報',
     '学校台帳',
     '定期利用予定',
@@ -996,8 +1015,23 @@ async function loadWorkspaceDataInternal(organizationId: string, changedTables?:
   };
 }
 
-export async function loadWorkspacePatch(organizationId: string, changedTables: readonly string[], recordIds?: readonly string[]) {
-  return selectWorkspacePatch(await loadWorkspaceData(organizationId, changedTables, recordIds), changedTables);
+export async function loadWorkspacePatch(organizationId: string, changedTables: readonly string[], recordIds?: readonly string[], operational?:OperationalPeriod) {
+  return selectWorkspacePatch(await loadWorkspaceData(organizationId, changedTables, recordIds,operational), changedTables);
+}
+
+export async function loadHandoverTransportReferences(organizationId:string,period:OperationalPeriod,linkedIds:readonly string[]){
+  const client=assertSupabase(), columns='id,service_date,name';
+  const recent=await client.from('transport_runs').select(columns).eq('organization_id',organizationId)
+    .gte('service_date',period.from).lte('service_date',period.to).order('service_date',{ascending:false}).order('name');
+  if(recent.error)throw recent.error;
+  const rows=new Map((recent.data||[]).map(row=>[row.id,row]));
+  const missing=[...new Set(linkedIds)].filter(id=>!rows.has(id));
+  for(let offset=0;offset<missing.length;offset+=100){
+    const linked=await client.from('transport_runs').select(columns).eq('organization_id',organizationId).in('id',missing.slice(offset,offset+100));
+    if(linked.error)throw linked.error;
+    for(const row of linked.data||[])rows.set(row.id,row);
+  }
+  return [...rows.values()].map(row=>({id:row.id,date:row.service_date,name:row.name}));
 }
 
 export async function saveStaffScheduleItem(

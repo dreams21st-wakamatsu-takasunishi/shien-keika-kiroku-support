@@ -29,9 +29,12 @@ import { getVehicleChildCapacity, getVehicleStaffSeatCount } from '../utils/vehi
 import { StaffSchedulePanel } from './StaffSchedulePanel';
 import { TodayTransportOverview } from './TodayTransportOverview';
 
+import {OperationalPeriodStatus,useOperationalPeriod,type OperationalLoader} from './useOperationalPeriod';
+import {dayPeriod} from '../services/operationalPeriod';
 type WorkView = 'placement' | 'transport';
 
 interface TodayWorkPanelProps {
+  onLoadOperationalPeriod?:OperationalLoader;
   initialDate?: string;
   initialView?: WorkView;
   staffScheduleItems: StaffScheduleItem[];
@@ -54,6 +57,7 @@ interface TodayWorkPanelProps {
 }
 
 export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
+  onLoadOperationalPeriod,
   initialDate,
   initialView,
   staffScheduleItems,
@@ -75,6 +79,7 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
   onSaveTransportRun,
 }) => {
   const [selectedDate, setSelectedDate] = useState(initialDate || getLocalDateString());
+  const periodRead=useOperationalPeriod(onLoadOperationalPeriod,dayPeriod(selectedDate),'both');
   const [view, setView] = useState<WorkView>(initialView || 'placement');
   const dayEvents = useMemo(() => calendarEvents.filter((event) => eventOccursOn(event, selectedDate)), [calendarEvents, selectedDate]);
   const dayAttendance = useMemo(() => attendanceRecords.filter((record) => record.date === selectedDate), [attendanceRecords, selectedDate]);
@@ -99,15 +104,16 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div><p className="text-xs font-black text-teal-700">本日の業務</p><h2 className="mt-1 text-xl font-black text-slate-950">職員配置と当日の送迎を確認</h2><p className="mt-1 text-xs text-slate-500">出勤予定・業務カレンダー・利用予定／送迎管理はホームから開きます。</p></div>
-          <label className="flex items-center gap-2 text-sm font-black text-slate-700"><CalendarDays className="h-5 w-5 text-teal-600" /><input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} className="min-h-11 rounded-xl border border-slate-300 bg-white px-3" /></label>
+          <label className="flex items-center gap-2 text-sm font-black text-slate-700"><CalendarDays className="h-5 w-5 text-teal-600" /><input aria-label="業務の対象日" type="date" value={selectedDate} onChange={(event) => {if(dayPeriod(event.target.value))setSelectedDate(event.target.value);}} className="min-h-11 rounded-xl border border-slate-300 bg-white px-3" /></label>
         </div>
-        <div className="ui-scrollbar mt-3 flex gap-2 overflow-x-auto pb-1 lg:grid lg:grid-cols-5 lg:overflow-visible">
+        {periodRead.ready && <div className="ui-scrollbar mt-3 flex gap-2 overflow-x-auto pb-1 lg:grid lg:grid-cols-5 lg:overflow-visible">
           <SummaryCard icon={UserRoundCheck} label="出勤中" value={`${working.length}名`} tone="emerald" />
           <SummaryCard icon={Clock3} label="未出勤・休暇" value={`${Math.max(0, recorderProfiles.filter((profile) => profile.active).length - working.length)}名`} detail={absent.length ? `休暇等 ${absent.length}名` : undefined} tone="amber" />
           <SummaryCard icon={UsersRound} label="利用予定児童" value={`${scheduledChildren.length}名`} tone="blue" />
           <SummaryCard icon={BusFront} label="送迎便" value={`${dayRuns.length}便`} detail={`${dayRuns.filter((run) => run.status !== '未出発').length}便 運行開始`} tone="violet" />
           <SummaryCard icon={AlertTriangle} label="要確認" value={`${new Set(allWarnings).size}件`} tone={allWarnings.length ? 'rose' : 'slate'} />
         </div>
+        }
         <nav className="mt-3 border-t border-slate-100 pt-3" aria-label="本日の業務メニュー">
           <div className="grid grid-cols-2 gap-1">
             <WorkTab active={view === 'placement'} icon={ChartGantt} label="職員配置" onClick={() => setView('placement')} />
@@ -116,6 +122,7 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
         </nav>
       </section>
 
+      {!periodRead.ready ? <OperationalPeriodStatus {...periodRead}/> : <>
       {allWarnings.length > 0 && (
         <details className="rounded-2xl border border-amber-300 bg-amber-50 p-4">
           <summary className="cursor-pointer font-black text-amber-950">配置・配車の確認事項（{new Set(allWarnings).size}件）</summary>
@@ -149,6 +156,7 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
       {view === 'transport' && (
         <TodayTransportOverview date={selectedDate} runs={transportRuns} locations={transportMapLocations} zones={transportAreaZones} routeSettings={transportRouteSettings} />
       )}
+      </>}
     </div>
   );
 };

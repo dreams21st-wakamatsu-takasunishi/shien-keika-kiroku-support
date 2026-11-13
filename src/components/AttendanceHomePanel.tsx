@@ -1,4 +1,6 @@
 import { ManualLinks } from './ManualLinks';
+import {OperationalPeriodStatus,useOperationalPeriod,type OperationalLoader} from './useOperationalPeriod';
+import {monthPeriod} from '../services/operationalPeriod';
 import { attendanceManualContext } from '../utils/manualLinks';
 import React, { useEffect, useMemo, useState } from 'react';
 import { CalendarClock, ChevronLeft, ChevronRight, Clock3, Save, Send, Settings2, UsersRound, X } from 'lucide-react';
@@ -16,6 +18,7 @@ type AttendanceTab = 'overview' | 'request' | 'planning' | 'attendance';
 type RequestDraft = { date: string; startTime: string; endTime: string; note: string };
 
 interface AttendanceHomePanelProps {
+  onLoadOperationalPeriod?:OperationalLoader;
   records: AttendanceRecord[];
   shiftTemplates: StaffShiftTemplate[];
   shiftRequests: StaffShiftRequest[];
@@ -45,6 +48,7 @@ interface AttendanceHomePanelProps {
 const WEEKDAYS = ['日', '月', '火', '水', '木', '金', '土'];
 
 export const AttendanceHomePanel: React.FC<AttendanceHomePanelProps> = ({
+  onLoadOperationalPeriod,
   records, shiftTemplates, shiftRequests, corrections, recorderProfiles, activeRecorder,
   canManageShifts, canApproveCorrections, qrKioskEnabled, calendarEvents, childrenList,
   dailyChildPlans, dailyTransportRequirements, transportRuns, onSaveRecord, onSaveRecords, onDeleteRecord,
@@ -55,6 +59,7 @@ export const AttendanceHomePanel: React.FC<AttendanceHomePanelProps> = ({
   const [activeTab, setActiveTab] = useState<AttendanceTab>('overview');
   const [selectedDate, setSelectedDate] = useState(today);
   const [requestMonth, setRequestMonth] = useState(today.slice(0, 7));
+  const periodRead=useOperationalPeriod(onLoadOperationalPeriod,activeTab==='overview'?monthPeriod(requestMonth):activeTab==='attendance'?monthPeriod(selectedDate.slice(0,7)):null,'attendance');
   const [requestDrafts, setRequestDrafts] = useState<RequestDraft[]>([]);
   const [defaultStart, setDefaultStart] = useState(activeRecorder?.shiftRequestDefaultStartTime || activeRecorder?.partTimeWeekdayStartTime || '09:00');
   const [defaultEnd, setDefaultEnd] = useState(activeRecorder?.shiftRequestDefaultEndTime || activeRecorder?.partTimeWeekdayEndTime || '18:00');
@@ -144,9 +149,11 @@ export const AttendanceHomePanel: React.FC<AttendanceHomePanelProps> = ({
 
     {activeTab === 'overview' && <section className="rounded-2xl border border-teal-200 bg-white p-4 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-[10px] font-black text-teal-700">出勤予定</p><h2 className="mt-1 flex items-center gap-2 text-lg font-black text-slate-950"><CalendarClock className="h-5 w-5 text-teal-600" />自分の予定</h2><p className="mt-1 text-xs text-slate-500">勤務予定と提出したシフト希望を、同じ月間カレンダーで確認します。</p></div><div className="flex items-center gap-2"><button type="button" onClick={() => setRequestMonth(moveMonth(requestMonth, -1))} className="grid h-9 w-9 place-items-center rounded-lg border"><ChevronLeft className="h-4 w-4" /></button><strong className="min-w-24 text-center text-sm">{requestMonth.replace('-', '年')}月</strong><button type="button" onClick={() => setRequestMonth(moveMonth(requestMonth, 1))} className="grid h-9 w-9 place-items-center rounded-lg border"><ChevronRight className="h-4 w-4" /></button></div></div>
+      {!periodRead.ready?<OperationalPeriodStatus {...periodRead}/>:<>
       <div className="mt-4 grid grid-cols-7 gap-1 text-center text-[10px] font-black text-slate-400">{WEEKDAYS.map((day) => <span key={day}>{day}</span>)}</div>
       <div className="mt-1 grid grid-cols-7 gap-1">{Array.from({ length: firstWeekday }, (_, index) => <span key={`own-blank-${index}`} />)}{requestDates.map((date) => { const record = ownSchedule.find((item) => item.date === date); const request = ownRequests.find((item) => item.requestedDate === date); const leave = ownLeaveEvents.find((event) => event.date <= date && (event.endDate || event.date) >= date); return <button key={date} type="button" onClick={() => setSelectedDate(date)} className={`min-h-16 rounded-lg border p-1 text-left ${date === selectedDate ? 'ring-2 ring-teal-500' : ''} ${leave ? 'border-rose-300 bg-rose-50 text-rose-950' : record ? 'border-emerald-200 bg-emerald-50' : request ? shiftRequestTone(request.status) : 'border-slate-100 bg-white'}`}><span className="block text-[10px] font-black">{Number(date.slice(8))}</span>{leave ? <span className="mt-0.5 block text-[9px] font-black">休み<br /><span className="text-[8px]">{leave.title}</span></span> : record ? <span className="mt-0.5 block text-[9px] font-black text-emerald-900">{record.scheduledStartTime || '－'}〜{record.scheduledEndTime || '－'}</span> : null}{request && <span className="mt-0.5 block text-[8px] font-black">希望 {request.requestedStartTime || '－'}〜{request.requestedEndTime || '－'}<br />{request.status}</span>}</button>; })}</div>
       <div className="mt-3 flex flex-wrap gap-2 text-[9px] font-black"><span className="rounded-full bg-violet-100 px-2 py-1 text-violet-800">申請中</span><span className="rounded-full bg-emerald-100 px-2 py-1 text-emerald-800">承認済み／勤務予定</span><span className="rounded-full bg-rose-100 px-2 py-1 text-rose-800">休み／却下</span></div>
+      </>}
     </section>}
 
     {activeTab === 'request' && isPartTime && <section className="rounded-2xl border border-violet-200 bg-white p-4 shadow-sm">
@@ -158,10 +165,10 @@ export const AttendanceHomePanel: React.FC<AttendanceHomePanelProps> = ({
     </section>}
 
     {activeTab === 'planning' && canManageShifts && <div className="space-y-4">
-      <StaffShiftManager templates={shiftTemplates} records={records} shiftRequests={shiftRequests} recorderProfiles={recorderProfiles} selectedDate={selectedDate} calendarEvents={calendarEvents} childrenList={childrenList} dailyChildPlans={dailyChildPlans} dailyTransportRequirements={dailyTransportRequirements} transportRuns={transportRuns} onSaveRecords={onSaveRecords} onDeleteRecord={onDeleteRecord} onReviewShiftRequest={onReviewShiftRequest} onDeleteShiftRequest={onDeleteShiftRequest} />
+      <StaffShiftManager onLoadOperationalPeriod={onLoadOperationalPeriod} templates={shiftTemplates} records={records} shiftRequests={shiftRequests} recorderProfiles={recorderProfiles} selectedDate={selectedDate} calendarEvents={calendarEvents} childrenList={childrenList} dailyChildPlans={dailyChildPlans} dailyTransportRequirements={dailyTransportRequirements} transportRuns={transportRuns} onSaveRecords={onSaveRecords} onDeleteRecord={onDeleteRecord} onReviewShiftRequest={onReviewShiftRequest} onDeleteShiftRequest={onDeleteShiftRequest} />
     </div>}
 
-    {activeTab === 'attendance' && <section className="rounded-2xl border border-slate-200 bg-slate-50 p-3"><h3 className="mb-3 flex items-center gap-2 font-black text-slate-900"><Clock3 className="h-5 w-5 text-teal-600" />出退勤・勤務実績</h3><AttendancePanel records={records} shiftTemplates={shiftTemplates} corrections={corrections} recorderProfiles={recorderProfiles} selectedDate={selectedDate} activeRecorder={activeRecorder} canManage={canManageShifts} canApproveCorrections={canApproveCorrections} canManageShifts={canManageShifts} qrKioskEnabled={qrKioskEnabled} showShiftManager={false} onSaveRecord={onSaveRecord} onSaveRecords={onSaveRecords} onPunch={onPunch} onRequestCorrection={onRequestCorrection} onReviewCorrection={onReviewCorrection} /></section>}
+    {activeTab === 'attendance' && (!periodRead.ready?<OperationalPeriodStatus {...periodRead}/>:<section className="rounded-2xl border border-slate-200 bg-slate-50 p-3"><h3 className="mb-3 flex items-center gap-2 font-black text-slate-900"><Clock3 className="h-5 w-5 text-teal-600" />出退勤・勤務実績</h3><AttendancePanel records={records} shiftTemplates={shiftTemplates} corrections={corrections} recorderProfiles={recorderProfiles} selectedDate={selectedDate} activeRecorder={activeRecorder} canManage={canManageShifts} canApproveCorrections={canApproveCorrections} canManageShifts={canManageShifts} qrKioskEnabled={qrKioskEnabled} showShiftManager={false} onSaveRecord={onSaveRecord} onSaveRecords={onSaveRecords} onPunch={onPunch} onRequestCorrection={onRequestCorrection} onReviewCorrection={onReviewCorrection} /></section>)}
   </div>;
 };
 

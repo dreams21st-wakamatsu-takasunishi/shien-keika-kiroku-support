@@ -1,8 +1,10 @@
+import { browserTransferCounter, declaredResponseBytes } from './transferUsage';
 // Strictly structured device-local diagnostics. Never store messages, URLs, DOM text,
 // form values, identities, record bodies, tokens, request/response bodies or stacks.
 export const DIAGNOSTICS_KEY = 'd-support:diagnostics:v1';
 export const DIAGNOSTICS_RETENTION_DAYS = 30;
 const MAX_EVENTS = 200, MAX_ACTIONS = 12;
+const REPEATED_API_ERROR_WINDOW_MS = 60_000;
 const screens = new Set(['home','form','records','preview','meetings','learning','trafficCost','activityPlans','facilityWork','legalTraining','children','templates','team','plans','dailyChanges','todayWork','attendance','calendar','monthlySchedule','operations','communication','assistant']);
 const resources = new Set(['support_records','record_drafts','children','recorder_profiles','profiles','daily_child_plans','staff_schedule_items','transport_runs','meeting_cases','morning_meeting_records','legal_training_categories','legal_training_videos',
   'save_support_records_guarded','save_record_draft_guarded','finish_record_draft_save','take_over_record_draft_children','take_over_record_draft_children_into_existing','get_personal_transport_dashboard','issue_personal_staff_qr','set_recorder_menu_preferences',
@@ -32,6 +34,7 @@ export interface DiagnosticEvent {
   kind: 'error'|'recovery'|'connection'; code: DiagnosticCode; operation: string;
   httpStatus?: number; actions: DiagnosticAction[];
   requestScreen?: string; requestMethod?: string; durationMs?: number; serverCode?: string;
+  occurrences?: number; firstAt?: string;
 }
 const safeOperation = (value: unknown) => typeof value === 'string' && (localOperations.has(value) || (value.startsWith('api.') && resources.has(value.slice(4))) || (value.startsWith('screen.') && screens.has(value.slice(7)))) ? value : 'api.other';
 const validTime = (value: unknown) => typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(value) && Number.isFinite(Date.parse(value));
@@ -48,6 +51,8 @@ export function sanitizeDiagnostic(value: unknown): DiagnosticEvent | null {
     ...(methods.has(item.requestMethod||'')?{requestMethod:item.requestMethod}:{}),
     ...(typeof item.durationMs==='number'&&Number.isFinite(item.durationMs)&&item.durationMs>=0&&item.durationMs<=3600000?{durationMs:Math.round(item.durationMs)}:{}),
     ...(serverCodes.has(item.serverCode||'')?{serverCode:item.serverCode}:{}),
+    ...(Number.isSafeInteger(item.occurrences) && item.occurrences! > 1 && validTime(item.firstAt) && Date.parse(item.firstAt!) <= Date.parse(item.at)
+      ? {occurrences:item.occurrences,firstAt:item.firstAt} : {}),
     actions: Array.isArray(item.actions) ? item.actions.slice(-MAX_ACTIONS).filter(action=>validTime(action?.at)).map(action=>({at:action.at,operation:safeOperation(action.operation || '')})) : [] };
 }
 export function createDiagnosticStore(storage: Pick<Storage,'getItem'|'setItem'|'removeItem'>, now = ()=>Date.now()) {
@@ -55,7 +60,22 @@ export function createDiagnosticStore(storage: Pick<Storage,'getItem'|'setItem'|
   const prune = (items: unknown[]) => items.map(sanitizeDiagnostic).filter((item): item is DiagnosticEvent=>Boolean(item && Date.parse(item.at) >= now()-DIAGNOSTICS_RETENTION_DAYS*86400000 && Date.parse(item.at) <= now()+60000)).slice(-MAX_EVENTS);
   const read = () => { if(!persisted) return [...fallback]; try { const raw=JSON.parse(storage.getItem(DIAGNOSTICS_KEY)||'[]'); fallback=prune(Array.isArray(raw)?raw:[]); } catch { persisted=false; } return [...fallback]; };
   const write = (items: DiagnosticEvent[]) => { fallback=prune(items); try { storage.setItem(DIAGNOSTICS_KEY,JSON.stringify(fallback)); persisted=true; } catch { persisted=false; } };
-  return { read, append: (event: DiagnosticEvent)=>write([...read(),event]), compact:()=>write(read()),
+  return { read, append: (event: DiagnosticEvent)=>{
+    const items=read(),next=sanitizeDiagnostic(event);
+    if(!next)return;
+    // Preserve the first occurrence and latest context. Coalesce only known
+    // API operations with identical failure signatures, never audit records.
+    const index=next.kind==='error' && next.operation.startsWith('api.') && next.operation!=='api.other'
+      ? items.findIndex(previous=>previous.kind==='error' && previous.operation===next.operation
+        && previous.version===next.version && previous.code===next.code && previous.httpStatus===next.httpStatus
+        && previous.online===next.online && previous.requestScreen===next.requestScreen
+        && previous.requestMethod===next.requestMethod && previous.serverCode===next.serverCode
+        && Date.parse(next.at)>=Date.parse(previous.at) && Date.parse(next.at)-Date.parse(previous.firstAt||previous.at)<REPEATED_API_ERROR_WINDOW_MS) : -1;
+    if(index>=0){
+      const [previous]=items.splice(index,1);
+      write([...items,{...next,firstAt:previous.firstAt||previous.at,occurrences:(previous.occurrences||1)+1}]);
+    }else write([...items,next]);
+  }, compact:()=>write(read()),
     clear: ()=>{fallback=[];try{storage.removeItem(DIAGNOSTICS_KEY);persisted=true;}catch{persisted=false;}},
     persisted: ()=>persisted };
 }
@@ -104,16 +124,19 @@ export function apiDiagnosticOperation(input: RequestInfo | URL): string {
 export async function diagnosticFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
   const operation=apiDiagnosticOperation(input); diagnosticAction(operation);
   const requestScreen=screen,started=performance.now(),requestMethod=(init?.method||(typeof Request!=='undefined'&&input instanceof Request?input.method:'GET')).toUpperCase();
+  const count=browserTransferCounter.begin(operation);
   try {const response=await fetch(input,init);
+    count(!response.ok,declaredResponseBytes(response,requestMethod));
     const durationMs=performance.now()-started;
     if(!response.ok){let error:unknown;try{error=await response.clone().json();}catch{} recordDiagnostic(operation,error,{httpStatus:response.status,requestScreen,requestMethod,durationMs});}
     return response;
-  } catch(error) { if(!(error&&typeof error==='object'&&'name' in error&&error.name==='AbortError'))recordDiagnostic(operation,error,{code:'NETWORK',requestScreen,requestMethod,durationMs:performance.now()-started});throw error; }
+  } catch(error) { const aborted=Boolean(error&&typeof error==='object'&&'name' in error&&error.name==='AbortError');if(!aborted){count(true,null);recordDiagnostic(operation,error,{code:'NETWORK',requestScreen,requestMethod,durationMs:performance.now()-started});}throw error; }
 }
 export function formatDiagnosticReport(event: DiagnosticEvent): string {
   const item=sanitizeDiagnostic(event);if(!item)return 'このエラー情報は読み出せません。';
   return [
     `発生日時：${new Date(item.at).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'})}（日本時間）`,
+    ...(item.occurrences && item.firstAt ? [`同じ失敗：${item.occurrences}回 ／ 初回：${new Date(item.firstAt).toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'})}`] : []),
     `${item.kind==='error'?'失敗した操作':'対象操作'}：${item.operation}`,
     `要求開始画面：${item.requestScreen||'未記録（旧版）'} ／ エラー検知時の画面：${item.screen}`,
     `版：${item.version} ／ 接続：${item.online?'オンライン':'オフライン'}${item.httpStatus?` ／ HTTP ${item.httpStatus}`:''}`,

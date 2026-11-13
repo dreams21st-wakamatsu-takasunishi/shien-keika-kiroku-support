@@ -1,28 +1,48 @@
-import React,{useEffect,useState} from 'react';
-import {Bell,ChevronRight,RefreshCw,X} from 'lucide-react';
-import {loadWordReviewInbox} from '../services/lessonLearningService';
-import {LessonRequestError,wordNoticeRetryDelay,wordNoticeErrorGuidance} from '../learning/reviewNotice';
+import React,{useEffect,useRef,useState} from 'react';
+import {Bell,ChevronRight,RefreshCw} from 'lucide-react';
+import {loadPendingWordReviewCount} from '../services/lessonLearningService';
+import {LessonRequestError,wordNoticeErrorGuidance} from '../learning/reviewNotice';
+
 export function LessonReviewNotice({enabled,scopeKey,onOpen}:{enabled:boolean;scopeKey:string;onOpen:()=>void}){
-  const [count,setCount]=useState<number|null>(null),[failure,setFailure]=useState<unknown>(null),[retry,setRetry]=useState(0),[dismissed,setDismissed]=useState(false);
+  return enabled ? <ManualWordNotice key={scopeKey} onOpen={onOpen}/> : null;
+}
+
+function ManualWordNotice({onOpen}:{key?:string;onOpen:()=>void}){
+  const [reading,setReading]=useState<{count:number;at:Date}|null>(null);
+  const [failure,setFailure]=useState<Error|null>(null);
+  const [busy,setBusy]=useState(false);
+  const [stale,setStale]=useState(false);
+  const current=useRef<AbortController|null>(null);
   useEffect(()=>{
-    setCount(null);setFailure(null);setDismissed(false);if(!enabled)return;
-    let disposed=false,busy=false,timer:number|undefined,failures=0,paused=false,nextAt=0;
-    const refresh=async(force=false)=>{if(disposed||busy||document.visibilityState==='hidden'||!navigator.onLine||(!force&&(paused||Date.now()<nextAt)))return;
-      window.clearTimeout(timer);busy=true;let delay:number|null=60000;
-      try{const result=await loadWordReviewInbox();if(!disposed){setCount(result.requests.filter(row=>row.status==='pending').length);setFailure(null);failures=0;paused=false;}}
-      catch(error){if(!disposed){setFailure(error);delay=wordNoticeRetryDelay(error,++failures);paused=delay===null;}}
-      finally{busy=false;if(!disposed&&delay!==null){nextAt=Date.now()+delay;timer=window.setTimeout(()=>void refresh(),delay);}}};
-    void refresh();
-    const changed=()=>void refresh();const updated=()=>void refresh(true);
-    window.addEventListener('online',changed);window.addEventListener('d-support-word-reviews-updated',updated);document.addEventListener('visibilitychange',changed);
-    return()=>{disposed=true;window.clearTimeout(timer);window.removeEventListener('online',changed);window.removeEventListener('d-support-word-reviews-updated',updated);document.removeEventListener('visibilitychange',changed);};
-  },[enabled,scopeKey,retry]);
-  const failed=Boolean(failure);
-  if(dismissed&&failed)return null;
-  if(!enabled||(!failed&&!count))return null;
-  return <aside role="status" className={`mb-4 flex flex-wrap items-center justify-between gap-3 border-l-4 p-3 text-sm ${failed?'border-amber-500 bg-amber-50 text-amber-950':'border-teal-600 bg-teal-50 text-teal-950'}`}>
-    <div className="min-w-0 flex-1"><span className="flex items-center gap-2"><Bell className="h-4 w-4 shrink-0"/>{failed?'Word申請の通知を確認できていません。':`Wordの確認申請が ${count} 件届いています。`}</span>
-      {failed&&<><p className="mt-1 text-xs">{wordNoticeErrorGuidance(failure)}{failure instanceof LessonRequestError&&failure.httpStatus?`（HTTP ${failure.httpStatus}）`:''}</p><details className="mt-2 text-xs"><summary className="cursor-pointer">失敗理由を確認</summary><p className="mt-1 break-words">{failure instanceof Error?failure.message:'通知の取得に失敗しました。'}</p>{count!==null&&<p>前回取得時の未確認申請：{count}件（現在の件数は不明）</p>}</details></>}
-    </div><div className="flex items-center gap-3"><button type="button" onClick={failed?()=>setRetry(value=>value+1):onOpen} className="flex min-h-10 items-center gap-1 font-bold">{failed?<><RefreshCw className="h-4 w-4"/>再取得</>:<>申請を確認<ChevronRight className="h-4 w-4"/></>}</button>{failed&&<button type="button" aria-label="Word通知の警告を一時的に閉じる" title="警告を閉じます。Word確認画面から再確認できます。" onClick={()=>setDismissed(true)} className="flex min-h-10 min-w-10 items-center justify-center"><X className="h-4 w-4"/></button>}</div>
+    const invalidate=()=>{current.current?.abort();current.current=null;setBusy(false);setStale(true);};
+    window.addEventListener('d-support-word-reviews-updated',invalidate);
+    return ()=>{current.current?.abort();current.current=null;window.removeEventListener('d-support-word-reviews-updated',invalidate);};
+  },[]);
+  const refresh=async()=>{
+    if(current.current)return;
+    setFailure(null);
+    if(!navigator.onLine){setFailure(new Error('オフラインです。接続後にもう一度更新してください。'));return;}
+    const controller=new AbortController();current.current=controller;setBusy(true);
+    try{
+      const count=await loadPendingWordReviewCount(controller.signal);
+      if(current.current===controller){setReading({count,at:new Date()});setStale(false);}
+    }catch(error){
+      if(current.current===controller)setFailure(error instanceof Error?error:new Error('申請件数を取得できませんでした。'));
+    }finally{
+      if(current.current===controller){current.current=null;setBusy(false);}
+    }
+  };
+  return <aside aria-label="Word申請" className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm">
+    <div className="min-w-0 flex-1">
+      <span role="status" className="flex items-center gap-2 font-bold text-slate-800"><Bell aria-hidden="true" className="h-4 w-4 shrink-0"/>
+        {busy?'Word申請の件数を確認中…':failure?'Word申請の件数を取得できませんでした。':!reading?'Word申請：未取得':stale?'Word申請：更新が必要です':`Word申請：未確認 ${reading.count} 件`}
+      </span>
+      {reading&&<p className="mt-1 text-xs text-slate-600">前回の確認：{reading.at.toLocaleString('ja-JP',{timeZone:'Asia/Tokyo'})}{(stale||failure)&&` ／ 前回 ${reading.count}件（現在の件数は不明）`}</p>}
+      {failure&&<details className="mt-1 text-xs text-amber-900"><summary className="cursor-pointer font-bold">{wordNoticeErrorGuidance(failure)}{failure instanceof LessonRequestError&&failure.httpStatus?`（HTTP ${failure.httpStatus}）`:''}</summary><p className="mt-1 break-words">{failure.message}</p></details>}
+    </div>
+    <div className="flex flex-wrap gap-2">
+      <button type="button" disabled={busy} onClick={()=>void refresh()} className="flex min-h-10 items-center gap-1 rounded-lg border border-slate-200 px-2 text-xs font-bold text-teal-800 disabled:opacity-50"><RefreshCw aria-hidden="true" className="h-4 w-4"/>未確認件数を更新</button>
+      <button type="button" onClick={onOpen} className="flex min-h-10 items-center gap-1 rounded-lg px-2 text-xs font-bold text-teal-800">申請一覧を開く<ChevronRight aria-hidden="true" className="h-4 w-4"/></button>
+    </div>
   </aside>;
 }

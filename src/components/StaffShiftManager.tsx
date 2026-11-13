@@ -22,8 +22,11 @@ import type {
 } from '../types';
 import { getRegularDaysForDate, getWeekdayFromDate } from '../utils/weekdays';
 import {OperationsDayTimeline} from './OperationsDayTimeline';
+import {OperationalPeriodStatus,useOperationalPeriod,type OperationalLoader} from './useOperationalPeriod';
+import {dayPeriod,monthPeriod} from '../services/operationalPeriod';
 
 interface StaffShiftManagerProps {
+  onLoadOperationalPeriod?:OperationalLoader;
   templates: StaffShiftTemplate[];
   records: AttendanceRecord[];
   recorderProfiles: RecorderProfile[];
@@ -77,6 +80,7 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
   dailyTransportRequirements = [],
   transportRuns = [],
   selectedDate,
+  onLoadOperationalPeriod,
   onSaveRecords,
   onDeleteRecord,
   onReviewShiftRequest,
@@ -123,6 +127,9 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
 
   const dates = useMemo(() => getMonthDates(month), [month]);
   const weekDates = useMemo(() => Array.from({ length: 7 }, (_, index) => moveDate(weekStart, index)), [weekStart]);
+  const periodRead=useOperationalPeriod(onLoadOperationalPeriod,viewMode==='day'?dayPeriod(dayDate):viewMode==='week'?{from:weekDates[0],to:weekDates[6]}:monthPeriod(month),viewMode==='day'?'both':'attendance');
+  const applyRead=useOperationalPeriod(onLoadOperationalPeriod,applyDate.startsWith(month)?null:dayPeriod(applyDate),'attendance');
+  const monthRead=useOperationalPeriod(onLoadOperationalPeriod,viewMode==='month'?null:monthPeriod(month),'attendance');
   const visibleProfiles = useMemo(
     () => activeProfiles
       .filter((profile) => employmentFilter === 'all'
@@ -459,8 +466,8 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
               <option value="all">全職員</option><option value="full_time">正職</option><option value="part_time">パート</option>
             </select>
           </label>
-          <button type="button" disabled={busy || (!selectedTemplate && !partTimePattern)} onClick={() => void applyTemplate('day')} className="min-h-11 rounded-xl border border-indigo-300 px-4 text-sm font-black text-indigo-800 disabled:opacity-40">1日へ反映</button>
-          <button type="button" disabled={busy || (!selectedTemplate && !partTimePattern)} onClick={() => void applyTemplate('month')} className="min-h-11 rounded-xl bg-indigo-600 px-4 text-sm font-black text-white disabled:opacity-40">月全体へ反映</button>
+          <button type="button" disabled={busy || !periodRead.ready || !applyRead.ready || !monthRead.ready || (!selectedTemplate && !partTimePattern)} onClick={() => void applyTemplate('day')} className="min-h-11 rounded-xl border border-indigo-300 px-4 text-sm font-black text-indigo-800 disabled:opacity-40">1日へ反映</button>
+          <button type="button" disabled={busy || !periodRead.ready || !monthRead.ready || (!selectedTemplate && !partTimePattern)} onClick={() => void applyTemplate('month')} className="min-h-11 rounded-xl bg-indigo-600 px-4 text-sm font-black text-white disabled:opacity-40">月全体へ反映</button>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -489,12 +496,15 @@ export const StaffShiftManager: React.FC<StaffShiftManagerProps> = ({
         </div>
       </div>
 
-      {pendingMonthRequests.length > 0 && onReviewShiftRequest && <section className="border-b border-amber-200 bg-amber-50/70 p-3">
+      {!periodRead.ready&&<OperationalPeriodStatus {...periodRead}/>}
+      {!applyRead.ready&&<OperationalPeriodStatus {...applyRead}/>}
+      {!monthRead.ready&&<OperationalPeriodStatus {...monthRead}/>}
+      {periodRead.ready && monthRead.ready && pendingMonthRequests.length > 0 && onReviewShiftRequest && <section className="border-b border-amber-200 bg-amber-50/70 p-3">
         <div className="flex flex-wrap items-center justify-between gap-2"><div><p className="text-[10px] font-black text-amber-800">{month.replace('-', '年')}月・申請中 {pendingMonthRequests.length}件</p><p className="text-[9px] font-bold text-amber-700">承認する希望だけを選択してください。</p></div><div className="flex flex-wrap gap-2"><button type="button" onClick={() => setSelectedRequestIds(pendingMonthRequests.map((request) => request.id))} className="min-h-9 rounded-lg border border-amber-300 bg-white px-3 text-[10px] font-black text-amber-900">すべて選択</button><button type="button" onClick={() => setSelectedRequestIds([])} className="min-h-9 rounded-lg border border-slate-300 bg-white px-3 text-[10px] font-black text-slate-600">解除</button><button type="button" disabled={busy || selectedRequestIds.length === 0} onClick={() => void approveSelectedRequests()} className="min-h-9 rounded-lg bg-teal-700 px-4 text-[10px] font-black text-white disabled:opacity-40">選択した{selectedRequestIds.length}件を承認</button></div></div>
         <div className="ui-scrollbar mt-2 flex gap-2 overflow-x-auto pb-1">{pendingMonthRequests.map((request) => { const selected = selectedRequestIds.includes(request.id); return <label key={request.id} className={`flex min-w-max cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-[10px] font-bold ${selected ? 'border-teal-500 bg-teal-50 text-teal-950' : 'border-amber-200 bg-white text-slate-700'}`}><input type="checkbox" checked={selected} onChange={() => setSelectedRequestIds((current) => selected ? current.filter((id) => id !== request.id) : [...current, request.id])} className="h-4 w-4 accent-teal-600" /><span><strong className="block">{request.requestedDate.slice(5)}　{request.recorderName}</strong><span>{request.requestedStartTime || '－'}〜{request.requestedEndTime || '－'}</span></span></label>; })}</div>
       </section>}
 
-      <div className="border-t border-slate-100 bg-slate-50/60 p-3">
+      <div className="border-t border-slate-100 bg-slate-50/60 p-3" hidden={!periodRead.ready}>
         {viewMode === 'month' && <div className="overflow-x-auto rounded-xl border border-slate-300 bg-white shadow-sm">
           <div style={{ minWidth: `${112 + dates.length * 30 + 54}px` }}>
             <div className="grid border-b border-slate-300 bg-slate-100" style={{ gridTemplateColumns: `112px repeat(${dates.length}, minmax(30px, 1fr)) 54px` }}>

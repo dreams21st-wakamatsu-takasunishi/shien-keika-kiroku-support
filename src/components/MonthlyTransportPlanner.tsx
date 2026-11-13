@@ -46,8 +46,11 @@ import { inferTransportArea, resolvedTransportArea } from '../utils/transportAre
 import { buildSiblingGroupByChild } from '../utils/childSiblings';
 import { VISITING_SERVICE } from '../utils/careServices';
 import { ChildServiceQuotaPanel } from './ChildServiceQuotaPanel';
+import {OperationalPeriodStatus,useOperationalPeriod,type OperationalLoader} from './useOperationalPeriod';
+import {dayPeriod} from '../services/operationalPeriod';
 
 interface MonthlyTransportPlannerProps {
+  onLoadOperationalPeriod?:OperationalLoader;
   organizationId?: string;
   currentUserId?: string;
   initialDate: string;
@@ -388,6 +391,7 @@ function TransportRequirementFieldset({
 }
 
 export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = ({
+  onLoadOperationalPeriod,
   organizationId,
   currentUserId,
   initialDate,
@@ -413,6 +417,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
 }) => {
   const [month, setMonth] = useState(initialDate.slice(0, 7));
   const [selectedDate, setSelectedDate] = useState(initialDate);
+  const runsRead=useOperationalPeriod(onLoadOperationalPeriod,dayPeriod(selectedDate),'transport');
   const [drafts, setDrafts] = useState<DailyTransportRequirement[]>(() => requirements
     .filter((item) => item.date === initialDate && !childrenList.find((child) => child.id === item.childId)?.serviceSuspended)
     .map((item) => ({ ...item })));
@@ -1387,7 +1392,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
             </div>
             <div className="flex flex-wrap gap-2">
               <span className="inline-flex min-h-10 items-center rounded-xl bg-white px-3 text-[10px] font-black text-slate-700 shadow-sm">{selectedDate}・{displayedServiceChildren.length}名</span>
-              <button type="button" disabled={selectedServiceChildren.length === 0} onClick={() => window.print()} className="flex min-h-10 items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-xs font-black text-slate-700 disabled:opacity-40"><Printer className="h-4 w-4" />日別表を印刷</button>
+              <button type="button" disabled={!runsRead.ready || selectedServiceChildren.length === 0} onClick={() => window.print()} className="flex min-h-10 items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 text-xs font-black text-slate-700 disabled:opacity-40"><Printer className="h-4 w-4" />日別表を印刷</button>{!runsRead.ready && <OperationalPeriodStatus {...runsRead}/> }
               {canManage && <button type="button" disabled={selectedServiceChildren.length === 0} onClick={openBulkDayEditor} className="flex min-h-10 min-w-32 items-center justify-center gap-2 rounded-xl border border-sky-300 bg-sky-50 px-3 text-xs font-black text-sky-900 disabled:opacity-40"><Pencil className="h-4 w-4" />当日一括編集</button>}
               {canManage && <button type="button" onClick={() => setAdditionalPickerOpen(true)} className="flex min-h-10 min-w-32 items-center justify-center gap-2 rounded-xl bg-teal-700 px-3 text-xs font-black text-white"><UserPlus className="h-4 w-4" />児童を追加</button>}
               {canManage && <button type="button" onClick={() => setAbsencePickerOpen(true)} className="flex min-h-10 min-w-32 items-center justify-center gap-2 rounded-xl border border-rose-300 bg-white px-3 text-xs font-black text-rose-800"><UserX className="h-4 w-4" />欠席設定{selectedAbsentPlans.length > 0 ? ` ${selectedAbsentPlans.length}` : ''}</button>}

@@ -1,4 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect,useMemo, useState } from 'react';
+import {dayPeriod} from '../services/operationalPeriod';
+import {getLocalDateString} from '../utils/weekdays';
+import {loadHandoverTransportReferences} from '../services/dataService';
 import {DeleteWorkspaceItem} from './WorkspaceLifecycle';
 import {
   ChevronDown,
@@ -25,6 +28,7 @@ import type {
 } from '../types';
 
 interface HandoverPanelProps {
+  organizationId?:string;
   items: HandoverItem[];
   confirmations: HandoverConfirmation[];
   childrenList: ChildProfile[];
@@ -60,6 +64,7 @@ function isConfirmationCurrent(confirmation: HandoverConfirmation | undefined, i
 }
 
 export const HandoverPanel: React.FC<HandoverPanelProps> = ({
+  organizationId,
   items,
   confirmations,
   childrenList,
@@ -75,6 +80,22 @@ export const HandoverPanel: React.FC<HandoverPanelProps> = ({
   const [showFilters, setShowFilters] = useState(false);
   const [childId, setChildId] = useState('');
   const [transportRunId, setTransportRunId] = useState('');
+  const [runDate,setRunDate]=useState(getLocalDateString);
+  const [runRetry,setRunRetry]=useState(0);
+  const linkedKey=JSON.stringify([...new Set(items.flatMap(item=>item.transportRunId?[item.transportRunId]:[]))].sort());
+  const runKey=JSON.stringify([organizationId,runDate,runRetry,linkedKey]);
+  const [runResult,setRunResult]=useState<{key:string;rows:Pick<TransportRun,'id'|'name'|'date'>[];failed?:boolean}>();
+  useEffect(()=>{
+    const period=dayPeriod(runDate);
+    if(!organizationId||!period)return;
+    let current=true;
+    void loadHandoverTransportReferences(organizationId,period,JSON.parse(linkedKey)).then(
+      rows=>{if(current)setRunResult({key:runKey,rows});},()=>{if(current)setRunResult({key:runKey,rows:[],failed:true});}
+    );
+    return()=>{current=false;};
+  },[organizationId,runDate,runKey,linkedKey]);
+  const runs=organizationId&&runResult?.key===runKey?runResult.rows:transportRuns;
+  const runChoices=organizationId?runs.filter(run=>run.date===runDate):runs;
   const [category, setCategory] = useState<HandoverCategory>('申し送り');
   const [priority, setPriority] = useState<HandoverPriority>('通常');
   const [content, setContent] = useState('');
@@ -331,10 +352,13 @@ export const HandoverPanel: React.FC<HandoverPanelProps> = ({
             </label>
             <label className="text-xs font-bold text-slate-700">
               関連する送迎便（任意）
-              <select value={transportRunId} onChange={(event) => setTransportRunId(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm">
+              {organizationId&&<input aria-label="関連する送迎便の日付" type="date" value={runDate} onChange={event=>{if(dayPeriod(event.target.value)){setRunDate(event.target.value);setTransportRunId('');}}} className="mt-1 min-h-10 w-full rounded-xl border px-3"/>}
+              <select value={transportRunId} disabled={Boolean(organizationId&&(runResult?.key!==runKey||runResult.failed))} onChange={(event) => setTransportRunId(event.target.value)} className="mt-1 min-h-11 w-full rounded-xl border border-slate-300 bg-white px-3 text-sm">
                 <option value="">関連なし</option>
-                {transportRuns.map((run) => <option key={run.id} value={run.id}>{run.date}・{run.name}</option>)}
+                {runChoices.map((run) => <option key={run.id} value={run.id}>{run.date}・{run.name}</option>)}
               </select>
+              {organizationId&&runResult?.key!==runKey&&<span role="status">送迎便を読み込み中</span>}
+              {organizationId&&runResult?.key===runKey&&runResult.failed&&<button type="button" onClick={()=>setRunRetry(x=>x+1)}>送迎便を再読み込み</button>}
             </label>
             <label className="text-xs font-bold text-slate-700">
               種別
@@ -437,7 +461,7 @@ export const HandoverPanel: React.FC<HandoverPanelProps> = ({
         )}
         {visibleItems.map((item) => {
           const child = childrenList.find((candidate) => candidate.id === item.childId);
-          const relatedRun = transportRuns.find((run) => run.id === item.transportRunId);
+          const relatedRun = runs.find((run) => run.id === item.transportRunId);
           const itemConfirmations = confirmationMap.get(item.id) || [];
           const validConfirmations = itemConfirmations.filter((confirmation) =>
             isConfirmationCurrent(confirmation, item)

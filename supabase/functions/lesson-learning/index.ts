@@ -35,7 +35,7 @@ Deno.serve(async request => {
     let body;
     try { body = JSON.parse(raw); } catch { return reply({ error: '送信内容を確認してください。' }, 400); }
     const action = body?.action;
-    if (!['list', 'inspect', 'link', 'disable', 'history','progress','word-inbox','word-artifact','word-decide','tasks-list','tasks-save'].includes(action)) return reply({ error: '操作内容を確認してください。' }, 400);
+    if (!['list', 'inspect', 'link', 'disable', 'history','progress','word-pending-count','word-inbox','word-artifact','word-decide','tasks-list','tasks-save'].includes(action)) return reply({ error: '操作内容を確認してください。' }, 400);
     const sourceProject = Deno.env.get('D_LESSON_PROJECT_REF') || '';
     const secret = Deno.env.get('D_LESSON_BRIDGE_SECRET') || '';
     const configured = /^[a-z0-9]{20}$/.test(sourceProject) && secret.length >= 32;
@@ -49,18 +49,26 @@ Deno.serve(async request => {
       if(!result.ok)throw failure(typeof data?.error==='string'?data.error:'Word連携を確認できませんでした。',[400,403,409,410].includes(result.status)?result.status:503);
       return data;
     };
-    if(action==='word-inbox'){
-      const {data:links,error}=await user.from('lesson_child_links').select('*').eq('organization_id',context.organizationId).eq('active',true).eq('source_project_ref',sourceProject);
-      if(error)throw failure('連携一覧を取得できませんでした。',503);
+    if(action==='word-inbox'||action==='word-pending-count'){
+      const countOnly=action==='word-pending-count';
+      const {data:links,error}=await user.from('lesson_child_links').select('id,child_id,source_student_id,revision').eq('organization_id',context.organizationId).eq('active',true).eq('source_project_ref',sourceProject);
+      if(error||!links)throw failure('連携一覧を取得できませんでした。',503);
       const requests=[];
-      for(let start=0;start<(links||[]).length;start+=100){
-        const batch=links!.slice(start,start+100);
-        requests.push(...parseWordInbox(await wordBridge({action:'inbox',links:batch.map(link=>({id:link.id,child_id:link.child_id,source_student_id:link.source_student_id}))}),batch));
+      let pendingCount=0;
+      for(let start=0;start<links.length;start+=100){
+        const batch=links.slice(start,start+100);
+        const result=await wordBridge({action:countOnly?'pending-count':'inbox',links:batch.map(link=>({id:link.id,child_id:link.child_id,source_student_id:link.source_student_id}))});
+        if(countOnly){
+          if(typeof result?.pendingCount!=='number'||!Number.isSafeInteger(result.pendingCount)||result.pendingCount<0||!Number.isSafeInteger(pendingCount+result.pendingCount))throw failure('Word申請の件数を確認できませんでした。',503);
+          pendingCount+=result.pendingCount;
+        }else requests.push(...parseWordInbox(result,batch));
       }
-      await getContext();
-      const {data:currentLinks,error:currentError}=await user.from('lesson_child_links').select('id,revision').eq('organization_id',context.organizationId).eq('active',true);
-      if(currentError||!links?.every(link=>currentLinks?.some(current=>current.id===link.id&&current.revision===link.revision)))throw failure('連携状態が変更されました。更新してください。',409);
-      return reply({requests,canReviewWord:context.canReviewWord===true});
+      const latest=await getContext();
+      if(latest.organizationId!==context.organizationId||latest.actorId!==context.actorId)throw failure('学習管理の権限を再確認してください。',403);
+      const {data:currentLinks,error:currentError}=await user.from('lesson_child_links').select('id,revision').eq('organization_id',context.organizationId).eq('active',true).eq('source_project_ref',sourceProject);
+      const revisions=new Map(currentLinks?.map(link=>[link.id,link.revision]));
+      if(currentError||!currentLinks||links.length!==currentLinks.length||!links.every(link=>revisions.has(link.id)&&revisions.get(link.id)===link.revision))throw failure('連携状態が変更されました。更新してください。',409);
+      return reply(countOnly?{pendingCount}:{requests,canReviewWord:latest.canReviewWord===true});
     }
     if (action === 'list') {
       const { data, error } = await user.from('lesson_child_links').select('*').eq('organization_id', context.organizationId).eq('active', true);
@@ -171,11 +179,18 @@ Deno.serve(async request => {
     }
     if (!isServiceDate(body.date)) return reply({ error: '日付を確認してください。' }, 400);
     if (link.source_project_ref !== sourceProject) return reply({ error: '連携先プロジェクトの変更を確認してください。' }, 409);
+    if ((body.expectedLinkId !== undefined || body.expectedLinkRevision !== undefined) &&
+      (body.expectedLinkId !== link.id || body.expectedLinkRevision !== link.revision)) {
+      return reply({ error: '連携状態が変更されました。更新してください。' }, 409);
+    }
     const history = parseHistory(await readSource(link.source_student_id, 'history'), link, body.date);
-    await getContext();
-    const { data: stillActive } = await user.from('lesson_child_links').select('id').eq('id', link.id).eq('active', true).eq('revision', link.revision).maybeSingle();
-    if (!stillActive) return reply({ error: '連携状態が変更されました。更新してください。' }, 409);
-    return reply({ ...history, fetchedAt: new Date().toISOString() });
+    const latest = await getContext();
+    if (latest.organizationId !== context.organizationId || latest.actorId !== context.actorId) return reply({ error: '学習管理の権限を再確認してください。' }, 403);
+    const { data: stillActive, error: stillActiveError } = await user.from('lesson_child_links').select('id')
+      .eq('organization_id', context.organizationId).eq('child_id', body.childId)
+      .eq('id', link.id).eq('active', true).eq('revision', link.revision).maybeSingle();
+    if (stillActiveError || !stillActive) return reply({ error: '連携状態が変更されました。更新してください。' }, 409);
+    return reply({ ...history, linkId:link.id, linkRevision:link.revision, fetchedAt: new Date().toISOString() });
   } catch (error) {
     const failure = error as Error & { status?: number };
     return reply({ error: failure.status ? failure.message : '学習連携を完了できませんでした。通信と設定を確認してください。' }, failure.status || 503);

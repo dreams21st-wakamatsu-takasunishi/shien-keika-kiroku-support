@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { LessonReviewNotice } from '../../src/components/LessonReviewNotice';
 import '../../src/index.css';
-const model = { mode: 'success', calls: 0, delay: 0, count: 2, opened: false };
+const model = { mode: 'success', calls: 0, delay: 0, count: 2, opened: false, actions: [] as string[] };
 Object.assign(window, { __wordNoticeFixture: model });
 const nativeFetch = window.fetch.bind(window);
 window.fetch = async (input, init) => {
@@ -10,13 +10,14 @@ window.fetch = async (input, init) => {
   if (url.origin === location.origin) return nativeFetch(input, init);
   if (!url.pathname.endsWith('/functions/v1/lesson-learning')) throw Error('Fixture blocks external requests');
   model.calls++;
+  model.actions.push(JSON.parse(String(init?.body||'{}')).action);
   const mode = model.mode;
   if (model.delay) await new Promise(resolve => setTimeout(resolve, model.delay));
   if (mode === 'network') throw new TypeError('Synthetic network failure');
   const status = Number(mode) || 200;
-  const body = mode === 'malformed' ? { requests: null, canReviewWord: false } : status !== 200
+  const body = mode === 'malformed' ? { pendingCount: null } : status !== 200
     ? { error: '試験用：学習連携を確認してください。' }
-    : { requests: Array.from({ length: model.count }, () => ({ status: 'pending' })), canReviewWord: true };
+    : { pendingCount:model.count };
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 };
 function Fixture() {
