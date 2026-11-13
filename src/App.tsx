@@ -154,6 +154,7 @@ import { applySiblingSelection } from './utils/childSiblings';
 import { createWorkspaceRefreshQueue } from './services/workspaceRefreshQueue';
 import { workspaceLoadPlan } from './services/workspaceLoadPlan';
 import {dayPeriod,mergeOperationalPeriod,operationDateAffected,type OperationalPeriod,type OperationalSlice} from './services/operationalPeriod';
+import {createDraftRefreshSchedule} from './services/draftRefreshSchedule';
 import { clearPerformanceTimings } from './services/performanceMetrics';
 import { browserTransferCounter } from './services/transferUsage';
 import { mergeRecordRefresh } from './utils/recordRefresh';
@@ -362,6 +363,7 @@ export default function App() {
   const remoteRefreshTablesRef = useRef(new Set<string>());
   const changedRecordIdsRef = useRef({ all: false, ids: new Set<string>() });
   const draftRefreshQueueRef = useRef(createWorkspaceRefreshQueue());
+  const draftSignals=useRef(createDraftRefreshSchedule());
   const workspaceRealtimeReadyRef = useRef(false);
   const remoteRefreshTimerRef = useRef<number | null>(null);
   const loadedOrganizationIdRef = useRef<string | null>(remoteMode ? null : 'local');
@@ -380,6 +382,7 @@ export default function App() {
     workspaceScopeRef.current = workspaceScope;
     remoteRefreshQueueRef.current.reset(workspaceScope);
     draftRefreshQueueRef.current.reset(workspaceScope);
+    draftSignals.current.cancel();
     remoteRefreshTablesRef.current.clear();
     changedRecordIdsRef.current = { all: false, ids: new Set() };
     loadedOrganizationIdRef.current = null;
@@ -814,6 +817,11 @@ export default function App() {
     });
   }, [auth.profile?.fieldModeOnly, organizationId, workspaceScope]);
 
+  const scheduleDraftRefresh=useCallback(()=>{
+    if(workspaceScopeRef.current===workspaceScope)draftSignals.current.request(()=>void refreshRecordDrafts());
+  },[refreshRecordDrafts,workspaceScope]);
+  useEffect(()=>()=>draftSignals.current.cancel(),[]);
+
   const recordEntry=useRecordEntry({
     identity:{userId:auth.profile?.id,recorderId:activeRecorder?.id},
     load:async()=>{
@@ -862,7 +870,6 @@ export default function App() {
   useEffect(() => {
     if (remoteMode && auth.profile) {
       void refreshRemoteData();
-      void refreshRecordDrafts();
     }
   }, [remoteMode, auth.profile, refreshRemoteData, refreshRecordDrafts]);
 
@@ -884,7 +891,7 @@ export default function App() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'morning_meeting_records', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'morning_meeting_templates', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'morning_meeting_confirmations', filter: `organization_id=eq.${organizationId}` }, scheduleRemoteRefresh)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'record_drafts', filter: `organization_id=eq.${organizationId}` }, () => void refreshRecordDrafts())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'record_drafts', filter: `organization_id=eq.${organizationId}` }, scheduleDraftRefresh)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'announcements', filter: `organization_id=eq.${organizationId}` }, (payload) => {
         if (payload.eventType === 'INSERT') {
           const row = payload.new as {
@@ -958,7 +965,7 @@ export default function App() {
       .subscribe(status => {
         if (!active) return;
         const ready = status === 'SUBSCRIBED';
-        if (ready && previouslySubscribed && !workspaceRealtimeReadyRef.current) scheduleRemoteRefresh();
+        if (ready && previouslySubscribed && !workspaceRealtimeReadyRef.current) {scheduleRemoteRefresh();scheduleDraftRefresh();}
         workspaceRealtimeReadyRef.current = ready;
         if (ready) previouslySubscribed = true;
       });
@@ -971,7 +978,7 @@ export default function App() {
       }
       void supabase.removeChannel(channel);
     };
-  }, [auth.profile, enqueueInAppAnnouncement, refreshRecordDrafts, scheduleRemoteRefresh]);
+  }, [auth.profile, enqueueInAppAnnouncement, scheduleDraftRefresh, scheduleRemoteRefresh]);
 
   const syncPendingRecords = useCallback(async () => {
     if (!organizationId || !auth.profile || !navigator.onLine || syncing) return;
@@ -2572,7 +2579,7 @@ export default function App() {
               ])))}
             onSaveRecords={handleSaveRecords}
             onSaveComplete={handleRecordSaveComplete}
-            onDraftChanged={refreshRecordDrafts}
+            onDraftChanged={scheduleDraftRefresh}
             onCreateHandover={handleQuickMemoHandover}
             handoverItems={handoverItems}
           />

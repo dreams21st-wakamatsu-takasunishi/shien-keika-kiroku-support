@@ -17,6 +17,7 @@ async function check(page,url){
       requests.push({device,path,method:request.method(),draftKey});
       if(request.method()==='OPTIONS')return route.fulfill({status:204,headers:{'Access-Control-Allow-Origin':'*','Access-Control-Allow-Headers':'*','Access-Control-Allow-Methods':'GET,POST,OPTIONS'}});
       if(device==='tablet'&&tabletOffline)return route.abort('internetdisconnected');
+      if(path.endsWith('/get_child_service_entitlements'))return route.fulfill({json:{entitlements:[],visits:[]}});
       if(path.endsWith('/record_drafts')&&request.method()==='GET'){
         if(device==='tablet'&&tabletDelay)await new Promise(r=>setTimeout(r,tabletDelay));
         return route.fulfill({json:draftKey==='record-shared-sync-fixture'?structuredClone(row):null});
