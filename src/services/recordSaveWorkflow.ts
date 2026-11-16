@@ -2,6 +2,7 @@ import type { SupportRecord } from '../types';
 
 export type RecordSaveOutcome =
   | { status: 'saved'; records: SupportRecord[] }
+  | { status: 'already-created'; records: SupportRecord[] }
   | { status: 'cancelled' };
 
 export interface RecordOverwritePair {
@@ -67,6 +68,7 @@ export async function runRecordSaveWorkflow(incoming: SupportRecord[], dependenc
   load: (records: SupportRecord[]) => Promise<RecordSaveSnapshot>;
   write: (records: SupportRecord[]) => Promise<RecordWriteResult[]>;
   confirm: (pairs: RecordOverwritePair[]) => Promise<boolean>;
+  protectNewRecords?: boolean;
   newId: () => string;
   recovery?: (kind: 'deleted_id_replaced' | 'same_content_confirmed' | 'save_result_rechecked') => void;
 }): Promise<RecordSaveOutcome> {
@@ -77,6 +79,11 @@ export async function runRecordSaveWorkflow(incoming: SupportRecord[], dependenc
     if (replaced.some((record,i)=>record.id !== candidates[i].id)) dependencies.recovery?.('deleted_id_replaced');
     candidates = replaced;
     const plan = planRecordSave(candidates, snapshot.records);
+    if (dependencies.protectNewRecords) {
+      const duplicates = plan.comparisons.filter(({existing,proposed})=>candidates.some(record=>record.childId===existing.childId
+        && record.date===existing.date && !record.version && (record.id!==existing.id || !sameSavedRecordContent(existing,proposed))));
+      if (duplicates.length) return {status:'already-created',records:duplicates.map(pair=>pair.existing)};
+    }
     const identical = plan.comparisons.filter(pair=>sameSavedRecordContent(pair.existing,pair.proposed));
     const comparisons = plan.comparisons.filter(pair=>!sameSavedRecordContent(pair.existing,pair.proposed));
     if (comparisons.length && !await dependencies.confirm(comparisons)) return { status: 'cancelled' };
@@ -90,6 +97,10 @@ export async function runRecordSaveWorkflow(incoming: SupportRecord[], dependenc
     catch (error) {
       if (error && typeof error === 'object' && 'code' in error && error.code === 'RECORD_DELETED') {
         dependencies.recovery?.('save_result_rechecked');
+        candidates = plan.records;
+        continue;
+      }
+      if (dependencies.protectNewRecords && error && typeof error === 'object' && 'code' in error && error.code === 'RECORD_DUPLICATE_DAY') {
         candidates = plan.records;
         continue;
       }

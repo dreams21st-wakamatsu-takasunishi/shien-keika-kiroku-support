@@ -1,7 +1,7 @@
 import type {SectionFieldAnswer} from '../types';
 import {getMockExamAttempts} from '../utils/recordIncompleteDetails';
 import {isServiceDate,parseHistory,type LessonEvent,type LessonHistory,type LessonLink} from './contracts';
-import {summarizeLessonEvents} from './lessonSummary';
+import {formatLessonPracticeReport,summarizeLessonEvents} from './lessonSummary';
 import {legacyLessonActivities,summarizeManualLessonExercises} from './manualLessonPractice';
 import {isLessonSourceDate} from './lessonHistoryDates';
 
@@ -76,6 +76,20 @@ export function formatPcActivities(details:Details):string{
   const note=String(details.otherNote||'').trim();return note?`その他（${note}）`:'その他';
  });
  return [typeof details.pcManualValue==='string'?details.pcManualValue:'',...parts].filter(Boolean).join('、');
+}
+export function pcActivityExportLines(answer?:SectionFieldAnswer):string[] | undefined {
+ const details=answer?.nestedDetails;
+ if(!details||!strings(details,'selections').includes('Dレッスン'))return;
+ let evidence:ImportedLessonEvent[];
+ try { evidence=readLessonEvidence(details); } catch { return; }
+ if(!evidence.length)return;
+ const others=formatPcActivities({...details,selections:strings(details,'selections').filter(value=>value!=='Dレッスン')});
+ const leftovers=[...legacyLessonActivities(details,evidence),summarizeManualLessonExercises(details)].filter(Boolean);
+ const dates=new Map<string,ImportedLessonEvent[]>();
+ for(const event of evidence)dates.set(event.date,[...(dates.get(event.date)||[]),event]);
+ return [...(others?[`パソコン取り組み内容：${others}`]:[]),...(answer?.note?.trim()?[`パソコンの備考：${answer.note.trim()}`]:[]),'','【パソコンの取り組み（Dレッスン）】',
+  [...dates].sort(([a],[b])=>a.localeCompare(b)).map(([date,events])=>(events.some(e=>e.recordDate&&e.recordDate!==date)?date+'実施の実績\n':'')+formatLessonPracticeReport(events)).join('\n\n'),
+  ...(leftovers.length?['手入力・従来の取り組み：'+leftovers.join('／')]:[])];
 }
 export interface LessonImportContext {childId:string;date:string;sourceDate?:string;organizationId:string;actorId:string;confirmedAt:string;importMode?:'manual'|'automatic'}
 export function importLessonEvents(answer:SectionFieldAnswer,history:LessonHistory,link:LessonLink,selectedIds:string[],context:LessonImportContext):SectionFieldAnswer{

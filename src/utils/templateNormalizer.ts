@@ -66,6 +66,10 @@ export function normalizeTemplateFatigueScale(template: Template): Template {
           };
         }
         if (field.type === 'homework_subjects') {
+          if (/_study_homework$/.test(field.id)) return {
+            ...field, label:'学校の宿題', questionTitle:'学校から宿題は出ていますか？',
+            options:['ある','ない'], defaultValue:'', hasNote:false, helpText:undefined,
+          };
           return {
             ...field,
             options: [...HOMEWORK_SUBJECTS],

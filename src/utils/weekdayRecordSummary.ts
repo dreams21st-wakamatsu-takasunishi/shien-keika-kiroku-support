@@ -1,4 +1,6 @@
 import type { SectionAnswer, SectionFieldAnswer, SupportRecord } from '../types';
+import { pcActivityExportLines } from '../learning/recordImport';
+import { homeworkLabel, studyFocusLabel } from './schoolHomework';
 
 function answerText(answer?: SectionFieldAnswer) {
   if (!answer?.value?.trim() && !answer?.note?.trim()) return '未回答';
@@ -16,10 +18,10 @@ function periodLines(section: SectionAnswer | undefined, periodLabel: string, mo
     const homework = answerText(section.answers[`${prefix}_study_homework`]);
     return [
       `［${periodLabel}］`,
-      `宿題内容：${homework}`,
+      `${homeworkLabel(section.answers[`${prefix}_study_homework`])}：${homework}`,
       ...(homework === '宿題無し'
         ? []
-        : [`宿題の取り組み：${answerText(section.answers[`${prefix}_study_attitude`])}`]),
+        : [`${studyFocusLabel(section.answers[`${prefix}_study_attitude`])}：${answerText(section.answers[`${prefix}_study_attitude`])}`]),
       `宿題以外の取り組み：${answerText(section.answers[`${prefix}_study_extras`])}`,
       `姿勢：${answerText(section.answers[`${prefix}_study_posture`])}`,
     ];
@@ -27,7 +29,7 @@ function periodLines(section: SectionAnswer | undefined, periodLabel: string, mo
 
   return [
     `［${periodLabel}］`,
-    `パソコン取り組み内容：${answerText(section.answers[`${prefix}_pc_content`])}`,
+    ...(pcActivityExportLines(section.answers[`${prefix}_pc_content`]) || [`パソコン取り組み内容：${answerText(section.answers[`${prefix}_pc_content`])}`]),
     `タイピング時の指使い：${answerText(section.answers[`${prefix}_pc_finger`])}`,
     `取り組み時の姿勢：${answerText(section.answers[`${prefix}_pc_posture`])}`,
     `自由時間からの切り替え：${answerText(section.answers[`${prefix}_pc_transition`])}`,

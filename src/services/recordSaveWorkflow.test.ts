@@ -38,6 +38,25 @@ test('date changes on an existing id are also compared; unrelated dates/children
   assert.equal(planRecordSave([record({ date: '2026-09-09' })], [previous]).comparisons.length, 0);
   assert.equal(planRecordSave([record({ childId: 'b' })], [previous]).comparisons.length, 0);
 });
+test('a late same-day save blocks a new draft before any write or overwrite comparison', async()=>{
+  const existing=record({id:'stored',version:1});
+  let reads=0,writes=0;
+  const result=await runRecordSaveWorkflow([record()],{
+    protectNewRecords:true,
+    async load(){return {records:++reads===1?[]:[existing],deletedIds:[]};},
+    async write(){writes++;throw Object.assign(Error('Duplicate'),{code:'RECORD_DUPLICATE_DAY'});},
+    async confirm(){assert.fail('New record must never open an overwrite confirmation');},
+    newId:()=> 'replacement',
+  });
+  assert.deepEqual(result,{status:'already-created',records:[existing]});
+  assert.equal(writes,1);
+  const sameId=await runRecordSaveWorkflow([record({id:'stored',attendanceNote:'別内容'})],{
+    protectNewRecords:true,async load(){return {records:[existing],deletedIds:[]};},
+    async write(){assert.fail('New draft with shared id must not overwrite another save');},
+    async confirm(){assert.fail('No overwrite confirmation');},newId:()=> 'replacement',
+  });
+  assert.equal(sameId.status,'already-created');
+});
 
 test('batch comparisons contain every overlap and preserve genuinely new records', () => {
   const input = [record(), record({ id: 'new-b', childId: 'b' }), record({ id: 'new-c', childId: 'c' })];

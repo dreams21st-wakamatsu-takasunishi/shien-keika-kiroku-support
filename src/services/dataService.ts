@@ -2159,6 +2159,30 @@ export interface SaveRecordResult {
   outcome: 'inserted' | 'updated' | 'already_saved';
 }
 
+export async function loadRecordCreationStatus(organizationId: string, date: string, signal?:AbortSignal) {
+  const rows: {id:string;childId:string}[]=[];
+  let after:string|undefined;
+  for (;;) {
+    let query=assertSupabase().from('support_records').select('id,child_id').eq('organization_id',organizationId)
+      .eq('record_date',date).is('deleted_at',null).order('id').limit(200);
+    if(after!==undefined)query=query.gt('id',after);
+    if(signal)query=query.abortSignal(signal);
+    const {data,error}=await query;
+    if(error)throw error;
+    const page=data||[];
+    rows.push(...page.map(row=>({id:row.id,childId:row.child_id})));
+    if(page.length<200)return rows;
+    after=page.at(-1)!.id;
+  }
+}
+export async function loadSavedRecordForReview(organizationId:string,id:string) {
+  const {data,error}=await assertSupabase().from('support_records').select('*').eq('organization_id',organizationId)
+    .eq('id',id).is('deleted_at',null).maybeSingle();
+  if(error)throw error;
+  if(!data)throw Error('保存済みの記録が見つかりません。作成状況を更新してください。');
+  return mapRecord(data);
+}
+
 /** Read current versions immediately before presenting an overwrite preview. */
 export async function loadRecordsForSave(organizationId: string, records: SupportRecord[]): Promise<SupportRecord[]> {
   if (records.length === 0) return [];
@@ -2201,7 +2225,7 @@ async function saveRecordsInternal(organizationId: string, records: SupportRecor
       throw Object.assign(new Error('保存直前に対象記録の削除を検知しました。入力内容は残しています。'), {code:'RECORD_DELETED'});
     }
     if (error.message.includes('RECORD_DUPLICATE_DAY')) {
-      throw new Error('同じ児童・同じ日付の記録が別端末ですでに保存されています。既存の記録を確認してください。');
+      throw Object.assign(new Error('同じ児童・同じ日付の記録が別端末ですでに保存されています。既存の記録を確認してください。'), {code:'RECORD_DUPLICATE_DAY'});
     }
     if (error.message.includes('RECORD_CONFLICT')) {
       throw new Error('別端末で記録が更新されたため、この端末の内容では上書きしませんでした。最新の記録を読み直してください。');

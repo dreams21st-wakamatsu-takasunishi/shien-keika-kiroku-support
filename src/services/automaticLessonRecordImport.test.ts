@@ -67,5 +67,5 @@ test('too many events are flagged instead of truncated or silently lost',()=>{
 test('automatic facts appear in the regular record summary, not just the import panel',()=>{
  const result=applyAutomaticLessonHistory(sections,target,history,link,context);
  const summary=generateUnifiedRecordSummary({recorderName:'架空職員',attendance:'出席',expressions:[],snack:'',sectionAnswers:{...result.sections,__record_modules:{sectionId:'__record_modules',sectionTitle:'記録項目',answers:{'pc-1':{value:'pc',note:'0'}}}}});
- assert.match(summary,/【パソコン】/);assert.match(summary,/マウス練習 M-1/);assert.match(summary,/120文字/);assert.match(summary,/姿勢は職員が観察した内容/);
+ assert.match(summary,/【パソコンの取り組み（Dレッスン）】/);assert.match(summary,/■マウス練習/);assert.match(summary,/M-1/);assert.match(summary,/120文字/);assert.match(summary,/姿勢は職員が観察した内容/);
 });

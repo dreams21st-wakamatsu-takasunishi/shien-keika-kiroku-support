@@ -1,5 +1,5 @@
 import type {SectionFieldAnswer,SupportRecord} from '../types';
-import {EXPRESSION_SCALE_OPTIONS,PREPARATION_SCALE_OPTIONS,RESPONSE_SCALE_OPTIONS,HOMEWORK_ATTITUDE_SCALE_OPTIONS,TRANSITION_SCALE_OPTIONS,FATIGUE_RATING_OPTIONS} from '../data/weekdayTemplate';
+import {EXPRESSION_SCALE_OPTIONS,PREPARATION_SCALE_OPTIONS,RESPONSE_SCALE_OPTIONS,HOMEWORK_ATTITUDE_SCALE_OPTIONS,STUDY_FOCUS_SCALE_OPTIONS,TRANSITION_SCALE_OPTIONS,FATIGUE_RATING_OPTIONS} from '../data/weekdayTemplate';
 import {FATIGUE_SCALE_OPTIONS} from './templateNormalizer';
 import {HOMEWORK_ACADEMIC_SUBJECTS} from './homeworkField';
 import {readLessonEvidence} from '../learning/recordImport';
@@ -45,10 +45,16 @@ export function buildParentShareProposal(record:SupportRecord):ParentSharePropos
    }
    const scales:[RegExp,readonly string[],string,string][]=[
     [/^preparation$/,PREPARATION_SCALE_OPTIONS,'準備','準備では、'],[/^response_to_prompt$/,RESPONSE_SCALE_OPTIONS,'声掛けへの反応','声掛けに対して、'],
-    [/_study_attitude$/,HOMEWORK_ATTITUDE_SCALE_OPTIONS,'宿題への取り組み',''],[/_pc_transition$/,TRANSITION_SCALE_OPTIONS,'活動の切り替え','活動の切り替えでは、'],
+    [/_study_attitude$/,HOMEWORK_ATTITUDE_SCALE_OPTIONS,'宿題への取り組み',''],[/_study_attitude$/,STUDY_FOCUS_SCALE_OPTIONS,'学習中の集中',''],[/_pc_transition$/,TRANSITION_SCALE_OPTIONS,'活動の切り替え','活動の切り替えでは、'],
    ];
    for(const [pattern,options,label,prefix] of scales){if(pattern.test(key)){const text=fixed(a.value,options);if(text)add(`${id}:${key}`,label,sentence(prefix+text));}}
    if(/_study_homework$/.test(key)){
+    if(a.nestedDetails?.schoolHomework){
+     const result=a.nestedDetails.homeworkOutcome;
+     if(result==='すべて終わった')add(`${id}:${key}`,'宿題','学校の宿題をすべて終えました。');
+     if(result==='残った')add(`${id}:${key}`,'宿題','学校の宿題は一部残っています。');
+     continue;
+    }
     const subjects=(a.homeworkDetails?.subjects||(a.value||'').split(/[、,（(]/)).filter(s=>(HOMEWORK_ACADEMIC_SUBJECTS as readonly string[]).includes(s));
     const attitude=answers[key.replace(/_homework$/,'_attitude')]?.value||'';
     if(subjects.length&&!/^(?:1[:：]|宿題に取り組むことができなかった)/.test(attitude))add(`${id}:${key}`,'学習内容',`学習では${[...new Set(subjects)].join('・')}の課題に取り組みました。`);

@@ -95,6 +95,8 @@ import {
   loadWorkspaceData,
   loadWorkspacePatch,
   loadRecordSaveSnapshot,
+  loadRecordCreationStatus,
+  loadSavedRecordForReview,
   punchAttendance,
   requestAttendanceCorrection,
   replaceChildMonthlyTransportRequirements,
@@ -1194,6 +1196,7 @@ export default function App() {
       write: candidates => organizationId ? saveRecords(organizationId, candidates) : Promise.resolve(candidates.map(record=>({ id: record.id, version: (record.version || 0)+1, outcome: 'inserted' as const }))),
       confirm: pairs => new Promise<boolean>(resolve => setOverwriteRequest({ pairs, totalCount: savedRecords.length, resolve })),
       newId: () => `rec-${crypto.randomUUID()}`,
+      protectNewRecords: true,
       recovery: kind => recordDiagnostic(`record.save.${kind}`,undefined,{kind:'recovery',code:'RECOVERY'}),
     });
     diagnosticAction(outcome.status === 'saved' ? 'record.save.complete' : 'record.save.cancelled');
@@ -1203,7 +1206,7 @@ export default function App() {
       const savedIds = new Set(savedLocally.map((record) => record.id));
       return [...savedLocally, ...previous.filter((record) => !savedIds.has(record.id))];
     });
-    return { status: 'saved', records: savedLocally };
+    return outcome;
   };
 
   // RecordForm calls this only after its local AND shared draft have been updated.
@@ -2577,6 +2580,11 @@ export default function App() {
                 `${draft.date || ''}:${childId}`,
                 draft.recorderName || '別職員',
               ])))}
+            savedRecords={records}
+            savedRecordRevision={recordHistoryRevision}
+            loadSavedStatus={organizationId ? loadRecordCreationStatus : undefined}
+            loadSavedRecord={organizationId ? loadSavedRecordForReview : undefined}
+            onEditSavedRecord={record=>handleCorrectRecord(record)}
             onSaveRecords={handleSaveRecords}
             onSaveComplete={handleRecordSaveComplete}
             onDraftChanged={scheduleDraftRefresh}

@@ -1,5 +1,4 @@
 import type { Template, TemplateField } from '../types';
-import { HOMEWORK_FIELD_HELP, HOMEWORK_SUBJECTS } from '../utils/homeworkField';
 
 export const EXPRESSION_SCALE_OPTIONS = [
   '1：うつむきや暗い表情が強く見られた',
@@ -40,6 +39,13 @@ export const HOMEWORK_ATTITUDE_SCALE_OPTIONS = [
   '4：一部確認しながら、ほぼ自力で済ませられた',
   '5：自力で宿題を済ませられた',
 ];
+export const STUDY_FOCUS_SCALE_OPTIONS = [
+  '1：学習に注意を向けることが難しかった',
+  '2：繰り返しの声掛けで短い時間集中できた',
+  '3：気がそれても声掛けで学習に戻れた',
+  '4：時々気がそれたが、自分で学習に戻れた',
+  '5：取り組みの間、集中を保てた',
+];
 
 export const TRANSITION_SCALE_OPTIONS = [
   '1：自由時間から切り替えることができなかった',
@@ -56,6 +62,7 @@ export const POSTURE_BACK_OPTIONS = [
 ];
 
 export const POSTURE_LEG_OPTIONS = [
+  '足が揃っている',
   '足を閉じている',
   '足が開いている',
   '足をクロスする',
@@ -92,27 +99,12 @@ export function createLearningPcFields(
     },
     {
       id: `${prefix}_study_homework`,
-      label: '宿題内容',
-      questionTitle: '宿題内容はなんですか？',
+      label: '学校の宿題',
+      questionTitle: '学校から宿題は出ていますか？',
       type: 'homework_subjects',
-      options: [...HOMEWORK_SUBJECTS],
+      options: ['ある', 'ない'],
       defaultValue: '',
       hasNote: false,
-      helpText: HOMEWORK_FIELD_HELP,
-      visibleWhen: visibleWhen('学習'),
-    },
-    {
-      id: `${prefix}_study_attitude`,
-      label: '宿題への取り組み',
-      questionTitle: '宿題への取り組みはどうですか？',
-      type: 'rating_scale',
-      options: HOMEWORK_ATTITUDE_SCALE_OPTIONS,
-      defaultValue: '',
-      hasNote: true,
-      notePlaceholder: '取り組み方や必要だった支援を簡潔に入力してください。',
-      helpText: '1が「できなかった」、3が「分からないところを自ら聞いてできた」、5が「自力で済ませられた」の基準です。',
-      scaleLowLabel: '1：できなかった',
-      scaleHighLabel: '5：自力で完了',
       visibleWhen: visibleWhen('学習'),
     },
     {
@@ -124,6 +116,19 @@ export function createLearningPcFields(
       defaultValue: '',
       hasNote: false,
       helpText: '当てはまるものを複数選択してください。',
+      visibleWhen: visibleWhen('学習'),
+    },
+    {
+      id: `${prefix}_study_attitude`,
+      label: '学習中の集中',
+      questionTitle: '学習中の集中はどうでしたか？',
+      type: 'rating_scale',
+      options: STUDY_FOCUS_SCALE_OPTIONS,
+      defaultValue: '',
+      hasNote: true,
+      notePlaceholder: '集中が続いた場面や、学習に戻るきっかけを入力してください。',
+      scaleLowLabel: '1：集中が難しかった',
+      scaleHighLabel: '5：集中を保てた',
       visibleWhen: visibleWhen('学習'),
     },
     {

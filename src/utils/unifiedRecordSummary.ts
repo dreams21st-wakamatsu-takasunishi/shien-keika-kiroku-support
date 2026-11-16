@@ -1,4 +1,6 @@
 import type { SectionAnswer, SupportRecord } from '../types';
+import { pcActivityExportLines } from '../learning/recordImport';
+import { homeworkLabel, studyFocusLabel } from './schoolHomework';
 
 const MODULE_META_SECTION_ID = '__record_modules';
 const MODULE_LABELS: Record<string, string> = {
@@ -41,12 +43,21 @@ function compactValue(value?: string, note?: string) {
 
 function sectionLines(section?: SectionAnswer) {
   if (!section) return [];
+  const lessonLines: string[] = [];
   const answers = Object.entries(section.answers || {})
-    .map(([fieldId, answer]) => {
+    .flatMap(([fieldId, answer]) => {
+      if (fieldId === 'module_pc_content') {
+        const structured = pcActivityExportLines(answer);
+        if (structured) {
+          const separator=structured.indexOf('');
+          lessonLines.push(...structured.slice(separator));
+          return structured.slice(0,separator);
+        }
+      }
       const value = compactValue(answer.value, answer.note);
-      return value ? `${UNIFIED_RECORD_FIELD_LABELS[fieldId] || fieldId}：${value}` : '';
-    })
-    .filter(Boolean);
+      const label = fieldId==='module_study_homework'?homeworkLabel(answer):fieldId==='module_study_attitude'?studyFocusLabel(answer):UNIFIED_RECORD_FIELD_LABELS[fieldId] || fieldId;
+      return value ? [`${label}：${value}`] : [];
+    });
   const abc = section.abcAnalysis;
   const special = abc?.inputMode === 'free'
     ? abc.freeText?.trim()
@@ -55,7 +66,7 @@ function sectionLines(section?: SectionAnswer) {
         abc?.behavior?.trim() ? `B：${abc.behavior.trim()}` : '',
         abc?.consequence?.trim() ? `C：${abc.consequence.trim()}` : '',
       ].filter(Boolean).join('\n');
-  return [...answers, ...(special ? [special] : [])];
+  return [...answers, ...(special ? [special] : []), ...lessonLines];
 }
 
 export function hasUnifiedRecordAnswers(record: Pick<SupportRecord, 'templateId' | 'sectionAnswers'>) {
@@ -85,12 +96,14 @@ export function generateUnifiedRecordSummary(record: Pick<SupportRecord,
     counts[module.type] = (counts[module.type] || 0) + 1;
     const label = MODULE_LABELS[module.type] || 'その他';
     const numberedLabel = totals[module.type] > 1 ? `${label}${counts[module.type]}` : label;
-    parts.push('', `【${numberedLabel}】`);
+    const section=record.sectionAnswers?.[`record-module-${module.id}`];
+    const lines = sectionLines(section);
+    if (!(module.type==='pc' && lines[0]==='' && lines[1]==='【パソコンの取り組み（Dレッスン）】'))
+      parts.push('', `【${numberedLabel}】`);
     if (module.type === 'snack') {
       parts.push(compactValue(record.snack, record.snackNote) || '未入力');
       return;
     }
-    const lines = sectionLines(record.sectionAnswers?.[`record-module-${module.id}`]);
     parts.push(...(lines.length ? lines : ['未入力']));
   });
 

@@ -70,3 +70,47 @@ export function summarizeLessonFacts(facts:LessonPracticeFact[]):string{
 export function summarizeLessonEvents(events:LessonEvent[]):string{
  return summarizeLessonFacts(events.map(lessonEventFact));
 }
+
+export function formatLessonPracticeReport(events: LessonEvent[]): string {
+ const categories = new Map<string, Map<string, {title: string; regular: LessonPracticeFact[]; blind: LessonPracticeFact[]}>>();
+ for (const event of events) {
+  const fact = lessonEventFact(event);
+  const label = fact.title.replace(/[（）]/g, char=>char==='（'?'(':')');
+  const clean = (fact.category==='vision' ? label.replace(/^ビジョントレーニング\s*[：:]?\s*/, '') : label).trim();
+  const blind = fact.category === 'keyboard' && /\s*\(ブラインド\)$/.test(clean);
+  const title = (blind ? clean.replace(/\s*\(ブラインド\)$/, '') : clean).replace(/\s*\(([^()]*)\)/g, '（$1）') || fact.title;
+  const tasks = categories.get(fact.category) || new Map<string, {title: string; regular: LessonPracticeFact[]; blind: LessonPracticeFact[]}>();
+  categories.set(fact.category,tasks);
+  const task = tasks.get(title) || {title,regular:[],blind:[]};
+  tasks.set(title,task);
+  (blind ? task.blind : task.regular).push(fact);
+ }
+ const outcomes = ['completed','partial','unknown'] as const;
+ function result(rows: LessonPracticeFact[], category: string, addAccuracyLabel: boolean) {
+  const counts=outcomes.map(outcome=>rows.filter(row=>row.outcome===outcome));
+  if (category==='vision' && counts.filter(count=>count.length).length===1) {
+   const status=counts[0].length?'完了':counts[1].length?'途中終了':'完了状況未確認';
+   return `${rows.length}回取り組み、${rows.length>1?'いずれも':''}${status}`;
+  }
+  return counts.flatMap((attempts,index)=>{
+   if (!attempts.length) return [];
+   const typing=category==='keyboard'||category==='minigame';
+   const metrics=attempts.map(row=>typing?row.accuracy:row.characters).filter((value):value is number=>value!==null);
+   const name=typing?'正確率':'文字数';
+   const measured=metrics.length?`${typing && addAccuracyLabel ? name : ''}${range(metrics)}${typing?'%':'文字'}`:'';
+   const missing=attempts.length-metrics.length;
+   const detail=(typing||category==='text')?[measured,missing ? `${name}未確認${metrics.length?`${missing}回`:''}`:''].filter(Boolean).join('・'):'';
+   return [`${attempts.length}回${['完了','途中終了','（完了状況未確認）'][index]}${detail?`（${detail}）`:''}`];
+  }).join('、');
+ }
+ const order = ['vision','keyboard','text','mouse','word','minigame','other'];
+ return [...categories].sort(([a],[b])=>order.indexOf(a)-order.indexOf(b)).map(([category,tasks])=>{
+  const list=[...tasks.values()];
+  if (category==='keyboard') {
+   const rowOrder=(title:string)=>title.length===2&&title.endsWith('行')?'あかさたなはまやらわ'.indexOf(title[0]):-1;
+   list.sort((a,b)=>(rowOrder(a.title)<0?99:rowOrder(a.title))-(rowOrder(b.title)<0?99:rowOrder(b.title)));
+  }
+  return [`■${lessonCategories[category as LessonCategory]||'その他の練習'}`, ...list.map(({title,regular,blind})=>
+   `・${title}　${[regular.length?result(regular,category,true):'',blind.length?'ブラインドでは'+result(blind,category,!regular.length):''].filter(Boolean).join('。')}。`)].join('\n');
+ }).join('\n\n');
+}

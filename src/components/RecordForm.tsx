@@ -113,12 +113,15 @@ import {
   POSTURE_CATEGORIES,
   POSTURE_LEG_OPTIONS,
   STANDARD_WEEKDAY_TEMPLATE,
+  STUDY_FOCUS_SCALE_OPTIONS,
 } from '../data/weekdayTemplate';
+import {changeSchoolHomework,HOMEWORK_OUTCOMES} from '../utils/schoolHomework';
 import { generateStructuredWeekdaySummary } from '../utils/weekdayRecordSummary';
 import { isIntegratedHolidayTemplate, isStructuredHolidayTemplate, STANDARD_HOLIDAY_TEMPLATE } from '../data/holidayTemplate';
 import { UNIFIED_TEMPLATE, UNIFIED_TEMPLATE_ID } from '../data/unifiedTemplate';
 import { generateStructuredHolidaySummary } from '../utils/holidayRecordSummary';
 import { generateUnifiedRecordSummary } from '../utils/unifiedRecordSummary';
+import { generateRecordSummary } from '../utils/textGenerator';
 import {LessonHistoryImport} from './LessonHistoryImport';
 import {LessonPracticeEditor} from './LessonPracticeEditor';
 import {MANUAL_LESSON_KEY,readManualLessonExercises} from '../learning/manualLessonPractice';
@@ -153,6 +156,11 @@ interface RecordFormProps {
   onReadOnlyDraftChange?: (draftKey: string, ownerName?: string, childId?: string) => void;
   onBackToRecordStatus?: () => void;
   lockedChildren?: Record<string, string>;
+  savedRecords?: SupportRecord[];
+  savedRecordRevision?: number;
+  loadSavedStatus?: (org:string,date:string,signal:AbortSignal)=>Promise<{id:string;childId:string}[]>;
+  loadSavedRecord?: (org:string,id:string)=>Promise<SupportRecord>;
+  onEditSavedRecord?: (record:SupportRecord)=>void;
   onSaveRecords: (
     records: SupportRecord[],
   ) => Promise<RecordSaveOutcome>;
@@ -370,6 +378,12 @@ function fieldsForRecordModule(type: RecordModuleType): TemplateField[] {
     }];
   }
   return [];
+}
+
+function recordFieldTitle(field:TemplateField, fallback:string) {
+  if (/_study_homework$/.test(field.id) && field.type==='homework_subjects') return '学校から宿題は出ていますか？';
+  if (/_study_attitude$/.test(field.id) && field.type==='rating_scale') return '学習中の集中はどうでしたか？';
+  return field.questionTitle || fallback;
 }
 
 function createRecordModule(type: RecordModuleType): RecordModuleDraft {
@@ -697,6 +711,28 @@ const DraftProgressOverview: React.FC<{
 
 const inputClass = 'box-border min-w-0 w-full max-w-full min-h-12 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-base sm:text-sm text-slate-900 focus:border-teal-500 focus:ring-2 focus:ring-teal-200 outline-none';
 const choiceClass = 'min-h-12 rounded-xl border px-3 py-2.5 text-sm font-bold transition-colors text-center';
+
+function SavedChildChoice({child,onOpen}: {key?:string;child:ChildProfile;onOpen:()=>void}) {
+  return <div className="flex min-h-14 flex-wrap items-center justify-between gap-2 rounded-xl border border-emerald-200 bg-emerald-50 p-2.5 text-emerald-950">
+    <div><p className="text-sm font-bold">{child.name}</p><p className="text-xs">記録作成済み</p></div>
+    <button type="button" aria-label={child.name+'の保存済み記録を見る'} onClick={onOpen} className="min-h-10 rounded-lg border border-emerald-300 bg-white px-2.5 text-xs font-bold">記録を見る</button>
+  </div>;
+}
+
+function SchoolHomeworkInput({answer,onChange}: {answer:SectionFieldAnswer;onChange:(answer:SectionFieldAnswer)=>void}) {
+  const availability=answer.nestedDetails?.schoolHomework;
+  const outcome=answer.nestedDetails?.homeworkOutcome;
+  const legacy=answer.nestedDetails?.previousHomeworkValue || (!availability && answer.value);
+  const option=(value:string,selected:boolean,action:()=>void)=><button key={value} type="button" aria-pressed={selected} onClick={action} className={`${choiceClass} ${selected?'bg-teal-600 border-teal-600 text-white':'bg-white border-slate-300 text-slate-700'}`}>{value}</button>;
+  return <div className="space-y-2">
+    {availability==='ある' ? <div className="school-homework-followup space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-1"><p className="font-bold">取り組みはどうでしたか？</p><button type="button" className="min-h-10 px-2 text-xs font-bold text-teal-800 underline" onClick={()=>onChange(changeSchoolHomework(answer,'ない'))}>「ない」に変更</button></div>
+      <div className="grid grid-cols-2 gap-2">{HOMEWORK_OUTCOMES.map(value=>option(value,outcome===value,()=>onChange(changeSchoolHomework(answer,'ある',value))))}</div>
+    </div> : <div className="grid grid-cols-2 gap-2">{(['ある','ない'] as const).map(value=>option(value,availability===value,()=>onChange(changeSchoolHomework(answer,value))))}</div>}
+    {(availability==='ない'||(availability==='ある'&&outcome))&&<label className="block text-sm font-bold">備考（任意）<textarea className={inputClass} value={answer.note||''} onChange={event=>onChange({...answer,note:event.target.value})}/></label>}
+    {legacy&&<p className="whitespace-pre-wrap rounded-lg bg-slate-100 p-2 text-xs text-slate-700">変更前の記録：{legacy}</p>}
+  </div>;
+}
 
 function HomeworkSubjectInput({
   answer,
@@ -1818,6 +1854,11 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   onReadOnlyDraftChange,
   onBackToRecordStatus,
   lockedChildren = {},
+  savedRecords = [],
+  savedRecordRevision,
+  loadSavedStatus,
+  loadSavedRecord,
+  onEditSavedRecord,
   onSaveRecords,
   onSaveComplete,
   onDraftChanged,
@@ -1912,6 +1953,66 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
   const [wizard, setWizard] = useState<WizardDraft>(createInitialDraft);
   const currentWizard = useRef(wizard); currentWizard.current = wizard;
+  const [savedStatus,setSavedStatus]=useState<{date:string;rows:{id:string;childId:string}[]}|null>(null);
+  const [savedStatusError,setSavedStatusError]=useState('');
+  const [savedStatusRefresh,setSavedStatusRefresh]=useState(0);
+  const [savedReview,setSavedReview]=useState<{record?:SupportRecord;error?:string}|null>(null);
+  const [lateSavedRecords,setLateSavedRecords]=useState<SupportRecord[]>([]);
+  const savedReviewDialog=useRef<HTMLDialogElement>(null);
+  const savedReviewRequest=useRef(0);
+  const statusReady=!organizationId||!loadSavedStatus||savedStatus?.date===wizard.date;
+  const savedByChild=new Map<string,string>();
+  const fallbackSaved=useMemo(()=>savedRecords.filter(record=>record.date===wizard.date),[savedRecords,wizard.date]);
+  const savedDaySignature=fallbackSaved.map(record=>record.id).sort().join('|');
+  const daySaved=savedStatus?.date===wizard.date ? savedStatus.rows : fallbackSaved;
+  for (const record of [...daySaved,...lateSavedRecords.filter(record=>record.date===wizard.date)]) savedByChild.set(record.childId,record.id);
+  useEffect(()=>{
+    if(!organizationId||!loadSavedStatus||readOnly||initialRecord||!/^\d{4}-\d{2}-\d{2}$/.test(wizard.date))return;
+    const abort=new AbortController();
+    setSavedStatusError('');
+    void loadSavedStatus(organizationId,wizard.date,abort.signal).then(rows=>{
+      if(!abort.signal.aborted)setSavedStatus({date:wizard.date,rows});
+    }).catch(()=>{
+      if(!abort.signal.aborted)setSavedStatusError('作成済みの記録を確認できません。通信を確認して更新してください。');
+    });
+    return ()=>abort.abort();
+  },[organizationId,loadSavedStatus,wizard.date,wizard.currentStepIndex===1,readOnly,initialRecord,savedRecordRevision,savedStatusRefresh,savedDaySignature]);
+  useEffect(()=>{
+    if(!savedReview)return;
+    const dialog=savedReviewDialog.current;
+    if(dialog&&!dialog.open)dialog.showModal();
+  },[savedReview]);
+  const closeSavedReview=()=>{savedReviewRequest.current++;setSavedReview(null);};
+  const openSavedReview=async (id:string)=>{
+    const request=++savedReviewRequest.current;
+    setSavedReview({});
+    try {
+      const latest=organizationId&&loadSavedRecord ? await loadSavedRecord(organizationId,id)
+        : [...savedRecords,...lateSavedRecords].find(record=>record.id===id);
+      if (!latest) throw Error('保存済みの記録を表示できませんでした。');
+      if(request===savedReviewRequest.current)setSavedReview({record:latest});
+    }catch {
+      if(request===savedReviewRequest.current)setSavedReview({error:'保存済みの記録を開けませんでした。作成状況を更新してからもう一度お試しください。'});
+    }
+  };
+  const editSavedReview=async ()=>{
+    if(!savedReview?.record||!onEditSavedRecord||savedReview.record.approvalStatus==='確認済み')return;
+    const request=++savedReviewRequest.current;
+    const record=savedReview.record;
+    try{
+      const prepare=prepareUserSwitchRef?.current;
+      if(wizard.selectedChildIds.length && (!prepare || syncConflict.current)){
+        if(saveInProgress.current||!allowLocalSensitiveStorage||!writeLocalDraft({...currentWizard.current,updatedAt:new Date().toISOString()}))
+          throw Error('現在の入力を保持できません。先に同期状態を確認してください。');
+      }else{
+        const release=await prepare?.();
+        release?.();
+      }
+      if(request!==savedReviewRequest.current)return;
+      closeSavedReview();
+      onEditSavedRecord(record);
+    }catch(error){if(request===savedReviewRequest.current)setSavedReview({record,error:error instanceof Error?error.message:'入力を保持できませんでした。'});}
+  };
   const syncConflict = useRef(false);
   const conflictResolutionInProgress = useRef(false);
   const [conflictResolutionBusy, setConflictResolutionBusy] = useState(false);
@@ -2531,7 +2632,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         fieldId: field.id,
         field,
         displayNumber: 5 + index,
-        title: field.questionTitle || `${field.label}はどうですか？`,
+        title: recordFieldTitle(field,`${field.label}はどうですか？`),
         help: field.helpText,
       }));
       next.push({
@@ -2574,7 +2675,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           field,
           moduleId: module.id,
           moduleType: module.type,
-          title: field.questionTitle || field.label,
+          title: recordFieldTitle(field,field.label),
           help: field.helpText,
         }));
       });
@@ -2595,7 +2696,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         sectionId,
         fieldId: field.id,
         displayNumber,
-        title: field.questionTitle || `${field.label}はどうですか？`,
+        title: recordFieldTitle(field,`${field.label}はどうですか？`),
         help: field.helpText,
       });
       const lifeNumbers: Record<string, number> = {
@@ -2614,8 +2715,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         const questionOffset: Record<string, number> = {
           [`${sectionId}_type`]: 0,
           [`${sectionId}_study_homework`]: 1,
-          [`${sectionId}_study_attitude`]: 2,
-          [`${sectionId}_study_extras`]: 3,
+          [`${sectionId}_study_attitude`]: 3,
+          [`${sectionId}_study_extras`]: 2,
           [`${sectionId}_study_posture`]: 4,
           [`${sectionId}_pc_content`]: 1,
           [`${sectionId}_pc_finger`]: 2,
@@ -2649,7 +2750,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         sectionId,
         fieldId: field.id,
         displayNumber,
-        title: field.questionTitle || `${field.label}はどうですか？`,
+        title: recordFieldTitle(field,`${field.label}はどうですか？`),
         help: field.helpText,
       });
       const life = activeTemplate?.sections.find((section) => section.id === 'life');
@@ -2666,8 +2767,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         const questionOffset: Record<string, number> = {
           [`${sectionId}_type`]: 0,
           [`${sectionId}_study_homework`]: 1,
-          [`${sectionId}_study_attitude`]: 2,
-          [`${sectionId}_study_extras`]: 3,
+          [`${sectionId}_study_attitude`]: 3,
+          [`${sectionId}_study_extras`]: 2,
           [`${sectionId}_study_posture`]: 4,
           [`${sectionId}_pc_content`]: 1,
           [`${sectionId}_pc_finger`]: 2,
@@ -2684,8 +2785,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           [`${sectionId}_type`]: 0,
           [`${sectionId}_period1_type`]: 1,
           [`${sectionId}_period1_study_homework`]: 2,
-          [`${sectionId}_period1_study_attitude`]: 3,
-          [`${sectionId}_period1_study_extras`]: 4,
+          [`${sectionId}_period1_study_attitude`]: 4,
+          [`${sectionId}_period1_study_extras`]: 3,
           [`${sectionId}_period1_study_posture`]: 5,
           [`${sectionId}_period1_pc_content`]: 2,
           [`${sectionId}_period1_pc_finger`]: 3,
@@ -2693,8 +2794,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           [`${sectionId}_period1_pc_transition`]: 5,
           [`${sectionId}_period2_type`]: 6,
           [`${sectionId}_period2_study_homework`]: 7,
-          [`${sectionId}_period2_study_attitude`]: 8,
-          [`${sectionId}_period2_study_extras`]: 9,
+          [`${sectionId}_period2_study_attitude`]: 9,
+          [`${sectionId}_period2_study_extras`]: 8,
           [`${sectionId}_period2_study_posture`]: 10,
           [`${sectionId}_period2_pc_content`]: 7,
           [`${sectionId}_period2_pc_finger`]: 8,
@@ -2756,7 +2857,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         kind: 'field',
         sectionId: section.id,
         fieldId: field.id,
-        title: field.questionTitle || `${section.title}：${field.label}`,
+        title: recordFieldTitle(field,`${section.title}：${field.label}`),
         help: field.helpText,
       }));
       next.push(
@@ -3006,6 +3107,9 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
   const chooseChild = (child: ChildProfile) => {
     if (editingDisabled || !draftReady || isSaving || savingChildId || childTakeoverInProgress.current) return;
+    const savedId=savedByChild.get(child.id);
+    if(savedId){setShowChildPicker(false);void openSavedReview(savedId);return;}
+    if(!statusReady||savedStatusError)return;
     const source = !wizard.selectedChildIds.includes(child.id) && takeoverSourceForChild(child.id);
     if (lockedChildren[`${wizard.date}:${child.id}`] && source) {
       setChildTakeoverError(null);
@@ -3125,9 +3229,11 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
   useEffect(()=>{
     if(!entryRequest||entryApplied.current===entryRequest.requestId||!draftReady||initialRecord||readOnly||entryManagerOpen||draftStatus==='error')return;
+    if(entryRequest.childId&&(!statusReady||savedStatusError)&&!savedByChild.has(entryRequest.childId))return;
     entryApplied.current=entryRequest.requestId;
     if(entryRequest.date&&entryRequest.date!==wizard.date){setStepError('記録の日付が変わっています。入力中の内容を保持しました。日付を確認してください。');return;}
     const childId=entryRequest.childId;
+    if(childId&&savedByChild.has(childId)){void openSavedReview(savedByChild.get(childId)!);return;}
     if(childId&&(!childrenList.some(child=>child.id===childId)||lockedChildren[`${wizard.date}:${childId}`])){setStepError('この児童は別の入力画面で入力中か、利用状態が変わっています。記録状況を確認してください。');return;}
     entryReturnStep.current=Math.max(2,wizard.currentStepIndex);
     setAddingChildren(entryRequest.chooseChildren);
@@ -3145,7 +3251,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
     setStepError(null);
     if(childId)setSaveNotice('同じ日付の入力画面を開きました。児童タブで切り替えながら入力できます。');
     // The request is consumed exactly once, only after remote hydration finishes.
-  },[entryRequest?.requestId,draftReady,entryManagerOpen,draftStatus,readOnly,initialRecord]);
+  },[entryRequest?.requestId,draftReady,entryManagerOpen,draftStatus,readOnly,initialRecord,savedStatus,statusReady,savedStatusError,savedRecords]);
 
   const openChildAddition=()=>{
     if(editingDisabled||initialRecord)return;
@@ -3285,15 +3391,6 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       return expectedValues.includes(controllingValue || '');
     });
     if (!visible) return false;
-    if (/_study_attitude$/.test(field.id)) {
-      const homeworkFieldId = field.id.replace(/_study_attitude$/, '_study_homework');
-      const homeworkAnswer = childDraft?.sectionAnswers[sectionId || '']?.answers[homeworkFieldId];
-      const homework = normalizeHomeworkDetails(homeworkAnswer?.homeworkDetails, homeworkAnswer?.value);
-      if (
-        homework.subjects.includes('その他')
-        && HOMEWORK_OTHER_MODES.includes(homework.notes['その他区分'] as (typeof HOMEWORK_OTHER_MODES)[number])
-      ) return false;
-    }
     if (!field.hiddenWhen) return true;
     const hiddenConditions = Array.isArray(field.hiddenWhen) ? field.hiddenWhen : [field.hiddenWhen];
     const hidden = hiddenConditions.some((condition) => {
@@ -3701,7 +3798,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
               stepId,
             });
           }
-          if (field.type === 'homework_subjects' && answer) {
+          if (field.type === 'homework_subjects' && answer?.nestedDetails?.schoolHomework==='ある' && !answer.nestedDetails.homeworkOutcome) {
+            checks.push({id:`${childId}-${stepId}-outcome`,childId,childName,level:'warning',title:'宿題の取り組み結果が未選択です',detail:'「取り組みはどうでしたか？」の選択肢を確認してください。',stepId});
+          }
+          if (field.type === 'homework_subjects' && answer && !/_study_homework$/.test(field.id)) {
             const incomplete = getIncompleteHomeworkSubjects(answer);
             incomplete.forEach((subject) => {
               checks.push({
@@ -4030,10 +4130,12 @@ export const RecordForm: React.FC<RecordFormProps> = ({
 
   const renderField = (field: TemplateField, sectionId: string, compact = false) => {
     const answer = activeChildDraft?.sectionAnswers[sectionId]?.answers[field.id] || { value: field.defaultValue || '', note: '' };
+    const studyFocus = /_study_attitude$/.test(field.id);
+    if (studyFocus) compact = false;
     const selectedValues = answer.value ? answer.value.split('、').filter(Boolean) : [];
     const postureField = /_(study|pc)_posture$/.test(field.id);
     const ratingField = field.type === 'rating_scale' || field.type === 'fatigue_scale';
-    const ratingOptions = field.options?.length
+    const ratingOptions = studyFocus ? STUDY_FOCUS_SCALE_OPTIONS : field.options?.length
       ? field.options
       : field.type === 'fatigue_scale'
         ? [...FATIGUE_SCALE_OPTIONS]
@@ -4048,7 +4150,12 @@ export const RecordForm: React.FC<RecordFormProps> = ({
               <button
                 key={option}
                 type="button"
-                onClick={() => updateField(sectionId, field.id, option)}
+                onClick={() => {
+                  if (!studyFocus) return updateField(sectionId, field.id, option);
+                  const previousStudyAttitude = answer.nestedDetails?.previousStudyAttitude
+                    || (answer.value && !STUDY_FOCUS_SCALE_OPTIONS.includes(answer.value) ? answer.value : '');
+                  updateFieldAnswer(sectionId,field.id,{value:selected?'':option,nestedDetails:{...answer.nestedDetails, ...(previousStudyAttitude?{previousStudyAttitude}:{})}});
+                }}
                 aria-label={option}
                 aria-pressed={selected}
                 className={`${compact ? 'flex min-h-12 flex-col items-center justify-center rounded-xl border-2 px-1 py-1.5 text-center' : 'flex min-h-14 items-center gap-3 rounded-xl border-2 px-3 py-2.5 text-left'} transition-all ${
@@ -4063,7 +4170,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             );
           })}</div>
           {compact && answer.value && <p className="mt-2 rounded-lg bg-teal-50 px-3 py-2 text-xs font-bold leading-relaxed text-teal-900">{answer.value}</p>}
-          {(field.scaleLowLabel || field.scaleHighLabel) && <div className="mt-2 flex justify-between gap-3 text-[11px] font-bold text-slate-500"><span>{field.scaleLowLabel}</span><span className="text-right">{field.scaleHighLabel}</span></div>}
+          {!studyFocus && (field.scaleLowLabel || field.scaleHighLabel) && <div className="mt-2 flex justify-between gap-3 text-[11px] font-bold text-slate-500"><span>{field.scaleLowLabel}</span><span className="text-right">{field.scaleHighLabel}</span></div>}
+          {studyFocus && (answer.nestedDetails?.previousStudyAttitude || (answer.value&&!STUDY_FOCUS_SCALE_OPTIONS.includes(answer.value)&&answer.value)) && <p className="mt-2 text-xs text-slate-600">従来の宿題への取り組み：{answer.nestedDetails?.previousStudyAttitude || answer.value}</p>}
         </div>}
         {field.type === 'radio' && !ratingField && field.options && !field.id.endsWith('_period3_type') && <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">{field.options.map((option) => (
           <button key={option} type="button" onClick={() => updateField(sectionId, field.id, option)} className={`${choiceClass} ${answer.value === option ? 'bg-teal-600 border-teal-600 text-white' : 'bg-white border-slate-300 text-slate-700'}`}>
@@ -4080,7 +4188,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
           const selected = selectedValues.includes(option);
           return <button key={option} type="button" onClick={() => updateField(sectionId, field.id, (selected ? selectedValues.filter((item) => item !== option) : [...selectedValues, option]).join('、'))} className={`${choiceClass} text-left ${selected ? 'bg-teal-600 border-teal-600 text-white' : 'bg-white border-slate-300 text-slate-700'}`}>{selected && <Check className="inline w-4 h-4 mr-1" />}{option}</button>;
         })}</div>}
-        {field.type === 'homework_subjects' && (
+        {field.type === 'homework_subjects' && /_study_homework$/.test(field.id) && <SchoolHomeworkInput answer={answer} onChange={next=>updateFieldAnswer(sectionId,field.id,next)}/>}
+        {field.type === 'homework_subjects' && !/_study_homework$/.test(field.id) && (
           <HomeworkSubjectInput
             answer={answer}
             onChange={(nextAnswer) => updateFieldAnswer(sectionId, field.id, nextAnswer)}
@@ -4312,7 +4421,8 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             return regularDays.includes(targetWeekday);
           });
           const additionalSelected = childrenList.filter((child) => wizard.selectedChildIds.includes(child.id) && !regularChildren.some((item) => item.id === child.id));
-          const displayedChildren = [...regularChildren, ...additionalSelected];
+          const displayedChildren = [...regularChildren, ...additionalSelected,
+            ...childrenList.filter(child=>savedByChild.has(child.id)&&!regularChildren.includes(child)&&!additionalSelected.includes(child))];
           const searchValue = childSearch.trim().toLocaleLowerCase('ja');
           const pickerChildren = childrenList.filter((child) =>
             !searchValue ||
@@ -4324,11 +4434,15 @@ export const RecordForm: React.FC<RecordFormProps> = ({
             <div className="rounded-xl border border-teal-200 bg-teal-50 p-3 text-sm text-teal-900">
               <strong>{wizard.date}（{targetWeekday}）の利用予定児童</strong>
               <p className="mt-1 text-xs text-teal-700">「利用予定／送迎管理」の追加利用・欠席を反映しています。</p>
+              {!statusReady&&!savedStatusError&&<p role="status" className="mt-1 text-xs">記録の作成状況を確認中…</p>}
+              {savedStatusError&&<p role="alert" className="mt-1 text-xs text-rose-800">{savedStatusError} <button type="button" className="min-h-10 underline" onClick={()=>setSavedStatusRefresh(value=>value+1)}>更新</button></p>}
               {organizationId&&userId&&!initialRecord&&<p className="mt-1 text-xs text-amber-900">他職員が入力中の児童は「引き継いで追加」から、確認後に入力済み内容を引き継げます。</p>}
               {addingChildren&&<><p className="mt-2 text-sm font-bold">追加する児童を選んでください。選択済みの児童・入力内容はそのまま残ります。</p><button type="button" disabled={!wizard.selectedChildIds.length} onClick={()=>{setAddingChildren(false);setWizard(previous=>({...previous,currentStepIndex:Math.min(entryReturnStep.current,steps.length-1)}));}} className="mt-3 min-h-11 rounded-xl bg-teal-700 px-4 font-bold text-white disabled:opacity-40">追加を完了して入力へ戻る（{wizard.selectedChildIds.length}名）</button></>}
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[50vh] overflow-y-auto pr-1">
               {displayedChildren.map((child) => {
+                const savedId=savedByChild.get(child.id);
+                if(savedId&&!initialRecord)return <SavedChildChoice key={child.id} child={child} onOpen={()=>void openSavedReview(savedId)}/>;
                 const selected = wizard.selectedChildIds.includes(child.id);
                 const dayPlan = dayPlans.find((plan) => plan.childId === child.id);
                 const isAdditional = dayPlan?.attendancePlan === '追加利用' || additionalSelected.some((item) => item.id === child.id);
@@ -4337,7 +4451,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                 const planSummary = dayPlan
                   ? [dayPlan.hasLunch && '昼食', dayPlan.hasSnack && 'おやつ', dayPlan.arrivalTime && `来所 ${dayPlan.arrivalTime}`].filter(Boolean).join('・') || '日別予定あり'
                   : isAdditional ? '追加利用' : formatRegularDays(getRegularDaysForDate(child, wizard.date));
-                return <button key={child.id} type="button" disabled={Boolean(initialRecord) || editingDisabled || Boolean(lockOwner && !canTakeOver)} onClick={() => chooseChild(child)} className={`${choiceClass} flex items-center justify-between gap-2 text-left ${selected ? 'bg-teal-600 border-teal-600 text-white' : lockOwner ? 'border-amber-300 bg-amber-50 text-amber-900' : 'bg-white border-slate-300 text-slate-700'} disabled:opacity-80`}><span>{child.name}<span className="block text-[11px] font-normal opacity-75">{lockOwner ? `${lockOwner}が入力中${!canTakeOver ? '・記録状況から確認' : ''}` : `${calculateSchoolGrade(child.birthDate) || child.grade || '学年未設定'}・${planSummary}`}</span></span>{canTakeOver&&<span className="flex shrink-0 items-center gap-1 rounded-lg border border-amber-400 bg-white px-2 py-1 text-[11px] font-black"><ArrowLeftRight className="h-3.5 w-3.5"/>引き継いで追加</span>}{selected && <Check className="w-5 h-5" />}</button>;
+                return <button key={child.id} type="button" disabled={!statusReady || Boolean(savedStatusError) || Boolean(initialRecord) || editingDisabled || Boolean(lockOwner && !canTakeOver)} onClick={() => chooseChild(child)} className={`${choiceClass} flex items-center justify-between gap-2 text-left ${selected ? 'bg-teal-600 border-teal-600 text-white' : lockOwner ? 'border-amber-300 bg-amber-50 text-amber-900' : 'bg-white border-slate-300 text-slate-700'} disabled:opacity-80`}><span>{child.name}<span className="block text-[11px] font-normal opacity-75">{lockOwner ? `${lockOwner}が入力中${!canTakeOver ? '・記録状況から確認' : ''}` : `${calculateSchoolGrade(child.birthDate) || child.grade || '学年未設定'}・${planSummary}`}</span></span>{canTakeOver&&<span className="flex shrink-0 items-center gap-1 rounded-lg border border-amber-400 bg-white px-2 py-1 text-[11px] font-black"><ArrowLeftRight className="h-3.5 w-3.5"/>引き継いで追加</span>}{selected && <Check className="w-5 h-5" />}</button>;
               })}
             </div>
             {displayedChildren.length === 0 && <p className="rounded-xl border border-dashed border-slate-300 p-5 text-center text-sm text-slate-500">この曜日の定期利用児童は登録されていません。</p>}
@@ -4397,10 +4511,12 @@ export const RecordForm: React.FC<RecordFormProps> = ({
                     </label>
                     <div className="mt-3 max-h-[55vh] space-y-2 overflow-y-auto">
                       {pickerChildren.map((child) => {
+                        const savedId=savedByChild.get(child.id);
+                        if(savedId)return <SavedChildChoice key={child.id} child={child} onOpen={()=>{setShowChildPicker(false);void openSavedReview(savedId);}}/>;
                         const selected = wizard.selectedChildIds.includes(child.id);
                         const lockOwner = !selected && lockedChildren[`${wizard.date}:${child.id}`];
                         const canTakeOver = Boolean(lockOwner && takeoverSourceForChild(child.id));
-                        return <button key={child.id} type="button" disabled={editingDisabled || Boolean(lockOwner && !canTakeOver)} onClick={() => chooseChild(child)} className={`w-full min-h-14 rounded-xl border p-3 text-left flex items-center gap-3 disabled:opacity-80 ${selected ? 'border-teal-500 bg-teal-50 text-teal-900' : lockOwner ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-slate-200 bg-white text-slate-700'}`}><span className={`h-6 w-6 shrink-0 rounded-md border flex items-center justify-center ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300'}`}>{selected && <Check className="w-4 h-4" />}</span><span className="min-w-0 flex-1"><strong className="block text-sm">{child.name}</strong><span className="text-[11px] text-slate-500">{lockOwner ? `${lockOwner}が入力中${!canTakeOver ? '・記録状況から確認' : ''}` : `${calculateSchoolGrade(child.birthDate) || child.grade || '学年未設定'}・${wizard.date}時点の定期利用 ${formatRegularDays(getRegularDaysForDate(child, wizard.date))}`}</span></span>{canTakeOver&&<span className="shrink-0 rounded-lg bg-amber-100 px-2 py-1 text-[11px] font-black text-amber-950">引き継いで追加</span>}</button>;
+                        return <button key={child.id} type="button" disabled={!statusReady || Boolean(savedStatusError) || editingDisabled || Boolean(lockOwner && !canTakeOver)} onClick={() => chooseChild(child)} className={`w-full min-h-14 rounded-xl border p-3 text-left flex items-center gap-3 disabled:opacity-80 ${selected ? 'border-teal-500 bg-teal-50 text-teal-900' : lockOwner ? 'border-amber-300 bg-amber-50 text-amber-900' : 'border-slate-200 bg-white text-slate-700'}`}><span className={`h-6 w-6 shrink-0 rounded-md border flex items-center justify-center ${selected ? 'border-teal-600 bg-teal-600 text-white' : 'border-slate-300'}`}>{selected && <Check className="w-4 h-4" />}</span><span className="min-w-0 flex-1"><strong className="block text-sm">{child.name}</strong><span className="text-[11px] text-slate-500">{lockOwner ? `${lockOwner}が入力中${!canTakeOver ? '・記録状況から確認' : ''}` : `${calculateSchoolGrade(child.birthDate) || child.grade || '学年未設定'}・${wizard.date}時点の定期利用 ${formatRegularDays(getRegularDaysForDate(child, wizard.date))}`}</span></span>{canTakeOver&&<span className="shrink-0 rounded-lg bg-amber-100 px-2 py-1 text-[11px] font-black text-amber-950">引き継いで追加</span>}</button>;
                       })}
                       {pickerChildren.length === 0 && <p className="py-8 text-center text-sm text-slate-400">一致する児童がいません。</p>}
                     </div>
@@ -4774,6 +4890,10 @@ export const RecordForm: React.FC<RecordFormProps> = ({
   };
 
   const persistAndComplete = async (childIds: string[]) => {
+    if (!initialRecord && childIds.some(id=>savedByChild.has(id))) {
+      setSaveError('作成済みの記録は上書きしません。画面上部から保存済み記録をご確認ください。他の児童は個別に保存できます。');
+      return;
+    }
     if (syncConflict.current || conflictResolutionInProgress.current) {
       setSaveError('別端末と同じ項目に変更があります。共有下書きの内容を選択してから保存してください。');
       return;
@@ -4795,6 +4915,11 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       }));
       const outcome = await onSaveRecords(childIds.map((childId) => buildRecordForChild(childId, new Date().toISOString())));
       if (outcome.status === 'cancelled') return;
+      if (outcome.status === 'already-created') {
+        setLateSavedRecords(previous=>[...previous.filter(row=>!outcome.records.some(record=>record.id===row.id)),...outcome.records]);
+        setSaveError('この日に作成済みの記録が見つかりました。上書きせず、入力中の内容は残しています。画面上部の「保存済み記録を見る」から内容を確認してください。');
+        return;
+      }
       const completion = { records: outcome.records, childIds };
       setPendingCompletion(completion);
       try {
@@ -5027,6 +5152,11 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       className="mx-auto w-full min-w-0 max-w-4xl space-y-4 scroll-mt-20"
     >
       <ManualLinks screen={readOnly ? 'operations' : 'record'} section={currentStep?.kind} />
+      {!initialRecord&&!readOnly&&wizard.selectedChildIds.some(id=>savedByChild.has(id))&&<section aria-label="入力中に保存済みになった記録" className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm">
+        <p className="font-bold">入力中に記録が保存されました</p>
+        <p className="mt-1 text-xs">この画面の入力は保持しています。保存済みの内容を確認してから、必要な場合だけ再編集してください。他の児童は個別に保存できます。</p>
+        <div className="mt-2 flex flex-wrap gap-2">{wizard.selectedChildIds.filter(id=>savedByChild.has(id)).map(id=><button key={id} type="button" className="min-h-10 rounded-lg border border-amber-300 bg-white px-2 text-xs font-bold" onClick={()=>void openSavedReview(savedByChild.get(id)!)}>{childrenList.find(child=>child.id===id)?.name || '児童'}：保存済み記録を見る</button>)}</div>
+      </section>}
       {childTakeover && createPortal(
         <div className="fixed inset-0 z-[180] flex items-center justify-center bg-slate-950/60 p-3">
           <div ref={childTakeoverDialog} role="alertdialog" aria-modal="true" aria-labelledby="child-takeover-title" aria-describedby="child-takeover-description" aria-busy={childTakeoverBusy} className="max-h-[90dvh] w-full max-w-lg overflow-y-auto rounded-2xl border border-amber-300 bg-white p-5 shadow-2xl">
@@ -5460,6 +5590,15 @@ export const RecordForm: React.FC<RecordFormProps> = ({
       )}
 
       {saveError && <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">{saveError}</div>}
+      {savedReview&&<dialog ref={savedReviewDialog} onCancel={event=>{event.preventDefault();closeSavedReview();}} aria-label="保存済みの支援経過記録" className="fixed inset-0 m-auto max-h-[90dvh] w-[min(42rem,calc(100%-2rem))] rounded-2xl bg-white p-4 text-slate-900 shadow-xl backdrop:bg-slate-950/60">
+        <div className="flex items-center justify-between gap-2"><h2 className="text-lg font-bold">保存済みの支援経過記録</h2><button type="button" autoFocus onClick={closeSavedReview} className="min-h-11 rounded-lg border px-3 text-sm font-bold">閉じる</button></div>
+        {savedReview.error&&<p role="alert" className="mt-2 text-sm text-rose-800">{savedReview.error}</p>}
+        {!savedReview.error&&!savedReview.record&&<p role="status">読み込み中…</p>}
+        {savedReview.record&&<><p className="mt-2 text-sm font-bold">{savedReview.record.date}／{savedReview.record.childName}／{savedReview.record.approvalStatus}</p>
+          <pre className="my-3 max-h-[55dvh] overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-3 font-sans text-sm">{generateRecordSummary(savedReview.record)}</pre>
+          {savedReview.record.approvalStatus==='確認済み'?<p className="text-xs">承認済みの記録は、児発管が要修正に変更した後に再編集できます。</p>:onEditSavedRecord&&<button type="button" disabled={saveInProgress.current||isSaving||Boolean(savingChildId)} className="min-h-11 rounded-lg bg-teal-700 px-3 text-sm font-bold text-white disabled:opacity-50" onClick={()=>void editSavedReview()}>保存済み記録を再編集</button>}
+        </>}
+      </dialog>}
       {pendingCompletion && <button type="button" disabled={isSaving} onClick={() => void retrySaveCompletion()} className="min-h-12 w-full rounded-xl bg-teal-700 px-4 text-sm font-black text-white disabled:opacity-50">入力中一覧の更新を再試行</button>}
 
       <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-sm">

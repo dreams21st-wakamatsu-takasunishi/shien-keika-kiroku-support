@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {summarizeLessonEvents} from '../learning/lessonSummary';
+import {formatLessonPracticeReport,summarizeLessonEvents} from '../learning/lessonSummary';
 import {formatPcActivities,IMPORT_KEY,importLessonEvents,readLessonEvidence} from '../learning/recordImport';
 import type {LessonEvent,LessonHistory,LessonLink} from '../learning/contracts';
 import {generateUnifiedRecordSummary} from '../utils/unifiedRecordSummary';
@@ -61,6 +61,24 @@ test('summary/detail switches preserve raw evidence, staff notes, other activiti
  assert.equal(imported.note,'職員が記入した支援');
  assert.match(concise,/タイピング練習/);assert.match(concise,/その他（職員の手入力）/);
  const summary=generateUnifiedRecordSummary({recorderName:'架空職員',attendance:'出席',expressions:[],snack:'',sectionAnswers:{__record_modules:{sectionId:'__record_modules',sectionTitle:'項目',answers:{pc:{value:'pc'}}},'record-module-pc':{sectionId:'record-module-pc',sectionTitle:'パソコン',answers:{module_pc_content:imported,module_pc_posture:{value:'職員が観察した姿勢'}}}}});
- assert.match(summary,/完了・0～34文字・7回/);assert.match(summary,/職員が観察した姿勢/);assert.match(summary,/職員が記入した支援/);
+ assert.match(summary,/■文章入力練習/);assert.match(summary,/7回完了（0～34文字）/);assert.match(summary,/職員が観察した姿勢/);assert.match(summary,/職員が記入した支援/);
  assert.doesNotMatch(summary,/実績：|スコア/);
+});
+test('report lists activities by category, merging normal and blind runs without mixing outcomes or metrics',()=>{
+ const rows=[
+  event('vision','途中終了','','ビジョントレーニング ロックオン (やさしい)'),
+  event('vision','途中終了','','ビジョントレーニング メモリーゲーム (ふつう)'),
+  event('vision','途中終了','','ビジョントレーニング メモリーゲーム (ふつう)'),
+  event('keyboard','途中終了','正確率 0%','キーボード た〜はまでのことば'),
+  event('keyboard','完了','正確率 95%','キーボード た～はテスト'),
+  event('keyboard','完了','正確率 92%','キーボード は行(ブラインド)'),
+  event('keyboard','完了','正確率 84%','キーボード た行(ブラインド)'),
+  event('keyboard','完了','正確率 100%','キーボード た行（ブラインド）'),
+  event('keyboard','途中終了','正確率 54%','キーボード た行(ブラインド)'),
+  event('keyboard','完了','正確率 96%','キーボード た行'),
+ ];
+ const output=formatLessonPracticeReport(rows);
+ assert.match(output,/^■ビジョントレーニング\n・ロックオン（やさしい）　1回取り組み、途中終了。\n・メモリーゲーム（ふつう）　2回取り組み、いずれも途中終了。/);
+ assert.match(output,/■タイピング練習\n・た行　1回完了（正確率96%）。ブラインドでは2回完了（84～100%）、1回途中終了（54%）。\n・は行/);
+ assert.match(output,/1回途中終了（正確率0%）/);
 });
