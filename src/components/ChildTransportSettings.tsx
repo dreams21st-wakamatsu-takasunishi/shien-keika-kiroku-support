@@ -15,7 +15,6 @@ import type {
   ChildProfile,
   ChildTransportLocation,
   ChildTransportSchedule,
-  SchoolProfile,
   TransportDirection,
   TransportLocationType,
   TransportRouteSettings,
@@ -37,9 +36,6 @@ interface ChildTransportSettingsProps {
   schedule: ChildTransportSchedule[];
   onScheduleChange: (day: Weekday, patch: Partial<ChildTransportSchedule>) => void;
   locations: ChildTransportLocation[];
-  schools: SchoolProfile[];
-  selectedSchoolId?: string;
-  onSchoolChange: (schoolId?: string) => void;
   expandedLocationId?: string;
   onExpandedLocationChange: (id?: string) => void;
   onAddLocation: (type: TransportLocationType) => void;
@@ -76,9 +72,6 @@ export const ChildTransportSettings: React.FC<ChildTransportSettingsProps> = ({
   schedule,
   onScheduleChange,
   locations,
-  schools,
-  selectedSchoolId,
-  onSchoolChange,
   expandedLocationId,
   onExpandedLocationChange,
   onAddLocation,
@@ -173,20 +166,6 @@ export const ChildTransportSettings: React.FC<ChildTransportSettingsProps> = ({
 
       {enabled && (
         <div className="space-y-4 p-3 sm:p-4">
-          <section className="rounded-2xl border border-sky-200 bg-sky-50 p-3 sm:p-4">
-            <div className="flex items-start gap-3">
-              <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-white text-sky-700 shadow-sm"><School className="h-5 w-5" /></span>
-              <div className="min-w-0 flex-1">
-                <label className="block text-sm font-black text-slate-900">所属学校
-                  <select value={selectedSchoolId || ''} onChange={(event) => onSchoolChange(event.target.value || undefined)} className="mt-1.5 min-h-11 w-full rounded-xl border border-sky-300 bg-white px-3 text-sm font-bold">
-                    <option value="">学校台帳から選択</option>
-                    {schools.filter((school) => school.active || school.id === selectedSchoolId).map((school) => <option key={school.id} value={school.id}>{school.name}</option>)}
-                  </select>
-                </label>
-                <p className="mt-1.5 text-[10px] leading-relaxed text-sky-900">選択すると学校名・住所・送迎エリアを自動反映します。学校の追加・住所変更は「設定 → 学校台帳」で一度だけ行います。</p>
-              </div>
-            </div>
-          </section>
           <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
             <div className="rounded-xl border border-sky-200 bg-sky-50 p-3"><span className="text-[10px] font-black text-sky-700">通常の迎え先</span><strong className="mt-1 block truncate text-sm text-slate-900">{defaultLocationName(locations, '迎え')}</strong></div>
             <div className="rounded-xl border border-violet-200 bg-violet-50 p-3"><span className="text-[10px] font-black text-violet-700">通常の送り先</span><strong className="mt-1 block truncate text-sm text-slate-900">{defaultLocationName(locations, '送り')}</strong></div>

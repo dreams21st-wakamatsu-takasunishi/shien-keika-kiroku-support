@@ -1,0 +1,46 @@
+.visiting-report-sheet {
+  min-width: 600px;
+  color: #101010;
+  background: white;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.visiting-report-sheet h3 {
+  text-align: center;
+  font-size: 1.3em;
+  font-weight: 700;
+  margin: 0.1rem 0 0.35rem;
+}
+.visiting-report-author { text-align: right; margin-bottom: 0.4rem; }
+.visiting-report-sheet table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.visiting-report-sheet th, .visiting-report-sheet td { border: 1px solid #222; padding: 0.35em 0.5em; }
+.visiting-report-sheet th { font-weight: 700; text-align: center; }
+.visiting-report-sheet td { vertical-align: top; white-space: pre-wrap; }
+.visiting-preview-link { display: inline-block; min-height: 1.55em; max-width: 100%; cursor: pointer; padding: 0.08em 0.2em; border-radius: 0.25em; text-align: inherit; overflow-wrap: anywhere; white-space: pre-wrap; }
+.visiting-report-sheet td:not(.text-center) > .visiting-preview-link { width: 100%; }
+.visiting-preview-link:hover, .visiting-preview-link:focus-visible { outline: 2px solid #0f766e; background: #f0fdfa; }
+[data-visit-field]:focus { outline: 2px solid #0f766e; outline-offset: 2px; }
+.visiting-report-timeline, .visiting-report-outcome { margin-top: 0.65rem; }
+.visiting-report-outcome { border: 1px solid #222; padding: 0.5em; }
+.visiting-report-outcome h4 { font-weight: 700; }
+.visiting-report-outcome p { white-space: pre-wrap; }
+.visiting-report-outcome p + h4 { margin-top: 0.6em; }
+.visiting-report-print { display: none; }
+
+@media print {
+  html:has(.visiting-report-print), body:has(.visiting-report-print) {
+    background: white !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    min-width: 0 !important;
+    min-height: 0 !important;
+  }
+  body:has(.visiting-report-print) > :not(.visiting-report-print) { display: none !important; }
+  .visiting-report-print { display: block; }
+  .visiting-report-print, .visiting-report-print * { visibility: visible !important; }
+  .visiting-report-print .visiting-report-sheet { min-width: 0; font-size: 10pt; }
+  .visiting-report-print h3, .visiting-report-print h4 { break-after: avoid; }
+  .visiting-report-print thead { display: table-header-group; }
+  .visiting-report-print tr { break-inside: avoid; }
+}

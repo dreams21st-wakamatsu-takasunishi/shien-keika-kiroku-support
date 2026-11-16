@@ -13,6 +13,7 @@ import {
   UserProfile,
 } from '../types';
 import {ChildDocumentWorkspace} from './ChildDocumentWorkspace';
+import {VisitingReportWorkspace} from './VisitingReportWorkspace';
 import {canManageChildDocuments} from '../utils/childDocuments';
 import {
   ArrowDown,
@@ -183,16 +184,25 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   const [sortRules, setSortRules] = useState<SortRule[]>(savedPreferences.sortRules);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingChild, setEditingChild] = useState<ChildProfile | null>(null);
-  const [documentView,setDocumentView]=useState(false),[documentChild,setDocumentChild]=useState('');
+  const [rosterView,setRosterView]=useState<'children'|'documents'|'visitingReports'>('children');
+  const [documentChild,setDocumentChild]=useState('');
   const [documentDirty,setDocumentDirty]=useState(false);
   const handleDocumentDirty=useCallback((dirty:boolean)=>{setDocumentDirty(dirty);onDocumentDirtyChange?.(dirty);},[onDocumentDirtyChange]);
   const canDocuments=canManageChildDocuments(currentUser);
-  const openDocuments=(child:ChildProfile)=>{setIsModalOpen(false);setDocumentChild(child.id);setDocumentView(true);};
+  const canVisitingReports=canDocuments&&currentUser?.accessDeviceKind!=='personal';
+  const openDocuments=(child:ChildProfile)=>{setIsModalOpen(false);setDocumentChild(child.id);setRosterView('documents');};
+  const rosterTabs = [
+    {id:'children', name:'児童情報'},
+    {id:'documents', name:'契約日・保管書類'},
+    ...(canVisitingReports ? [{id:'visitingReports', name:'訪問支援報告書'}] as const : []),
+  ] as const;
 
   // Form states
   const [name, setName] = useState('');
   const [kana, setKana] = useState('');
   const [birthDate, setBirthDate] = useState('');
+  const [sex, setSex] = useState('');
+  const [schoolClass, setSchoolClass] = useState('');
   const [grade, setGrade] = useState('小学3年生');
   const [regularDays, setRegularDays] = useState<Weekday[]>([]);
   const [careType, setCareType] = useState<CareType>('放課後等デイサービス');
@@ -223,6 +233,8 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setName('');
     setKana('');
     setBirthDate('');
+    setSex('');
+    setSchoolClass('');
     setGrade('未就学');
     setRegularDays([]);
     setCareType('放課後等デイサービス');
@@ -246,6 +258,8 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     setName(child.name);
     setKana(child.kana || '');
     setBirthDate(child.birthDate || '');
+    setSex(child.sex || '');
+    setSchoolClass(child.schoolClass || '');
     setGrade(child.grade || '小学3年生');
     setRegularDays(child.careType===VISITING_SERVICE?(child.regularDays||[]):getRegularDaysForDate(child, today));
     setCareType(child.careType || '放課後等デイサービス');
@@ -315,6 +329,10 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     const defaultPickup = getDefaultTransportLocation(normalizedTransportLocations, '迎え');
     const defaultDropoff = getDefaultTransportLocation(normalizedTransportLocations, '送り');
     const schoolLocation = normalizedTransportLocations.find((location) => location.type === '学校');
+    const savedSchoolName = schools.find(school => school.id === schoolId)?.name
+      || (schoolId && schoolId === editingChild?.schoolId ? editingChild.schoolName : undefined)
+      || (careType === VISITING_SERVICE && editingChild?.schoolId ? undefined : schoolLocation?.name)
+      || (careType === VISITING_SERVICE && !editingChild?.schoolId ? editingChild?.schoolName : undefined);
 
     const savedGrade = calculateSchoolGrade(birthDate) || grade;
     if (editingChild) {
@@ -323,6 +341,8 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         name: name.trim(),
         kana: kana.trim(),
         birthDate: birthDate || undefined,
+        sex: sex.trim() || undefined,
+        schoolClass: schoolClass.trim() || undefined,
         grade: savedGrade,
         regularDays,
         regularDaysEffectiveFrom: today,
@@ -331,7 +351,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         serviceSuspended,
         transportProgram,
         transportationRequired,
-        schoolName: schoolLocation?.name || undefined,
+        schoolName: savedSchoolName,
         schoolId,
         siblingIds,
         siblingGroup: undefined,
@@ -350,6 +370,8 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         name: name.trim(),
         kana: kana.trim(),
         birthDate: birthDate || undefined,
+        sex: sex.trim() || undefined,
+        schoolClass: schoolClass.trim() || undefined,
         grade: savedGrade,
         regularDays,
         regularDaysEffectiveFrom: today,
@@ -358,7 +380,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
         serviceSuspended,
         transportProgram,
         transportationRequired,
-        schoolName: schoolLocation?.name || undefined,
+        schoolName: savedSchoolName,
         schoolId,
         siblingIds,
         siblingGroup: undefined,
@@ -406,6 +428,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
 
   const selectSchool = (nextSchoolId?: string) => {
     setSchoolId(nextSchoolId);
+    if (careType === VISITING_SERVICE) return;
     const school = schools.find((candidate) => candidate.id === nextSchoolId);
     setTransportLocations((previous) => {
       const withoutLinkedSchool = previous.filter((location) => !location.schoolId);
@@ -620,9 +643,17 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-6">
-      <ManualLinks screen="children" section={canDocuments&&documentView?'documents':undefined}/>
-      {canDocuments&&<div className="flex flex-wrap gap-2 rounded-xl border bg-white p-2" role="tablist" aria-label="児童名簿の表示"><button type="button" role="tab" aria-selected={!documentView} onClick={()=>{if(documentDirty){alert('書類管理の未保存入力を保存するか、入力を戻してから切り替えてください。');return;}setDocumentView(false);}} className={`min-h-11 rounded-lg px-4 text-sm font-bold ${!documentView?'bg-slate-950 text-white':'text-slate-700'}`}>児童情報</button><button type="button" role="tab" aria-selected={documentView} onClick={()=>setDocumentView(true)} className={`min-h-11 rounded-lg px-4 text-sm font-bold ${documentView?'bg-teal-700 text-white':'text-teal-800'}`}>契約日・保管書類</button></div>}
-      {documentView&&canDocuments&&currentUser?<ChildDocumentWorkspace user={currentUser} childrenList={childrenList} initialChildId={documentChild} onDirtyChange={handleDocumentDirty}/>:<>
+      <ManualLinks screen="children" section={canDocuments&&rosterView==='documents'?'documents':undefined}/>
+      {canDocuments&&<div className="flex flex-wrap gap-2 rounded-xl border bg-white p-2" role="tablist" aria-label="児童名簿の表示">
+        {rosterTabs.map(tab=><button key={tab.id} type="button" role="tab" aria-selected={rosterView===tab.id} onClick={()=>{
+          if(rosterView===tab.id)return;
+          if(documentDirty){alert('児童名簿の未保存入力を保存するか、入力を戻してから切り替えてください。');return;}
+          setRosterView(tab.id);
+        }} className={`min-h-11 rounded-lg px-4 text-sm font-bold ${rosterView===tab.id?'bg-slate-950 text-white':'text-slate-700'}`}>{tab.name}</button>)}
+      </div>}
+      {rosterView==='visitingReports'&&canVisitingReports&&currentUser?
+        <div key={`${currentUser.organizationId}:${currentUser.id}`}><VisitingReportWorkspace user={currentUser} childrenList={childrenList} onDirtyChange={handleDocumentDirty}/></div>:
+      rosterView==='documents'&&canDocuments&&currentUser?<ChildDocumentWorkspace user={currentUser} childrenList={childrenList} initialChildId={documentChild} onDirtyChange={handleDocumentDirty}/>:<>
       {/* Top Header */}
       <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
@@ -1071,6 +1102,25 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                 <p className="mt-1.5 text-[10px] text-slate-500">{careType===VISITING_SERVICE?'過去の通所設定は保持しますが、訪問支援の予定としては使いません。':'複数曜日を選択できます。未設定の児童は全曜日の候補に表示されます。'}</p>
               </fieldset>
 
+              <fieldset className="rounded-xl border border-sky-200 bg-sky-50 p-3 sm:col-span-2">
+                <legend className="px-1 text-sm font-bold text-sky-950">所属学校・クラス</legend>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <label className="grid gap-1 text-sm font-bold text-slate-700">所属学校
+                    <select value={schoolId || ''} onChange={event => selectSchool(event.target.value || undefined)} className="min-h-11 w-full rounded-md border border-slate-300 bg-white p-2">
+                      <option value="">学校台帳から選択</option>
+                      {schools.filter(school => school.active || school.id === schoolId).map(school => <option key={school.id} value={school.id}>{school.name}</option>)}
+                    </select>
+                  </label>
+                  <label className="grid gap-1 text-sm font-bold text-slate-700">所属（クラス）
+                    <input value={schoolClass} onChange={event => setSchoolClass(event.target.value)} maxLength={160} placeholder="例：3年1組" className="min-h-11 w-full rounded-md border border-slate-300 bg-white p-2 font-normal"/>
+                  </label>
+                  <label className="grid gap-1 text-sm font-bold text-slate-700">性別（任意）
+                    <input value={sex} onChange={event => setSex(event.target.value)} maxLength={40} placeholder="未登録の場合は空欄" className="min-h-11 w-full rounded-md border border-slate-300 bg-white p-2 font-normal"/>
+                  </label>
+                </div>
+                <p className="mt-2 text-xs text-sky-950">訪問支援報告書の初期値に使います。通所の児童は、学校の選択時に送迎先にも学校を反映します。</p>
+              </fieldset>
+
               <fieldset disabled={careType===VISITING_SERVICE} className={careType===VISITING_SERVICE?'opacity-50':''}><ChildTransportSettings
                 enabled={transportationRequired}
                 onEnabledChange={handleTransportEnabledChange}
@@ -1084,9 +1134,6 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                 schedule={transportSchedule}
                 onScheduleChange={(day, patch) => setTransportSchedule((current) => updateTransportSchedule(current, day, patch))}
                 locations={transportLocations}
-                schools={schools}
-                selectedSchoolId={schoolId}
-                onSchoolChange={selectSchool}
                 expandedLocationId={expandedTransportLocationId}
                 onExpandedLocationChange={setExpandedTransportLocationId}
                 onAddLocation={addTransportLocation}

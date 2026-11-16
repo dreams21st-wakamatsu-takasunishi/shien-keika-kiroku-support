@@ -230,6 +230,8 @@ export interface ChildProfile {
   name: string; // e.g. 田中 太郎
   kana?: string;
   birthDate?: string; // YYYY-MM-DD
+  sex?: string;
+  schoolClass?: string;
   grade?: string; // e.g. 小学校3年生
   regularDays?: Weekday[];
   regularDaysEffectiveFrom?: string;
