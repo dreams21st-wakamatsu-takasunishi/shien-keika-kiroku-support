@@ -1,0 +1,17 @@
+.child-editor-dialog {
+  position: fixed;
+  inset: max(.5rem, env(safe-area-inset-top)) max(.5rem, env(safe-area-inset-right))
+    max(.5rem, env(safe-area-inset-bottom)) max(.5rem, env(safe-area-inset-left));
+  box-sizing: border-box;
+  inline-size: calc(100% - max(.5rem, env(safe-area-inset-left)) - max(.5rem, env(safe-area-inset-right)));
+  max-inline-size: 56rem;
+  max-block-size: calc(100vh - 1rem);
+  max-block-size: calc(100dvh - max(.5rem, env(safe-area-inset-top)) - max(.5rem, env(safe-area-inset-bottom)));
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+}
+
+.child-editor-dialog[open] { display: flex; flex-direction: column; }
+.child-editor-dialog::backdrop { background: rgba(15, 23, 42, .6); }
+.child-editor-fields :is(input, select, textarea) { max-inline-size: 100%; }

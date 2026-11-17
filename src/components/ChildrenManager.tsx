@@ -1,5 +1,7 @@
 import { ManualLinks } from './ManualLinks';
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
+import './childEditorDialog.css';
 import {
   ChildProfile,
   ChildTransportLocation,
@@ -183,6 +185,18 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   const [groupMode, setGroupMode] = useState<GroupMode>(savedPreferences.groupMode);
   const [sortRules, setSortRules] = useState<SortRule[]>(savedPreferences.sortRules);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const editorDialog = useRef<HTMLDialogElement>(null);
+  const editorTitleId = useId();
+  const closeEditor = () => {
+    editorDialog.current?.close();
+    setIsModalOpen(false);
+  };
+  useEffect(() => {
+    const dialog = editorDialog.current;
+    if (!isModalOpen || !dialog) return;
+    if (!dialog.open) dialog.showModal();
+    return () => { if (dialog.open) dialog.close(); };
+  }, [isModalOpen]);
   const [editingChild, setEditingChild] = useState<ChildProfile | null>(null);
   const [rosterView,setRosterView]=useState<'children'|'documents'|'visitingReports'>('children');
   const [documentChild,setDocumentChild]=useState('');
@@ -190,7 +204,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
   const handleDocumentDirty=useCallback((dirty:boolean)=>{setDocumentDirty(dirty);onDocumentDirtyChange?.(dirty);},[onDocumentDirtyChange]);
   const canDocuments=canManageChildDocuments(currentUser);
   const canVisitingReports=canDocuments&&currentUser?.accessDeviceKind!=='personal';
-  const openDocuments=(child:ChildProfile)=>{setIsModalOpen(false);setDocumentChild(child.id);setRosterView('documents');};
+  const openDocuments=(child:ChildProfile)=>{closeEditor();setDocumentChild(child.id);setRosterView('documents');};
   const rosterTabs = [
     {id:'children', name:'児童情報'},
     {id:'documents', name:'契約日・保管書類'},
@@ -395,7 +409,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
       });
     }
 
-    setIsModalOpen(false);
+    closeEditor();
   };
 
   const updateTransportLocation = (
@@ -942,14 +956,18 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
       )}
 
       {/* Add / Edit Child Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-slate-900/60 p-0 backdrop-blur-xs sm:items-center sm:p-4">
-          <div className="max-h-[94dvh] w-full max-w-4xl overflow-hidden rounded-t-2xl bg-white shadow-2xl sm:rounded-2xl">
-            <h3 className="border-b border-slate-200 bg-white px-4 py-4 text-base font-black text-slate-900 sm:px-6">
-              {editingChild ? '児童情報の編集' : '新規児童の登録'}
-            </h3>
+      {isModalOpen && createPortal(
+        <dialog ref={editorDialog} className="child-editor-dialog rounded-2xl bg-white text-slate-900 shadow-2xl"
+          aria-labelledby={editorTitleId} onCancel={event => {event.preventDefault(); closeEditor();}}>
+          <header className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-200 px-4 py-2 sm:px-6">
+            <h3 id={editorTitleId} className="min-w-0 text-base font-black">{editingChild ? '児童情報の編集' : '新規児童の登録'}</h3>
+            <button type="button" onClick={closeEditor} aria-label="閉じる" className="grid size-11 shrink-0 place-items-center rounded-lg text-slate-700 hover:bg-slate-100">
+              <X size={20} aria-hidden="true"/>
+            </button>
+          </header>
 
-            <form onSubmit={handleSaveChild} className="max-h-[calc(94dvh-3.75rem)] space-y-4 overflow-y-auto p-4 text-xs sm:p-6">
+          <form onSubmit={handleSaveChild} className="flex min-h-0 min-w-0 flex-1 flex-col text-xs">
+            <div className="child-editor-fields min-h-0 min-w-0 flex-1 space-y-4 overflow-auto overscroll-contain p-4 sm:p-6">
               {canDocuments&&editingChild&&<section className="rounded-xl border border-teal-200 bg-teal-50 p-3"><p className="font-bold text-teal-950">契約日・保管書類</p><p className="mt-1 text-xs text-teal-900">契約日と受給者証の更新月は、管理者・児発管専用の保管書類画面で登録します。この画面の変更は先に保存してください。</p><button type="button" onClick={()=>{if(window.confirm('児童情報の未保存の変更は反映されません。契約日・保管書類を開きますか？'))openDocuments(editingChild);}} className="mt-2 min-h-10 rounded-lg border border-teal-400 bg-white px-3 font-bold">契約日・保管書類を開く</button></section>}
               <div>
                 <label className="font-bold text-slate-700 block mb-1">
@@ -1173,10 +1191,11 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                 />
               </div>
 
-              <div className="sticky -bottom-4 -mx-4 -mb-4 flex justify-end gap-2 border-t border-slate-200 bg-white/95 px-4 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur sm:-bottom-6 sm:-mx-6 sm:-mb-6 sm:px-6">
+            </div>
+              <div className="flex shrink-0 flex-wrap justify-end gap-2 border-t border-slate-200 bg-white px-3 py-2 sm:px-6">
                 <button
                   type="button"
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={closeEditor}
                   className="min-h-11 rounded-xl px-4 text-slate-600 hover:bg-slate-100"
                 >
                   キャンセル
@@ -1188,9 +1207,9 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
                   <Save className="w-4 h-4" /> 保存する
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
+          </form>
+        </dialog>,
+        document.body
       )}
       </>}
     </div>
