@@ -54,6 +54,7 @@ interface MonthlyTransportPlannerProps {
   organizationId?: string;
   currentUserId?: string;
   initialDate: string;
+  initialAbsencePickerOpen?: boolean;
   childrenList: ChildProfile[];
   schools: SchoolProfile[];
   dailyChildPlans: DailyChildPlan[];
@@ -65,6 +66,7 @@ interface MonthlyTransportPlannerProps {
   activeRecorder?: RecorderProfile;
   onSavePlanDay: (day: TransportPlanDay) => Promise<void> | void;
   onSaveDailyChildPlan: (plan: DailyChildPlan) => Promise<void> | void;
+  onSyncAbsenceTransport: (date: string, childId: string) => Promise<number>;
   onDeleteDailyChildPlan: (childId: string, date: string) => Promise<void> | void;
   onDeleteRequirement: (childId: string, date: string) => Promise<void> | void;
   onDeleteMonthSchedules: (month: string, childId?: string) => Promise<MonthlyScheduleDeleteResult>;
@@ -395,6 +397,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
   organizationId,
   currentUserId,
   initialDate,
+  initialAbsencePickerOpen,
   childrenList,
   schools,
   dailyChildPlans,
@@ -406,6 +409,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
   activeRecorder,
   onSavePlanDay,
   onSaveDailyChildPlan,
+  onSyncAbsenceTransport,
   onDeleteDailyChildPlan,
   onDeleteRequirement,
   onDeleteMonthSchedules,
@@ -435,7 +439,8 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [attendanceSavingChildId, setAttendanceSavingChildId] = useState<string>();
   const [additionalPickerOpen, setAdditionalPickerOpen] = useState(false);
-  const [absencePickerOpen, setAbsencePickerOpen] = useState(false);
+  const [absencePickerOpen, setAbsencePickerOpen] = useState(Boolean(initialAbsencePickerOpen && canManage));
+  const [pendingAbsenceSync, setPendingAbsenceSync] = useState<string>();
   const [bulkDayEditOpen, setBulkDayEditOpen] = useState(false);
   const [additionalSearch, setAdditionalSearch] = useState('');
   const [monthChildId, setMonthChildId] = useState('');
@@ -533,12 +538,15 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
     const plannedChildIds = new Set(dailyChildPlans
       .filter((plan) => plan.date === selectedDate)
       .map((plan) => plan.childId));
+    const dispatchedChildIds = new Set(transportRuns.filter((run) => run.date === selectedDate)
+      .flatMap((run) => run.stops.map((stop) => stop.childId)));
     return activeChildren.filter((child) =>
       requirementChildIds.has(child.id)
       || plannedChildIds.has(child.id)
+      || dispatchedChildIds.has(child.id)
       || getRegularDaysForDate(child, selectedDate).includes(weekday)
     );
-  }, [activeChildren, dailyChildPlans, requirements, selectedDate]);
+  }, [activeChildren, dailyChildPlans, requirements, selectedDate, transportRuns]);
   const selectedRequirements = drafts.length > 0 && drafts.every((item) => item.date === selectedDate)
     ? drafts.filter((item) => activeChildIds.has(item.childId) && !absentPlanKeys.has(`${item.childId}:${item.date}`))
     : requirements.filter((item) => item.date === selectedDate && activeChildIds.has(item.childId) && !absentPlanKeys.has(`${item.childId}:${item.date}`));
@@ -652,6 +660,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
     setEditingOriginal(undefined);
     setAdditionalPickerOpen(false);
     setAbsencePickerOpen(false);
+    setPendingAbsenceSync(undefined);
     setBulkDayEditOpen(false);
     setAdditionalSearch('');
     setBulkPickupTime('');
@@ -837,9 +846,11 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
   };
 
   const setSelectedDateAttendance = async (childId: string, attendancePlan: '利用予定' | '欠席') => {
-    if (!canManage || !childId) return;
+    if (!canManage || !childId || !runsRead.ready || attendanceSavingChildId || (pendingAbsenceSync && pendingAbsenceSync !== childId)) return;
     const child = childrenList.find((candidate) => candidate.id === childId);
     if (!child) return setError('選択した児童が見つかりません。');
+    const affected = transportRuns.filter(run => run.date === selectedDate && run.stops.some(stop => stop.childId === childId));
+    if (attendancePlan === '欠席' && affected.length > 0 && !window.confirm(`${child.name}を欠席にしますか？未出発便から除外し、出発済みの便は変更しません。`)) return;
     const existingPlan = dailyChildPlans.find((plan) => plan.childId === childId && plan.date === selectedDate);
     const now = new Date().toISOString();
     const nextPlan: DailyChildPlan = {
@@ -851,8 +862,10 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
     setAttendanceSavingChildId(childId);
     setError('');
     setMessage('');
+    let attendanceSaved = false;
     try {
       await onSaveDailyChildPlan(nextPlan);
+      attendanceSaved = true;
       const nextDay: TransportPlanDay = {
         ...dayDraft,
         status: 'draft',
@@ -868,15 +881,20 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
           setEditingChildId(undefined);
           setEditingOriginal(undefined);
         }
-        setMessage(`${child.name}を${selectedDate}の欠席として登録しました。記録候補と送迎編成から除外されます。`);
+        setPendingAbsenceSync(childId);
+        const unchanged = await onSyncAbsenceTransport(selectedDate, childId);
+        setPendingAbsenceSync(undefined);
+        setMessage(`${child.name}を${selectedDate}の欠席として登録しました。${unchanged ? `出発済みの${unchanged}便は変更していません。送迎担当者へ確認してください。` : '未出発便へ反映しました。'}`);
       } else {
+        setPendingAbsenceSync(previous => previous===childId ? undefined : previous);
         const restored = buildRequirement(child, selectedDate, dayDraft.pickupMode, routeSettings, nextPlan);
         await onSaveRequirements([restored]);
         setDrafts((current) => [restored, ...current.filter((item) => item.childId !== childId)]);
         setMessage(`${child.name}を${selectedDate}の利用予定へ戻し、基本送迎情報を反映しました。`);
       }
     } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : '利用・欠席予定を保存できませんでした。');
+      const detail = saveError instanceof Error ? saveError.message : '利用・欠席予定を保存できませんでした。';
+      setError(attendanceSaved ? `利用・欠席予定は保存済みですが、その後の配車反映を確認できません。 ${detail}` : detail);
     } finally {
       setAttendanceSavingChildId(undefined);
     }
@@ -1478,7 +1496,16 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
             <button type="button" onClick={() => setAbsencePickerOpen(false)} className="grid h-10 w-10 place-items-center rounded-xl bg-white text-rose-800" aria-label="欠席設定を閉じる"><X className="h-5 w-5" /></button>
           </div>
           <div className="max-h-[72dvh] overflow-y-auto p-3">
-            <p className="mb-2 text-[10px] font-bold text-rose-800">欠席する児童にチェックを入れます。チェックを外すと利用予定へ戻ります。</p>
+            <p className="mb-2 text-[10px] font-bold text-rose-800">欠席は未出発便だけに反映し、出発済み便は変更しません。利用予定に戻す場合、必要な便は配車で改めて割り当ててください。</p>
+            {!runsRead.ready && <OperationalPeriodStatus {...runsRead}/>}
+            {error && <p role="alert" className="mb-2 text-sm text-rose-800">{error}</p>}
+            {message && <p role="status" className="mb-2 text-sm text-slate-800">{message}</p>}
+            {pendingAbsenceSync && !attendanceSavingChildId && <button type="button" disabled={!canManage || !runsRead.ready} className="mb-2 rounded-lg border bg-white p-2 text-sm font-bold" onClick={async()=>{
+              setAttendanceSavingChildId(pendingAbsenceSync);setError('');
+              try { const unchanged = await onSyncAbsenceTransport(selectedDate,pendingAbsenceSync);setPendingAbsenceSync(undefined);setMessage(unchanged ? `出発済みの${unchanged}便は変更していません。送迎担当者へ確認してください。` : '未出発便へ反映しました。'); }
+              catch {setError('欠席は登録済みですが、送迎への反映が確認できません。');}
+              finally {setAttendanceSavingChildId(undefined);}
+            }}>欠席を送迎便へ再反映</button>}
             {attendanceChildren.length === 0 ? (
               <p className="rounded-lg bg-white p-2 text-center text-xs font-bold text-slate-500">この日の利用予定児童はいません。</p>
             ) : (
@@ -1492,7 +1519,7 @@ export const MonthlyTransportPlanner: React.FC<MonthlyTransportPlannerProps> = (
                         <input
                           type="checkbox"
                           checked={absent}
-                          disabled={!canManage || Boolean(attendanceSavingChildId)}
+                          disabled={!canManage || !runsRead.ready || Boolean(attendanceSavingChildId) || Boolean(pendingAbsenceSync && pendingAbsenceSync !== child.id)}
                           onChange={(event) => void setSelectedDateAttendance(child.id, event.target.checked ? '欠席' : '利用予定')}
                           className="h-4 w-4 shrink-0 accent-rose-600"
                         />

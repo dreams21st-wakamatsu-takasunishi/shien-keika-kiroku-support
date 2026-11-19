@@ -50,6 +50,7 @@ export function LessonLearningManager({ childrenList, remoteMode, scopeKey,revie
   const busy = listBusy || operationBusy;
   const selectedChild = childrenList.find(child => child.id === childId);
   const selectedLink = links.find(link => link.child_id === childId);
+  const combinedStudentManagement = canManage && canIssueAccounts;
 
   const refresh = useCallback(async () => {
     const version = ++listVersion.current;
@@ -111,8 +112,17 @@ export function LessonLearningManager({ childrenList, remoteMode, scopeKey,revie
     {listError && <p role="alert" className="border-l-4 border-rose-500 bg-rose-50 px-4 py-3 text-sm text-rose-900">{listError}</p>}
     {message && <p role="status" className="flex items-center gap-2 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"><Check className="h-4 w-4" />{message}</p>}
     <div role="tablist" aria-label="Dレッスン管理の表示" className="flex flex-wrap gap-1 border-b border-slate-200">
-      {([['history', '当日の取り組み'], ['students','児童・ログイン管理'], ['progress', '児童別進捗'], ['tasks','課題の指定'], ['reviews','Word確認'], ['links', 'アカウント連携'],['texts','文章課題の作成'],['rewards','ごほうびの作成'],['mockExams','模擬試験の問題']] as const).filter(([value])=>value==='students'?(canManage&&canIssueAccounts):!['texts','rewards','mockExams'].includes(value)||canManageContent).map(([value, label]) => <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => {if(tab===value||canLeaveContent())setTab(value);}} className={`min-h-11 border-b-2 px-4 text-sm font-bold ${tab === value ? 'border-teal-700 text-teal-800' : 'border-transparent text-slate-600'}`}>{label}</button>)}
+      {([['history', '当日の取り組み'], ['students','児童・ログイン管理'], ['progress', '児童別進捗'], ['tasks','課題の指定'], ['reviews','Word確認'], ['links', 'アカウント連携'],['texts','教材管理'],['rewards','ごほうびの作成']] as const)
+        .filter(([value])=>value==='students'?combinedStudentManagement:value==='links'?!combinedStudentManagement:!['texts','rewards'].includes(value)||canManageContent)
+        .map(([value, label]) => {
+          const selected = tab===value || (value==='students' && tab==='links' && combinedStudentManagement) || (value==='texts' && tab==='mockExams');
+          return <button key={value} type="button" role="tab" aria-selected={selected} onClick={() => {if(tab===value||canLeaveContent())setTab(value);}} className={`min-h-11 border-b-2 px-4 text-sm font-bold ${selected ? 'border-teal-700 text-teal-800' : 'border-transparent text-slate-600'}`}>{label}</button>;
+        })}
     </div>
+    {tab==='links' && combinedStudentManagement && <button type="button" onClick={()=>setTab('students')} className="min-h-10 rounded-lg border px-3 text-sm font-bold">児童・ログイン管理の一覧へ戻る</button>}
+    {(tab==='texts'||tab==='mockExams') && canManageContent && <div role="tablist" aria-label="教材の種類" className="flex flex-wrap gap-2">
+      {([['texts','文章課題の作成'],['mockExams','模擬試験の問題']] as const).map(([value,label])=><button key={value} type="button" role="tab" aria-selected={tab===value} onClick={()=>{if(tab===value||canLeaveContent())setTab(value);}} className={`min-h-10 rounded-lg border px-3 text-sm font-bold ${tab===value?'border-teal-700 bg-teal-50 text-teal-900':'border-slate-300'}`}>{label}</button>)}
+    </div>}
     {tab === 'links' && <p className="rounded-lg bg-teal-50 px-4 py-3 text-sm leading-relaxed text-teal-950">
       新しい児童は先にDサポートの児童名簿へ追加し、ここで「学習アカウントの新規登録」を行うと、校舎とDサポートの連携をまとめて設定できます。
       Dレッスンに本人のアカウントがある場合は、新規発行せず既存の学習IDを確認してください。

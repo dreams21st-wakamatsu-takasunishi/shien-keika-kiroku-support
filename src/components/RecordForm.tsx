@@ -1828,6 +1828,18 @@ function describeDraftSaveError(error: unknown, allowLocalSensitiveStorage = tru
     : `共有データベースへの保存に失敗しました。個人端末用の現場モードでは端末内に保存しません。詳細: ${message.slice(0, 240)}`;
 }
 
+function PreviousRecordReference({ childId, date, records }: { childId: string; date: string; records: SupportRecord[] }) {
+  const previous = useMemo(() => records
+    .filter(record => record.childId === childId && record.date < date)
+    .sort((a, b) => b.date.localeCompare(a.date) || b.updatedAt.localeCompare(a.updatedAt))[0], [childId, date, records]);
+  return <details className="rounded-xl border border-slate-200 bg-white p-3" aria-label="前回の支援記録">
+    <summary className="cursor-pointer text-sm font-bold">前回の記録を参照{previous ? `（${previous.date}）` : ''}</summary>
+    <p className="mt-2 text-xs text-slate-600">参照専用です。表示した内容は今回の記録に転記されません。</p>
+    {previous ? <pre className="mt-2 max-h-80 overflow-y-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-3 font-sans text-sm">{generateRecordSummary(previous)}</pre>
+      : <p className="mt-2 text-sm text-slate-600">読み込み済みの期間に前回記録がありません。過去分は記録一覧で確認してください。</p>}
+  </details>;
+}
+
 export const RecordForm: React.FC<RecordFormProps> = ({
   templates,
   childrenList,
@@ -5509,6 +5521,7 @@ export const RecordForm: React.FC<RecordFormProps> = ({
         </div>
       )}
 
+      {!readOnly && wizard.activeChildId && <div key={wizard.activeChildId}><PreviousRecordReference childId={wizard.activeChildId} date={wizard.date} records={savedRecords} /></div>}
       {lessonImportEnabled&&organizationId&&userId&&!readOnly&&wizard.selectedChildIds.length>0&&<section aria-label="Dレッスンの自動反映" className="rounded-xl border border-teal-200 bg-teal-50 px-3 py-1.5 text-xs text-teal-950">
         <div className="flex flex-wrap items-start gap-x-3 gap-y-1">
           <label className="flex min-h-11 items-center gap-2 font-bold"><input type="checkbox" checked={automaticLessonEnabled} disabled={editingDisabled||isSaving||Boolean(savingChildId)} onChange={event=>setAutomaticLessonEnabled(event.target.checked)} className="h-4 w-4 accent-teal-700"/>Dレッスンの実績を自動反映</label>

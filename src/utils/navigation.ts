@@ -1,11 +1,11 @@
 import {
   BusFront, CalendarDays, CalendarRange, ClipboardList, Eye, History, House,
-  MessageSquareText, PlusCircle, Settings, ShieldCheck, Sparkles, TriangleAlert, Users, Mic, BookOpenCheck, Calculator,
+  MessageSquareText, Settings, ShieldCheck, TriangleAlert, Users, Mic, BookOpenCheck, Calculator,
 } from 'lucide-react';
 import type { ComponentType } from 'react';
-import type { RecorderMenuItemId, RecorderMenuPreferences } from '../types';
+import type { RecorderMenuItemId, RecorderMenuPreferences, UserProfile } from '../types';
 
-export type ActiveTab = 'home' | 'form' | 'records' | 'meetings' | 'learning' | 'trafficCost' | 'activityPlans' | 'facilityWork' | 'legalTraining' | 'children' | 'templates' | 'team' | 'plans';
+export type ActiveTab = 'home' | 'form' | 'records' | 'meetings' | 'learning' | 'trafficCost' | 'activityPlans' | 'facilityWork' | 'legalTraining' | 'visitingReports' | 'children' | 'templates' | 'team' | 'plans';
 export type HomeWorkspaceItem = 'dailyChanges' | 'todayWork' | 'attendance' | 'calendar' | 'monthlySchedule' | 'operations' | 'communication';
 export const MENU_CATEGORIES = ['すべて', '当日の対応', '予定・送迎', '記録・児童', '共有・連絡', '活動・運営'] as const;
 export type MenuCategory = typeof MENU_CATEGORIES[number];
@@ -25,7 +25,7 @@ export interface NavigationItem {
 // The home screen and drawer deliberately share names, order, and search terms.
 export const navigationItems: NavigationItem[] = [
   { id: 'home', tab: 'home', label: 'ホーム', description: '今日の状況と各機能', keywords: '', tone: 'teal', icon: House },
-  { id: 'dailyChanges', workspace: 'dailyChanges', label: '当日変更', description: '急な欠席・追加利用・送迎担当の交代', keywords: '休み キャンセル トラブル', category: '当日の対応', tone: 'amber', icon: TriangleAlert },
+  { id: 'dailyChanges', workspace: 'dailyChanges', label: '当日変更', description: '今日の欠席設定・送迎担当の交代', keywords: '休み キャンセル トラブル', category: '当日の対応', tone: 'amber', icon: TriangleAlert },
   { id: 'todayWork', workspace: 'todayWork', label: '本日の業務', description: '職員配置・当日の送迎一覧', keywords: '今日 ガント 到着 乗車', category: '当日の対応', tone: 'teal', icon: ClipboardList },
   { id: 'attendance', workspace: 'attendance', label: '出勤予定', description: '自分の予定・打刻・シフト希望', keywords: '勤務 申請 承認 パート', category: '予定・送迎', tone: 'sky', icon: CalendarRange },
   { id: 'calendar', workspace: 'calendar', label: '業務カレンダー', description: '会議・外出・研修・面談・行事', keywords: '予定 休み', category: '予定・送迎', tone: 'indigo', icon: CalendarDays },
@@ -34,9 +34,9 @@ export const navigationItems: NavigationItem[] = [
   { id: 'activityPlans', tab: 'activityPlans', label: '活動・指導案', description: '活動の流れ・準備チェック・振り返り・印刷', keywords: '工作 運動 調理 外出 教案 ひな形 準備物', category: '活動・運営', tone: 'teal', icon: BookOpenCheck },
   { id: 'facilityWork', tab: 'facilityWork', label: '施設業務', description: '日常点検・備品の補充・保護者向けおたより', keywords: 'チェック 安全 在庫 消耗品 入庫 使用 印刷', category: '活動・運営', tone: 'teal', icon: ClipboardList },
   { id: 'legalTraining', tab: 'legalTraining', label: '法定研修', description: '研修動画・資料と自分の受講状況', keywords: '動画 未受講 完了 取り消し 受講', category: '活動・運営', tone: 'teal', icon: BookOpenCheck },
-  { id: 'operations', workspace: 'operations', label: '記録状況', description: '利用児童・入力中・保存済みを確認', keywords: '未保存 引き継ぎ 下書き', category: '記録・児童', tone: 'sky', icon: Eye },
+  { id: 'visitingReports', tab: 'visitingReports', label: '保育所等訪問支援の報告書', description: '訪問支援の報告書を作成・確認・印刷', keywords: '訪問 保訪 学校 報告書', category: '記録・児童', tone: 'violet', icon: ClipboardList },
+  { id: 'operations', workspace: 'operations', label: '支援記録', description: '児童別に記録の作成・再開・引き継ぎ・保存済みを確認', keywords: '記録状況 記録作成 未保存 引き継ぎ 下書き', category: '記録・児童', tone: 'sky', icon: Eye },
   { id: 'communication', workspace: 'communication', label: '共有・連絡', description: 'お知らせ・朝礼・申し送り', keywords: 'メモ 通知 連絡事項', category: '共有・連絡', tone: 'amber', icon: MessageSquareText },
-  { id: 'form', tab: 'form', label: '記録作成', description: '児童を選んで支援経過記録を入力', keywords: '新規 作成 保存', category: '記録・児童', tone: 'teal', icon: PlusCircle },
   { id: 'records', tab: 'records', label: '記録一覧・確認', description: '保存済み記録の確認・修正・出力', keywords: '過去 PDF 印刷 コピー 承認', category: '記録・児童', tone: 'teal', icon: History },
   { id: 'meetings', tab: 'meetings', label: '会議支援', description: '事前情報とTiroへの手動受け渡し・会議中の確認', keywords: '担当者会議 保護者面談 ケース会議 準備 議題 Tiro', category: '記録・児童', tone: 'indigo', icon: Mic },
   { id: 'children', tab: 'children', label: '児童名簿', description: '児童情報・学校・利用曜日・送迎先', keywords: '住所 兄弟 基本予定 メモ', category: '記録・児童', tone: 'teal', icon: Users },
@@ -44,6 +44,10 @@ export const navigationItems: NavigationItem[] = [
   { id: 'templates', tab: 'templates', label: '設定', description: '記録・学校・送迎の共通設定', keywords: '退所 時刻 エリア', tone: 'indigo', icon: Settings, managerOnly: true },
   { id: 'team', tab: 'team', label: '職員', description: '職員・権限・記録者', keywords: '端末 招待 名簿', tone: 'indigo', icon: ShieldCheck, managerOnly: true },
 ];
+
+export function canUseVisitingReports(user?: Pick<UserProfile, 'organizationId' | 'fieldModeOnly' | 'accessDeviceKind'> | null): boolean {
+  return Boolean(user?.organizationId && !user.fieldModeOnly && user.accessDeviceKind !== 'personal');
+}
 
 // Categorize only the already authorized/filtered items. Keep saved ordering
 // within each group; the original order remains available in the flat view.
@@ -68,6 +72,7 @@ export function matchesMenuSearch(text: string, query: string): boolean {
 }
 
 export function activeNavigationId(tab: ActiveTab, workspace = 'menu'): RecorderMenuItemId | undefined {
+  if (tab === 'form') return 'operations';
   if (tab !== 'home') return navigationItems.find((item) => item.tab === tab)?.id;
   if (workspace === 'dispatch') return 'monthlySchedule';
   return workspace === 'menu' ? 'home' : navigationItems.find((item) => item.workspace === workspace)?.id;

@@ -15,7 +15,6 @@ import {
   UserProfile,
 } from '../types';
 import {ChildDocumentWorkspace} from './ChildDocumentWorkspace';
-import {VisitingReportWorkspace} from './VisitingReportWorkspace';
 import {canManageChildDocuments} from '../utils/childDocuments';
 import {
   ArrowDown,
@@ -198,17 +197,15 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
     return () => { if (dialog.open) dialog.close(); };
   }, [isModalOpen]);
   const [editingChild, setEditingChild] = useState<ChildProfile | null>(null);
-  const [rosterView,setRosterView]=useState<'children'|'documents'|'visitingReports'>('children');
+  const [rosterView,setRosterView]=useState<'children'|'documents'>('children');
   const [documentChild,setDocumentChild]=useState('');
   const [documentDirty,setDocumentDirty]=useState(false);
   const handleDocumentDirty=useCallback((dirty:boolean)=>{setDocumentDirty(dirty);onDocumentDirtyChange?.(dirty);},[onDocumentDirtyChange]);
   const canDocuments=canManageChildDocuments(currentUser);
-  const canVisitingReports=canDocuments&&currentUser?.accessDeviceKind!=='personal';
   const openDocuments=(child:ChildProfile)=>{closeEditor();setDocumentChild(child.id);setRosterView('documents');};
   const rosterTabs = [
     {id:'children', name:'児童情報'},
     {id:'documents', name:'契約日・保管書類'},
-    ...(canVisitingReports ? [{id:'visitingReports', name:'訪問支援報告書'}] as const : []),
   ] as const;
 
   // Form states
@@ -665,9 +662,7 @@ export const ChildrenManager: React.FC<ChildrenManagerProps> = ({
           setRosterView(tab.id);
         }} className={`min-h-11 rounded-lg px-4 text-sm font-bold ${rosterView===tab.id?'bg-slate-950 text-white':'text-slate-700'}`}>{tab.name}</button>)}
       </div>}
-      {rosterView==='visitingReports'&&canVisitingReports&&currentUser?
-        <div key={`${currentUser.organizationId}:${currentUser.id}`}><VisitingReportWorkspace user={currentUser} childrenList={childrenList} onDirtyChange={handleDocumentDirty}/></div>:
-      rosterView==='documents'&&canDocuments&&currentUser?<ChildDocumentWorkspace user={currentUser} childrenList={childrenList} initialChildId={documentChild} onDirtyChange={handleDocumentDirty}/>:<>
+      {rosterView==='documents'&&canDocuments&&currentUser?<ChildDocumentWorkspace user={currentUser} childrenList={childrenList} initialChildId={documentChild} onDirtyChange={handleDocumentDirty}/>:<>
       {/* Top Header */}
       <div className="bg-white rounded-xl shadow-xs border border-slate-200 p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>

@@ -4,7 +4,7 @@ import {dayPeriod} from '../services/operationalPeriod';
 import { homeManualContext } from '../utils/manualLinks';
 import {isInputDraftKey} from '../utils/recordEntry';
 import React, { useEffect, useMemo, useState } from 'react';
-import { applyMenuPreferences, groupNavigationItems, MENU_CATEGORIES, matchesMenuSearch, navigationItems, type MenuCategory, type NavigationItem } from '../utils/navigation';
+import { applyMenuPreferences, canUseVisitingReports, groupNavigationItems, MENU_CATEGORIES, matchesMenuSearch, navigationItems, type MenuCategory, type NavigationItem } from '../utils/navigation';
 import { MenuSearch } from './MenuSearch';
 import {
   ArrowLeft,
@@ -65,8 +65,7 @@ import { MorningMeetingPanel } from './MorningMeetingPanel';
 import { AnnouncementPanel } from './AnnouncementPanel';
 import { TodayWorkPanel } from './TodayWorkPanel';
 import { MonthlyTransportPlanner } from './MonthlyTransportPlanner';
-import { getLocalDateString, getWeekdayFromDate } from '../utils/weekdays';
-import { getDefaultDepartureTime } from '../utils/transportDeparture';
+import { getLocalDateString } from '../utils/weekdays';
 import { AttendanceHomePanel } from './AttendanceHomePanel';
 import { CalendarPanel } from './CalendarPanel';
 import { TransportPanel } from './TransportPanel';
@@ -138,6 +137,7 @@ interface HomeScreenProps {
   onSaveCalendarEvent: (event: CalendarEvent) => Promise<void> | void;
   onDeleteCalendarEvent: (eventId: string) => Promise<void> | void;
   onSaveDailyChildPlan: (plan: DailyChildPlan) => Promise<void> | void;
+  onSyncAbsenceTransport: (date: string, childId: string) => Promise<number>;
   onDeleteDailyChildPlan: (childId: string, date: string) => Promise<void> | void;
   onDeleteDailyTransportRequirement: (childId: string, date: string) => Promise<void> | void;
   onDeleteMonthlyDailySchedules: (month: string, childId?: string) => Promise<MonthlyScheduleDeleteResult>;
@@ -245,6 +245,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   onSaveCalendarEvent,
   onDeleteCalendarEvent,
   onSaveDailyChildPlan,
+  onSyncAbsenceTransport,
   onDeleteDailyChildPlan,
   onDeleteDailyTransportRequirement,
   onDeleteMonthlyDailySchedules,
@@ -285,6 +286,13 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   const dispatchRead=useOperationalPeriod(onLoadOperationalPeriod,activePanel==='dispatch'?dayPeriod(dispatchDate):null,'both');
   const [monthlyScheduleDate, setMonthlyScheduleDate] = useState(getLocalDateString());
   const [monthlyScheduleReturn, setMonthlyScheduleReturn] = useState<HomeWorkspace>('menu');
+  const [openAbsencePicker, setOpenAbsencePicker] = useState(false);
+  const [changeTarget, setChangeTarget] = useState<{date: string; runId: string}>();
+  const changeRead = useOperationalPeriod(onLoadOperationalPeriod, activePanel==='dailyChanges'?dayPeriod(changeTarget?.date||getLocalDateString()):null, 'transport');
+  useEffect(() => {
+    if (activePanel !== 'monthlySchedule') setOpenAbsencePicker(false);
+    if (activePanel !== 'dailyChanges' && activePanel !== 'monthlySchedule') setChangeTarget(undefined);
+  }, [activePanel]);
   const [menuSearch, setMenuSearch] = useState('');
   const [menuCategory, setMenuCategory] = useState<MenuCategory>('すべて');
   const [groupedMenu, setGroupedMenu] = useState(true);
@@ -385,7 +393,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     })
     .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0], [activeRecorder, currentUser, drafts,today]);
 
-  const homeItems = applyMenuPreferences(navigationItems.filter((item) => Boolean(item.category)), activeRecorder?.menuPreferences);
+  const homeItems = applyMenuPreferences(navigationItems.filter((item) => Boolean(item.category) && (item.id !== 'visitingReports' || canUseVisitingReports(currentUser))), activeRecorder?.menuPreferences);
   const filteredHomeItems = homeItems.filter((item) => (menuCategory === 'すべて' || item.category === menuCategory)
     && matchesMenuSearch(`${item.label} ${item.description} ${item.keywords}`, menuSearch));
   const homeItemMeta: Partial<Record<NavigationItem['id'], string>> = {
@@ -404,7 +412,8 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
     if (item.id === 'form') { onNewRecord(); return; }
     if (item.tab) { onNavigate(item.tab); return; }
     if (item.id === 'todayWork') setTodayWorkLaunch({ date: today, view: 'placement' });
-    if (item.id === 'monthlySchedule') { setMonthlyScheduleDate(today); setMonthlyScheduleReturn('menu'); }
+    if (item.id === 'monthlySchedule') { setMonthlyScheduleDate(today); setMonthlyScheduleReturn('menu'); setOpenAbsencePicker(false); }
+    if (item.id === 'dailyChanges') setChangeTarget(undefined);
     if (item.workspace) setActivePanel(item.workspace);
   };
 
@@ -528,20 +537,22 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             onBack={() => setActivePanel(activePanel === 'monthlySchedule' ? monthlyScheduleReturn : 'menu')}
           />
           <div key={activePanel} className="ui-panel-enter" role="region" aria-label={workspaceTitle(activePanel)}>
-        {activePanel === 'dailyChanges' && (
-          <DailyChangePanel
-            date={today}
-            childrenList={childrenList}
-            dailyChildPlans={dailyChildPlans}
+        {activePanel === 'dailyChanges' && !changeRead.ready && <OperationalPeriodStatus {...changeRead}/>}
+        {activePanel === 'dailyChanges' && changeRead.ready && (
+          <div key={`${changeTarget?.date || today}:${changeTarget?.runId || ''}`}><DailyChangePanel
+            date={changeTarget?.date || today}
+            initialRunId={changeTarget?.runId}
             transportRuns={transportRuns}
             recorderProfiles={recorderProfiles}
-            routeSettings={transportRouteSettings}
             activeRecorder={activeRecorder}
-            onSaveDailyChildPlan={onSaveDailyChildPlan}
-            onSaveTransportRun={onSaveTransportRun}
-            onDeleteTransportRun={onDeleteTransportRun}
+            onOpenAbsence={canManageTransport ? () => {
+              setMonthlyScheduleDate(changeTarget?.date || today);
+              setMonthlyScheduleReturn('dailyChanges');
+              setOpenAbsencePicker(true);
+              setActivePanel('monthlySchedule');
+            } : undefined}
             onChangeTransportAssignment={onChangeTransportAssignment}
-          />
+          /></div>
         )}
         {activePanel === 'todayWork' && (
           <TodayWorkPanel
@@ -562,9 +573,10 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             canManage={canManageShifts}
             onSaveStaffSchedule={onSaveStaffSchedule}
             onDeleteStaffSchedule={onDeleteStaffSchedule}
-            onSaveCalendarEvent={onSaveCalendarEvent}
-            onSaveAttendance={onSaveAttendance}
-            onSaveTransportRun={onSaveTransportRun}
+            onOpenAssignment={(date, runId) => {
+              setChangeTarget({ date, runId });
+              setActivePanel('dailyChanges');
+            }}
           />
         )}
 
@@ -578,6 +590,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             organizationId={organizationId}
             currentUserId={currentUser?.id}
             initialDate={monthlyScheduleDate}
+            initialAbsencePickerOpen={openAbsencePicker}
             childrenList={childrenList}
             schools={schools}
             dailyChildPlans={dailyChildPlans}
@@ -588,6 +601,7 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
             canManage={canManageTransport}
             onSavePlanDay={onSaveTransportPlanDay}
             onSaveDailyChildPlan={onSaveDailyChildPlan}
+            onSyncAbsenceTransport={onSyncAbsenceTransport}
             onDeleteDailyChildPlan={onDeleteDailyChildPlan}
             onDeleteRequirement={onDeleteDailyTransportRequirement}
             onDeleteMonthSchedules={onDeleteMonthlyDailySchedules}
@@ -703,33 +717,17 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
 };
 
 function DailyChangePanel({
-  date,
-  childrenList,
-  dailyChildPlans,
-  transportRuns,
-  recorderProfiles,
-  routeSettings,
-  activeRecorder,
-  onSaveDailyChildPlan,
-  onSaveTransportRun,
-  onDeleteTransportRun,
-  onChangeTransportAssignment,
+  date, initialRunId, transportRuns, recorderProfiles, activeRecorder, onOpenAbsence, onChangeTransportAssignment,
 }: {
   date: string;
-  childrenList: ChildProfile[];
-  dailyChildPlans: DailyChildPlan[];
+  initialRunId?: string;
   transportRuns: TransportRun[];
   recorderProfiles: RecorderProfile[];
-  routeSettings: TransportRouteSettings;
   activeRecorder?: RecorderProfile;
-  onSaveDailyChildPlan: (plan: DailyChildPlan) => Promise<void> | void;
-  onSaveTransportRun: (run: TransportRun) => Promise<void> | void;
-  onDeleteTransportRun: (runId: string) => Promise<void> | void;
+  onOpenAbsence?: () => void;
   onChangeTransportAssignment: (change: TransportAssignmentChangeInput) => Promise<void> | void;
 }) {
-  const [mode, setMode] = useState<'absence' | 'transport'>('absence');
-  const [childId, setChildId] = useState('');
-  const [runId, setRunId] = useState('');
+  const [runId, setRunId] = useState(initialRunId || '');
   const [actorId, setActorId] = useState(activeRecorder?.id || '');
   const [driverId, setDriverId] = useState('');
   const [pin, setPin] = useState('');
@@ -737,68 +735,9 @@ function DailyChangePanel({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const activeChildren = childrenList.filter((child) => !child.serviceSuspended).sort((left, right) => left.name.localeCompare(right.name, 'ja'));
   const activeRecorders = recorderProfiles.filter((recorder) => recorder.active);
   const dayRuns = transportRuns.filter((run) => run.date === date).sort((left, right) => left.startTime.localeCompare(right.startTime));
   const selectedRun = dayRuns.find((run) => run.id === runId);
-  const selectedChild = activeChildren.find((child) => child.id === childId);
-
-  const saveAbsence = async (attendancePlan: '欠席' | '利用予定') => {
-    if (!selectedChild) return setError('対象児童を選択してください。');
-    const affectedRuns = dayRuns.filter((run) => run.stops.some((stop) => stop.childId === selectedChild.id));
-    const runningRuns = affectedRuns.filter((run) => run.status !== '未出発');
-    const actionLabel = attendancePlan === '欠席' ? '欠席として登録' : '利用予定へ戻す';
-    if (!window.confirm(`${selectedChild.name}さんを${actionLabel}しますか？${attendancePlan === '欠席' && affectedRuns.length ? `\n未出発の送迎 ${affectedRuns.filter((run) => run.status === '未出発').length}便からも除外します。` : ''}`)) return;
-    setBusy(true);
-    setError('');
-    setMessage('');
-    try {
-      const existing = dailyChildPlans.find((plan) => plan.childId === selectedChild.id && plan.date === date);
-      const weekday = getWeekdayFromDate(date);
-      const holidayLike = weekday === '土' || weekday === '日';
-      const now = new Date().toISOString();
-      const plan: DailyChildPlan = existing ? {
-        ...existing,
-        attendancePlan,
-        updatedAt: now,
-      } : {
-        id:
-          typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-            ? crypto.randomUUID()
-            : `daily-plan-${Date.now()}`,
-        childId: selectedChild.id,
-        date,
-        attendancePlan,
-        serviceCategory: holidayLike ? '休日' : '平日',
-        recordFormat: holidayLike ? '休日' : '平日',
-        dayPattern: '通常',
-        hasMorningProgram: holidayLike,
-        hasLunch: holidayLike,
-        hasAfternoonProgram: true,
-        hasSnack: true,
-        schoolEndTime: selectedChild.transportSchedule?.find((schedule) => schedule.weekday === weekday)?.schoolEndTime,
-        departureTime: getDefaultDepartureTime(selectedChild, holidayLike ? '休日' : '平日', routeSettings),
-        createdAt: now,
-        updatedAt: now,
-      };
-      await onSaveDailyChildPlan(plan);
-
-      if (attendancePlan === '欠席') {
-        for (const run of affectedRuns.filter((candidate) => candidate.status === '未出発')) {
-          const stops = run.stops.filter((stop) => stop.childId !== selectedChild.id).map((stop, index) => ({ ...stop, order: index + 1 }));
-          if (stops.length === 0) await onDeleteTransportRun(run.id);
-          else await onSaveTransportRun({ ...run, stops, updatedAt: now });
-        }
-      }
-      setMessage(attendancePlan === '欠席'
-        ? `${selectedChild.name}さんを欠席登録しました。記録候補と未出発の送迎便へ反映しました。${runningRuns.length ? ` 運行中の${runningRuns.length}便は安全のため変更していません。` : ''}`
-        : `${selectedChild.name}さんを利用予定へ戻しました。必要な送迎便は「利用予定／送迎管理」から追加してください。`);
-    } catch (saveError) {
-      setError(saveError instanceof Error ? saveError.message : '当日予定を変更できませんでした。');
-    } finally {
-      setBusy(false);
-    }
-  };
 
   const changeAssignment = async () => {
     if (!selectedRun) return setError('変更する送迎便を選択してください。');
@@ -835,30 +774,8 @@ function DailyChangePanel({
         <h2 className="mt-1 text-lg font-black text-slate-950">何を変更しますか？</h2>
         <p className="mt-1 text-xs text-slate-500">通常設定を書き換えず、今日だけの変更として記録します。</p>
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-2 rounded-xl bg-slate-100 p-1.5">
-        <button type="button" onClick={() => { setMode('absence'); setMessage(''); setError(''); }} className={`min-h-11 rounded-lg text-sm font-black ${mode === 'absence' ? 'bg-white text-rose-700 shadow-sm' : 'text-slate-500'}`}>急な欠席</button>
-        <button type="button" onClick={() => { setMode('transport'); setMessage(''); setError(''); }} className={`min-h-11 rounded-lg text-sm font-black ${mode === 'transport' ? 'bg-white text-sky-800 shadow-sm' : 'text-slate-500'}`}>送迎担当の交代</button>
-      </div>
-
-      {mode === 'absence' ? (
-        <div className="mt-4 space-y-4">
-          <label className="block text-xs font-black text-slate-700">対象児童
-            <select value={childId} onChange={(event) => setChildId(event.target.value)} className="mt-1 min-h-12 w-full rounded-xl border border-slate-300 bg-white px-3 text-base">
-              <option value="">児童を選択してください</option>
-              {activeChildren.map((child) => <option key={child.id} value={child.id}>{child.name}{dailyChildPlans.some((plan) => plan.childId === child.id && plan.date === date && plan.attendancePlan === '欠席') ? '（欠席登録済み）' : ''}</option>)}
-            </select>
-          </label>
-          {selectedChild && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs leading-relaxed text-amber-950">
-              欠席登録すると、記録作成の候補から除外し、未出発の送迎便からも自動で外します。出発済みの便は安全のため変更せず警告します。
-            </div>
-          )}
-          <div className="grid grid-cols-2 gap-2">
-            <button type="button" disabled={busy || !selectedChild} onClick={() => void saveAbsence('欠席')} className="min-h-12 rounded-xl bg-rose-600 px-4 text-sm font-black text-white disabled:bg-slate-300">欠席として登録</button>
-            <button type="button" disabled={busy || !selectedChild} onClick={() => void saveAbsence('利用予定')} className="min-h-12 rounded-xl border border-teal-300 bg-white px-4 text-sm font-black text-teal-800 disabled:text-slate-300">利用予定へ戻す</button>
-          </div>
-        </div>
-      ) : (
+      {onOpenAbsence && <button type="button" onClick={onOpenAbsence} className="mt-4 min-h-11 rounded-lg border border-rose-200 px-4 text-sm font-black text-rose-800">今日の欠席設定を開く</button>}
+      <h3 className="mt-4 font-bold text-slate-900">送迎担当の交代</h3>
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
           <label className="block text-xs font-black text-slate-700 lg:col-span-2">変更する送迎便
             <select value={runId} onChange={(event) => { const nextRun = dayRuns.find((run) => run.id === event.target.value); setRunId(event.target.value); setDriverId(nextRun?.driverRecorderProfileId || ''); }} className="mt-1 min-h-12 w-full rounded-xl border border-slate-300 bg-white px-3 text-base">
@@ -880,7 +797,6 @@ function DailyChangePanel({
           </label>
           <button type="button" disabled={busy || !selectedRun || !driverId || !actorId || !pin} onClick={() => void changeAssignment()} className="min-h-12 rounded-xl bg-sky-800 px-4 text-sm font-black text-white disabled:bg-slate-300 lg:col-span-2">確認して担当を変更</button>
         </div>
-      )}
       {message && <p className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-xs font-bold leading-relaxed text-emerald-900" role="status">{message}</p>}
       {error && <p className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs font-bold leading-relaxed text-rose-900" role="alert">{error}</p>}
     </section>

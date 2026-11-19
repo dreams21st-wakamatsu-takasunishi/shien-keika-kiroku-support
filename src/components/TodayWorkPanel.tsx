@@ -1,15 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import {
   AlertTriangle,
-  Bot,
   BusFront,
   CalendarDays,
   ChartGantt,
-  CheckCircle2,
   Clock3,
   UserRoundCheck,
   UsersRound,
-  X,
 } from 'lucide-react';
 import type {
   AttendanceRecord,
@@ -51,9 +48,7 @@ interface TodayWorkPanelProps {
   canManage: boolean;
   onSaveStaffSchedule: (item: StaffScheduleItem) => Promise<void> | void;
   onDeleteStaffSchedule: (itemId: string) => Promise<void> | void;
-  onSaveCalendarEvent: (event: CalendarEvent) => Promise<void> | void;
-  onSaveAttendance: (record: AttendanceRecord) => Promise<void> | void;
-  onSaveTransportRun: (run: TransportRun) => Promise<void> | void;
+  onOpenAssignment?: (date: string, runId: string) => void;
 }
 
 export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
@@ -74,9 +69,7 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
   canManage,
   onSaveStaffSchedule,
   onDeleteStaffSchedule,
-  onSaveCalendarEvent,
-  onSaveAttendance,
-  onSaveTransportRun,
+  onOpenAssignment,
 }) => {
   const [selectedDate, setSelectedDate] = useState(initialDate || getLocalDateString());
   const periodRead=useOperationalPeriod(onLoadOperationalPeriod,dayPeriod(selectedDate),'both');
@@ -130,20 +123,6 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
         </details>
       )}
 
-      {canManage && (
-        <OperationsAssistant
-          selectedDate={selectedDate}
-          dateScoped={Boolean(onLoadOperationalPeriod)}
-          calendarEvents={calendarEvents}
-          attendanceRecords={attendanceRecords}
-          transportRuns={transportRuns}
-          vehicles={vehicles}
-          recorderProfiles={recorderProfiles}
-          onSaveCalendarEvent={onSaveCalendarEvent}
-          onSaveAttendance={onSaveAttendance}
-          onSaveTransportRun={onSaveTransportRun}
-        />
-      )}
 
       {view === 'placement' && (
         <>
@@ -155,7 +134,7 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
         </>
       )}
       {view === 'transport' && (
-        <TodayTransportOverview date={selectedDate} runs={transportRuns} locations={transportMapLocations} zones={transportAreaZones} routeSettings={transportRouteSettings} />
+        <TodayTransportOverview date={selectedDate} runs={transportRuns} locations={transportMapLocations} zones={transportAreaZones} routeSettings={transportRouteSettings} onOpenAssignment={onOpenAssignment ? runId => onOpenAssignment(selectedDate, runId) : undefined} />
       )}
       </>}
     </div>
@@ -164,88 +143,6 @@ export const TodayWorkPanel: React.FC<TodayWorkPanelProps> = ({
 
 const WorkTab = ({ active, icon: Icon, label, onClick }: { active: boolean; icon: React.ElementType; label: string; onClick: () => void }) => <button type="button" onClick={onClick} aria-pressed={active} className={`flex min-h-11 flex-col items-center justify-center gap-0.5 rounded-xl px-1 text-[10px] font-black sm:flex-row sm:gap-2 sm:text-sm ${active ? 'bg-slate-900 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}><Icon className="h-4 w-4 sm:h-5 sm:w-5" />{label}</button>;
 const SummaryCard = ({ icon: Icon, label, value, detail, tone }: { icon: React.ElementType; label: string; value: string; detail?: string; tone: string }) => <div className={`min-w-[8.5rem] rounded-xl border px-3 py-2.5 lg:min-w-0 ${tone === 'emerald' ? 'border-emerald-200 bg-emerald-50' : tone === 'amber' ? 'border-amber-200 bg-amber-50' : tone === 'blue' ? 'border-sky-200 bg-sky-50' : tone === 'violet' ? 'border-violet-200 bg-violet-50' : tone === 'rose' ? 'border-rose-200 bg-rose-50' : 'border-slate-200 bg-slate-50'}`}><span className="flex items-center gap-1 text-[10px] font-bold text-slate-500"><Icon className="h-3.5 w-3.5" />{label}</span><strong className="mt-0.5 block text-lg text-slate-950">{value}</strong>{detail && <span className="block truncate text-[9px] text-slate-500">{detail}</span>}</div>;
-
-interface OperationsProposal {
-  summary: string;
-  details: string[];
-  execute: () => Promise<void>;
-}
-
-function OperationsAssistant({
-  selectedDate,
-  dateScoped,
-  calendarEvents,
-  attendanceRecords,
-  transportRuns,
-  vehicles,
-  recorderProfiles,
-  onSaveCalendarEvent,
-  onSaveAttendance,
-  onSaveTransportRun,
-}: {
-  selectedDate: string;
-  dateScoped: boolean;
-  calendarEvents: CalendarEvent[];
-  attendanceRecords: AttendanceRecord[];
-  transportRuns: TransportRun[];
-  vehicles: Vehicle[];
-  recorderProfiles: RecorderProfile[];
-  onSaveCalendarEvent: (event: CalendarEvent) => Promise<void> | void;
-  onSaveAttendance: (record: AttendanceRecord) => Promise<void> | void;
-  onSaveTransportRun: (run: TransportRun) => Promise<void> | void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [instruction, setInstruction] = useState('');
-  const [proposal, setProposal] = useState<OperationsProposal>();
-  const [message, setMessage] = useState('');
-  const [busy, setBusy] = useState(false);
-
-  const propose = () => {
-    setMessage('');
-    try {
-      const target=extractOperationsDate(instruction,selectedDate);
-      if(dateScoped&&target!==selectedDate&&/送迎|運転|便|車両|号車|配車|欠勤|有給|公休|特別休暇|研修|遅刻|早退/.test(instruction)) {
-        throw new Error(`先に「業務の対象日」を${target}に切り替え、当日の出退勤・送迎を読み込んでください。`);
-      }
-      setProposal(buildOperationsProposal({ instruction, selectedDate, calendarEvents, attendanceRecords, transportRuns, vehicles, recorderProfiles, onSaveCalendarEvent, onSaveAttendance, onSaveTransportRun }));
-    } catch (error) {
-      setProposal(undefined);
-      setMessage(error instanceof Error ? error.message : '実行内容を特定できませんでした。');
-    }
-  };
-
-  const execute = async () => {
-    if (!proposal) return;
-    setBusy(true);
-    setMessage('');
-    try {
-      await proposal.execute();
-      setMessage('承認された内容を実行しました。職員配置にも自動反映されます。');
-      setProposal(undefined);
-      setInstruction('');
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : '実行できませんでした。');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <details open={open} onToggle={(event) => setOpen(event.currentTarget.open)} className="rounded-2xl border border-indigo-200 bg-white shadow-sm">
-      <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 px-4 py-3">
-        <span className="grid h-9 w-9 place-items-center rounded-xl bg-indigo-100 text-indigo-700"><Bot className="h-5 w-5" /></span>
-        <span className="min-w-0 flex-1"><strong className="block text-sm text-slate-900">業務AIアシスタント</strong><span className="block text-[10px] text-slate-500">実行案を確認し、承認後だけ勤務・予定・配車を更新します。</span></span>
-        <span className="text-xs font-black text-indigo-700">{open ? '閉じる' : '開く'}</span>
-      </summary>
-      <div className="space-y-3 border-t border-indigo-100 p-4">
-        <label className="block text-xs font-black text-slate-700">指示文<textarea rows={3} value={instruction} onChange={(event) => { setInstruction(event.target.value); setProposal(undefined); setMessage(''); }} placeholder="例：明日の鈴木児発管の送迎を山田指導員へ変更" className="mt-1 w-full rounded-xl border border-slate-300 p-3 text-base leading-relaxed" /></label>
-        {!proposal && <button type="button" disabled={!instruction.trim()} onClick={propose} className="min-h-11 w-full rounded-xl bg-indigo-600 px-4 text-sm font-black text-white disabled:bg-slate-300">実行案を作成</button>}
-        {proposal && <section className="rounded-xl border border-indigo-200 bg-indigo-50 p-4"><div className="flex items-start justify-between gap-3"><div><p className="text-[10px] font-black text-indigo-700">アシスタント案</p><h4 className="mt-1 font-black text-slate-950">{proposal.summary}</h4></div><button type="button" onClick={() => setProposal(undefined)} aria-label="実行案を閉じる" className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-white"><X className="h-4 w-4" /></button></div><ul className="mt-3 space-y-1 text-xs text-slate-700">{proposal.details.map((detail) => <li key={detail} className="rounded-lg bg-white px-3 py-2">{detail}</li>)}</ul><p className="mt-3 text-[10px] font-bold text-amber-800">承認するまでデータは変更されません。</p><button type="button" disabled={busy} onClick={execute} className="mt-3 flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-teal-600 px-4 text-sm font-black text-white disabled:opacity-60"><CheckCircle2 className="h-5 w-5" />{busy ? '実行中…' : 'この内容を承認して実行'}</button></section>}
-        {message && <p role="status" className={`rounded-xl p-3 text-sm font-bold ${message.includes('実行しました') ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-900'}`}>{message}</p>}
-      </div>
-    </details>
-  );
-}
 
 function createGeneratedScheduleItems(events: CalendarEvent[], attendance: AttendanceRecord[], runs: TransportRun[], recorders: RecorderProfile[], selectedDate: string): StaffScheduleItem[] {
   const recorderName = new Map(recorders.map((profile) => [profile.id, profile.displayName]));
@@ -267,126 +164,6 @@ function createGeneratedScheduleItems(events: CalendarEvent[], attendance: Atten
   })));
   return [...calendarItems, ...attendanceItems, ...transportItems];
 }
-
-function buildOperationsProposal({
-  instruction,
-  selectedDate,
-  calendarEvents,
-  attendanceRecords,
-  transportRuns,
-  vehicles,
-  recorderProfiles,
-  onSaveCalendarEvent,
-  onSaveAttendance,
-  onSaveTransportRun,
-}: {
-  instruction: string;
-  selectedDate: string;
-  calendarEvents: CalendarEvent[];
-  attendanceRecords: AttendanceRecord[];
-  transportRuns: TransportRun[];
-  vehicles: Vehicle[];
-  recorderProfiles: RecorderProfile[];
-  onSaveCalendarEvent: (event: CalendarEvent) => Promise<void> | void;
-  onSaveAttendance: (record: AttendanceRecord) => Promise<void> | void;
-  onSaveTransportRun: (run: TransportRun) => Promise<void> | void;
-}): OperationsProposal {
-  const normalized = instruction.replace(/\s+/g, '');
-  if (!normalized) throw new Error('指示文を入力してください。');
-  if (/削除|権限|招待|承認済み記録/.test(normalized)) {
-    throw new Error('削除・権限・招待・承認済み記録の変更は、安全のため各管理画面から行ってください。');
-  }
-  const targetDate = extractOperationsDate(instruction, selectedDate);
-  const mentionedRecorders = recorderProfiles.filter((profile) => normalized.includes(profile.displayName.replace(/\s+/g, '')));
-  const dayRuns = transportRuns.filter((run) => run.date === targetDate);
-
-  if (/送迎|運転|便/.test(normalized) && /変更|交代|代わり/.test(normalized)) {
-    const namedRun = dayRuns.find((run) => normalized.includes(run.name.replace(/\s+/g, '')));
-    const sourceRecorder = mentionedRecorders.find((profile) => dayRuns.some((run) => run.driverRecorderProfileId === profile.id));
-    const targetRecorder = [...mentionedRecorders].reverse().find((profile) => profile.id !== sourceRecorder?.id)
-      || (mentionedRecorders.length === 1 && namedRun ? mentionedRecorders[0] : undefined);
-    const targetRun = namedRun || dayRuns.find((run) => run.driverRecorderProfileId === sourceRecorder?.id);
-    if (!targetRun) throw new Error(`${targetDate}の変更対象となる送迎便を特定できません。便名または現在の運転者名を含めてください。`);
-    if (!targetRecorder) throw new Error('変更後の運転担当者を職員名で指定してください。');
-    const beforeName = targetRun.driverName || '未設定';
-    return {
-      summary: `${targetDate}の「${targetRun.name}」の運転担当を${targetRecorder.displayName}へ変更します。よろしいですか？`,
-      details: [`変更前：${beforeName}`, `変更後：${targetRecorder.displayName}`, 'ガントチャートは送迎便の更新後に自動更新'],
-      execute: async () => { await onSaveTransportRun({ ...targetRun, driverRecorderProfileId: targetRecorder.id, driverName: targetRecorder.displayName, updatedAt: new Date().toISOString() }); },
-    };
-  }
-
-  if (/車両|号車|配車/.test(normalized) && /変更|割り当て/.test(normalized)) {
-    const vehicle = vehicles.find((candidate) => normalized.includes(candidate.name.replace(/\s+/g, '')));
-    const targetRun = dayRuns.find((run) => normalized.includes(run.name.replace(/\s+/g, ''))) || (dayRuns.length === 1 ? dayRuns[0] : undefined);
-    if (!targetRun) throw new Error(`${targetDate}の対象便を便名で指定してください。`);
-    if (!vehicle) throw new Error('変更後の車両名を指定してください。');
-    if (!vehicle.available) throw new Error(`${vehicle.name}は使用不可に設定されています。`);
-    return {
-      summary: `${targetDate}の「${targetRun.name}」を${vehicle.name}へ変更します。よろしいですか？`,
-      details: [`変更前：${targetRun.vehicleName || '未設定'}`, `変更後：${vehicle.name}`, '定員・時間重複は更新後も自動点検'],
-      execute: async () => { await onSaveTransportRun({ ...targetRun, vehicleId: vehicle.id, vehicleName: vehicle.name, updatedAt: new Date().toISOString() }); },
-    };
-  }
-
-  const attendanceStatus = (['欠勤', '有給', '公休', '特別休暇', '研修', '遅刻', '早退'] as const).find((status) => normalized.includes(status));
-  if (attendanceStatus) {
-    const recorder = mentionedRecorders[0];
-    if (!recorder) throw new Error('勤務状態を変更する職員名を指定してください。');
-    const existing = attendanceRecords.find((record) => record.date === targetDate && record.recorderProfileId === recorder.id);
-    const now = new Date().toISOString();
-    const updated: AttendanceRecord = {
-      id: existing?.id || createOperationsUuid('attendance'), recorderProfileId: recorder.id, recorderName: recorder.displayName, date: targetDate,
-      scheduledStartTime: existing?.scheduledStartTime, scheduledEndTime: existing?.scheduledEndTime, status: attendanceStatus,
-      clockInAt: existing?.clockInAt, clockOutAt: existing?.clockOutAt, breakPeriods: existing?.breakPeriods || [], note: existing?.note,
-      deviceId: existing?.deviceId, lastActionByRecorderId: existing?.lastActionByRecorderId, createdAt: existing?.createdAt || now, updatedAt: now,
-    };
-    return {
-      summary: `${targetDate}の${recorder.displayName}を「${attendanceStatus}」として登録します。よろしいですか？`,
-      details: [`変更前：${existing?.status || '未登録'}`, `変更後：${attendanceStatus}`, '朝礼と職員配置へ自動反映'],
-      execute: async () => { await onSaveAttendance(updated); },
-    };
-  }
-
-  const eventType = (['会議', '朝礼', '研修', '保護者面談', '学校行事', '事業所行事', '提出期限'] as const).find((type) => normalized.includes(type));
-  if (eventType) {
-    const times = [...instruction.matchAll(/(\d{1,2})(?::|時)(\d{2})?/g)].map((match) => `${String(Number(match[1])).padStart(2, '0')}:${String(Number(match[2] || 0)).padStart(2, '0')}`);
-    const startTime = times[0] || '10:00';
-    const endTime = times[1] || addMinutes(startTime, 60);
-    if (startTime >= endTime) throw new Error('予定の終了時刻は開始時刻より後にしてください。');
-    const title = `${eventType}（業務アシスタント）`;
-    if (calendarEvents.some((event) => event.date === targetDate && event.title === title && event.startTime === startTime)) throw new Error('同じ予定がすでに登録されています。');
-    const now = new Date().toISOString();
-    const event: CalendarEvent = {
-      id: createOperationsUuid('calendar'), title, eventType, date: targetDate, allDay: false, startTime, endTime,
-      recorderProfileIds: (mentionedRecorders.length ? mentionedRecorders : recorderProfiles.filter((profile) => profile.active)).map((profile) => profile.id), childIds: [], notificationEnabled: false, visibility: '全体', color: '#2563eb', recurrence: 'なし',
-      note: instruction.trim(), createdAt: now, updatedAt: now,
-    };
-    return {
-      summary: `${targetDate} ${startTime}〜${endTime}に「${eventType}」を登録します。よろしいですか？`,
-      details: [`対象職員：${mentionedRecorders.map((profile) => profile.displayName).join('、') || '全体'}`, 'カレンダー・ガントチャート・朝礼へ自動反映'],
-      execute: async () => { await onSaveCalendarEvent(event); },
-    };
-  }
-
-  throw new Error('現在は、送迎担当・車両の変更、欠勤／休暇／研修の登録、会議・朝礼・面談・行事・期限の追加に対応しています。');
-}
-
-function extractOperationsDate(instruction: string, selectedDate: string) {
-  const today = getLocalDateString();
-  if (/明日|翌日/.test(instruction)) return shiftOperationsDate(today, 1);
-  if (/今日|本日/.test(instruction)) return today;
-  const iso = instruction.match(/(20\d{2})[-/]([01]?\d)[-/]([0-3]?\d)/);
-  if (iso) return `${iso[1]}-${iso[2].padStart(2, '0')}-${iso[3].padStart(2, '0')}`;
-  const japanese = instruction.match(/(20\d{2})年([01]?\d)月([0-3]?\d)日/);
-  if (japanese) return `${japanese[1]}-${japanese[2].padStart(2, '0')}-${japanese[3].padStart(2, '0')}`;
-  const monthDay = instruction.match(/([01]?\d)月([0-3]?\d)日/);
-  if (monthDay) return `${selectedDate.slice(0, 4)}-${monthDay[1].padStart(2, '0')}-${monthDay[2].padStart(2, '0')}`;
-  return selectedDate;
-}
-function shiftOperationsDate(date: string, days: number) { const next = new Date(`${date}T00:00:00`); next.setDate(next.getDate() + days); return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, '0')}-${String(next.getDate()).padStart(2, '0')}`; }
-function addMinutes(time: string, minutes: number) { const [hour, minute] = time.split(':').map(Number); const total = hour * 60 + minute + minutes; return `${String(Math.floor(total / 60) % 24).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`; }
-function createOperationsUuid(prefix: string) { return typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`; }
 
 function getScheduledChildren(children: ChildProfile[], events: CalendarEvent[], dailyPlans: DailyChildPlan[], date: string) {
   const additions = new Set(events.filter((event) => ['追加利用', '通常利用'].includes(event.eventType)).flatMap((event) => event.childIds));

@@ -26,7 +26,7 @@ import type {
 } from '../types';
 import { APP_BUILD_TIME, APP_VERSION, useAppUpdate } from '../hooks/useAppUpdate';
 
-import { activeNavigationId, applyMenuPreferences, groupNavigationItems, matchesMenuSearch, navigationItems, type ActiveTab, type HomeWorkspaceItem } from '../utils/navigation';
+import { activeNavigationId, applyMenuPreferences, canUseVisitingReports, groupNavigationItems, matchesMenuSearch, navigationItems, type ActiveTab, type HomeWorkspaceItem } from '../utils/navigation';
 import { MenuSearch } from './MenuSearch';
 import {UserSwitchDialog} from './UserSwitchDialog';
 export type { ActiveTab } from '../utils/navigation';
@@ -90,6 +90,7 @@ export const Header: React.FC<HeaderProps> = ({
     (item.id !== 'templates' || canOpenSettings)
     && (item.id !== 'team' || canOpenTeam)
     && (!item.managerOnly || !currentUser || currentUser.role !== 'staff')
+    && (item.id !== 'visitingReports' || canUseVisitingReports(currentUser))
     && (!currentUser?.fieldModeOnly || fieldModeItems.has(item.id))
   );
   const privilegedItemIds = new Set<RecorderMenuItemId>(['templates', 'team']);

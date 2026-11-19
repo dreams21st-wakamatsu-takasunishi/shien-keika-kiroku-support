@@ -298,6 +298,7 @@ function mapRecorderProfile(row: any): RecorderProfile {
     'activityPlans',
     'facilityWork',
     'legalTraining',
+    'visitingReports',
     'operations',
     'communication',
     'form',
@@ -1618,6 +1619,13 @@ export async function deleteMonthlyDailySchedules(
     requirementCount: Number(result.requirement_count || 0),
     affectedDateCount: Number(result.affected_date_count || 0),
   };
+}
+
+export async function syncAbsenceTransport(date: string, childId: string): Promise<number> {
+  const { data, error } = await assertSupabase().rpc('sync_absence_transport', { p_date: date, p_child_id: childId });
+  if (error) throw error;
+  if (!Number.isSafeInteger(data?.noneditable) || data.noneditable < 0) throw new Error('送迎便の反映結果を確認できません。');
+  return data.noneditable;
 }
 
 export async function saveTransportRun(organizationId: string, run: TransportRun) {

@@ -383,6 +383,7 @@ export type RecorderMenuItemId =
   | 'activityPlans'
   | 'facilityWork'
   | 'legalTraining'
+  | 'visitingReports'
   | 'operations'
   | 'communication'
   | 'form'

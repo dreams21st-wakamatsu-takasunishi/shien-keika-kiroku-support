@@ -25,3 +25,7 @@ export const FacilityWorkspace = createDeferredPanel<ComponentProps<typeof impor
   async () => ({ default: (await import('./FacilityWorkspace')).FacilityWorkspace }), '施設業務');
 export const LegalTrainingWorkspace = createDeferredPanel<ComponentProps<typeof import('./LegalTrainingWorkspace').LegalTrainingWorkspace>>(
   async () => ({ default: (await import('./LegalTrainingWorkspace')).LegalTrainingWorkspace }), '法定研修');
+export const VisitingReportWorkspace = createDeferredPanel<ComponentProps<typeof import('./VisitingReportWorkspace').VisitingReportWorkspace>>(
+  async () => ({ default: (await import('./VisitingReportWorkspace')).VisitingReportWorkspace }), '訪問支援報告書');
+export const SupportPlanManager = createDeferredPanel<ComponentProps<typeof import('./SupportPlanManager').SupportPlanManager>>(
+  async () => ({ default: (await import('./SupportPlanManager')).SupportPlanManager }), '個別支援計画');

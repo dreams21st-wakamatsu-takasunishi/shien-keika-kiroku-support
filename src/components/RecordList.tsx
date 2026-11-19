@@ -15,7 +15,6 @@ interface RecordListProps {
   onSelectRecord: (record: SupportRecord) => void;
   onEditRecord: (record: SupportRecord) => void;
   onCorrectRecord?: (record: SupportRecord) => void;
-  onDuplicateRecord: (record: SupportRecord) => void;
   onDeleteRecord: (recordId: string) => void;
   canDeleteRecords?: boolean;
   onNewRecord: () => void;
@@ -69,7 +68,6 @@ export const RecordList: React.FC<RecordListProps> = ({
   onSelectRecord,
   onEditRecord,
   onCorrectRecord,
-  onDuplicateRecord,
   onDeleteRecord,
   canDeleteRecords = true,
   onNewRecord,
@@ -451,7 +449,6 @@ export const RecordList: React.FC<RecordListProps> = ({
                     ) : (
                       <button type="button" onClick={() => onEditRecord(record)} className="flex min-h-10 items-center justify-center gap-1 rounded-lg border border-slate-300 text-xs font-black text-slate-700"><Edit className="h-4 w-4" />再編集</button>
                     )}
-                    <button type="button" onClick={() => onDuplicateRecord(record)} className="flex min-h-10 items-center justify-center gap-1 rounded-lg border border-teal-200 text-xs font-black text-teal-700"><Copy className="h-4 w-4" />再利用</button>
                     {canDeleteRecords && (
                       <button type="button" onClick={() => {
                         if (confirm('この記録を削除してもよろしいですか？')) onDeleteRecord(record.id);
@@ -557,13 +554,6 @@ export const RecordList: React.FC<RecordListProps> = ({
                             <Wrench className="h-3.5 w-3.5" />修正
                           </button>
                         )}
-                        <button
-                          onClick={() => onDuplicateRecord(r)}
-                          className="p-1.5 hover:bg-slate-200 text-teal-700 rounded-md"
-                          title="本日の記録として再利用"
-                        >
-                          <Copy className="w-4 h-4" />
-                        </button>
                         {canDeleteRecords && <button
                           onClick={() => {
                             if (confirm('この記録を削除してもよろしいですか？')) {

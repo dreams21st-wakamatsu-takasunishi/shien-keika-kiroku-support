@@ -33,7 +33,15 @@ async function check(page) {
       identity: { sourceProjectRef: project, dataTable: 'user_data', studentId: link.source_student_id, campusId: op.campusId, displayName: name, birthDate: '2016-01-01' }, account: { status: 'ready', authCount: 1, loginNumber: '19' },
       card: { verified: true, loginNumber: '19', loginUrl: `https://dreams21st-wakamatsu-takasunishi.github.io/d-lesson-v4/?campus=${op.campusId}`, passcode: '0123456789' }, checkedAt, expiresAt: new Date(Date.parse(checkedAt) + expiry).toISOString() } } });
   });
-  const select = async () => { await page.getByRole('tab', { name: 'アカウント連携', exact: true }).click(); await page.getByRole('button', { name: /架空児童 未連携/ }).click(); };
+  const select = async () => {
+    if (permission) {
+      await page.getByRole('tab', { name: '児童・ログイン管理', exact: true }).click();
+      await page.getByRole('article').filter({has:page.getByRole('heading',{name:'架空児童 未連携',exact:true})}).getByRole('button',{name:'Dレッスンに登録',exact:true}).click();
+    } else {
+      await page.getByRole('tab', { name: 'アカウント連携', exact: true }).click();
+      await page.getByRole('button', { name: /架空児童 未連携/ }).click();
+    }
+  };
   await page.goto('http://localhost:3014/tests/fixtures/lesson-learning.html'); await select();
   assert(await page.getByRole('region', { name: '未連携児童の新規登録' }).count() === 0, 'both permissions required');
   permission = true; await page.reload(); await select();

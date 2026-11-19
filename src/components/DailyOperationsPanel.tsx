@@ -176,9 +176,9 @@ export const DailyOperationsPanel: React.FC<DailyOperationsPanelProps> = ({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h3 className="flex items-center gap-2 text-base font-black text-slate-900">
-              <CalendarCheck2 className="h-5 w-5 text-teal-700" />本日の運用状況
+              <CalendarCheck2 className="h-5 w-5 text-teal-700" />支援記録
             </h3>
-            <p className="mt-1 text-xs text-slate-600">利用予定児童の記録状況を一画面で確認できます。</p>
+            <p className="mt-1 text-xs text-slate-600">児童を選んで新規作成、入力再開、引き継ぎ、保存済みの確認ができます。</p>
           </div>
           <label className="flex items-center gap-2 text-xs font-bold text-slate-700">
             対象日

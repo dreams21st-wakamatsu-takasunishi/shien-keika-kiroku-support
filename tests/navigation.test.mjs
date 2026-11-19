@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { activeNavigationId, applyMenuPreferences, groupNavigationItems, matchesMenuSearch, navigationItems, MENU_CATEGORIES } from '../src/utils/navigation.ts';
+import { activeNavigationId, applyMenuPreferences, canUseVisitingReports, groupNavigationItems, matchesMenuSearch, navigationItems, MENU_CATEGORIES } from '../src/utils/navigation.ts';
 
 test('home and drawer use the same unique menu IDs and names', () => {
   assert.equal(new Set(navigationItems.map((item) => item.id)).size, navigationItems.length);
@@ -14,7 +14,7 @@ test('home and drawer use the same unique menu IDs and names', () => {
 
 test('all registered menu IDs survive profile loading and database preference validation', () => {
   const service = readFileSync(new URL('../src/services/dataService.ts', import.meta.url), 'utf8');
-  const sql = readFileSync(new URL('../supabase/migrations/202610060002_legal_training.sql', import.meta.url), 'utf8');
+  const sql = readFileSync(new URL('../supabase/migrations/202611190001_visiting_report_staff_access.sql', import.meta.url), 'utf8');
   const allowed = service.match(/const allowedMenuItems[^=]*=\s*new Set<RecorderMenuItemId>\(\[([\s\S]*?)\]/)?.[1];
   const databaseAllowed = sql.match(/v_allowed constant text\[\]\s*:=\s*array\[([\s\S]*?)\]/)?.[1];
   assert.ok(allowed);
@@ -24,6 +24,22 @@ test('all registered menu IDs survive profile loading and database preference va
     assert.ok(databaseAllowed.includes(`'${item.id}'`), `database must accept ${item.id}`);
   }
   assert.equal(navigationItems.find((item) => item.id === 'trafficCost')?.tab, 'trafficCost');
+});
+
+test('visiting reports are a top-level menu for all signed-in staff roles in full workspace mode', () => {
+  const item = navigationItems.find(item => item.id === 'visitingReports');
+  assert.equal(item?.tab, 'visitingReports');
+  assert.equal(item?.category, '記録・児童');
+  assert.ok(!item?.managerOnly);
+  for (const role of ['staff','classroom_manager','manager','admin']) {
+    const profile = {role, organizationId:'fixture-org', accessDeviceKind:'facility_shared'};
+    assert.equal(canUseVisitingReports(profile), true);
+    assert.equal(canUseVisitingReports({...profile,fieldModeOnly:true}), false);
+    assert.equal(canUseVisitingReports({...profile,accessDeviceKind:'personal'}), false);
+  }
+  assert.equal(canUseVisitingReports(null), false);
+  assert.equal(activeNavigationId('form'), 'operations');
+  assert.equal(navigationItems.some(item => item.id === 'form'), false);
 });
 
 test('saved order and hidden items apply to both home and drawer, without duplicates', () => {

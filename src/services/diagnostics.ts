@@ -5,9 +5,9 @@ export const DIAGNOSTICS_KEY = 'd-support:diagnostics:v1';
 export const DIAGNOSTICS_RETENTION_DAYS = 30;
 const MAX_EVENTS = 200, MAX_ACTIONS = 12;
 const REPEATED_API_ERROR_WINDOW_MS = 60_000;
-const screens = new Set(['home','form','records','preview','meetings','learning','trafficCost','activityPlans','facilityWork','legalTraining','children','templates','team','plans','dailyChanges','todayWork','attendance','calendar','monthlySchedule','operations','communication','assistant']);
+const screens = new Set(['home','form','records','preview','meetings','learning','trafficCost','activityPlans','facilityWork','legalTraining','visitingReports','children','templates','team','plans','dailyChanges','todayWork','attendance','calendar','monthlySchedule','operations','communication','assistant']);
 const resources = new Set(['support_records','record_drafts','children','recorder_profiles','profiles','daily_child_plans','staff_schedule_items','transport_runs','meeting_cases','morning_meeting_records','legal_training_categories','legal_training_videos',
-  'save_support_records_guarded','save_record_draft_guarded','finish_record_draft_save','take_over_record_draft_children','take_over_record_draft_children_into_existing','get_personal_transport_dashboard','issue_personal_staff_qr','set_recorder_menu_preferences',
+  'save_support_records_guarded','save_record_draft_guarded','finish_record_draft_save','take_over_record_draft_children','take_over_record_draft_children_into_existing','get_personal_transport_dashboard','issue_personal_staff_qr','set_recorder_menu_preferences','sync_absence_transport',
   'optimize-transport-route','manage-member','manage-recorder-login',
   'activity_plans','announcement_confirmations','announcements','attendance_correction_requests','attendance_records','audit_logs','calendar_events','child_regular_day_schedules','daily_transport_requirements',
   'facility_documents','handover_confirmations','handover_items','legal_training_settings','meeting_export_events','meeting_progress_records','meeting_transcripts','member_invitations','morning_meeting_confirmations','morning_meeting_templates',

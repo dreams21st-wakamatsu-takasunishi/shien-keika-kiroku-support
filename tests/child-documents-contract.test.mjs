@@ -4,7 +4,7 @@ import {readFileSync} from 'node:fs';
 const read=file=>readFileSync(new URL('../'+file,import.meta.url),'utf8');
 test('private document metadata is not added to the general child profile or general workspace',()=>{
  const child=read('src/types.ts').split('export interface ChildProfile {')[1].split('\n}')[0];assert.doesNotMatch(child,/contractDate|monitoringMonths|documentEntries/);
- const app=read('src/App.tsx');assert.match(app,/currentUser=\{auth.profile\} onDocumentDirtyChange=\{setDocumentDirty\}/);assert.match(app,/documentDirty\?'児童名簿'/);
+ const app=read('src/App.tsx');assert.match(app,/currentUser=\{auth.profile\} onDocumentDirtyChange=\{setDocumentDirty\}/);assert.match(app,/documentDirty\?\(activeTab==='visitingReports'\?'訪問支援報告書':'児童名簿'\)/);
  const service=read('src/services/childDocumentService.ts');assert.match(service,/get_child_document_register/);assert.doesNotMatch(service,/functions\.invoke|openai|tiro|localStorage\.setItem|storage\.from/);
 });
 test('document SQL restricts direct reads and writes and preserves all correction history',()=>{

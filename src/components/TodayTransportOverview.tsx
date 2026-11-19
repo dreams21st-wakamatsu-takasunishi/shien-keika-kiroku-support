@@ -4,7 +4,7 @@ import type { TransportAreaZone, TransportDirection, TransportMapLocation, Trans
 import { DailyTransportMiniMap, type DailyTransportMiniMapPoint } from './DeferredTransportMaps';
 import { TransportScheduleBoard } from './TransportScheduleBoard';
 
-export function TodayTransportOverview({ date, runs, locations, zones, routeSettings }: { date: string; runs: TransportRun[]; locations: TransportMapLocation[]; zones: TransportAreaZone[]; routeSettings: TransportRouteSettings }) {
+export function TodayTransportOverview({ date, runs, locations, zones, routeSettings, onOpenAssignment }: { date: string; runs: TransportRun[]; locations: TransportMapLocation[]; zones: TransportAreaZone[]; routeSettings: TransportRouteSettings; onOpenAssignment?: (runId: string) => void }) {
   const [direction, setDirection] = useState<TransportDirection>('迎え');
   const [selectedRunId, setSelectedRunId] = useState<string>();
   const [mapOpen, setMapOpen] = useState(false);
@@ -33,6 +33,7 @@ export function TodayTransportOverview({ date, runs, locations, zones, routeSett
   return <div className="space-y-3">
     <div className="grid grid-cols-2 gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm"><button type="button" onClick={() => setDirection('迎え')} className={`min-h-11 rounded-xl text-sm font-black ${direction === '迎え' ? 'bg-sky-600 text-white' : 'text-slate-600'}`}>迎え</button><button type="button" onClick={() => setDirection('送り')} className={`min-h-11 rounded-xl text-sm font-black ${direction === '送り' ? 'bg-violet-600 text-white' : 'text-slate-600'}`}>送り</button></div>
     <TransportScheduleBoard runs={dayRuns} selectedRunId={activeRunId} onSelectRun={setSelectedRunId} emptyText={`${direction}便はありません。`} />
+    {activeRunId && onOpenAssignment && <button type="button" onClick={()=>onOpenAssignment(activeRunId)} className="min-h-11 rounded-xl border bg-white px-4 text-sm font-bold">選択した便の担当を交代</button>}
     <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
       <button type="button" onClick={() => setMapOpen((current) => !current)} aria-expanded={mapOpen} className="flex min-h-12 w-full items-center justify-between gap-3 px-4 text-left">
         <span className="flex items-center gap-2 text-sm font-black text-slate-900"><MapPinned className="h-5 w-5 text-teal-600" />本日の送迎先ミニマップ</span>

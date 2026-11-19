@@ -36,7 +36,15 @@ async function check(page, url) {
       account: { status: 'ready', authCount: 1, loginNumber: '19' }, card: { verified: true, loginNumber: '19', loginUrl: 'https://dreams21st-wakamatsu-takasunishi.github.io/d-lesson-v4/?campus=main', passcode: custom ? body.passcode : '0123456789' },
       checkedAt, expiresAt: new Date(Date.parse(checkedAt) + expiry).toISOString() } });
   });
-  const select = async () => { await page.getByRole('tab', { name: 'アカウント連携', exact: true }).click(); await page.getByRole('button', { name: /架空児童 あおい/ }).click(); };
+  const select = async () => {
+    if (permission) {
+      await page.getByRole('tab', { name: '児童・ログイン管理', exact: true }).click();
+      await page.getByRole('article').filter({has:page.getByRole('heading',{name:'架空児童 あおい',exact:true})}).getByRole('button',{name:'合言葉・ログインを管理',exact:true}).click();
+    } else {
+      await page.getByRole('tab', { name: 'アカウント連携', exact: true }).click();
+      await page.getByRole('button', { name: /架空児童 あおい/ }).click();
+    }
+  };
   await page.goto(url); await page.locator('body').ariaSnapshot(); await select();
   assert(await page.getByRole('region', { name: '学習アカウント発行・再発行' }).count() === 0, 'check permission never grants mutation');
   assert(await page.getByRole('button', { name: 'アカウント設定を確認', exact: true }).count() === 1, 'read-only account permission remains usable');

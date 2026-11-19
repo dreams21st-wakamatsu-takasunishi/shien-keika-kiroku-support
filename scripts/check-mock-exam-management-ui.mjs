@@ -31,7 +31,7 @@ async function check(page,url){
   if(failOnce){failOnce=false;await route.fulfill({status:503,json:{error:'試験用：配信結果未確定'}});return;}
   await route.fulfill({json:receipt});
  });
- await page.goto(url);await page.getByRole('tab',{name:'模擬試験の問題',exact:true}).click();
+ await page.goto(url);await page.getByRole('tab',{name:'教材管理',exact:true}).click();await page.getByRole('tab',{name:'模擬試験の問題',exact:true}).click();
  const region=page.getByRole('region',{name:'模擬試験の問題管理',exact:true});
  await region.getByText('第78回過去問題',{exact:true}).waitFor();
  await region.getByRole('button',{name:'本文を確認・編集：第78回過去問題',exact:true}).click();

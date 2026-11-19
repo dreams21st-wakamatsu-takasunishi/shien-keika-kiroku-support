@@ -66,7 +66,7 @@ function messageFor(error: unknown, fallback: string) {
 }
 
 export function VisitingReportWorkspace({ user, childrenList, onDirtyChange, api = visitingReportApi }: {
-  user: Pick<UserProfile, 'organizationId' | 'displayName'>;
+  user: Pick<UserProfile, 'organizationId' | 'displayName'> & Partial<Pick<UserProfile, 'role'>>;
   childrenList: ChildProfile[];
   onDirtyChange: (dirty: boolean) => void;
   api?: VisitingReportApi;
@@ -101,7 +101,10 @@ export function VisitingReportWorkspace({ user, childrenList, onDirtyChange, api
     window.addEventListener('beforeunload', onUnload);
     return () => window.removeEventListener('beforeunload', onUnload);
   }, [dirty, onDirtyChange]);
-  useEffect(() => () => detailRequest.current?.abort(), []);
+  useEffect(() => () => {
+    detailRequest.current?.abort();
+    onDirtyChange(false);
+  }, [onDirtyChange]);
   useEffect(() => {
     if (!focusTarget || mobilePreview) return;
     const field = workspace.current?.querySelector<HTMLElement>(`[data-visit-field="${focusTarget}"]`);
@@ -217,6 +220,7 @@ export function VisitingReportWorkspace({ user, childrenList, onDirtyChange, api
     <div className={sectionClass}>
       <h2 id="visiting-report-heading" className="flex items-center gap-2 text-lg font-black"><FileText size={20}/> 訪問支援報告書</h2>
       <p className="text-sm text-slate-600">保育所等訪問支援の報告書を児童ごとに作成します。入力した内容は見本の様式で確認・印刷できます。</p>
+      {user.role && user.role !== 'manager' && user.role !== 'admin' && <p className="text-xs text-slate-600">この画面の保存済み一覧には、自分が作成した報告書が表示されます。</p>}
       {eligible.length ? <div className="flex flex-wrap items-end gap-2">
         <div className="w-full max-w-md flex-1 basis-48"><Field label="対象児童">
           <select className={fieldClass} data-visit-field="child" value={childId} onChange={event => chooseChild(event.target.value)} disabled={saving || opening}>

@@ -8,7 +8,7 @@ const runtime = process.argv[2];
 if (!runtime) throw new Error('Pass a PGlite runtime path.');
 const { PGlite } = await import(pathToFileURL(runtime).href);
 const db = new PGlite();
-const org = randomUUID(), otherOrg = randomUUID(), user = randomUUID(), otherUser = randomUUID(), id = randomUUID();
+const org = randomUUID(), otherOrg = randomUUID(), user = randomUUID(), sameOfficeStaff = randomUUID(), otherUser = randomUUID(), id = randomUUID();
 try {
   await db.exec(`
     create schema auth;
@@ -20,7 +20,7 @@ try {
     create function public.current_request_device_kind() returns text language sql as $$select current_setting('test.device',true)$$;
     create table public.profiles(id uuid primary key, organization_id uuid, active boolean, display_name text);
     create table public.children(organization_id uuid,id text,deleted_at timestamptz,care_type text,visiting_support_enabled boolean,primary key(organization_id,id));
-    insert into public.profiles values ('${user}','${org}',true,'架空職員'), ('${otherUser}','${otherOrg}',true,'架空職員');
+    insert into public.profiles values ('${user}','${org}',true,'架空職員'), ('${sameOfficeStaff}','${org}',true,'架空指導員'), ('${otherUser}','${otherOrg}',true,'架空職員');
     insert into public.children values
       ('${org}','dual',null,'放課後等デイサービス',true),
       ('${org}','day',null,'放課後等デイサービス',false),
@@ -31,6 +31,7 @@ try {
   const documents = readFileSync('supabase/migrations/202610150006_child_document_register.sql', 'utf8');
   await db.exec(documents.slice(0, documents.indexOf('create or replace function public.valid_child_document_months')));
   await db.exec(readFileSync('supabase/migrations/202611160001_visiting_support_reports.sql','utf8'));
+  await db.exec(readFileSync('supabase/migrations/202611190001_visiting_report_staff_access.sql','utf8'));
   const configure = (key, value) => db.query("select set_config('test.' || $1, $2, false)",[key,value]);
   const setActor = async (office, actor, role, device) => {
     await configure('org',office);
@@ -64,16 +65,28 @@ try {
   await assert.rejects(() => save(1,'競合する架空訪問先'), {code:'40001'});
   await assert.rejects(() => db.exec("update public.visiting_support_reports set destination='不正更新'"), {code:'42501'});
   await assert.rejects(() => db.exec('delete from public.visiting_support_reports'), {code:'42501'});
+  const ownIds=[];
   for (const role of ['staff','classroom_manager']) {
-    await configure('role',role);
-    assert.equal(await count(),0);
-    await assert.rejects(() => save(2), {code:'42501'});
+    await setActor(org,sameOfficeStaff,role,'facility_shared');
+    assert.equal(await count(),ownIds.length);
+    await assert.rejects(() => save(2), {code:'40001'});
+    const ownId=randomUUID();
+    assert.equal((await save(0,'架空訪問先',{id:ownId})).rows[0].created_by,sameOfficeStaff);
+    assert.equal((await save(1,'自身の訂正',{id:ownId})).rows[0].revision,2);
+    ownIds.push(ownId);
+    assert.equal(await count(),ownIds.length);
   }
   await configure('role','manager');
-  assert.equal(await count(),1);
+  assert.equal(await count(),3);
   await configure('device','personal');
   assert.equal(await count(),0);
   await assert.rejects(() => save(2), {code:'42501'});
+  await setActor(org,sameOfficeStaff,'staff','unverified');
+  assert.equal(await count(),0);
+  await assert.rejects(() => save(0,'架空訪問先',{id:randomUUID()}), {code:'42501'});
+  await setActor(org,randomUUID(),'staff','facility_shared');
+  assert.equal(await count(),0);
+  await assert.rejects(() => save(0,'架空訪問先',{id:randomUUID()}), {code:'42501'});
   await setActor(otherOrg,otherUser,'admin','facility_shared');
   assert.equal(await count(),0);
   await assert.rejects(() => save(2), {code:'40001'});

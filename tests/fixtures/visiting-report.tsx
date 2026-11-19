@@ -45,7 +45,7 @@ function Fixture() {
       onAddChild={item => setRoster(previous => [...previous,item])}
       onUpdateChild={item => setRoster(previous => previous.map(row => row.id === item.id ? item : row))}
       onDeleteChild={id => setRoster(previous => previous.filter(row => row.id !== id))}/> :
-      <VisitingReportWorkspace user={{ organizationId: 'fixture-org', displayName: 'サンプル職員' }}
+      <VisitingReportWorkspace user={{ organizationId: 'fixture-org', displayName: 'サンプル職員', role: params.has('staff') ? 'staff' : 'manager' }}
         childrenList={[child]} onDirtyChange={setDirty} api={api}/>}</main>;
 }
 createRoot(document.getElementById('root')!).render(<Fixture/>);

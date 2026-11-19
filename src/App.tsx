@@ -48,15 +48,15 @@ import { defaultTemplates, requiredRecordTemplates } from './data/defaultTemplat
 import { UNIFIED_TEMPLATE_ID } from './data/unifiedTemplate';
 import { sampleRecords, sampleChildren, sampleRecorderProfiles } from './data/sampleData';
 import { Header, ActiveTab } from './components/Header';
+import { canUseVisitingReports } from './utils/navigation';
 import { LessonLearningManager, RecordForm, RecordPreview, RecordList, MeetingWorkspace,
   ChildrenManager, TeamManager, SettingsHub, TrafficCostCalculator, ActivityPlanWorkspace,
-  FacilityWorkspace, LegalTrainingWorkspace } from './components/DeferredAppScreens';
+  FacilityWorkspace, LegalTrainingWorkspace, VisitingReportWorkspace, SupportPlanManager } from './components/DeferredAppScreens';
 import {LessonReviewNotice} from './components/LessonReviewNotice';
 import {canLoadWordNotice} from './learning/reviewNotice';
 import { RecordOverwriteDialog } from './components/RecordOverwriteDialog';
 import { runRecordSaveWorkflow, type RecordOverwritePair, type RecordSaveOutcome } from './services/recordSaveWorkflow';
 import { diagnosticAction, recordDiagnostic, setDiagnosticScreen } from './services/diagnostics';
-import { SupportPlanManager } from './components/SupportPlanManager';
 import { HomeScreen, type HomeWorkspace } from './components/HomeScreen';
 import type { DraftTakeoverSelection } from './components/DailyOperationsPanel';
 import { AuthScreen } from './components/AuthScreen';
@@ -123,6 +123,7 @@ import {
   saveAttendanceRecords,
   saveCalendarEvent,
   saveDailyChildPlan,
+  syncAbsenceTransport,
   saveDailyTransportRequirement,
   saveDailyTransportRequirements,
   saveSupportPlan,
@@ -1257,27 +1258,6 @@ export default function App() {
     setActiveTab('form');
   };
 
-  const handleDuplicateRecord = (record: SupportRecord) => {
-    const now = new Date();
-    const duplicated: SupportRecord = {
-      ...JSON.parse(JSON.stringify(record)),
-      id: `rec-${Date.now()}`,
-      date: now.toISOString().split('T')[0],
-      approvalStatus: '未確認',
-      jihatsukanComment: undefined,
-      reviewIssues: [],
-      reviewedBy: undefined,
-      reviewedAt: undefined,
-      createdAt: now.toISOString(),
-      updatedAt: now.toISOString(),
-    };
-    setCorrectionTarget(null);
-    setReadOnlyDraft(null);
-    setCurrentRecord(duplicated);
-    setActiveDraftKey(createRecordDraftKey());
-    setFormSessionId((previous) => previous + 1);
-    setActiveTab('form');
-  };
 
   const handleDeleteRecord = async (recordId: string) => {
     if (remoteMode && auth.profile?.role === 'staff') {
@@ -2000,7 +1980,7 @@ export default function App() {
   }
 
   const handleNewRecordClick = () => {
-    if(documentDirty){alert('児童名簿で編集中の入力が未保存です。先に保存するか入力を戻してください。');return;}
+    if(documentDirty){alert('編集中の書類が未保存です。先に保存するか入力を戻してください。');return;}
     if (trainingDirty && !window.confirm('法定研修の入力が保存されていません。画面を移動しますか？')) return;
     if (activeTab === 'facilityWork' && facilityDirty && !window.confirm('施設業務の変更が保存されていません。画面を移動しますか？')) return;
     if (activeTab === 'activityPlans' && activityDirty && !window.confirm('活動・指導案の変更が保存されていません。画面を移動しますか？')) return;
@@ -2283,7 +2263,7 @@ export default function App() {
 
   const returnToHomeMenu = () => {
     if(learningDirty&&!window.confirm('Dレッスン管理の変更が未保存です。破棄して移動しますか？'))return;
-    if(documentDirty){alert('児童名簿で編集中の入力が未保存です。先に保存するか入力を戻してください。');return;}
+    if(documentDirty){alert('編集中の書類が未保存です。先に保存するか入力を戻してください。');return;}
     if (trainingDirty && !window.confirm('法定研修の入力が未保存です。画面を移動しますか？')) return;
     if (activeTab === 'facilityWork' && facilityDirty && !window.confirm('施設業務の変更が保存されていません。画面を移動しますか？')) return;
     if (activeTab === 'activityPlans' && activityDirty && !window.confirm('活動・指導案の変更が保存されていません。画面を移動しますか？')) return;
@@ -2313,7 +2293,7 @@ export default function App() {
         activeHomeWorkspace={homeWorkspace}
         setActiveTab={(tab) => {
           if(tab!=='home'&&tab!=='learning'&&learningDirty&&!window.confirm('Dレッスン管理の変更が未保存です。破棄して移動しますか？'))return;
-          if(documentDirty&&tab!=='children'){alert('児童名簿で編集中の入力が未保存です。先に保存するか入力を戻してください。');return;}
+          if(documentDirty&&tab!==activeTab){alert('編集中の書類が未保存です。先に保存するか入力を戻してください。');return;}
           if (trainingDirty && !window.confirm('法定研修の入力が未保存です。画面を移動しますか？')) return;
           if (activeTab === 'facilityWork' && tab !== 'facilityWork' && tab !== 'home' && facilityDirty && !window.confirm('施設業務の変更が保存されていません。画面を移動しますか？')) return;
           if (activeTab === 'activityPlans' && tab !== 'activityPlans' && tab !== 'home' && activityDirty && !window.confirm('活動・指導案の変更が保存されていません。画面を移動しますか？')) return;
@@ -2334,7 +2314,7 @@ export default function App() {
         onSaveMenuPreferences={handleSaveRecorderMenuPreferences}
         onOpenHomeWorkspace={(workspace) => {
           if(learningDirty&&!window.confirm('Dレッスン管理の変更が未保存です。破棄して移動しますか？'))return;
-          if(documentDirty){alert('児童名簿で編集中の入力が未保存です。先に保存するか入力を戻してください。');return;}
+          if(documentDirty){alert('編集中の書類が未保存です。先に保存するか入力を戻してください。');return;}
           if (trainingDirty && !window.confirm('法定研修の入力が未保存です。画面を移動しますか？')) return;
           if (activeTab === 'facilityWork' && facilityDirty && !window.confirm('施設業務の変更が保存されていません。画面を移動しますか？')) return;
           if (activeTab === 'activityPlans' && activityDirty && !window.confirm('活動・指導案の変更が保存されていません。画面を移動しますか？')) return;
@@ -2343,17 +2323,17 @@ export default function App() {
           setHomeWorkspace(workspace);
           setActiveTab('home');
         }}
-        onOpenFieldOperations={auth.profile?.recorderProfileId ? () => {if(morningPendingRef.current){alert('朝礼の入力が未保存です。保存・同時更新の確認を完了してから移動してください。');return;}if(documentDirty){alert('児童名簿で編集中の入力が未保存です。先に保存するか入力を戻してください。');return;}if(trainingDirty&&!window.confirm('法定研修の入力が未保存です。送迎画面へ移動しますか？'))return;setFieldOperationsOpen(true);} : undefined}
+        onOpenFieldOperations={auth.profile?.recorderProfileId ? () => {if(morningPendingRef.current){alert('朝礼の入力が未保存です。保存・同時更新の確認を完了してから移動してください。');return;}if(documentDirty){alert('編集中の書類が未保存です。先に保存するか入力を戻してください。');return;}if(trainingDirty&&!window.confirm('法定研修の入力が未保存です。送迎画面へ移動しますか？'))return;setFieldOperationsOpen(true);} : undefined}
         onSignOut={remoteMode ? async () => {
           if(morningPendingRef.current){window.alert('朝礼の入力が未保存です。保存・同時更新の確認を完了してからログアウトしてください。');return;}
           if(learningDirty&&!window.confirm('Dレッスン管理の変更が未保存です。破棄してログアウトしますか？'))return;
-          if(documentDirty){alert('児童名簿で編集中の入力が未保存です。先に保存するか入力を戻してください。');return;}
+          if(documentDirty){alert('編集中の書類が未保存です。先に保存するか入力を戻してください。');return;}
           sessionStorage.removeItem('support-record-list-view-v1');
           await auth.signOut();
         } : undefined}
         onSwitchUser={remoteMode?async()=>{
           await switchUserSafely({
-            dirtyAreas:[morningDirty?'朝礼':'',trainingDirty?'法定研修':'',activityDirty?'活動・指導案':'',facilityDirty?'施設業務':'',meetingDirty?'会議':'',documentDirty?'児童名簿':'',learningDirty?'Dレッスン管理':''].filter(Boolean),
+            dirtyAreas:[morningDirty?'朝礼':'',trainingDirty?'法定研修':'',activityDirty?'活動・指導案':'',facilityDirty?'施設業務':'',meetingDirty?'会議':'',documentDirty?(activeTab==='visitingReports'?'訪問支援報告書':'児童名簿'):'',learningDirty?'Dレッスン管理':''].filter(Boolean),
             prepare:prepareUserSwitchRef.current,
             signOut:auth.signOut,
             reset:()=>{
@@ -2512,6 +2492,21 @@ export default function App() {
             onSaveCalendarEvent={handleSaveCalendarEvent}
             onDeleteCalendarEvent={handleDeleteCalendarEvent}
             onSaveDailyChildPlan={handleSaveDailyChildPlan}
+            onSyncAbsenceTransport={async (date, childId) => {
+              if (!canManageTransport) throw new Error('送迎を変更する権限がありません。');
+              if (organizationId) {
+                const noneditable = await syncAbsenceTransport(date, childId);
+                await loadOperationalPeriod({ from: date, to: date }, 'transport');
+                return noneditable;
+              }
+              const affected = transportRuns.filter(run => run.date === date && run.stops.some(stop => stop.childId === childId));
+              setTransportRuns(previous => previous.flatMap(run => {
+                if (run.date !== date || run.status !== '未出発' || !run.stops.some(stop => stop.childId === childId)) return [run];
+                const stops = run.stops.filter(stop => stop.childId !== childId).map((stop, index) => ({ ...stop, order: index + 1 }));
+                return stops.length ? [{ ...run, stops }] : [];
+              }));
+              return affected.filter(run => run.status !== '未出発').length;
+            }}
             onDeleteDailyChildPlan={handleDeleteDailyChildPlan}
             onDeleteDailyTransportRequirement={handleDeleteDailyTransportRequirement}
             onDeleteMonthlyDailySchedules={handleDeleteMonthlyDailySchedules}
@@ -2613,7 +2608,6 @@ export default function App() {
             onSelectRecord={(record) => { setCurrentRecord(record); setActiveTab('preview'); }}
             onEditRecord={handleEditRecord}
             onCorrectRecord={(record) => handleCorrectRecord(record)}
-            onDuplicateRecord={handleDuplicateRecord}
             onDeleteRecord={handleDeleteRecord}
             canDeleteRecords={!remoteMode || auth.profile?.role !== 'staff'}
             onNewRecord={handleNewRecordClick}
@@ -2631,6 +2625,9 @@ export default function App() {
         )}
         {activeTab === 'children' && (
           <ChildrenManager childrenList={childrenList} schools={schools} transportRouteSettings={transportRouteSettings} canEdit={canManageChildren} currentUser={auth.profile} onDocumentDirtyChange={setDocumentDirty} onAddChild={handleAddChild} onUpdateChild={handleUpdateChild} onDeleteChild={handleDeleteChild} />
+        )}
+        {activeTab === 'visitingReports' && auth.profile && canUseVisitingReports(auth.profile) && (
+          <VisitingReportWorkspace key={workspaceScope} user={auth.profile} childrenList={childrenList} onDirtyChange={setDocumentDirty} />
         )}
         {activeTab === 'learning' && !auth.profile?.fieldModeOnly && (
           <LessonLearningManager scopeKey={`${organizationId || 'local'}:${auth.profile?.id || 'local'}:${auth.profile?.role || 'local'}`} childrenList={childrenList} remoteMode={remoteMode} reviewFocus={learningReviewFocus} onDirtyChange={setLearningDirty}/>
@@ -2784,6 +2781,7 @@ function ScreenContextBar({
     activityPlans: { title: '活動・指導案', description: 'ひな形から作成・準備確認・振り返り・印刷' },
     facilityWork: { title: '施設業務', description: '日常点検・備品補充・おたより作成' },
     legalTraining: { title: '法定研修', description: '研修動画・資料と本人の受講状況' },
+    visitingReports: { title: '保育所等訪問支援の報告書', description: '訪問報告書の作成・確認・印刷' },
     plans: { title: '個別支援計画', description: '現在は機能凍結中' },
     templates: { title: '設定', description: '記録フォーマット等の共通設定' },
     team: { title: '職員管理', description: '記録者・ログイン職員の管理' },

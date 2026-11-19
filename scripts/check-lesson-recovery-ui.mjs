@@ -34,7 +34,10 @@ async function check(page) {
     const checkedAt = new Date().toISOString();
     return route.fulfill({ json: { link, credentials: { schemaVersion: 1, operationId, action: 'issue', childId, linkId: operationId, identity: { sourceProjectRef: project, dataTable: 'user_data', studentId: link.source_student_id, campusId: 'main', displayName: name, birthDate: '2018-01-01' }, account: { status: 'ready', authCount: 1, loginNumber: '19' }, card: { verified: true, loginNumber: '19', passcode: '0123456789', loginUrl: 'https://dreams21st-wakamatsu-takasunishi.github.io/d-lesson-v4/?campus=main' }, checkedAt, expiresAt: new Date(Date.parse(checkedAt) + 600000).toISOString() } } });
   });
-  const select = async () => { await page.getByRole('tab', { name: 'アカウント連携', exact: true }).click(); await page.getByRole('button', { name: /架空児童 未連携/ }).click(); };
+  const select = async () => {
+    await page.getByRole('tab', { name: '児童・ログイン管理', exact: true }).click();
+    await page.getByRole('article').filter({has:page.getByRole('heading',{name:'架空児童 未連携',exact:true})}).getByRole('button',{name:'Dレッスンに登録',exact:true}).click();
+  };
   await page.goto('http://localhost:3014/tests/fixtures/lesson-learning.html'); await select();
   const panel = page.getByRole('region', { name: '未連携児童の新規登録' }); await panel.getByText('学習ID確保済み', { exact: true }).waitFor();
   assert(await panel.getByRole('button', { name: 'この登録を引き継ぐ', exact: true }).count() === 0, 'server-rejected or busy operation has no takeover control');
