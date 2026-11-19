@@ -87,7 +87,7 @@ export function LessonAccountPanel({ link, name }: { link: LessonLink; name: str
         <button type="submit" disabled={busy || !confirmed || !/^\d{6,12}$/.test(passcode)} className="flex min-h-10 items-center gap-2 rounded-lg bg-teal-700 px-3 text-sm font-bold text-white disabled:opacity-50"><KeyRound className="h-4 w-4" />合言葉を確認してカード表示</button>
       </form>}
     </>}
-    <p className="text-xs text-slate-600">合言葉の取得・変更、新規Auth作成は行いません。カードには入力した合言葉の一致を確認できた場合のみ表示します。</p>
+    <p className="text-xs text-slate-600">以前の合言葉を一覧表示することはできません。現在の合言葉が分かる場合はここで一致を確認できます。不明な場合は「合言葉再発行」を使ってください。</p>
     {audits.length > 0 && <details><summary className="cursor-pointer text-sm font-bold">アカウント確認の操作履歴</summary><ul className="mt-2 divide-y divide-slate-100 text-xs">{audits.map(audit => <li key={audit.id} className="flex flex-wrap gap-2 py-2"><time dateTime={audit.at}>{stamp(audit.at)}</time><span>{audit.action === 'inspect' ? 'Auth設定確認' : 'カード用合言葉確認'}</span><span>{outcomes[audit.outcome]}</span></li>)}</ul></details>}
     {card && <LoginCard card={card} name={name} close={clearSecrets} />}
   </section>;

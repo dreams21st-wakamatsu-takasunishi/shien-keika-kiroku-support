@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import {parseStudentAdmin} from '../learning/studentAdmin';
 import {parseCampusContent,parseContentCampuses,parseContentItem,type CampusContent,type ContentKind,type ContentItem} from '../learning/managedContent';
 import { getAccessDeviceToken } from '../utils/accessDevice';
 import type { LessonHistory, LessonIdentity, LessonLink } from '../learning/contracts';
@@ -48,6 +49,9 @@ async function invoke<T>(body: Record<string, unknown>, endpoint = 'lesson-learn
 }
 
 export const loadLessonLinks = () => invoke<{ links: LessonLink[]; canManageLinks: boolean; canManageAccounts?: boolean; canIssueAccounts?: boolean; canViewTaskAudit?: boolean; canManageContent?: boolean; configured: boolean }>({ action: 'list' });
+export const loadLessonStudentAdmin = async (links:LessonLink[]) => parseStudentAdmin(await invoke({action:'status'},'lesson-student-admin'),links);
+export const changeLessonStudentState = async (link:LessonLink,revision:number,action:'archive'|'restore',name:string) =>
+ parseStudentAdmin(await invoke({action,childId:link.child_id,expectedRevision:revision,linkRevision:link.revision,confirmName:name,confirmed:true},'lesson-student-admin'),[link])[0];
 export const loadContentCampuses=async()=>parseContentCampuses(await invoke({action:'list'},'lesson-managed-content'));
 export const loadCampusContent=async(campusId:string,organizationId:string)=>parseCampusContent(await invoke({action:'get',campusId},'lesson-managed-content'),campusId,organizationId);
 export const saveCampusContent=async(snapshot:CampusContent,kind:ContentKind,item:ContentItem,operationId:string)=>{
@@ -83,8 +87,10 @@ export const loadCredentialOperations = async (link: LessonLink) => {
   const result = await invoke<{ operations: unknown }>({ action: 'operations', childId: link.child_id }, 'lesson-account-credentials');
   return parseCredentialOperations(result.operations);
 };
-export const issueLessonCredentials = async (link: LessonLink, operationId: string, action: CredentialAction) => parseCredentialResult(
-  await invoke({ action, operationId, childId: link.child_id, revision: link.revision, confirmed: true }, 'lesson-account-credentials'), link, operationId, action);
+export const issueLessonCredentials = async (link: LessonLink, operationId: string, action: CredentialAction, passcode?: string) => parseCredentialResult(
+  await invoke({ action: passcode === undefined ? action : `${action}-custom`, childId: link.child_id, revision: link.revision,
+    operationId, confirmed: true, ...(passcode === undefined ? {} : { passcode }) }, 'lesson-account-credentials'),
+  link, operationId, action, true, passcode);
 export const inspectLessonStudent = (childId: string, studentId: string) => invoke<{ identity: LessonIdentity; fingerprint: string }>({ action: 'inspect', childId, studentId });
 export const linkLessonStudent = (childId: string, studentId: string, fingerprint: string) => invoke<{ link: LessonLink }>({ action: 'link', childId, studentId, fingerprint, confirmed: true });
 export const disableLessonLink = (link: LessonLink) => invoke<{ link: LessonLink }>({ action: 'disable', childId: link.child_id, revision: link.revision });

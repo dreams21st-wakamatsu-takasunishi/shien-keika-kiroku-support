@@ -20,7 +20,7 @@ async function check(page) {
   await page.context().route('**/functions/v1/lesson-account-credentials', route => route.fulfill({ json: { operations: [] } }));
   await page.context().route('**/functions/v1/lesson-student-registration', async route => {
     const body = route.request().postDataJSON();
-    if (body.action === 'configuration') return route.fulfill({ json: { sourceProject: project, fingerprint: 'a'.repeat(64), name, birthDate: '2016-01-01', allowNew: operations.length === 0, campuses: [{ id: 'main', name: '本校' }, { id: 'school', name: '試験校' }], operations } });
+    if (body.action === 'configuration') return route.fulfill({ json: { sourceProject: project, fingerprint: 'a'.repeat(64), name, birthDate: '2016-01-01', allowNew: operations.length === 0, campuses: [{ id: 'wakamatsu-takasunishi', name: '架空の運用教室' }], operations } });
     calls.push(body); assert(body.confirmed && body.fingerprint === 'a'.repeat(64) && body.childId === childId && !('passcode' in body), 'bound server generation');
     let op = operations.find(row => row.id === body.operationId);
     if (!op) { op = { id: body.operationId, campusId: body.campusId, phase: 'requested', at: new Date().toISOString(), canResume: true, canTakeOver: false, handoffRevision: 0 }; operations.push(op); }
@@ -41,8 +41,7 @@ async function check(page) {
   await panel.getByText('2016-01-01', { exact: true }).waitFor();
   const button = panel.getByRole('button', { name: '新規登録してカード表示', exact: true });
   assert(await button.isDisabled(), 'explicit confirmation required');
-  assert(await panel.getByRole('option').count() === 3, 'authorized campus list with explicit selection placeholder');
-  await panel.getByLabel('新規登録先校舎', { exact: true }).selectOption('school');
+  assert(await panel.getByLabel('新規登録先校舎', { exact: true }).count() === 0, 'no campus selection in single-school mode');
   const confirm = async () => { await panel.getByLabel('新規登録対象児童の氏名', { exact: true }).fill(name); await panel.getByRole('checkbox').check(); };
   await confirm(); await button.click(); await page.getByText('試験用：登録結果未確定', { exact: true }).waitFor();
   assert(await button.isDisabled(), 'pending receipt blocks second creation');
@@ -51,7 +50,7 @@ async function check(page) {
   assert(await page.getByRole('dialog').count() === 0, 'wrong child response cannot display secret');
   wrong = false; await confirm(); await panel.getByRole('button', { name: '同じ登録の結果を再確認', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: '確認済みログインカード' }); await dialog.waitFor(); await dialog.getByRole('img').waitFor();
-  assert(calls.length === 3 && calls.every(call => call.operationId === calls[0].operationId && call.campusId === 'school'), 'retry preserves operation and campus');
+  assert(calls.length === 3 && calls.every(call => call.operationId === calls[0].operationId && call.campusId === 'wakamatsu-takasunishi'), 'retry preserves operation and fixed school');
   assert(await dialog.getByText('0123456789', { exact: true }).count() === 1, 'card retains leading zero');
   assert(await page.evaluate(() => ![...Object.values(localStorage), ...Object.values(sessionStorage)].some(value => String(value).includes('0123456789'))), 'no browser secret storage');
   await page.setViewportSize({ width: 1280, height: 900 }); await page.screenshot({ path: 'output/playwright/lesson-registration-desktop.png', fullPage: true });

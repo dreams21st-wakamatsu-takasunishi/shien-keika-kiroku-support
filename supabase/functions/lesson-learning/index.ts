@@ -183,7 +183,12 @@ Deno.serve(async request => {
       (body.expectedLinkId !== link.id || body.expectedLinkRevision !== link.revision)) {
       return reply({ error: '連携状態が変更されました。更新してください。' }, 409);
     }
-    const history = parseHistory(await readSource(link.source_student_id, 'history'), link, body.date);
+    const sourceHistory = await readSource(link.source_student_id, 'history');
+    const identity = parseIdentity(sourceHistory.identity, sourceProject);
+    if (identity.studentId === link.source_student_id && identity.dataTable === link.source_table && identity.campusId !== link.source_campus_id) {
+      throw failure('Dサポートの連携校舎がDレッスンの所属校舎と一致しません。連携を解除せず、管理者に確認を依頼してください。', 409);
+    }
+    const history = parseHistory(sourceHistory, link, body.date);
     const latest = await getContext();
     if (latest.organizationId !== context.organizationId || latest.actorId !== context.actorId) return reply({ error: '学習管理の権限を再確認してください。' }, 403);
     const { data: stillActive, error: stillActiveError } = await user.from('lesson_child_links').select('id')

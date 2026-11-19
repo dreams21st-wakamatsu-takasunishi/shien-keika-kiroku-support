@@ -22,16 +22,18 @@ async function check(page, url) {
   await page.context().route('**/functions/v1/lesson-account-credentials', async route => {
     const body = route.request().postDataJSON(); const link = links.find(link => link.child_id === body.childId); assert(link, 'bound child only');
     if (body.action === 'operations') return route.fulfill({ json: { operations: operations.filter(item => item.child === body.childId).map(({ child, ...item }) => item) } });
-    calls.push(body); assert(body.confirmed && body.revision === 1 && !('passcode' in body), 'server generates credentials');
+    const custom = body.action.endsWith('-custom'), action = body.action.replace(/-custom$/, '');
+    calls.push({ operationId:body.operationId, action:body.action });
+    assert(body.confirmed && body.revision === 1 && (custom ? body.passcode === '069513' : !('passcode' in body)), 'explicit custom action only');
     let operation = operations.find(item => item.id === body.operationId);
-    if (!operation) { operation = { id: body.operationId, action: body.action, status: 'requested', at: new Date().toISOString(), finishedAt: null, canResume: true, child: body.childId }; operations.unshift(operation); }
+    if (!operation) { operation = { id: body.operationId, action, status: 'requested', at: new Date().toISOString(), finishedAt: null, canResume: true, child: body.childId }; operations.unshift(operation); }
     if (failOnce) { failOnce = false; return route.fulfill({ status: 503, json: { error: '試験用：発行結果が未確定です' } }); }
     if (delay) await new Promise(resolve => setTimeout(resolve, delay));
     operation.status = 'completed'; operation.finishedAt = new Date().toISOString();
     const checkedAt = new Date().toISOString();
-    return route.fulfill({ json: { schemaVersion: 1, operationId: body.operationId, action: body.action, childId: body.childId, linkId: link.id,
+    return route.fulfill({ json: { schemaVersion: 1, operationId: body.operationId, action, ...(custom ? { customPasscode:true } : {}), childId: body.childId, linkId: link.id,
       identity: { sourceProjectRef: link.source_project_ref, dataTable: 'user_data', studentId: link.source_student_id, campusId: 'main', displayName: link.source_display_name, birthDate: '' },
-      account: { status: 'ready', authCount: 1, loginNumber: '19' }, card: { verified: true, loginNumber: '19', loginUrl: 'https://dreams21st-wakamatsu-takasunishi.github.io/d-lesson-v4/?campus=main', passcode: '0123456789' },
+      account: { status: 'ready', authCount: 1, loginNumber: '19' }, card: { verified: true, loginNumber: '19', loginUrl: 'https://dreams21st-wakamatsu-takasunishi.github.io/d-lesson-v4/?campus=main', passcode: custom ? body.passcode : '0123456789' },
       checkedAt, expiresAt: new Date(Date.parse(checkedAt) + expiry).toISOString() } });
   });
   const select = async () => { await page.getByRole('tab', { name: 'アカウント連携', exact: true }).click(); await page.getByRole('button', { name: /架空児童 あおい/ }).click(); };
@@ -55,6 +57,17 @@ async function check(page, url) {
   await page.setViewportSize({ width: 390, height: 844 }); assert(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'mobile overflow'); await page.screenshot({ path: 'output/playwright/lesson-credentials-mobile.png', fullPage: true });
   await dialog.getByRole('button', { name: 'カードを閉じて合言葉を消去' }).click();
   await panel.getByRole('radio', { name: '合言葉再発行', exact: true }).check();
+  const reset = panel.getByRole('button', { name: '合言葉再発行してカード表示', exact: true });
+  const manual = panel.getByLabel('設定する合言葉（任意）', { exact: true });
+  const repeat = panel.getByLabel('設定する合言葉（確認）', { exact: true });
+  await manual.fill('069513'); await repeat.fill('069514'); await confirm();
+  assert(await reset.isDisabled(), 'different passcodes are not sent');
+  await repeat.fill('069513'); await confirm(); await reset.click(); await dialog.waitFor();
+  assert(calls.at(-1).action === 'reset-custom', 'custom emits a distinct action');
+  assert(await dialog.getByText('069513', { exact: true }).count() === 1, 'chosen passcode and leading zero preserved');
+  assert(await manual.inputValue() === '' && await repeat.inputValue() === '', 'inputs cleared after request');
+  assert(await page.evaluate(() => ![...Object.values(localStorage), ...Object.values(sessionStorage)].some(value => String(value).includes('069513'))), 'custom secret not stored');
+  await dialog.getByRole('button', { name: 'カードを閉じて合言葉を消去' }).click();
   await confirm(); expiry = 1000;
   await panel.getByRole('button', { name: '合言葉再発行してカード表示', exact: true }).click(); await dialog.waitFor(); await dialog.waitFor({ state: 'detached', timeout: 10000 });
   expiry = 600000; delay = 1000; await confirm();
@@ -65,7 +78,7 @@ async function check(page, url) {
   delay = 0; await confirm(); await panel.getByRole('button', { name: '同じ操作の結果を再確認', exact: true }).first().click(); await dialog.waitFor();
   await page.evaluate(() => { Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' }); document.dispatchEvent(new Event('visibilitychange')); }); await dialog.waitFor({ state: 'detached' });
   assert(errors.length === 0, `page errors: ${errors.join(',')}`);
-  return { passed: true, dedicatedPermission: true, explicitConfirmation: true, idempotentRetry: true, expiryAndChildIsolation: true, secretStorageAbsent: true, mobileAndDesktop: true };
+  return { passed: true, dedicatedPermission: true, explicitConfirmation: true, idempotentRetry: true, customPasscode: true, expiryAndChildIsolation: true, secretStorageAbsent: true, mobileAndDesktop: true };
 }
 try {
   command('open', 'about:blank');

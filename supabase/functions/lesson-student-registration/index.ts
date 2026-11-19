@@ -56,11 +56,16 @@ Deno.serve(async request => {
       const latestContext = await context(), latestChild = await readChild();
       if (latestContext.organizationId !== current.organizationId) throw failure('職員の事業所が変更されています。', 403);
       if (await registrationFingerprint(latestChild.id, String(latestChild.name).trim(), latestChild.birth_date || '') !== fingerprint) throw failure('名簿情報が変更されています。再取得してください。', 409);
-      return reply({ sourceProject, fingerprint, name, birthDate, allowNew: links.data?.length === 0 && !rows.data?.some(row => row.phase !== 'denied') && validBirth, campuses: result.payload.campuses,
+      const school = result.payload.campuses.filter((campus: {id:string}) => campus.id === 'wakamatsu-takasunishi');
+      return reply({ sourceProject, fingerprint, name, birthDate, allowNew: school.length === 1 && links.data?.length === 0 && !rows.data?.some(row => row.phase !== 'denied') && validBirth, campuses: school,
         operations: (rows.data || []).map(row => ({ id: row.id, campusId: row.source_campus_id, phase: row.phase, at: row.at, handoffRevision: row.handoff_revision,
           ...registrationRecoveryAvailability(row, current.actorId, latestContext.isAdmin, row.display_name === name && row.birth_date === birthDate && row.source_project_ref === sourceProject && result.payload.campuses.some((campus: { id: string }) => campus.id === row.source_campus_id)) })) });
     }
     if (body.fingerprint !== fingerprint || !validBirth) throw failure('氏名・生年月日が変更されたか未登録です。名簿を確認し、再取得してください。', 409);
+    if (body.action === 'register') {
+      const previous = await service.from('lesson_student_registrations').select('id').eq('id',body.operationId).maybeSingle();
+      if(previous.error || (!previous.data && body.campusId !== 'wakamatsu-takasunishi')) throw failure('登録先の事業所設定を確認してください。',409);
+    }
     if (body.action === 'handoff') {
       if (!current.isAdmin) throw failure('同じ事業所の管理者だけが引き継げます。', 403);
       const campuses = await bridge('support-student-registration', { action: 'campuses' });
