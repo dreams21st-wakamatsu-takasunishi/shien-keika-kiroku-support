@@ -133,6 +133,12 @@ const exception=(rev=0,from='2023-12-01',through='2024-04-30',reason='市に確�
  'select public.save_child_document_visiting_exception($1,$2,$3,$4,$5) as result',[rev,from,through,reason,enabled]);
 await query('set role authenticated');
 const savedException=(await exception()).rows[0].result;
+const newDayPlan=draft({type:'plan_final',cycleKey:'extra:scope-day-'+randomUUID()});
+const newVisitingCertificate=draft({type:'certificate',cycleKey:'extra:scope-visit-'+randomUUID(),documentDate:'',title:'架空の訪問用証明書'});
+assert.equal((await save(newDayPlan)).rows[0].result.cycle_key,newDayPlan.cycleKey);
+assert.equal((await save(newVisitingCertificate)).rows[0].result.cycle_key,newVisitingCertificate.cycleKey);
+assert.equal((await save(draft({type:'certificate',cycleKey:newVisitingCertificate.cycleKey,documentDate:'',title:'架空の訂正',replacesId:newVisitingCertificate.id}))).rows[0].result.replaces_id,newVisitingCertificate.id);
+checks+=3;
 assert.equal(savedException.ends_on,'2024-04-30');
 assert.deepEqual((await exception()).rows[0].result,savedException);
 await assert.rejects(()=>exception(0,undefined,undefined,'競合'));

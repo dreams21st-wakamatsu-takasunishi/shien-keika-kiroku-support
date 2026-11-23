@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {documentDisplayScope} from './childDocuments';
+import {additionalDocumentCycleKey, additionalDocumentServices, documentDisplayScope, isVisitingDocumentKey} from './childDocuments';
 import {addDocumentMonths,activeDocumentEntries,benefitRenewalCycleKey,usagePlanRenewalCycleKey,latestBenefitEntry,canManageChildDocuments,DOCUMENT_CATEGORIES,DOCUMENT_TYPES,groupDocumentSlots,documentSlots,validDocumentDate,finalPlanProgress,isDocumentPending,suggestedMonitoringMonths,type DocumentRegister,type ChildDocumentSettings,type ChildDocumentEntry} from './childDocuments';
 const settings=(patch:Partial<ChildDocumentSettings>={}):ChildDocumentSettings=>({childId:'a',revision:1,contractDate:'2024-04-15',monitoringMonths:[4,10],effectiveFrom:'2024-04-15',createdAt:'2024-04-15T00:00:00Z',createdByName:'架空職員',...patch});
 const entry=(type:ChildDocumentEntry['type'],cycleKey:string,id='one',patch:Partial<ChildDocumentEntry>={}):ChildDocumentEntry=>({id,childId:'a',type,cycleKey,documentDate:'2026-04-01',title:'',confirmed:true,note:'',validUntil:'',consentDate:'',guardianDeliveryDate:'',consultationDeliveryDate:'',operation:'record',replacesId:null,createdAt:'2026-04-01T00:00:00Z',createdByName:'架空職員',...patch});
@@ -110,6 +110,26 @@ test('document service badges distinguish shared and dedicated slots without rec
 test('unknown or future contract dates never imply documents are complete',()=>{
  assert.deepEqual(documentSlots('a',register([],[]),'2026-10-15'),[]);
  assert.deepEqual(documentSlots('a',register([],[settings({contractDate:'2027-01-01',effectiveFrom:'2027-01-01'})]),'2026-10-15'),[]);
+});
+test('additional documents persist the selected service without guessing historical records or treating named documents as visit plans',()=>{
+ const dual={careType:'放課後等デイサービス' as const,visitingSupportEnabled:true};
+ const base='extra:fixture-01';
+ assert.deepEqual(additionalDocumentServices(dual,'plan_final'),['day','visiting']);
+ assert.deepEqual(additionalDocumentServices(dual,'certificate'),['day','visiting']);
+ assert.deepEqual(additionalDocumentServices(dual,'annex'),['day']);
+ assert.deepEqual(additionalDocumentServices(dual,'benefit'),['shared']);
+ assert.deepEqual(additionalDocumentServices({careType:'児童発達支援'},'additional'),['development']);
+ assert.deepEqual(additionalDocumentServices({careType:'保育所等訪問支援'},'additional'),['visiting']);
+ assert.deepEqual(additionalDocumentServices({},'certificate'),['unspecified']);
+ for (const [type,scope] of [['plan_final','day'],['plan_final','visiting'],['certificate','day'],['certificate','visiting'],['additional','development'],['benefit','shared']] as const) {
+  const cycleKey=additionalDocumentCycleKey(base,type,scope);
+  const doc=entry(type,cycleKey);
+  const slots=documentSlots('a',register([doc]),'2026-10-15',dual);
+  assert.equal(documentDisplayScope(dual,slots.find(slot=>slot.entry===doc)!),scope);
+  assert.equal(isVisitingDocumentKey(cycleKey),type==='plan_final'&&scope==='visiting');
+  if(type==='plan_final')assert.equal(documentDisplayScope(dual,slots.find(slot=>slot.type==='plan_meeting'&&slot.cycleKey===cycleKey)!),scope);
+ }
+ assert.equal(documentDisplayScope(dual,{type:'certificate',cycleKey:base,unmatchedCycle:true}),'unspecified');
 });
 test('contract creates all initial forms and exactly four separate contract parts',()=>{
  const slots=documentSlots('a',register(),'2024-04-15');assert.equal(slots.length,12);

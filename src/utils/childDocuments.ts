@@ -118,12 +118,45 @@ export const DOCUMENT_SERVICE_LABELS = {
 } as const;
 export type DocumentDisplayScope = keyof typeof DOCUMENT_SERVICE_LABELS;
 const SHARED_DOCUMENT_TYPES: readonly DocumentType[] = ["face", "assessment", "benefit", "usage_plan"];
+export const ADDITIONAL_DOCUMENT_SERVICE_LABELS: Record<DocumentDisplayScope, string> = {
+  ...DOCUMENT_SERVICE_LABELS,
+  day: "放課後等デイサービス（放デイ）",
+  visiting: "保育所等訪問支援",
+};
+
+export function additionalDocumentServices(
+  child: Pick<ChildProfile, "careType" | "visitingSupportEnabled">,
+  type: DocumentType,
+): DocumentDisplayScope[] {
+  const { visiting, visitingOnly } = childDocumentServices(child);
+  const primary = child.careType === "放課後等デイサービス" ? "day"
+    : child.careType === "児童発達支援" ? "development" : "unspecified";
+  if (type === "visiting_consent" || visitingOnly) return ["visiting"];
+  if (SHARED_DOCUMENT_TYPES.includes(type)) return [visiting && primary !== "unspecified" ? "shared" : primary];
+  return visiting && type !== "annex" ? [primary, "visiting"] : [primary];
+}
+
+export function additionalDocumentCycleKey(base: string, type: DocumentType, scope: DocumentDisplayScope) {
+  // The four shared records keep their existing assignment and renewal rules.
+  if (SHARED_DOCUMENT_TYPES.includes(type)) return base;
+  // Keep the existing visit-specific plan/contract validation. Named optional
+  // documents have a display-only scope that cannot create a visit plan cycle.
+  if (scope === "visiting" && VISITING_DOCUMENT_TYPES.includes(type)) return base.replace(/^extra:/, "extra:visit-");
+  if (scope === "visiting" || scope === "day" || scope === "development") {
+    return base.replace(/^extra:/, "extra:scope-" + (scope === "visiting" ? "visit" : scope) + "-");
+  }
+  return base;
+}
+
 /** Display only; this neither changes a key nor establishes the actual service of a historical record. */
 export function documentDisplayScope(
   child: Pick<ChildProfile, "careType" | "visitingSupportEnabled">,
   slot: Pick<DocumentSlot, "type" | "cycleKey" | "unmatchedCycle">,
 ): DocumentDisplayScope {
   if (slot.type === "visiting_consent" || isVisitingDocumentKey(slot.cycleKey)) return "visiting";
+  const recordedScope = slot.cycleKey.match(/^extra:scope-(day|development|visit)-/)?.[1];
+  if (recordedScope === "day" || recordedScope === "development") return recordedScope;
+  if (recordedScope === "visit" && (slot.type === "certificate" || slot.type === "additional")) return "visiting";
   const primary = child.careType;
   if (!primary || slot.type === "certificate" || slot.type === "additional") return "unspecified";
   if (SHARED_DOCUMENT_TYPES.includes(slot.type)) {

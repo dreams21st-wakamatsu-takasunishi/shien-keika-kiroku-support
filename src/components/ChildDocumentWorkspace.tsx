@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronDown,
   ClipboardCheck,
+  Download,
   FolderOpen,
   History,
   LoaderCircle,
@@ -20,10 +21,12 @@ import {
   DOCUMENT_TYPES,
   DOCUMENT_CATEGORIES,
   DOCUMENT_SERVICE_LABELS,
+  ADDITIONAL_DOCUMENT_SERVICE_LABELS,
+  additionalDocumentServices,
+  additionalDocumentCycleKey,
   documentSlots,
   documentDisplayScope,
   childDocumentServices,
-  VISITING_DOCUMENT_TYPES,
   documentMonitoringSchedule,
   suggestedMonitoringMonths,
   groupDocumentSlots,
@@ -46,6 +49,7 @@ import {
 } from "../utils/childDocuments";
 import { emptyBenefitEntitlements, validBenefitEntitlements, INDIVIDUAL_SUPPORT_TYPES, INDIVIDUAL_SUPPORT_LABELS, type BenefitEntitlements } from "../utils/childServiceEntitlements";
 import {childDocumentReminders, documentFamilyReference, DOCUMENT_RULE_SOURCES, type DocumentReminder} from "../utils/childDocumentReminders";
+import {buildChildDocumentCsv, downloadChildDocumentCsv} from "../utils/childDocumentCsv";
 
 const today = () =>
   new Intl.DateTimeFormat("sv-SE", {
@@ -242,6 +246,22 @@ function DocumentWorkspace({
     setServiceFilter("all");
     setSelected(id);
   };
+  const exportDocuments = (singleChild: boolean) => {
+    if (!data || loading || busy || (singleChild && !child)) return;
+    setError("");
+    setMessage("");
+    try {
+      const {csv, count} = buildChildDocumentCsv(singleChild && child ? [child] : childrenList, data, asOf);
+      if (!count) {
+        setMessage("出力できる登録済み書類がありません。");
+        return;
+      }
+      downloadChildDocumentCsv(csv, asOf, singleChild);
+      setMessage(`登録済み書類 ${count}件のCSV出力を開始しました。`);
+    } catch {
+      setError("保管書類一覧をCSV出力できませんでした。再度お試しください。");
+    }
+  };
   const toggleType = (type: DocumentType) => {
     if (
       expandedTypes[type] &&
@@ -307,7 +327,20 @@ function DocumentWorkspace({
             {asOf}{" "}
             時点／日付・保管確認の台帳です。ファイルのアップロード・内容審査は行いません。
           </p>
+          <p className="mt-1 text-xs text-teal-900">
+            CSVには児童名が含まれます。現在の登録のみを出力し、未登録枠や訂正前・取消済みの履歴は含めません。
+          </p>
         </div>
+        <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={!data || loading || busy}
+          onClick={() => exportDocuments(false)}
+          className="flex min-h-10 items-center gap-1 rounded-lg border bg-white px-3 text-xs font-bold text-teal-950 disabled:opacity-40"
+        >
+          <Download className="h-4 w-4" aria-hidden="true" />
+          全児童の登録書類をCSV出力
+        </button>
         <button
           type="button"
           disabled={loading || busy || dirtyCount > 0}
@@ -317,6 +350,7 @@ function DocumentWorkspace({
           <RefreshCw className="h-4 w-4" />
           再読込
         </button>
+        </div>
       </div>
       {error && (
         <p
@@ -414,7 +448,14 @@ function DocumentWorkspace({
               </p>
             ) : (
               <div className="min-w-0 space-y-3" key={child.id}>
-                <h3 className="text-base font-black">{child.name}の保管状況</h3>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-base font-black">{child.name}の保管状況</h3>
+                  <button type="button" disabled={busy} onClick={() => exportDocuments(true)}
+                    className="flex min-h-10 items-center gap-1 rounded-lg border bg-white px-3 text-xs font-bold text-teal-950 disabled:opacity-40">
+                    <Download className="h-4 w-4" aria-hidden="true"/>
+                    この児童の登録書類をCSV出力
+                  </button>
+                </div>
                 <DocumentSettings
                   key={child.id + ":" + (settings?.revision || 0)}
                   childId={child.id}
@@ -733,7 +774,7 @@ function DocumentWorkspace({
                 <AdditionalDocument
                   key={"extra:" + child.id}
                   suggestedMonths={suggestedMonths}
-                  services={services}
+                  child={child}
                   disabled={busy}
                   onSave={writeEntry}
                   onDirty={(dirty) => markDirty("additional", dirty)}
@@ -1392,26 +1433,29 @@ function BenefitEntitlementFields({value, disabled, onChange}: {
 
 function AdditionalDocument({
   suggestedMonths,
-  services,
+  child,
   disabled,
   onSave,
   onDirty,
 }: {
   key?: string;
   suggestedMonths: number[];
-  services: ReturnType<typeof childDocumentServices>;
+  child: Pick<ChildProfile, "careType" | "visitingSupportEnabled">;
   disabled: boolean;
   onSave: (entry: DocumentEntryInput) => Promise<void>;
   onDirty: (dirty: boolean) => void;
 }) {
   const [type, setType] = useState<DocumentType>("certificate"),
-    [visitScope, setVisitScope] = useState(false),
+    [scopeSelection, setScopeSelection] = useState<DocumentDisplayScope | undefined>(),
     [draft, setDraft] = useState(() =>
       newDocumentEntry("certificate", "extra:" + crypto.randomUUID()),
     ),
     [error, setError] = useState(""),
     [dirty, setDirty] = useState(false);
-  const needsPlanStart = type === "plan_final" && (visitScope || services.visitingOnly);
+  const services = childDocumentServices(child);
+  const allowedScopes = additionalDocumentServices(child, type);
+  const scope = scopeSelection && allowedScopes.includes(scopeSelection) ? scopeSelection : allowedScopes[0];
+  const needsPlanStart = type === "plan_final" && scope === "visiting";
   useEffect(() => {
     onDirty(dirty);
     return () => onDirty(false);
@@ -1451,8 +1495,7 @@ function AdditionalDocument({
       setError("支給量は0～31の整数で入力し、個別サポートにチェックした場合は区分を選択してください。");return;
     }
     try {
-      const visit = type === "visiting_consent" || (VISITING_DOCUMENT_TYPES.includes(type) && (visitScope || services.visitingOnly));
-      await onSave({ ...draft, type, cycleKey: visit ? draft.cycleKey.replace("extra:", "extra:visit-") : draft.cycleKey,
+      await onSave({ ...draft, type, cycleKey: additionalDocumentCycleKey(draft.cycleKey, type, scope),
         ...(type === "benefit" ? {monitoringMonths: draft.monitoringMonths ?? []} : {}) });
       setDraft(newDocumentEntry(type, "extra:" + crypto.randomUUID()));
       setDirty(false);
@@ -1478,7 +1521,7 @@ function AdditionalDocument({
             onChange={(e) => {
               const next = e.target.value as DocumentType;
               setType(next);
-              setVisitScope(next === "visiting_consent");
+              setScopeSelection(undefined);
               setDraft(newDocumentEntry(next, "extra:" + crypto.randomUUID()));
             }}
             className={input}
@@ -1490,14 +1533,12 @@ function AdditionalDocument({
             ))}
           </select>
         </label>
-        {services.visiting && !services.visitingOnly && type !== "visiting_consent" && VISITING_DOCUMENT_TYPES.includes(type) && (
-          <label className="text-xs font-bold">追加書類のサービス
-            <select aria-label="追加書類のサービス" value={visitScope ? "visit" : "day"} disabled={disabled || dirty}
-              onChange={e=>setVisitScope(e.target.value === "visit")} className={input}>
-              <option value="day">通所</option><option value="visit">保育所等訪問支援</option>
-            </select>
-          </label>
-        )}
+        <label className="text-xs font-bold">追加書類のサービス
+          <select aria-label="追加書類のサービス" value={scope} disabled={disabled || dirty || allowedScopes.length === 1}
+            onChange={e=>setScopeSelection(e.target.value as DocumentDisplayScope)} className={input}>
+            {allowedScopes.map(value => <option value={value} key={value}>{ADDITIONAL_DOCUMENT_SERVICE_LABELS[value]}</option>)}
+          </select>
+        </label>
         {type === "certificate" || type === "additional" ? (
           <label className="text-xs font-bold">
             書類名

@@ -71,7 +71,8 @@ async function check(page,url){
  assert(!updated.entries.find(e=>e.id==='benefit').monitoringMonths&&updated.entries.some(e=>e.id==='old-annex')&&updated.settings[0].monitoringMonths.join(',')==='4,10','original certificate, annex and settings are unchanged');
  await page.getByRole('button',{name:'モニタリングの書類',exact:true}).click();
  for(const title of ['個支原案','個支会議','個支本案','モニタリング'])assert(await row(title+' 2026-11 更新月').isVisible(),'selected month opens '+title);
- for(const title of ['個支原案','個支会議','個支本案','モニタリング'])assert(await row(title+' 訪問支援／2026-11 更新月').isVisible(),'separate visiting slot for '+title);
+ for(const title of ['個支原案','個支会議','個支本案'])assert(await row(title+' 訪問支援／2026-07 初回計画').isVisible(),'separate visiting initial slot for '+title);
+ for(const title of ['個支原案','個支会議','個支本案','モニタリング'])assert(!await row(title+' 訪問支援／2026-11 更新月').count(),'visiting does not use certificate months for '+title);
  assert(!await oldDraft.count()&&!await row('個支原案 2026-12 更新月').count(),'unselected and future month placeholders are not generated');
  await page.setViewportSize({width:390,height:844});
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'certificate monitoring layout fits a phone');
@@ -111,6 +112,36 @@ async function check(page,url){
  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'service filters and badges fit a phone');
  await page.getByRole('button',{name:/^架空児童B /}).click();
  assert(await scope.inputValue()==='all'&&(await model()).writes===0,'switching child resets filter without writing');
+ const addition=page.locator('summary').filter({hasText:'証明書・必要に応じた書類／計画を追加'});
+ const addScope=page.getByLabel('追加書類のサービス',{exact:true});
+ const saveNamed=async title=>{
+  await page.getByLabel('追加する書類名',{exact:true}).fill(title);
+  await page.getByRole('button',{name:'追加書類を保存',exact:true}).click();
+  await page.getByTestId('dirty').filter({hasText:'未保存の入力なし'}).waitFor();
+ };
+ await addition.click();
+ assert(await addScope.inputValue()==='visiting','visiting-only child uses visiting for optional certificates');
+ await saveNamed('訪問支援の架空証明書');
+ await page.getByRole('button',{name:/^架空児童A /}).click();await addition.click();
+ assert(await addScope.locator('option').allTextContents().then(values=>values.join('|')==='放課後等デイサービス（放デイ）|保育所等訪問支援'),'dual service has specific choices without 通所');
+ await addScope.selectOption('day');await saveNamed('放デイの架空証明書');
+ await addScope.selectOption('visiting');await saveNamed('併用児の訪問証明書');
+ await page.getByRole('button',{name:'証明書等の書類',exact:true}).click();
+ assert(await hasBadge(row('証明書等 放デイの架空証明書'),'放デイ'),'new day document has the correct badge after saving');
+ assert(await hasBadge(row('証明書等 併用児の訪問証明書'),'訪問支援'),'new optional visiting document has the correct badge');
+ const beforeCsv=(await model()).writes;
+ const csv=async name=>{
+  const downloaded=page.waitForEvent('download');
+  await page.getByRole('button',{name,exact:true}).click();
+  const file=await downloaded, stream=await file.createReadStream(), chunks=[];
+  for await (const chunk of stream) chunks.push(chunk);
+  return {filename:file.suggestedFilename(),content:Buffer.concat(chunks).toString('utf8')};
+ };
+ const selectedCsv=await csv('この児童の登録書類をCSV出力');
+ assert(selectedCsv.filename.startsWith('保管書類一覧_選択児童_')&&selectedCsv.content.includes('放デイの架空証明書')&&!selectedCsv.content.includes('架空児童B'),'one-child CSV verified from downloaded bytes');
+ const allCsv=await csv('全児童の登録書類をCSV出力');
+ assert(allCsv.filename.startsWith('保管書類一覧_全児童_')&&allCsv.content.includes('放デイの架空証明書')&&allCsv.content.includes('訪問支援の架空証明書'),'all-children CSV includes both children');
+ assert((await model()).writes===beforeCsv,'CSV export is local and read-only');
  assert(!errors.length,'no browser exceptions '+errors.join(','));assert(!external.length,'no external or production requests');return {passed:true,checks,productionAccess:false,filesUploaded:0};
 }
 try{command('open',url);command('snapshot');const output=command('run-code',`async(page)=>await (${check.toString()})(page,${JSON.stringify(url)})`),match=output.match(/### Result\s+([\s\S]*?)\s+### Ran/);if(!match||!JSON.parse(match[1]).passed)throw Error(output);console.log(match[1]);}finally{command('close');}
