@@ -47,6 +47,16 @@ if(mode==='document-scopes'){
   {...base,id:'shared-certificate',type:'benefit',cycleKey:'annual:2026-04-15'},
  );
 }
+if(mode==='service-endings'){
+ children[0].visitingSupportEnabled=true;
+ records.settings[0].visitingContractDate='2026-06-01';
+ const base={childId:'a',documentDate:'2026-06-03',validUntil:'',confirmed:true,title:'',note:'',consentDate:'',guardianDeliveryDate:'',consultationDeliveryDate:'',operation:'record' as const,replacesId:null,createdAt:'2026-06-03T00:00:00Z',createdByName:'架空管理者'};
+ records.entries.push(
+  {...base,id:'original-visit-plan',type:'plan_final',cycleKey:'initial:visit-2026-06-01',planStartDate:'2026-06-03'},
+  {...base,id:'confirmed-day-plan',type:'plan_final',cycleKey:'plan:2026-10',documentDate:'2026-10-21',confirmed:false},
+  {...base,id:'shared-benefit',type:'benefit',cycleKey:'annual:2026-04-15',documentDate:'2026-04-15',validUntil:'2026-12-03'},
+ );
+}
 if(mode==='document-deletion'){
  const base={childId:'a',type:'certificate' as const,cycleKey:'extra:mistake',documentDate:'',validUntil:'',confirmed:true,title:'誤追加の証明書',note:'',consentDate:'',guardianDeliveryDate:'',consultationDeliveryDate:'',operation:'record' as const,replacesId:null,createdAt:'2026-10-01T00:00:00Z',createdByName:'架空管理者'};
  records.entries.push({...base,id:'mistake'},{...base,id:'keep',cycleKey:'extra:keep',title:'残す証明書'},
@@ -68,6 +78,13 @@ const model={loads:0,writes:0,settingsWrites:0,failLoad:mode==='load-error',fail
 const persist=()=>localStorage.setItem(store,JSON.stringify(records));persist();Object.assign(window,{__documentFixture:model});
 const wait=async()=>{if(model.delay)await new Promise(resolve=>setTimeout(resolve,model.delay));};
 const api:ChildDocumentApi={load:async()=>{model.loads++;await wait();if(model.failLoad)throw Error('確認用の通信エラー：保管状況を取得できません。');return structuredClone(records);},
+ serviceEnding:async(childId,revision,day,visit)=>{
+  await wait();
+  if(model.failSave)throw Error('解約日を共有保存できませんでした。');
+  const saved={childId,revision:revision+1,dayEndedOn:day||undefined,visitingEndedOn:visit||undefined};
+  records.serviceEndings=[...(records.serviceEndings||[]).filter(row=>row.childId!==childId),saved];
+  persist();return structuredClone(saved);
+ },
  visitingReviewException:async(revision,value)=>{const saved={...value,revision:revision+1};records.visitingReviewException=saved;persist();return structuredClone(saved);},
  settings:async(childId,revision,contractDate,monitoringMonths,effectiveFrom,visitingContractDate)=>{await wait();if(model.failSave)throw Error('設定を共有保存できませんでした。');const next={childId,revision:revision+1,contractDate,monitoringMonths,effectiveFrom,visitingContractDate,createdAt:new Date().toISOString(),createdByName:user.displayName};records.settings.push(next);model.settingsWrites++;persist();return structuredClone(next);},
  entry:async(childId,entry)=>{await wait();if(model.failSave)throw Error('共有保存できませんでした。入力は残しています。');const next={...entry,childId,createdAt:new Date().toISOString(),createdByName:user.displayName};records.entries=records.entries.filter(row=>row.id!==entry.id);records.entries.push(next);model.writes++;persist();return structuredClone(next);},

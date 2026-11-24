@@ -111,6 +111,40 @@ test('unknown or future contract dates never imply documents are complete',()=>{
  assert.deepEqual(documentSlots('a',register([],[]),'2026-10-15'),[]);
  assert.deepEqual(documentSlots('a',register([],[settings({contractDate:'2027-01-01',effectiveFrom:'2027-01-01'})]),'2026-10-15'),[]);
 });
+test('service cancellation is inclusive, independent, and keeps registered rows and prior shortages',()=>{
+ const dual={careType:'放課後等デイサービス' as const,visitingSupportEnabled:true};
+ const dayFinal=entry('plan_final','plan:2026-10','day-later',{documentDate:'2026-10-21',confirmed:false});
+ const visitFinal=entry('plan_final','initial:visit-2026-06-01','visit-first',{documentDate:'2026-06-03',planStartDate:'2026-06-03'});
+ const store=register([dayFinal,visitFinal],[settings({visitingContractDate:'2026-06-01'})]);
+ const before=JSON.stringify(store.entries);
+ store.serviceEndings=[{childId:'a',revision:1,dayEndedOn:'2026-10-31'}];
+ const slots=()=>documentSlots('a',store,'2026-11-24',dual);
+ assert.ok(slots().some(row=>row.key==='plan_draft|plan:2026-04'&&isDocumentPending(row)));
+ assert.ok(!slots().some(row=>row.key==='plan_draft|plan:2026-10'));
+ const archived=slots().find(row=>row.entry===dayFinal)!;
+ assert.equal(archived.serviceEndedOn,'2026-10-31');
+ assert.equal(archived.status,'unconfirmed');assert.ok(!isDocumentPending(archived));
+ assert.ok(slots().some(row=>row.key==='monitoring|plan:visit-renewal-2026-12-03'));
+ store.serviceEndings[0]={childId:'a',revision:2,visitingEndedOn:'2026-12-03'};
+ assert.ok(!slots().some(row=>row.key==='monitoring|plan:visit-renewal-2026-12-03'));
+ assert.ok(slots().some(row=>row.key==='plan_draft|plan:2026-10'));
+ assert.equal(slots().find(row=>row.entry===dayFinal)?.serviceEndedOn,undefined);
+ assert.equal(JSON.stringify(store.entries),before);
+});
+test('common certificate renewals are required until the later termination and annex is day only',()=>{
+ const dual={careType:'放課後等デイサービス' as const,visitingSupportEnabled:true};
+ const store=register([entry('benefit','annual:2024-04-15','benefit',{validUntil:'2026-04-15'})],[settings({visitingContractDate:'2026-01-01'})]);
+ store.serviceEndings=[{childId:'a',revision:1,dayEndedOn:'2026-04-15'}];
+ const slots=()=>documentSlots('a',store,'2026-04-15',dual);
+ assert.ok(!slots().some(row=>row.key==='annex|annual:2026-04-15'));
+ assert.ok(slots().some(row=>row.key==='assessment|annual:2026-04-15'));
+ for(const type of ['benefit','usage_plan'])assert.ok(slots().some(row=>row.type===type&&(row.benefitRenewal||row.usagePlanRenewal)));
+ store.serviceEndings[0].visitingEndedOn='2026-04-16';
+ assert.ok(slots().some(row=>row.benefitRenewal));
+ store.serviceEndings[0].visitingEndedOn='2026-04-15';
+ assert.ok(!slots().some(row=>row.key==='assessment|annual:2026-04-15'||row.benefitRenewal||row.usagePlanRenewal));
+ assert.ok(slots().some(row=>row.key==='assessment|annual:2025-04-15'));
+});
 test('additional documents persist the selected service without guessing historical records or treating named documents as visit plans',()=>{
  const dual={careType:'放課後等デイサービス' as const,visitingSupportEnabled:true};
  const base='extra:fixture-01';

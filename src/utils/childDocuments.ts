@@ -58,6 +58,13 @@ export interface DocumentRegister {
   settings: ChildDocumentSettings[];
   entries: ChildDocumentEntry[];
   visitingReviewException?: VisitingReviewException;
+  serviceEndings?: ChildDocumentServiceEnding[];
+}
+export interface ChildDocumentServiceEnding {
+  childId: string;
+  revision: number;
+  dayEndedOn?: string;
+  visitingEndedOn?: string;
 }
 export interface VisitingReviewException {
   revision: number;
@@ -87,6 +94,7 @@ export interface DocumentSlot {
   usagePlanRenewal?: { previousValidUntil: string; availableFrom: string };
   visitingReview?: { kind: "initial" | "renewal" | "resume"; anchor?: string };
   reviewException?: VisitingReviewException;
+  serviceEndedOn?: string;
 }
 export const FINAL_PLAN_LABELS = {not_created:'未作成',pending:'未交付・未同意',completed:'交付・同意済み'} as const;
 export type FinalPlanProgress = keyof typeof FINAL_PLAN_LABELS;
@@ -95,7 +103,7 @@ export function finalPlanProgress(entry?:ChildDocumentEntry):FinalPlanProgress {
   return validDocumentDate(entry.consentDate)&&validDocumentDate(entry.guardianDeliveryDate)?'completed':'pending';
 }
 export function isDocumentPending(slot:DocumentSlot){
-  return !slot.historicalAnnex&&!slot.reviewException&&slot.serviceScope!=="legacy"
+  return !slot.historicalAnnex&&!slot.reviewException&&!slot.serviceEndedOn&&slot.serviceScope!=="legacy"
     &&(!(slot.visitingReview && slot.visitingReview.kind !== "initial" && !slot.entry) || slot.status !== "upcoming")
     &&(slot.status!=='complete'||(slot.type==='plan_final'&&(finalPlanProgress(slot.entry)!=='completed'
       ||(isVisitingDocumentKey(slot.cycleKey)&&!validDocumentDate(slot.entry?.planStartDate || "")))));
@@ -107,7 +115,22 @@ export const VISITING_DOCUMENT_TYPES: readonly DocumentType[] = [...CONTRACT_TYP
 export const isVisitingDocumentKey = (key: string) => /^(initial|plan|extra):visit-/.test(key);
 export function childDocumentServices(child?: Pick<ChildProfile, "careType" | "visitingSupportEnabled">) {
   const services = child ? childCareTypes(child) : [];
-  return { visiting: services.includes(VISITING_SERVICE), visitingOnly: services.length === 1 && services[0] === VISITING_SERVICE };
+  return {
+    day: !child || services.includes("放課後等デイサービス"),
+    visiting: services.includes(VISITING_SERVICE),
+    visitingOnly: services.length === 1 && services[0] === VISITING_SERVICE,
+  };
+}
+export function documentServiceCutoffs(child: Parameters<typeof childDocumentServices>[0], ending?: ChildDocumentServiceEnding) {
+  const services = childDocumentServices(child);
+  const day = ending?.dayEndedOn;
+  const visiting = ending?.visitingEndedOn;
+  const primary = services.day ? day : undefined;
+  // Shared records remain required while either of the child's services continues.
+  const shared = services.visitingOnly ? visiting
+    : !services.visiting ? primary
+    : primary && visiting ? (primary > visiting ? primary : visiting) : undefined;
+  return {day, visiting, primary, shared};
 }
 export const DOCUMENT_SERVICE_LABELS = {
   day: "放デイ",
@@ -257,7 +280,7 @@ export function addDocumentMonths(value: string, months: number) {
   ).getUTCDate();
   return `${base.getUTCFullYear()}-${String(base.getUTCMonth() + 1).padStart(2, "0")}-${String(Math.min(day, last)).padStart(2, "0")}`;
 }
-function monthEnd(date: string) {
+export function documentMonthEnd(date: string) {
   const [year, month] = date.split("-").map(Number);
   return new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
 }
@@ -273,7 +296,7 @@ function visitingPlanReviews(since: string, active: ChildDocumentEntry[], today:
   const contractDate = contract && validDocumentDate(contract.documentDate) && contract.documentDate <= today
     ? contract.documentDate : since;
   const reviews: Array<{key: string; due: string; kind: NonNullable<DocumentSlot["visitingReview"]>["kind"]; anchor?: string; exception?: VisitingReviewException}> = [
-    {key: initialKey, due: monthEnd(contractDate), kind: "initial"},
+    {key: initialKey, due: documentMonthEnd(contractDate), kind: "initial"},
   ];
   const plans = active.filter(row => row.type === "plan_final" && isVisitingDocumentKey(row.cycleKey)
     && validDocumentDate(row.planStartDate || "") && row.planStartDate! >= contractDate && row.documentDate <= today)
@@ -378,6 +401,7 @@ export function documentSlots(
   const slots: DocumentSlot[] = [],
     seen = new Set<string>();
   const { visiting, visitingOnly } = childDocumentServices(child);
+  const cutoffs = documentServiceCutoffs(child, register.serviceEndings?.find(row => row.childId === childId));
   const hasRegisteredExpiry = validDocumentDate(latestBenefitEntry(childId, register, today)?.validUntil || "");
   const add = (
     type: DocumentType,
@@ -562,7 +586,20 @@ export function documentSlots(
       true,
     );
   }
-  return slots.sort(
+  return slots.filter(slot => {
+    const scope = child ? documentDisplayScope(child, slot) : undefined;
+    const cutoff = scope === "visiting" ? cutoffs.visiting
+      : scope === "day" ? cutoffs.day
+      : scope === "development" ? undefined
+      : SHARED_DOCUMENT_TYPES.includes(slot.type) ? cutoffs.shared
+      : scope === "shared" || (slot.unmatchedCycle && scope === "unspecified") ? cutoffs.shared
+      : cutoffs.primary;
+    if (!cutoff || slot.dueDate < cutoff) return true;
+    if (!slot.entry) return false;
+    slot.serviceEndedOn = cutoff;
+    slot.required = false;
+    return true;
+  }).sort(
     (a, b) =>
       a.dueDate.localeCompare(b.dueDate) ||
       a.cycleKey.localeCompare(b.cycleKey) ||

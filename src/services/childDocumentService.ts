@@ -6,6 +6,7 @@ import type {
 } from "../utils/childDocuments";
 import {
   parseDocumentSettings,
+  parseChildDocumentServiceEnding,
   parseDocumentEntry,
   parseVisitingReviewException,
 } from "../utils/childDocumentData";
@@ -23,15 +24,24 @@ async function rpc(name: string, args?: Record<string, unknown>) {
 }
 export async function loadDocumentRegister(): Promise<DocumentRegister> {
   const data = await rpc("get_child_document_register");
-  if (!data || !Array.isArray(data.settings) || !Array.isArray(data.entries))
+  if (!data || !Array.isArray(data.settings) || !Array.isArray(data.entries) || (data.service_endings != null && !Array.isArray(data.service_endings)))
     throw Error(
       "保管状況を取得できません。揃っているかの判定は行っていません。",
     );
   return {
     settings: data.settings.map(parseDocumentSettings),
     entries: data.entries.map(parseDocumentEntry),
+    serviceEndings: (data.service_endings ?? []).map(parseChildDocumentServiceEnding),
     ...(data.visiting_review_exception == null ? {} : {visitingReviewException: parseVisitingReviewException(data.visiting_review_exception)}),
   };
+}
+async function saveServiceEnding(childId: string, expectedRevision: number, dayEndedOn: string, visitingEndedOn: string) {
+  return parseChildDocumentServiceEnding(await rpc("save_child_document_service_ending", {
+    p_child_id: childId,
+    p_expected_revision: expectedRevision,
+    p_day_ended_on: dayEndedOn || null,
+    p_visiting_ended_on: visitingEndedOn || null,
+  }));
 }
 export async function saveDocumentSettings(
   childId: string,
@@ -80,5 +90,6 @@ export const childDocumentApi = {
   settings: saveDocumentSettings,
   entry: saveDocumentEntry,
   visitingReviewException: saveVisitingReviewException,
+  serviceEnding: saveServiceEnding,
 };
 export type ChildDocumentApi = typeof childDocumentApi;

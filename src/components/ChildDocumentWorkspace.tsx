@@ -26,6 +26,7 @@ import {
   additionalDocumentCycleKey,
   documentSlots,
   documentDisplayScope,
+  documentServiceCutoffs,
   childDocumentServices,
   documentMonitoringSchedule,
   suggestedMonitoringMonths,
@@ -40,6 +41,8 @@ import {
   isVisitingDocumentKey,
   type DocumentRegister,
   type ChildDocumentEntry,
+  type ChildDocumentServiceEnding,
+  type ChildDocumentSettings,
   type DocumentEntryInput,
   type DocumentSlot,
   type DocumentType,
@@ -196,7 +199,10 @@ function DocumentWorkspace({
         : undefined;
   const slots = child && data ? documentSlots(child.id, data, asOf, child) : [];
   const services = childDocumentServices(child);
+  const ending = child && data?.serviceEndings?.find(row => row.childId === child.id);
+  const cutoffs = documentServiceCutoffs(child, ending || undefined);
   const benefit = child && data ? latestBenefitEntry(child.id, data, asOf) : undefined;
+  const benefitRenewalExcluded = Boolean(cutoffs.shared && (asOf >= cutoffs.shared || (benefit?.validUntil && benefit.validUntil >= cutoffs.shared)));
   const monitoring = child && data ? documentMonitoringSchedule(child.id, data, asOf)(asOf.slice(0,7)+'-01') : undefined;
   const suggestedMonths = child ? suggestedMonitoringMonths(child.birthDate || "", asOf) : [];
   const reminders = child && data ? childDocumentReminders(child, childrenList, data, asOf, slots) : [];
@@ -224,6 +230,7 @@ function DocumentWorkspace({
               child,
               missing,
               warnings,
+              ended: (documentServiceCutoffs(child, data.serviceEndings?.find(row => row.childId === child.id)).shared || "9999-12-31") <= asOf,
               configured: Boolean(
                 latestDocumentSettings(data.settings, child.id),
               ),
@@ -435,7 +442,7 @@ function DocumentWorkspace({
                               ? `未確認 ${row.missing}件`
                               : row.warnings.length
                                 ? "要確認"
-                                : "保管確認済み"}
+                                : row.ended ? "利用終了" : "保管確認済み"}
                         </span>
                       </button>
                     </li>
@@ -503,15 +510,41 @@ function DocumentWorkspace({
                     }
                   }}
                 />
+                {(services.day || services.visiting || ending) && <DocumentServiceEndings
+                  key={child.id + ":" + (ending?.revision || 0)}
+                  saved={ending}
+                  services={services}
+                  settings={settings}
+                  disabled={busy}
+                  onDirty={(dirty) => markDirty("service-endings", dirty)}
+                  onSave={async (day, visit) => {
+                    if ([...dirtyRows.current].some(key => key !== "service-endings"))
+                      throw Error("解約日を保存する前に、ほかの欄の未保存の入力を保存するか元に戻してください。");
+                    setBusy(true);
+                    setError("");
+                    setMessage("");
+                    try {
+                      const saved = await api.serviceEnding(child.id, ending?.revision || 0, day, visit);
+                      if (saved.childId !== child.id) throw Error("保存された児童を確認できません。再読込してください。");
+                      if (mounted.current) {
+                        setData(previous => previous && {
+                          ...previous,
+                          serviceEndings: [...(previous.serviceEndings || []).filter(row => row.childId !== child.id), saved],
+                        });
+                        setMessage("利用解約日を保存しました。登録済みの書類と履歴は変更していません。");
+                      }
+                    } finally { if (mounted.current) setBusy(false); }
+                  }}
+                />}
                 {services.visiting && <p className="rounded-lg bg-violet-50 p-3 text-xs text-violet-950">
                   {services.visitingOnly ? "保育所等訪問支援では別表は確認対象外です。" : "フェイスシート・アセスメント・利用計画・受給者証は共通です。"}
                   訪問支援用の契約書・情報連携同意書・計画・モニタリングは「訪問支援」と付いた欄へ登録してください。
                 </p>}
-                <section aria-label="受給者証の期限と更新" className={`rounded-xl border p-3 ${benefit?.validUntil && benefit.validUntil < asOf ? "border-rose-300 bg-rose-50" : benefit?.validUntil && addDocumentMonths(benefit.validUntil,-1) <= asOf ? "border-amber-300 bg-amber-50" : "border-violet-200 bg-violet-50"}`}>
+                <section aria-label="受給者証の期限と更新" className={`rounded-xl border p-3 ${benefitRenewalExcluded ? "border-slate-200 bg-slate-50" : benefit?.validUntil && benefit.validUntil < asOf ? "border-rose-300 bg-rose-50" : benefit?.validUntil && addDocumentMonths(benefit.validUntil,-1) <= asOf ? "border-amber-300 bg-amber-50" : "border-violet-200 bg-violet-50"}`}>
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <h4 className="text-sm font-bold">受給者証の有効期限：{benefit?.validUntil || "未登録"}</h4>
-                      {!services.visitingOnly && <p className="mt-1 text-xs font-bold">
+                      {!services.visitingOnly && (!cutoffs.primary || asOf < cutoffs.primary) && <p className="mt-1 text-xs font-bold">
                         {services.visiting ? "通所の" : ""}モニタリング時期（計画更新月）：{monitoring?.expired
                           ? "受給者証の更新を確認してください"
                           : monitoring?.months.length
@@ -519,8 +552,9 @@ function DocumentWorkspace({
                             : "未登録"}
                       </p>}
                       <p className="mt-1 text-xs leading-relaxed">
-                        {benefit?.validUntil ? `受給者証・利用計画の更新分の入力欄は ${addDocumentMonths(benefit.validUntil,-1)} から自動表示します。` : "受給者証の書類欄に、記載された有効期限を入力してください。期限は推測で補完しません。"}
-                        更新分は別の書類として保存し、以前の作成日・有効期限は履歴に残します。
+                        {benefitRenewalExcluded ? "解約日以降の更新は確認対象外です。解約前の登録と確認状況は下の一覧に残ります。"
+                          : (benefit?.validUntil ? `受給者証・利用計画の更新分の入力欄は ${addDocumentMonths(benefit.validUntil,-1)} から自動表示します。` : "受給者証の書類欄に、記載された有効期限を入力してください。期限は推測で補完しません。")
+                            + " 更新分は別の書類として保存し、以前の作成日・有効期限は履歴に残します。"}
                       </p>
                     </div>
                     <div className="flex flex-wrap gap-2">
@@ -717,7 +751,7 @@ function DocumentWorkspace({
                                     </span>
                                   </span>
                                   <span className="flex flex-wrap items-center gap-1 text-[11px] font-bold">
-                                    {group.type==='plan_final'&&Object.entries(FINAL_PLAN_LABELS).map(([state,label])=><span key={state} className={`rounded-md px-2 py-1 ${finalPlanColors[state as keyof typeof finalPlanColors].badge}`}>{label} {group.slots.filter(slot=>!slot.reviewException&&!(slot.visitingReview?.kind==='renewal'&&slot.status==='upcoming')&&finalPlanProgress(slot.entry)===state).length}件</span>)}
+                                    {group.type==='plan_final'&&Object.entries(FINAL_PLAN_LABELS).map(([state,label])=><span key={state} className={`rounded-md px-2 py-1 ${finalPlanColors[state as keyof typeof finalPlanColors].badge}`}>{label} {group.slots.filter(slot=>!slot.reviewException&&!slot.serviceEndedOn&&!(slot.visitingReview?.kind==='renewal'&&slot.status==='upcoming')&&finalPlanProgress(slot.entry)===state).length}件</span>)}
                                     {group.slots.some(slot=>slot.reviewException)&&<span className="rounded-md bg-slate-100 px-2 py-1 text-slate-700">期間の例外 {group.slots.filter(slot=>slot.reviewException).length}件</span>}
                                     <span className="rounded-md bg-slate-100 px-2 py-1 text-slate-700">
                                       登録 {group.registered}件
@@ -1074,6 +1108,49 @@ function DocumentSettings({
   );
 }
 
+function DocumentServiceEndings({saved,services,settings,disabled,onDirty,onSave}:{
+  key?: string;
+  saved?: ChildDocumentServiceEnding;
+  services: ReturnType<typeof childDocumentServices>;
+  settings?: ChildDocumentSettings;
+  disabled: boolean;
+  onDirty: (dirty:boolean) => void;
+  onSave: (day:string, visit:string) => Promise<void>;
+}) {
+  const savedDay=saved?.dayEndedOn || "",savedVisit=saved?.visitingEndedOn || "";
+  const [day,setDay]=useState(savedDay),[visit,setVisit]=useState(savedVisit),[error,setError]=useState("");
+  const dirty=day!==savedDay || visit!==savedVisit;
+  const dayStart=services.day ? settings?.contractDate : undefined;
+  const visitStart=services.visitingOnly ? settings?.contractDate : services.visiting ? settings?.visitingContractDate : undefined;
+  useEffect(()=>{onDirty(dirty);return ()=>onDirty(false);},[dirty]);
+  const save=async()=>{
+    setError("");
+    if(day!==savedDay&&day&&(!dayStart||!validDocumentDate(day)||day<dayStart)){setError("放デイの解約日は、放デイの契約日以降を指定してください。");return;}
+    if(visit!==savedVisit&&visit&&(!visitStart||!validDocumentDate(visit)||visit<visitStart)){setError("訪問支援の解約日は、訪問支援の契約日以降を指定してください。");return;}
+    try {await onSave(day,visit);} catch(e) {setError(e instanceof Error?e.message:"利用解約日を保存できませんでした。");}
+  };
+  const field=(label:string,value:string,start:string|undefined,set:(value:string)=>void,old:string)=><label className="block min-w-0 max-w-xs text-xs font-bold">
+    {label}の利用解約日（任意）
+    <input aria-label={label+"の利用解約日"} type="date" value={value} min={start || "1900-01-01"} max="2100-12-31"
+      disabled={disabled||(!start&&!old)} className={input} onChange={event=>{set(event.target.value);setError("");}}/>
+    {!start&&!old&&<span className="block pt-1 font-normal text-slate-600">先にこのサービスの契約日を登録してください。</span>}
+  </label>;
+  return <section className="rounded-xl border border-teal-200 bg-white p-4" aria-label="サービスごとの利用解約日">
+    <h4 className="font-bold">サービスごとの利用解約日</h4>
+    <p className="mt-2 text-xs text-slate-600">解約日当日以降に確認目安が来る書類は確認対象外になります。両サービスで共通の書類は、どちらかの利用が続く間は確認対象です。解約しないサービスは空欄のままにしてください。</p>
+    <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      {(services.day||savedDay)&&field("放デイ",day,dayStart,setDay,savedDay)}
+      {(services.visiting||savedVisit)&&field("訪問支援",visit,visitStart,setVisit,savedVisit)}
+    </div>
+    <p className="mt-2 text-xs text-slate-500">設定を取り消すには、該当の日付を空欄にして保存してください。利用予定・送迎・児童名簿は変更しません。</p>
+    {error&&<p role="alert" className="mt-2 text-sm text-rose-800">{error}</p>}
+    <div className="mt-3 flex flex-wrap gap-2">
+      <button type="button" disabled={disabled||!dirty} onClick={()=>void save()} className="min-h-10 rounded-lg bg-teal-700 px-3 text-sm font-bold text-white disabled:opacity-40">利用解約日を保存</button>
+      {dirty&&<button type="button" disabled={disabled} onClick={()=>{setDay(savedDay);setVisit(savedVisit);setError("");}} className="min-h-10 rounded-lg border px-3 text-xs">入力を戻す</button>}
+    </div>
+  </section>;
+}
+
 function DocumentRow({
   slot,
   scope,
@@ -1198,7 +1275,7 @@ function DocumentRow({
       id={'document-slot-'+slot.key}
       data-final-plan-state={finalState}
       aria-label={`${DOCUMENT_TYPES[slot.type]} ${slot.label}`}
-      className={`rounded-xl border-l-4 p-3 shadow-xs ${slot.reviewException ? "border-slate-400 bg-slate-50" : finalState?finalPlanColors[finalState].card:slot.status === "complete" ? "border-emerald-500 bg-white" : slot.status === "missing" ? "border-rose-400 bg-white" : "border-amber-400 bg-white"}`}
+      className={`rounded-xl border-l-4 p-3 shadow-xs ${slot.reviewException || slot.serviceEndedOn ? "border-slate-400 bg-slate-50" : finalState?finalPlanColors[finalState].card:slot.status === "complete" ? "border-emerald-500 bg-white" : slot.status === "missing" ? "border-rose-400 bg-white" : "border-amber-400 bg-white"}`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
@@ -1207,10 +1284,10 @@ function DocumentRow({
           </h4>
           <p className="mt-1 text-[11px] text-slate-500">
             {slot.label}／確認目安 {slot.dueDate}
-            {slot.historicalAnnex ? "（旧登録・確認対象外）" : !slot.required ? "（追加登録）" : ""}
+            {slot.historicalAnnex ? "（旧登録・確認対象外）" : !slot.required && !slot.serviceEndedOn ? "（追加登録）" : ""}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-3"><span className={`rounded-md px-2 py-1 text-xs font-bold ${!slot.reviewException && finalState?finalPlanColors[finalState].badge:''}`}>
+        <div className="flex flex-wrap items-center gap-3"><span className={`rounded-md px-2 py-1 text-xs font-bold ${!slot.reviewException && !slot.serviceEndedOn && finalState?finalPlanColors[finalState].badge:''}`}>
           {slot.reviewException ? "確認対象外（期間の例外）" : slot.historicalAnnex ? "確認対象外" : waitingForReview ? "更新準備" : finalState ? FINAL_PLAN_LABELS[finalState] : slot.status === "complete"
             ? "保管確認済み"
             : slot.status === "missing"
@@ -1219,14 +1296,15 @@ function DocumentRow({
                 ? "保管未確認"
                 : slot.benefitRenewal || slot.usagePlanRenewal ? "更新待ち" : "今月確認"}
         </span>
+        {slot.serviceEndedOn&&<span className="rounded-md bg-slate-200 px-2 py-1 text-xs font-bold">確認対象外（解約日：{slot.serviceEndedOn}）</span>}
         {slot.entry && <button type="button" aria-label="この書類を削除" disabled={disabled || deleteDisabled} onClick={()=>void deleteRegistration()} title={deleteDisabled ? '未保存の入力を保存するか、入力を戻してから削除してください。' : '登録を一覧から削除します。元の情報と履歴は保持します。'} className="flex min-h-10 items-center gap-1 rounded-lg border border-rose-300 bg-white px-3 text-xs font-bold text-rose-800 disabled:opacity-40"><Trash2 aria-hidden="true" className="h-4 w-4"/>削除</button>}
         </div>
       </div>
       {slot.reviewException && <p className="mt-2 text-xs text-slate-700">{slot.reviewException.from}～{slot.reviewException.through}：{slot.reviewException.reason}。書類は未登録のままです。</p>}
       {slot.visitingReview?.anchor && <p className="mt-2 text-xs text-slate-700">前回の計画開始日：{slot.visitingReview.anchor}</p>}
-      {!slot.reviewException&&finalState&&<p className="mt-2 text-xs leading-relaxed">{finalState==='not_created'?'作成日を登録してください。':finalState==='pending'?`未入力：${[!slot.entry?.consentDate&&'保護者同意日',!slot.entry?.guardianDeliveryDate&&'保護者交付日'].filter(Boolean).join('・')}`:'保護者同意日・保護者交付日が登録されています。'}{slot.entry&&!slot.entry.confirmed?' 実物の保管は未確認です。':''}{needsPlanStart&&slot.entry&&!slot.entry.planStartDate?' 開始日が未登録のため、次回の更新時期は計算できません。':''}</p>}
-      {slot.benefitRenewal && <p className="mt-2 rounded-lg bg-violet-50 p-2 text-xs text-violet-950">更新分の入力欄／受付開始 {slot.benefitRenewal.availableFrom}。以前の受給者証とは別に登録します。</p>}
-      {slot.usagePlanRenewal && <p className="mt-2 rounded-lg bg-violet-50 p-2 text-xs text-violet-950">利用計画の更新分／表示開始 {slot.usagePlanRenewal.availableFrom}。受給者証の前回期限 {slot.usagePlanRenewal.previousValidUntil} に対応する作成日・保管確認を登録します。以前の利用計画は上書きしません。作成時期は相談支援等へ確認してください。</p>}
+      {!slot.reviewException&&!slot.serviceEndedOn&&finalState&&<p className="mt-2 text-xs leading-relaxed">{finalState==='not_created'?'作成日を登録してください。':finalState==='pending'?`未入力：${[!slot.entry?.consentDate&&'保護者同意日',!slot.entry?.guardianDeliveryDate&&'保護者交付日'].filter(Boolean).join('・')}`:'保護者同意日・保護者交付日が登録されています。'}{slot.entry&&!slot.entry.confirmed?' 実物の保管は未確認です。':''}{needsPlanStart&&slot.entry&&!slot.entry.planStartDate?' 開始日が未登録のため、次回の更新時期は計算できません。':''}</p>}
+      {!slot.serviceEndedOn && slot.benefitRenewal && <p className="mt-2 rounded-lg bg-violet-50 p-2 text-xs text-violet-950">更新分の入力欄／受付開始 {slot.benefitRenewal.availableFrom}。以前の受給者証とは別に登録します。</p>}
+      {!slot.serviceEndedOn && slot.usagePlanRenewal && <p className="mt-2 rounded-lg bg-violet-50 p-2 text-xs text-violet-950">利用計画の更新分／表示開始 {slot.usagePlanRenewal.availableFrom}。受給者証の前回期限 {slot.usagePlanRenewal.previousValidUntil} に対応する作成日・保管確認を登録します。以前の利用計画は上書きしません。作成時期は相談支援等へ確認してください。</p>}
       <div className={`mt-3 grid items-end gap-2 ${slot.type === "benefit" || slot.type === "plan_final" ? "sm:grid-cols-2" : "sm:grid-cols-[minmax(0,1fr)_auto_auto]"}`}>
         <label className="text-xs font-bold">
           {slot.type === "certificate" || slot.type === "additional"

@@ -27,6 +27,16 @@ const data=(entries:ChildDocumentEntry[]=[]):DocumentRegister=>({settings:[{chil
 const reminders=(register=data(),date='2026-10-19')=>childDocumentReminders(child,[child],register,date);
 const items=(rows:ReturnType<typeof reminders>)=>rows.flatMap(row=>row.items||[]);
 
+test('end date suppresses renewal warnings after the cutoff without dropping earlier missing documents',()=>{
+ const store=data([entry({type:'plan_final',cycleKey:'plan:2026-10',documentDate:'2026-10-10'})]);
+ store.settings[0].monitoringMonths=[10,12];
+ store.serviceEndings=[{childId:'a',revision:1,dayEndedOn:'2026-10-31'}];
+ const notices=reminders(store,'2026-11-24');
+ assert.ok(items(notices).some(item=>item.slotKey==='face|initial:2026-04-15'));
+ assert.ok(!items(notices).some(item=>item.cycleKey==='plan:2026-10'));
+ assert.ok(!notices.some(row=>row.id==='next-monitoring'||row.id.startsWith('six-month:')));
+});
+
 test('missing/future contracts explain the missing setting without inventing dates',()=>{
  assert.match(reminders({settings:[],entries:[]})[0].detail,/不足項目：契約日/);
  const future=data();future.settings[0].contractDate='2027-04-15';assert.equal(reminders(future).length,1);assert.match(reminders(future)[0].title,/契約開始前/);

@@ -142,6 +142,33 @@ async function check(page,url){
  const allCsv=await csv('全児童の登録書類をCSV出力');
  assert(allCsv.filename.startsWith('保管書類一覧_全児童_')&&allCsv.content.includes('放デイの架空証明書')&&allCsv.content.includes('訪問支援の架空証明書'),'all-children CSV includes both children');
  assert((await model()).writes===beforeCsv,'CSV export is local and read-only');
+ await page.clock.setFixedTime(new Date('2026-11-24T00:00:00Z'));
+ await page.goto(url+'?mode=service-endings');await selectA();
+ const storedBefore=JSON.stringify((await data()).entries);
+ const dayEnd=page.getByLabel('放デイの利用解約日',{exact:true});
+ const visitingEnd=page.getByLabel('訪問支援の利用解約日',{exact:true});
+ const saveEnding=async()=>{
+  await page.getByRole('button',{name:'利用解約日を保存',exact:true}).click();
+  await page.getByRole('status').filter({hasText:'利用解約日を保存しました'}).waitFor();
+  await page.getByTestId('dirty').filter({hasText:'未保存の入力なし'}).waitFor();
+ };
+ await dayEnd.fill('2026-10-31');
+ await page.getByRole('button',{name:/^架空児童B /}).click();
+ assert(await page.getByRole('alert').filter({hasText:'未保存の入力'}).isVisible(),'cannot change child with an unsaved end date');
+ await saveEnding();
+ assert(!await row('個支原案 2026-10 更新月').count()&&await row('個支原案 2026-04 更新月').isVisible(),'day cutoff inclusive, prior arrears remain');
+ assert(await row('個支原案 訪問支援／開始日から6か月の更新').isVisible()&&await visitingEnd.inputValue()==='','visiting renewal remains after day service ends');
+ assert(await row('個支本案 2026-10 更新月').getByText('確認対象外（解約日：2026-10-31）',{exact:true}).isVisible(),'registered post-end day slot remains clearly labelled');
+ await visitingEnd.fill('2026-12-03');await saveEnding();
+ assert(!await row('個支原案 訪問支援／開始日から6か月の更新').count(),'visiting cutoff independent and inclusive');
+ assert(await page.getByRole('region',{name:'受給者証の期限と更新'}).getByText(/解約日以降の更新は確認対象外/).isVisible(),'shared renewal summary is not a false alert after both cutoffs');
+ await page.getByRole('button',{name:'再読込',exact:true}).click();
+ await visitingEnd.waitFor();
+ assert(await dayEnd.inputValue()==='2026-10-31'&&await visitingEnd.inputValue()==='2026-12-03','both dates survive reloading saved data');
+ await dayEnd.fill('');await saveEnding();
+ assert(await row('個支原案 2026-10 更新月').isVisible()&&await visitingEnd.inputValue()==='2026-12-03','clearing day end restores only day checking');
+ assert(JSON.stringify((await data()).entries)===storedBefore,'settings never change document rows');
+ assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'end date section fits mobile');
  assert(!errors.length,'no browser exceptions '+errors.join(','));assert(!external.length,'no external or production requests');return {passed:true,checks,productionAccess:false,filesUploaded:0};
 }
 try{command('open',url);command('snapshot');const output=command('run-code',`async(page)=>await (${check.toString()})(page,${JSON.stringify(url)})`),match=output.match(/### Result\s+([\s\S]*?)\s+### Ran/);if(!match||!JSON.parse(match[1]).passed)throw Error(output);console.log(match[1]);}finally{command('close');}

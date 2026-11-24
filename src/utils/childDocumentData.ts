@@ -3,6 +3,7 @@ import {
   validDocumentDate,
   type ChildDocumentSettings,
   type ChildDocumentEntry,
+  type ChildDocumentServiceEnding,
   type VisitingReviewException,
 } from "./childDocuments";
 import { validBenefitEntitlements } from "./childServiceEntitlements";
@@ -41,6 +42,18 @@ export function parseDocumentSettings(row: any): ChildDocumentSettings {
     effectiveFrom: row.effective_from,
     createdAt: text(row.created_at),
     createdByName: text(row.created_by_name),
+  };
+}
+export function parseChildDocumentServiceEnding(row: any): ChildDocumentServiceEnding {
+  if (!row || typeof row.child_id !== "string" || !row.child_id
+    || !Number.isSafeInteger(Number(row.revision)) || Number(row.revision) < 1
+    || (row.day_ended_on != null && !validDocumentDate(row.day_ended_on))
+    || (row.visiting_ended_on != null && !validDocumentDate(row.visiting_ended_on)))
+    throw Error("サービスごとの解約日を確認できません。");
+  return {
+    childId: row.child_id, revision: Number(row.revision),
+    ...(row.day_ended_on ? {dayEndedOn: row.day_ended_on} : {}),
+    ...(row.visiting_ended_on ? {visitingEndedOn: row.visiting_ended_on} : {}),
   };
 }
 export function parseDocumentEntry(row: any): ChildDocumentEntry {
