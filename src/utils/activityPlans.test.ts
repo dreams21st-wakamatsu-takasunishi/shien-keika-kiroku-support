@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { activityTemplates, activityDuration, activityText, activityTimeline, copyActivity, emptyActivity, restoreActivityDraft, validateActivity } from './activityPlans';
+import { ACTIVITY_MANUAL_DURATION_LIMIT, activityTemplates, activityDuration, activityDurationLabel, activityText, activityTimeline, copyActivity, emptyActivity, restoreActivityDraft, validateActivity } from './activityPlans';
 
 test('four reusable activity templates validate without inventing participants or observations', () => {
   assert.equal(activityTemplates.length, 4);
@@ -45,7 +45,36 @@ test('ready status requires real preparation checks but drafts remain saveable',
 test('print/copy text uses edited roles, timing and reflections, including unconfirmed preparations', () => {
   const p = copyActivity(activityTemplates[0]); p.content.leader = '担当A'; p.content.reflection = '実施結果';
   const text = activityText(p);
-  assert.ok(text.includes('担当A')); assert.ok(text.includes('14:00～14:05')); assert.ok(text.includes('未確認：材料')); assert.ok(text.includes('実施結果'));
+  assert.ok(text.includes('起案者名：担当A')); assert.ok(text.includes('14:00～14:05')); assert.ok(text.includes('未確認：材料')); assert.ok(text.includes('実施結果'));
+});
+test('free-form activity time keeps step clocks and survives draft restore and copy', () => {
+  const p = copyActivity(activityTemplates[0]);
+  const times = activityTimeline(p);
+  assert.equal(activityDurationLabel(p), '45分程度');
+  p.content.durationMode = 'manual';
+  p.content.manualDuration = '約1時間（休憩を含む）';
+  assert.deepEqual(validateActivity(p), []);
+  assert.deepEqual(restoreActivityDraft(JSON.stringify(p)), p);
+  assert.equal(activityDurationLabel(copyActivity(p, true)), p.content.manualDuration);
+  assert.equal(activityDuration(p), 45);
+  assert.deepEqual(activityTimeline(p), times);
+  assert.match(activityText(p), /活動時間：約1時間（休憩を含む）/);
+  p.content.durationMode = 'auto';
+  assert.equal(activityDurationLabel(p), '45分程度');
+  assert.doesNotMatch(activityText(p), /休憩を含む/);
+});
+test('manual mode requires bounded text without rejecting an unfinished local draft', () => {
+  const p = copyActivity(activityTemplates[0]);
+  p.content.durationMode = 'manual'; p.content.manualDuration = '';
+  assert.equal(activityDurationLabel(p), '');
+  assert.ok(validateActivity(p).some(error => error.includes('自由記入')));
+  assert.deepEqual(restoreActivityDraft(JSON.stringify(p)), p);
+  for (const value of [' '.repeat(10), 'あ'.repeat(ACTIVITY_MANUAL_DURATION_LIMIT + 1), '2時間\n延長あり']) {
+    p.content.manualDuration = value;
+    assert.ok(validateActivity(p).some(error => error.includes('自由記入')));
+  }
+  assert.equal(restoreActivityDraft(JSON.stringify({...p,content:{...p.content,manualDuration:10}})), null);
+  assert.equal(restoreActivityDraft(JSON.stringify({...p,content:{...p.content,durationMode:'unknown'}})), null);
 });
 test('bounded drafts restore only known structures and keep unfinished editing', () => {
   const p = emptyActivity(); const raw = JSON.stringify(p); assert.deepEqual(restoreActivityDraft(raw), p);

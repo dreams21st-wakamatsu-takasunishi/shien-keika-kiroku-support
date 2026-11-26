@@ -5,7 +5,7 @@ import { ArrowLeft, ArrowRight, BookOpenCheck, ChevronDown, Copy, Plus, Printer,
 import { EditorActionBar } from './EditorActionBar';
 import { ActivityPlanSheet } from './ActivityPlanSheet';
 import { listActivityPlans, saveActivityPlan } from '../services/activityPlanService';
-import { activityDuration, activityKinds, activityStatuses, activitySupportItem, activitySupportKind, activityTemplates, activityText, activityTimeline, copyActivity, emptyActivity, restoreActivityDraft, validateActivity, type ActivityContent, type ActivityPlan } from '../utils/activityPlans';
+import { ACTIVITY_MANUAL_DURATION_LIMIT, activityDuration, activityDurationLabel, activityKinds, activityStatuses, activitySupportItem, activitySupportKind, activityTemplates, activityText, activityTimeline, copyActivity, emptyActivity, restoreActivityDraft, validateActivity, type ActivityContent, type ActivityPlan } from '../utils/activityPlans';
 import { activityDraftStorageKey, installActivityDraftCloseWarning } from '../utils/activityDraftWarning';
 import { growTextareaToContent } from '../utils/textareaSizing';
 import { ActivityTrafficWindow } from './ActivityTrafficWindow';
@@ -25,6 +25,7 @@ const tabForPreview = (key: string): EditorStep => {
   if (key === 'reflection' || key === 'nextTime') return '振り返り';
   return '基本情報';
 };
+const previewKey = (key: string | null) => key === 'manualDuration' ? 'duration' : key;
 type Props = { organizationId: string; userId: string; onDirtyChange: (dirty: boolean) => void; onOpenTrafficCost: () => void; onOpenCalendar: () => void };
 export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, onOpenCalendar }: Props) {
   const [trafficOpened,setTrafficOpened]=useState(false),[trafficVisible,setTrafficVisible]=useState(false);
@@ -66,7 +67,7 @@ export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, o
     const control = event.target;
     if (!(control instanceof HTMLElement) || !control.matches('input,textarea,select')) return;
     const preparation = control.closest<HTMLElement>('[data-preview-preparation]')?.dataset.previewPreparation;
-    setActiveField(control.dataset.activityInput || (preparation ? `prep:${preparation}` : null));
+    setActiveField(previewKey(control.dataset.activityInput || (preparation ? `prep:${preparation}` : null)));
   };
   useLayoutEffect(() => {
     if (!requestedInput) return;
@@ -75,7 +76,7 @@ export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, o
     if (target) {
       target.focus({preventScroll:true});
       target.scrollIntoView({block:'center',behavior:window.matchMedia('(prefers-reduced-motion: reduce)').matches?'auto':'smooth'});
-      setActiveField(requestedInput);
+      setActiveField(previewKey(requestedInput));
     }
     setRequestedInput(null);
   }, [tab, requestedInput]);
@@ -123,7 +124,7 @@ export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, o
     if (busy) return;
     if (key === 'addStep') { addStep(); return; }
     setTab(key === 'startTime' && tab === '活動の流れ' ? tab : tabForPreview(key));
-    setRequestedInput(key);
+    setRequestedInput(key === 'duration' && plan.content.durationMode === 'manual' ? 'manualDuration' : key);
   };
   const choose = (p: ActivityPlan) => {
     if (busy || (dirty && !window.confirm('未保存の入力を置き換えますか？保存する場合はキャンセルしてください。'))) return;
@@ -159,7 +160,7 @@ export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, o
         <div id="activity-plan-library" hidden={!libraryOpen} className="space-y-3 border-t border-slate-200 pt-3">
         <div className="flex items-center justify-between"><h3 className="font-black">保存した案</h3><button className="min-h-11 text-sm font-bold text-teal-700" onClick={() => void load()} disabled={loading}>一覧を更新</button></div>
         <div className="grid gap-3 sm:grid-cols-[180px_minmax(0,1fr)]"><label className="block text-sm font-bold">表示<select value={filter} onChange={(e) => setFilter(e.target.value)} className={field}><option>活動案</option><option>ひな形</option><option>保管</option></select></label>
-        <label className="block text-sm font-bold"><Search className="mr-1 inline h-4 w-4" />案を検索<input type="search" className={field} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="活動名・日付・担当" /></label></div>
+        <label className="block text-sm font-bold"><Search className="mr-1 inline h-4 w-4" />案を検索<input type="search" className={field} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="活動名・日付・起案者名" /></label></div>
         {loading ? <p className="text-sm">読み込み中…</p> : <p className="text-xs text-slate-500">{filtered.length}件表示（最新500件から検索）</p>}
         <div className="grid max-h-72 gap-2 overflow-y-auto sm:grid-cols-2 lg:grid-cols-3">{filtered.map((p) => <div key={p.id} className={`rounded-xl border p-3 ${plan.id === p.id ? 'border-teal-400 bg-teal-50' : 'border-slate-200'}`}>
           <button className="w-full text-left" disabled={busy} onClick={() => choose(p)}><span className="block break-words font-bold">{p.title}</span><span className="mt-1 block break-words text-xs text-slate-600">{p.isTemplate ? 'ひな形' : p.date} · {activitySupportItem(p)} · {p.status}</span></button>
@@ -174,7 +175,7 @@ export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, o
           <p className="border-t border-slate-200 bg-white p-3 text-xs text-slate-600">A4縦の表形式です。強調枠は印刷されません。長い内容は印刷時に続きのページへ表示します。</p>
         </aside>}
       <div className="activity-input-pane min-w-0 space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-teal-50 p-3 text-sm"><b>{dirty ? '未保存の変更があります' : plan.id ? '保存済み' : '新しい案・入力を開始できます'}</b><span>計{activityDuration(plan)}分 · 準備{completed}/{plan.content.preparations.length}件</span></div>
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-teal-50 p-3 text-sm"><b>{dirty ? '未保存の変更があります' : plan.id ? '保存済み' : '新しい案・入力を開始できます'}</b><span className="break-words">活動時間：{activityDurationLabel(plan) || '未入力'} · 準備{completed}/{plan.content.preparations.length}件</span></div>
         <p className="text-xs text-slate-600">未保存の入力はこのタブに保持します。未保存のままタブ・ブラウザを閉じる、または再読み込みすると、ブラウザ標準の確認が表示されます。職員への共有は「保存」後です。個別支援計画・支援経過記録は自動で変更しません。</p>
         {storageError && <p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm">このブラウザでは未保存の入力を保持できません。画面を閉じる前に保存してください。</p>}
         {error && <p role="alert" className="whitespace-pre-wrap rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
@@ -200,12 +201,30 @@ export function ActivityPlanWorkspace({ organizationId, userId, onDirtyChange, o
             <TextArea inputKey="preparationText" label="用意するもの" value={plan.content.preparationText || ''} onChange={preparationText => content({preparationText})} placeholder="例：色画用紙、はさみ、のり。数量や補足も自由に記入できます。" />
             <h3 className="border-t border-slate-200 pt-4 text-sm font-black text-slate-800">実施条件・担当</h3>
             <div className="grid gap-3 sm:grid-cols-2">{([['staffCount','職員人数（名）'],['childCount','児童人数（名）']] as const).map(([key,label]) => <label key={key} className="text-sm font-bold">{label}<input data-activity-input={key} className={field} type="number" min={0} max={1000} step={1} value={plan.content[key] || ''} onChange={(e) => content({ [key]: e.target.value })} /></label>)}</div>
-            <div className="grid gap-3 sm:grid-cols-2">{([['location','targetLocation','活動場所','例：教室・近隣公園'],['leader','leader','主担当','担当職員名']] as const).map(([key,inputKey,label,placeholder]) => <label key={key} className="text-sm font-bold">{label}<input data-activity-input={inputKey} className={field} value={plan.content[key]} maxLength={160} placeholder={placeholder} onChange={(e) => content({ [key]: e.target.value })} /></label>)}<label className="text-sm font-bold">開始時刻<input data-activity-input="startTime" className={field} type="time" value={plan.content.startTime} onChange={(e) => content({ startTime: e.target.value })} /></label><label className="text-sm font-bold">往復時間（分）<input data-activity-input="travelMinutes" className={field} type="number" min={0} max={1440} step={1} value={plan.content.travelMinutes || ''} onChange={e => content({travelMinutes:e.target.value})}/></label></div>
+            <div className="grid gap-3 sm:grid-cols-2">{([['location','targetLocation','活動場所','例：教室・近隣公園'],['leader','leader','起案者名','指導案を作成した職員名']] as const).map(([key,inputKey,label,placeholder]) => <label key={key} className="text-sm font-bold">{label}<input data-activity-input={inputKey} className={field} value={plan.content[key]} maxLength={160} placeholder={placeholder} onChange={(e) => content({ [key]: e.target.value })} /></label>)}<label className="text-sm font-bold">開始時刻<input data-activity-input="startTime" className={field} type="time" value={plan.content.startTime} onChange={(e) => content({ startTime: e.target.value })} /></label><label className="text-sm font-bold">往復時間（分）<input data-activity-input="travelMinutes" className={field} type="number" min={0} max={1440} step={1} value={plan.content.travelMinutes || ''} onChange={e => content({travelMinutes:e.target.value})}/></label></div>
+            <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2">
+              <label className="text-sm font-bold">活動時間の表示方法
+                <select data-activity-input="duration" aria-label="活動時間の表示方法" aria-describedby="activity-duration-help" className={field}
+                  value={plan.content.durationMode === 'manual' ? 'manual' : 'auto'}
+                  onChange={e => content({durationMode:e.target.value === 'manual' ? 'manual' : 'auto'})}>
+                  <option value="auto">自動計算（各段階の合計）</option>
+                  <option value="manual">自由記入</option>
+                </select>
+              </label>
+              {plan.content.durationMode === 'manual'
+                ? <label className="text-sm font-bold">活動時間（自由記入）
+                    <input data-activity-input="manualDuration" aria-describedby="activity-duration-help" className={field}
+                      placeholder="例：約1時間（休憩を含む）" value={plan.content.manualDuration || ''}
+                      maxLength={ACTIVITY_MANUAL_DURATION_LIMIT} onChange={e => content({manualDuration:e.target.value})}/>
+                  </label>
+                : <div className="self-center text-sm">活動時間：<b>{activityDurationLabel(plan)}</b></div>}
+              <p id="activity-duration-help" className="text-xs text-slate-600 sm:col-span-2">帳票に表示する活動全体の時間です。各段階の時刻は、開始時刻と各段階の所要時間から引き続き計算します。</p>
+            </div>
             {plan.content.target && <p className="whitespace-pre-wrap break-words rounded-xl bg-slate-50 p-3 text-xs text-slate-700"><b>対象・人数の旧記載（参照のみ）</b><br/>{plan.content.target}</p>}
           </div>}
           {tab === '活動の流れ' && <div className="space-y-4" role="tabpanel" id="activity-panel-1" aria-labelledby="activity-step-1">
             <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-2"><label className="text-sm font-bold">開始時刻<input data-activity-input="startTime" className={field} type="time" value={plan.content.startTime} onChange={(e) => content({startTime:e.target.value})}/></label><div className="self-center text-sm text-slate-600">開始時刻と所要時間から、各段階の時刻を自動表示します。</div></div>
-            <h2 className="font-black">活動の流れ <span className="text-sm text-teal-700">計{activityDuration(plan)}分</span></h2>
+            <h2 className="font-black">活動の流れ <span className="text-sm text-teal-700">各段階の合計 {activityDuration(plan)}分</span></h2>
             {plan.content.steps.map((s, i) => <div key={s.id} data-preview-step={s.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
               <div className="mb-2 flex items-center justify-between gap-2"><b className="text-sm">{i + 1}. {times[i]}</b><div className="flex gap-1"><button className={button} disabled={!i} aria-label={`${i + 1}番目の流れを上へ`} onClick={() => { const steps = [...plan.content.steps]; [steps[i - 1], steps[i]] = [steps[i], steps[i - 1]]; content({ steps }); }}>上へ</button><button className={button} aria-label={`${i + 1}番目の流れを削除`} onClick={() => content({ steps: plan.content.steps.filter((x) => x.id !== s.id) })}><Trash2 className="h-4 w-4" /></button></div></div>
               <label className="mb-2 block text-sm font-bold">段階<input data-activity-input={`step:${s.id}:stage`} className={field} value={s.stage || ''} maxLength={100} placeholder="例：導入・展開・まとめ" onChange={(e) => content({ steps: plan.content.steps.map((x) => x.id === s.id ? { ...x, stage: e.target.value } : x) })} /></label>

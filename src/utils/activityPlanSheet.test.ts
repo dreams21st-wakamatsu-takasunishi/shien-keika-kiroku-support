@@ -10,7 +10,7 @@ test('sheet matches reference headings, preserves all content and escapes user t
   Object.assign(p.content, { staffCount: '3', childCount: '8', travelMinutes: '0', summary: '<script>概要</script>', roles: '役割テスト', considerations: '配慮テスト', safety: '安全テスト', reflection: '振り返りテスト', nextTime: '改善テスト' });
   p.content.steps[0].stage = '導入';
   const html = renderToStaticMarkup(createElement(ActivityPlanSheet, { plan: p, dirty: true }));
-  for (const label of ['支援項目', '講師名', '職員人数', '児童人数', '往復時間', 'ねらい', '用意するもの', '段階', '指導内容', '指導上の留意点', '自己評価', '改善案', '役割テスト', '配慮テスト', '安全テスト', '振り返りテスト', '改善テスト', '導入', '未保存の入力内容', '14:00～14:05']) assert.ok(html.includes(label), label);
+  for (const label of ['支援項目', '起案者名', '職員人数', '児童人数', '往復時間', '活動時間　45分程度', 'ねらい', '用意するもの', '段階', '指導内容', '指導上の留意点', '自己評価', '改善案', '役割テスト', '配慮テスト', '安全テスト', '振り返りテスト', '改善テスト', '導入', '未保存の入力内容', '14:00～14:05']) assert.ok(html.includes(label), label);
   assert.ok(html.includes('&lt;script&gt;概要&lt;/script&gt;'));
   assert.ok(html.includes('往復時間　0 分程度'));
   const flow = html.split('class="activity-sheet-flow"')[1].split('</table>')[0];
@@ -24,6 +24,15 @@ test('old saved plans remain readable without fabricating new numbers', () => {
   const html = renderToStaticMarkup(createElement(ActivityPlanSheet, { plan: p }));
   assert.ok(!html.includes('undefined'));
   assert.ok(!html.includes('NaN'));
+});
+test('the print sheet uses the saved author and free-form activity time without a minute suffix', () => {
+  const p = copyActivity(activityTemplates[0]);
+  Object.assign(p.content, {leader:'従来の担当氏名',durationMode:'manual',manualDuration:'約1時間 <休憩込み>'});
+  const html = renderToStaticMarkup(createElement(ActivityPlanSheet, {plan:p}));
+  assert.match(html, /起案者名.*従来の担当氏名/);
+  assert.doesNotMatch(html, /講師名|活動時間　45分程度/);
+  assert.match(html, /活動時間　約1時間 &lt;休憩込み&gt;<\/div>/);
+  assert.match(html, /14:00～14:05/);
 });
 
 test('optional reference fields validate and survive draft restore', () => {

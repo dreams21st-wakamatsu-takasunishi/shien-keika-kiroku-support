@@ -7,7 +7,10 @@ export interface ActivityContent {
   considerations: string; safety: string; roles: string; reflection: string; nextTime: string;
   steps: ActivityStep[]; preparations: ActivityPreparation[];
   supportItem?: string; summary?: string; preparationText?: string; staffCount?: string; childCount?: string; travelMinutes?: string;
+  durationMode?: 'auto' | 'manual';
+  manualDuration?: string;
 }
+export const ACTIVITY_MANUAL_DURATION_LIMIT = 120;
 export interface ActivityPlan {
   id: string; organizationId: string; title: string; kind: typeof activityKinds[number]; date: string;
   status: typeof activityStatuses[number]; isTemplate: boolean; content: ActivityContent;
@@ -52,6 +55,10 @@ export function validateActivity(plan: ActivityPlan): string[] {
   if (plan.content.startTime && !/^([01]\d|2[0-3]):[0-5]\d$/.test(plan.content.startTime)) errors.push('開始時刻を正しく入力してください。');
   if (Object.values(plan.content).some((v) => typeof v === 'string' && v.length > 10000)) errors.push('各文章は10,000文字以内で入力してください。');
   if (plan.content.preparationText !== undefined && typeof plan.content.preparationText !== 'string') errors.push('用意するものは文章で入力してください。');
+  const { durationMode, manualDuration } = plan.content;
+  if (durationMode !== undefined && durationMode !== 'auto' && durationMode !== 'manual') errors.push('活動時間の表示方法を確認してください。');
+  if (!validManualDurationField(manualDuration) || (durationMode === 'manual' && !manualDuration?.trim()))
+    errors.push(`自由記入の活動時間を1～${ACTIVITY_MANUAL_DURATION_LIMIT}文字で入力してください。`);
   for (const key of ['staffCount', 'childCount', 'travelMinutes'] as const) {
     const value = plan.content[key];
     if (value !== undefined && (typeof value !== 'string' || (value !== '' && (!/^\d{1,4}$/.test(value) || Number(value) > (key === 'travelMinutes' ? 1440 : 1000))))) errors.push('人数は0～1000名、往復時間は0～1440分の整数で入力してください。');
@@ -66,6 +73,14 @@ export function validateActivity(plan: ActivityPlan): string[] {
   return errors;
 }
 export function activityDuration(plan: ActivityPlan) { return plan.content.steps.reduce((sum, s) => sum + (Number.isFinite(s.minutes) ? s.minutes : 0), 0); }
+function validManualDurationField(value: unknown): value is string | undefined {
+  return value === undefined || (typeof value === 'string' && value.length <= ACTIVITY_MANUAL_DURATION_LIMIT && !/[\r\n]/.test(value));
+}
+/** The free-form total is for the summary only; step clock times still use numeric minutes. */
+export function activityDurationLabel(plan: ActivityPlan) {
+  if (plan.content.durationMode !== 'manual') return `${activityDuration(plan)}分程度`;
+  return typeof plan.content.manualDuration === 'string' ? plan.content.manualDuration.trim() : '';
+}
 export function activityTimeline(plan: ActivityPlan) {
   if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(plan.content.startTime)) return plan.content.steps.map(() => '時刻未設定');
   if (plan.content.steps.some((s) => !Number.isInteger(s.minutes) || s.minutes < 1 || s.minutes > 600)) return plan.content.steps.map(() => '時刻未確定');
@@ -75,9 +90,10 @@ export function activityTimeline(plan: ActivityPlan) {
 }
 export function activityText(plan: ActivityPlan) {
   const c = plan.content; const times = activityTimeline(plan);
-  return [`活動・指導案：${plan.title}`, `${plan.isTemplate ? 'ひな形' : `実施日：${plan.date}`}／${plan.status}`, `${c.target ? `対象：${c.target}／` : ''}場所：${c.location || '未設定'}／主担当：${c.leader || '未設定'}`,
+  return [`活動・指導案：${plan.title}`, `${plan.isTemplate ? 'ひな形' : `実施日：${plan.date}`}／${plan.status}`, `${c.target ? `対象：${c.target}／` : ''}場所：${c.location || '未設定'}／起案者名：${c.leader || '未設定'}`,
     `支援項目：${activitySupportItem(plan)}／内容：${c.summary || '未設定'}`, `職員人数：${c.staffCount || '未設定'}名／児童人数：${c.childCount || '未設定'}名／往復時間：${c.travelMinutes || '未設定'}分`,
-    `ねらい\n${c.goal}`, `活動の流れ（計${activityDuration(plan)}分）`, ...c.steps.map((s, i) => `${i + 1}. ${s.stage ? `${s.stage} ` : ''}${times[i]} ${s.title}\n   支援・配慮：${s.support || '未設定'}`),
+    `活動時間：${activityDurationLabel(plan) || '未設定'}`,
+    `ねらい\n${c.goal}`, `活動の流れ（各段階の合計 ${activityDuration(plan)}分）`, ...c.steps.map((s, i) => `${i + 1}. ${s.stage ? `${s.stage} ` : ''}${times[i]} ${s.title}\n   支援・配慮：${s.support || '未設定'}`),
     `用意するもの\n${c.preparationText || ''}`, ...c.preparations.map((p) => `${p.done ? '確認済' : '未確認'}：${p.name} ${p.quantity}／担当：${p.owner || '未設定'}`),
     `役割分担\n${c.roles}`, `参加しやすくする配慮\n${c.considerations}`, `安全・緊急時の対応\n${c.safety}`, `振り返り\n${c.reflection}`, `次回に活かすこと\n${c.nextTime}`].join('\n\n');
 }
@@ -88,6 +104,7 @@ export function restoreActivityDraft(raw: string | null): ActivityPlan | null {
     if (!c || !activityKinds.includes(p.kind) || !activityStatuses.includes(p.status) || typeof p.title !== 'string' || typeof p.id !== 'string' || typeof p.date !== 'string' || typeof p.isTemplate !== 'boolean' || !Number.isInteger(p.revision) || p.revision < 0) return null;
     if (['goal','target','location','leader','startTime','considerations','safety','roles','reflection','nextTime'].some((k) => typeof c[k as keyof ActivityContent] !== 'string')) return null;
     if (['supportItem','summary','preparationText','staffCount','childCount','travelMinutes'].some((k) => c[k as keyof ActivityContent] !== undefined && typeof c[k as keyof ActivityContent] !== 'string')) return null;
+    if ((c.durationMode !== undefined && c.durationMode !== 'auto' && c.durationMode !== 'manual') || !validManualDurationField(c.manualDuration)) return null;
     if (!Array.isArray(c.steps) || c.steps.length > 40 || c.steps.some((s) => typeof s.id !== 'string' || typeof s.title !== 'string' || typeof s.support !== 'string' || !Number.isFinite(s.minutes) || (s.stage !== undefined && (typeof s.stage !== 'string' || s.stage.length > 100)))) return null;
     if (!Array.isArray(c.preparations) || c.preparations.length > 80 || c.preparations.some((s) => ['id','name','quantity','owner'].some((k) => typeof s[k as keyof ActivityPreparation] !== 'string') || typeof s.done !== 'boolean')) return null;
     return p;

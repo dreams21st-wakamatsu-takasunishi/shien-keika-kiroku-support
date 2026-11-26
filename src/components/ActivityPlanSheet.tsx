@@ -1,5 +1,5 @@
 import React from 'react';
-import { activityDuration, activitySupportItem, activityTimeline, type ActivityPlan } from '../utils/activityPlans';
+import { activityDurationLabel, activitySupportItem, activityTimeline, type ActivityPlan } from '../utils/activityPlans';
 
 /** Shared screen/print sheet. Empty legacy fields remain blank, never inferred. */
 export function ActivityPlanSheet({ plan, dirty = false, activeField, onSelectField, navigationDisabled }: {
@@ -21,8 +21,8 @@ export function ActivityPlanSheet({ plan, dirty = false, activeField, onSelectFi
       <colgroup><col style={{ width: '11%' }} /><col style={{ width: '33%' }} /><col style={{ width: '22%' }} /><col style={{ width: '34%' }} /></colgroup>
       <tbody>
         <tr><th colSpan={4} className="activity-sheet-title" {...mark('title')}>{jump('title', '活動名', plan.title || '企画名')}</th></tr>
-        <tr><th>支援項目</th><td {...mark('supportItem')}>{jump('supportItem', '支援項目・種類', activitySupportItem(plan))}</td><th>講師名</th><td {...mark('leader')}>{jump('leader', '主担当', c.leader)}</td></tr>
-        <tr><th>内容</th><td {...mark('summary')}>{jump('summary', '内容（概要）', c.summary)}</td><td className="activity-sheet-counts"><div {...mark('staffCount')}>{jump('staffCount', '職員人数', `職員人数　${c.staffCount || '　'} 名`)}</div><div {...mark('childCount')}>{jump('childCount', '児童人数', `児童人数　${c.childCount || '　'} 名`)}</div></td><td className="activity-sheet-counts"><div {...mark('travelMinutes')}>{jump('travelMinutes', '往復時間', `往復時間　${c.travelMinutes || '　'} 分程度`)}</div>活動時間　{activityDuration(sheetPlan)} 分程度</td></tr>
+        <tr><th>支援項目</th><td {...mark('supportItem')}>{jump('supportItem', '支援項目・種類', activitySupportItem(plan))}</td><th>起案者名</th><td {...mark('leader')}>{jump('leader', '起案者名', c.leader)}</td></tr>
+        <tr><th>内容</th><td {...mark('summary')}>{jump('summary', '内容（概要）', c.summary)}</td><td className="activity-sheet-counts"><div {...mark('staffCount')}>{jump('staffCount', '職員人数', `職員人数　${c.staffCount || '　'} 名`)}</div><div {...mark('childCount')}>{jump('childCount', '児童人数', `児童人数　${c.childCount || '　'} 名`)}</div></td><td className="activity-sheet-counts"><div {...mark('travelMinutes')}>{jump('travelMinutes', '往復時間', `往復時間　${c.travelMinutes || '　'} 分程度`)}</div><div {...mark('duration')}>活動時間　{jump('duration', '活動時間', activityDurationLabel(sheetPlan), undefined, true)}</div></td></tr>
         <tr><th>ねらい</th><td colSpan={3} {...mark('goal')}>{jump('goal', '活動のねらい', c.goal)}</td></tr>
         <tr><th>用意するもの</th><td colSpan={3} className="activity-sheet-preparations"><div {...mark('preparationText')}>{jump('preparationText', '用意するもの', c.preparationText)}</div>{c.preparations.map((p, i) => <div key={p.id} {...mark(`prep:${p.id}`)}>{jump(`prep:${p.id}`, `準備チェック ${i + 1}`, `${p.done ? '☑' : '□'} ${p.name}${p.quantity ? `（${p.quantity}）` : ''}${p.owner ? ` ／ 担当：${p.owner}` : ''}`)}</div>)}</td></tr>
       </tbody>

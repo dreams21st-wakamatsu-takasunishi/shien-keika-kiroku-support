@@ -34,10 +34,10 @@ async function check(page){
     assert(await active.count()===1,'one highlighted field: '+label);
     assert(await active.getAttribute('data-activity-preview')===key,'correct highlighted field: '+label);
   };
-  const jump=async(label,key)=>{
+  const jump=async(label,key,highlight=key)=>{
     await preview.getByRole('button',{name:'編集：'+label,exact:true}).click();await tick();
     assert(await page.evaluate(()=>document.activeElement?.getAttribute('data-activity-input'))===key,'preview focuses '+label);
-    assert(await preview.locator('[data-active]').getAttribute('data-activity-preview')===key,'jump keeps correct preview highlight');
+    assert(await preview.locator('[data-active]').getAttribute('data-activity-preview')===highlight,'jump keeps correct preview highlight');
   };
   const editor=page.locator('.activity-input-pane');
   const left=await preview.boundingBox(),right=await editor.boundingBox();
@@ -48,7 +48,21 @@ async function check(page){
   assert(await flowRows.count()===1,'empty preview has only the add action');
   await page.getByRole('button',{name:'工作のひな形',exact:true}).click();
   assert(await flowRows.count()===3,'only real steps are displayed for a template');
-  for(const [label,key] of [['活動名（必須）','title'],['支援項目・種類','supportItem'],['実施日（必須）','date'],['状態','status'],['活動のねらい','goal'],['内容（概要）','summary'],['用意するもの','preparationText'],['活動場所','targetLocation'],['主担当','leader'],['開始時刻','startTime'],['職員人数（名）','staffCount'],['児童人数（名）','childCount'],['往復時間（分）','travelMinutes']])await focus(label,key);
+  for(const [label,key] of [['活動名（必須）','title'],['支援項目・種類','supportItem'],['実施日（必須）','date'],['状態','status'],['活動のねらい','goal'],['内容（概要）','summary'],['用意するもの','preparationText'],['活動場所','targetLocation'],['起案者名','leader'],['開始時刻','startTime'],['職員人数（名）','staffCount'],['児童人数（名）','childCount'],['往復時間（分）','travelMinutes'],['活動時間の表示方法','duration']])await focus(label,key);
+  assert(await input('活動時間の表示方法').inputValue()==='auto','defaults to automatic');
+  const previewDuration=preview.locator('[data-activity-preview="duration"]');
+  assert((await previewDuration.textContent()).includes('45分程度'),'automatic total is shown');
+  await input('起案者名').fill('架空の起案者');
+  await jump('活動時間','duration');
+  await input('活動時間の表示方法').selectOption('manual');
+  await jump('活動時間','manualDuration','duration');
+  await input('活動時間（自由記入）').fill('約1時間（休憩を含む）');
+  assert((await previewDuration.textContent()).includes('約1時間（休憩を含む）'),'free-form total shown');
+  assert((await flowRows.first().textContent()).includes('14:00～14:05'),'step clocks stay automatic');
+  await input('活動時間の表示方法').selectOption('auto');
+  assert((await previewDuration.textContent()).includes('45分程度')&&!await input('活動時間（自由記入）').count(),'switching back restores the calculated display');
+  await input('活動時間の表示方法').selectOption('manual');
+  assert(await input('活動時間（自由記入）').inputValue()==='約1時間（休憩を含む）','manual draft not erased when toggled');
   assert(!await input('対象・人数').count()&&!await input('種類').count()&&!await input('支援項目').count(),'duplicate fields removed');
   assert(await page.locator('[data-activity-input]').evaluateAll(els=>{const keys=els.map(el=>el.dataset.activityInput);return keys.indexOf('preparationText')===keys.indexOf('summary')+1&&keys.slice(keys.indexOf('preparationText')+1,keys.indexOf('preparationText')+3).join(',')==='staffCount,childCount';}),'input follows summary, preparations, staff count, child count');
   assert(await input('支援項目・種類').inputValue()==='工作','known kind loaded into the unified control');
@@ -102,6 +116,7 @@ async function check(page){
   await page.getByRole('status').filter({hasText:'事業所の活動・指導案として保存'}).waitFor();
   assert(saved.content.reflection==='架空の振り返り。'&&saved.content.summary.includes('すぐ左')&&saved.content.preparationText==='画用紙 8枚\nのり 2本','saved content includes the new free-text field');
   assert(saved.kind==='その他'&&saved.content.supportItem==='自分で材料を選ぶ'&&saved.content.preparations.length===3,'custom support item is stored without dropping preparation checks');
+  assert(saved.content.leader==='架空の起案者'&&saved.content.durationMode==='manual'&&saved.content.manualDuration==='約1時間（休憩を含む）','author and manual activity time are sent to storage');
   assert(writes===1,'focus and preview do not issue autosave writes');
   await page.getByRole('button',{name:'プレビューを収納',exact:true}).click();
   assert(await preview.count()===0,'preview can be collapsed');
@@ -125,8 +140,13 @@ async function check(page){
   assert(await printSheet.isVisible(),'original print sheet retained');
   assert(await printSheet.locator('[data-active]').count()===0,'focus highlight excluded from print');
   assert(await printSheet.locator('.activity-sheet-flow tbody tr').count()===3&&!await printSheet.locator('button').count(),'print contains actual rows without editing controls');
+  assert((await printSheet.textContent()).includes('起案者名')&&(await printSheet.textContent()).includes('約1時間（休憩を含む）'),'print includes the manual text and new label');
   await page.pdf({path:'output/playwright/activity-live-preview-print.pdf',format:'A4',printBackground:true,margin:{top:'8mm',bottom:'8mm',left:'8mm',right:'8mm'}});
   await page.emulateMedia({media:'screen'});
+  await page.reload();
+  await page.getByRole('button',{name:'保存した案を開く',exact:true}).click();
+  await page.getByRole('button',{name:/^架空の活動・入力確認 /}).click();
+  assert(await input('起案者名').inputValue()==='架空の起案者'&&await input('活動時間（自由記入）').inputValue()==='約1時間（休憩を含む）','saved editor restores author and duration');
   await page.getByRole('button',{name:'空白から作成',exact:true}).click();
   await preview.getByRole('button',{name:'編集：活動の流れを追加',exact:true}).click();await tick();
   assert(await input('1番目の活動内容').evaluate(el=>el===document.activeElement)&&await flowRows.count()===1,'empty preview action creates and focuses the first step');
